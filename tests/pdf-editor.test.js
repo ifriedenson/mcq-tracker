@@ -1315,3 +1315,32 @@ test("refuses to rename or delete a field that is missing, empty or duplicated",
   assert.equal(trimmed.ok, true);
   assert.equal(trimmed.to.length, editor.MAX_FIELD_NAME);
 });
+
+test("removes one link by its number and leaves the others", async () => {
+  const opened = await editor.loadEditorDocument(await fixture());
+  editor.addLink(opened.doc, { target: "url", url: "https://example.com/one", area: { x: 0.1, y: 0.1, width: 0.2, height: 0.05 }, pages: 0 });
+  editor.addLink(opened.doc, { target: "page", to: 3, area: { x: 0.5, y: 0.5, width: 0.2, height: 0.1 }, pages: 1 });
+  const removed = editor.removeLinks(opened.doc, { index: 1 });
+  assert.equal(removed.ok, true);
+  assert.deepEqual([removed.removed, removed.left, removed.pages], [1, 1, [1]]);
+  const saved = await editor.savePdf(opened.doc);
+  const links = editor.readLinks((await editor.loadEditorDocument(saved.bytes)).doc);
+  assert.equal(links.total, 1);
+  assert.deepEqual([links.links[0].page, links.links[0].target, links.links[0].to], [2, "page", 3]);
+  assert.equal((await pageContent(saved.bytes, 0)).includes("Page 1"), true, "the page content is untouched");
+});
+
+test("removes every link, and refuses a missing link or a linkless file", async () => {
+  const opened = await editor.loadEditorDocument(await fixture());
+  assert.equal(editor.removeLinks(opened.doc, { all: true }).reason, "empty");
+  editor.addLink(opened.doc, { target: "url", url: "https://example.com/a", area: { x: 0.1, y: 0.1, width: 0.2, height: 0.05 }, pages: 0 });
+  editor.addLink(opened.doc, { target: "url", url: "https://example.com/b", area: { x: 0.1, y: 0.3, width: 0.2, height: 0.05 }, pages: 2 });
+  assert.equal(editor.removeLinks(opened.doc, { index: 0 }).reason, "index");
+  assert.equal(editor.removeLinks(opened.doc, { index: 3 }).reason, "index");
+  const all = editor.removeLinks(opened.doc, { all: true });
+  assert.equal(all.ok, true);
+  assert.deepEqual([all.removed, all.left, all.pages], [2, 0, [1, 3]]);
+  const saved = await editor.savePdf(opened.doc);
+  assert.equal(editor.readLinks((await editor.loadEditorDocument(saved.bytes)).doc).total, 0);
+  assert.equal(editor.removeLinks(opened.doc, { all: true }).reason, "empty", "removing twice has nothing left to do");
+});

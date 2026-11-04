@@ -52151,6 +52151,62 @@ function addLink(doc, options) {
   return { ok: true, target, url: target === "url" ? url : "", to: target === "page" ? to : 0, pages: added };
 }
 
+/** Every link annotation with the page and annotation slot it sits in. */
+function linkEntries(doc) {
+  const entries = [];
+  doc.getPages().forEach((page, pageIndex) => {
+    let annots = null;
+    try {
+      annots = page.node.Annots();
+    } catch (error) {
+      annots = null;
+    }
+    if (!annots || typeof annots.asArray !== "function") return;
+    annots.asArray().forEach((ref, annotIndex) => {
+      const dict = doc.context.lookup(ref, PDFDict);
+      if (dict && pdfNameValue(dict.get(PDFName.of("Subtype"))) === "Link") entries.push({ pageIndex, annotIndex, ref });
+    });
+  });
+  return entries;
+}
+
+/**
+ * Removes links: one by its number in `readLinks`, or every link at once.
+ * Only the annotation is dropped; the page content is never touched.
+ */
+function removeLinks(doc, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const entries = linkEntries(doc);
+  if (!entries.length) return { ok: false, reason: "empty", message: "This PDF has no links to remove." };
+  const total = entries.length;
+  let picked;
+  if (opts.all === true || str(opts.all) === "all") {
+    if (total > MAX_LINKS) return { ok: false, reason: "size", message: `This PDF has more than ${MAX_LINKS} links; remove them one at a time.` };
+    picked = entries;
+  } else {
+    const index = Math.round(Number(opts.index));
+    if (!Number.isFinite(index) || index < 1 || index > total) {
+      return { ok: false, reason: "index", message: `Link ${str(opts.index) || "?"} is not in this PDF (1 to ${total}).` };
+    }
+    picked = [entries[index - 1]];
+  }
+  const byPage = new Map();
+  for (const entry of picked) {
+    const list = byPage.get(entry.pageIndex) || [];
+    list.push(entry);
+    byPage.set(entry.pageIndex, list);
+  }
+  let removed = 0;
+  for (const [pageIndex, list] of byPage) {
+    const annots = doc.getPage(pageIndex).node.Annots();
+    for (const entry of list.slice().sort((a, b) => b.annotIndex - a.annotIndex)) {
+      annots.remove(entry.annotIndex);
+      removed += 1;
+    }
+  }
+  return { ok: true, removed, left: total - removed, pages: [...byPage.keys()].map((index) => index + 1).sort((a, b) => a - b) };
+}
+
 /** Every link annotation in the file, in page order, capped. */
 function readLinks(doc) {
   const pages = doc.getPages();
@@ -52430,6 +52486,7 @@ module.exports = {
   pdfError,
   readLinks,
   readOutline,
+  removeLinks,
   renameFormField,
   setOutline,
   resizePages,
@@ -52663,6 +52720,7 @@ const {
   parseBookmarkText,
   readLinks,
   readOutline,
+  removeLinks,
   renameFormField,
   rotatePage,
   savePdf,
@@ -52827,6 +52885,7 @@ class PdfEditorModal extends Modal {
       linkWidth: "30",
       linkHeight: "5",
       linkPage: "0",
+      linkRemove: "1",
       bookmarks: null,
     };
     this.statusEl = null;
@@ -53588,6 +53647,15 @@ class PdfEditorModal extends Modal {
     const linkButton = linkBox.createEl("button", { text: "Add link", cls: "qt-grow" });
     linkButton.addEventListener("click", () => this.linkContent());
 
+    const removeRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
+    this.contentInput(removeRow, "Remove", "number", "Number of the link to remove", this.content.linkRemove, (value) => {
+      this.content.linkRemove = value;
+    });
+    const removeButton = removeRow.createEl("button", { text: "Remove link", cls: "qt-grow" });
+    removeButton.addEventListener("click", () => this.removeLinksContent(false));
+    const removeAllButton = removeRow.createEl("button", { text: "Remove all links", cls: "qt-grow" });
+    removeAllButton.addEventListener("click", () => this.removeLinksContent(true));
+
     host.createEl("h4", { text: "Bookmarks" });
     const bookmarkRow = host.createDiv({ cls: "qt-pdf-editor-row" });
     const bookmarkArea = bookmarkRow.createEl("textarea", { cls: "qt-pdf-editor-input" });
@@ -53983,6 +54051,14 @@ class PdfEditorModal extends Modal {
       this.setStatus(result.written
         ? `Wrote ${result.written} bookmark${result.written === 1 ? "" : "s"} in ${result.depth} level${result.depth === 1 ? "" : "s"}. Nothing is written until you save a copy.`
         : "The bookmarks are cleared for the copy you save. Nothing is written until you save a copy.");
+    });
+  }
+
+  /** Removes one numbered link, or all of them, as an ordinary undoable edit. */
+  removeLinksContent(all) {
+    return this.runMutation("remove a link", () => removeLinks(this.doc, all ? { all: true } : { index: Number(this.content.linkRemove) }), (result) => {
+      this.renderContent();
+      this.setStatus(`Removed ${result.removed} link${result.removed === 1 ? "" : "s"} on page${result.pages.length === 1 ? "" : "s"} ${result.pages.join(", ")}; ${result.left} left. Nothing is written until you save a copy.`);
     });
   }
 

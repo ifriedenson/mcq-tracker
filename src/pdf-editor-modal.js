@@ -33,6 +33,7 @@ const {
   parseBookmarkText,
   readLinks,
   readOutline,
+  removeLinks,
   renameFormField,
   rotatePage,
   savePdf,
@@ -197,6 +198,7 @@ class PdfEditorModal extends Modal {
       linkWidth: "30",
       linkHeight: "5",
       linkPage: "0",
+      linkRemove: "1",
       bookmarks: null,
     };
     this.statusEl = null;
@@ -958,6 +960,15 @@ class PdfEditorModal extends Modal {
     const linkButton = linkBox.createEl("button", { text: "Add link", cls: "qt-grow" });
     linkButton.addEventListener("click", () => this.linkContent());
 
+    const removeRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
+    this.contentInput(removeRow, "Remove", "number", "Number of the link to remove", this.content.linkRemove, (value) => {
+      this.content.linkRemove = value;
+    });
+    const removeButton = removeRow.createEl("button", { text: "Remove link", cls: "qt-grow" });
+    removeButton.addEventListener("click", () => this.removeLinksContent(false));
+    const removeAllButton = removeRow.createEl("button", { text: "Remove all links", cls: "qt-grow" });
+    removeAllButton.addEventListener("click", () => this.removeLinksContent(true));
+
     host.createEl("h4", { text: "Bookmarks" });
     const bookmarkRow = host.createDiv({ cls: "qt-pdf-editor-row" });
     const bookmarkArea = bookmarkRow.createEl("textarea", { cls: "qt-pdf-editor-input" });
@@ -1353,6 +1364,14 @@ class PdfEditorModal extends Modal {
       this.setStatus(result.written
         ? `Wrote ${result.written} bookmark${result.written === 1 ? "" : "s"} in ${result.depth} level${result.depth === 1 ? "" : "s"}. Nothing is written until you save a copy.`
         : "The bookmarks are cleared for the copy you save. Nothing is written until you save a copy.");
+    });
+  }
+
+  /** Removes one numbered link, or all of them, as an ordinary undoable edit. */
+  removeLinksContent(all) {
+    return this.runMutation("remove a link", () => removeLinks(this.doc, all ? { all: true } : { index: Number(this.content.linkRemove) }), (result) => {
+      this.renderContent();
+      this.setStatus(`Removed ${result.removed} link${result.removed === 1 ? "" : "s"} on page${result.pages.length === 1 ? "" : "s"} ${result.pages.join(", ")}; ${result.left} left. Nothing is written until you save a copy.`);
     });
   }
 
