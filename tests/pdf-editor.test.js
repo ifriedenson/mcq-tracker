@@ -1957,3 +1957,73 @@ test("refuses an unusable dash phase and changes nothing", async () => {
   const phased = editor.updateLink(opened.doc, { index: 4, style: { phase: 3 } });
   assert.deepEqual([phased.ok, phased.style.phase, phased.style.pattern], [true, 3, [5, 2]], "a phase-only change is a real edit");
 });
+
+test("retargets a launch link to another file and keeps its action kind", async () => {
+  const opened = await editor.loadEditorDocument(await (await linkedFixture()).save());
+  const asFile = editor.updateLink(opened.doc, { index: 1, target: "launch", file: "chapter2.pdf" });
+  assert.deepEqual([asFile.ok, asFile.target, asFile.file, asFile.fromKind], [true, "launch", "chapter2.pdf", "launch"], "the link stays a launch");
+  const saved = await editor.savePdf(opened.doc);
+  const savedRaw = await PDFDocument.load(saved.bytes);
+  const action = linkAnnotation(savedRaw, 0).lookup(PDFName.of("A"), PDFDict);
+  assert.equal(String(action.get(PDFName.of("S"))), "/Launch", "the emitted action is still /Launch");
+  const spec = action.lookup(PDFName.of("F"), PDFDict);
+  assert.equal(spec.lookup(PDFName.of("F")).decodeText(), "chapter2.pdf", "the file specifier carries the new path");
+  const rows = editor.readLinks(savedRaw).links;
+  assert.deepEqual([rows[0].target, rows[0].file, rows[0].url], ["launch", "chapter2.pdf", ""], "the file reads back on a re-read");
+});
+
+test("retargets a named destination and keeps the name", async () => {
+  const opened = await editor.loadEditorDocument(await (await linkedFixture()).save());
+  const asName = editor.updateLink(opened.doc, { index: 3, target: "named", name: "Chapter4" });
+  assert.deepEqual([asName.ok, asName.target, asName.name, asName.fromKind], [true, "named", "Chapter4", "named"]);
+  const fromDirect = editor.updateLink(opened.doc, { index: 4, name: "Appendix_B" });
+  assert.deepEqual([fromDirect.ok, fromDirect.target, fromDirect.name], [true, "named", "Appendix_B"], "a name alone names the destination");
+  const saved = await editor.savePdf(opened.doc);
+  const savedRaw = await PDFDocument.load(saved.bytes);
+  const action = linkAnnotation(savedRaw, 2).lookup(PDFName.of("A"), PDFDict);
+  assert.equal(String(action.get(PDFName.of("S"))), "/GoTo", "a named destination stays a go-to");
+  assert.equal(String(action.get(PDFName.of("D"))), "/Chapter4", "the name is written as a PDF name");
+  assert.equal(linkAnnotation(savedRaw, 3).get(PDFName.of("Dest")), undefined, "the direct destination is replaced by the action on the same annotation");
+  const rows = editor.readLinks(savedRaw).links;
+  assert.deepEqual(rows.map((row) => [row.target, row.file, row.name]), [["launch", "chapter1.pdf", ""], ["remote", "notes.pdf", ""], ["named", "", "Chapter4"], ["named", "", "Appendix_B"]], "both names read back");
+});
+
+test("keeps a launch target through every edit and refuses a wrong or unusable target", async () => {
+  const opened = await editor.loadEditorDocument(await (await linkedFixture()).save());
+  assert.equal(editor.updateLink(opened.doc, { index: 1, target: "launch", file: "handout.pdf" }).ok, true);
+  const styled = editor.updateLink(opened.doc, { index: 1, style: { width: 2, dash: "custom", pattern: [5, 2], phase: 3 } });
+  assert.deepEqual([styled.style.width, styled.style.dash, styled.style.phase], [2, "custom", 3]);
+  assert.equal(editor.updateLink(opened.doc, { index: 1, style: { highlight: "outline" } }).ok, true);
+  assert.equal(editor.updateLink(opened.doc, { index: 1, area: { x: 0.4, y: 0.4, width: 0.2, height: 0.1 } }).ok, true);
+  assert.equal(editor.updateLink(opened.doc, { index: 1, page: 3 }).ok, true, "the annotation moves to another page");
+
+  const saved = await editor.savePdf(opened.doc);
+  const savedRaw = await PDFDocument.load(saved.bytes);
+  const moved = savedRaw.getPage(2).node.Annots().asArray()
+    .map((ref) => savedRaw.context.lookup(ref, PDFDict))
+    .find((dict) => {
+      if (!dict || String(dict.get(PDFName.of("Subtype"))) !== "/Link") return false;
+      const action = dict.lookupMaybe(PDFName.of("A"), PDFDict);
+      return Boolean(action) && String(action.get(PDFName.of("S"))) === "/Launch";
+    });
+  assert.equal(String(moved.lookup(PDFName.of("A"), PDFDict).get(PDFName.of("S"))), "/Launch", "a move and a restyle keep the launch");
+  const rows = editor.readLinks(savedRaw).links;
+  const hero = rows.find((row) => row.target === "launch");
+  assert.deepEqual([hero.page, hero.file, hero.style.width, hero.style.phase, hero.style.highlight], [3, "handout.pdf", 2, 3, "outline"], "the file, width, phase and highlight all survive");
+
+  const before = (await editor.savePdf(opened.doc)).bytes;
+  assert.equal(editor.updateLink(opened.doc, { index: 1, target: "launch", file: "" }).reason, "target");
+  assert.match(editor.updateLink(opened.doc, { index: 1, target: "launch", file: "" }).message, /file/i);
+  assert.equal(editor.updateLink(opened.doc, { index: 1, target: "launch", file: "a\u0000b.pdf" }).reason, "target", "a NUL is refused");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, target: "launch", file: "a\u0007b.pdf" }).reason, "target", "a control character is refused");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, target: "launch", file: 42 }).reason, "target", "a non-string is refused");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, target: "launch", file: "a.pdf", name: "N" }).reason, "target", "a name does not belong on a launch link");
+  assert.equal(editor.updateLink(opened.doc, { index: 2, target: "url", url: "https://example.com/x", file: "a.pdf" }).reason, "target", "a file path does not belong on an address");
+  assert.equal(editor.updateLink(opened.doc, { index: 2, target: "url", url: "https://example.com/x", name: "N" }).reason, "target");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, target: "named", name: "Chapter\u00004" }).reason, "target", "a control character is refused");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, target: "named", name: "\u0001" }).reason, "target", "a lone control character is refused");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, target: "named", name: "" }).reason, "target");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, target: "named", name: "/Chapter" }).reason, "target", "a slash is not part of a PDF name");
+  const after = (await editor.savePdf(opened.doc)).bytes;
+  assert.deepEqual(Array.from(after), Array.from(before), "a refused target changes no bytes");
+});

@@ -1385,3 +1385,79 @@ test("pdf editor window: the phase input sets, keeps and clears a custom dash ph
   assert.equal("phase" in saved, false);
   modal.close();
 });
+
+/** The ordinary fixture plus a launch link and a named destination on page 1. */
+async function launchNamedFixture() {
+  const doc = await PDFDocument.load(await fixture());
+  const add = (rect, action) => {
+    const annot = doc.context.obj({ Type: "Annot", Subtype: "Link", Rect: rect, Border: [0, 0, 0], F: 4 });
+    annot.set(PDFName.of("A"), action);
+    doc.getPage(0).node.addAnnot(doc.context.register(annot));
+  };
+  const launch = doc.context.obj({ Type: "Action", S: "Launch" });
+  launch.set(PDFName.of("F"), PDFString.of("chapter1.pdf"));
+  add([40, 400, 120, 450], launch);
+  const named = doc.context.obj({ Type: "Action", S: "GoTo" });
+  named.set(PDFName.of("D"), PDFString.of("Chapter 3"));
+  add([40, 350, 120, 380], named);
+  return doc.save();
+}
+
+test("pdf editor window: a launch file and a named destination are retargeted in place", async () => {
+  const app = makeApp([
+    { path: "Papers/Exam.pdf", noFm: true, text: "" },
+    { path: "Papers/Exam.annotations.md", noFm: true, text: SIDECAR },
+    { path: "Notes/Lecture.md", noFm: true, text: "# Lecture\n" },
+  ]);
+  app.files.find((file) => file.path === "Papers/Exam.pdf").buffer = await launchNamedFixture();
+  const plugin = new QT(app);
+  await plugin.onload();
+  const modal = openEditor(app, plugin, "Papers/Exam.pdf");
+  await modal.loading;
+
+  const read = () => editor.readLinks(modal.doc).links.map((row) => [row.target, row.file, row.name]);
+  assert.deepEqual(read(), [["launch", "chapter1.pdf", ""], ["named", "", "Chapter 3"]]);
+  const hint = modal.dom.all.find((entry) => entry.meta && entry.meta.tag === "span" && /launch action for chapter1\.pdf/.test(entry.meta.text || ""));
+  assert.ok(hint, "the change row names the launch file");
+
+  // the file is set on the launch link, which keeps its kind
+  modal.content.linkEdit = "1";
+  modal.content.linkChangeKind = "launch";
+  modal.content.linkLaunchFile = "chapter2.pdf";
+  await clickButton(modal.dom, "Change link");
+  assert.match(statusText(modal), /now opens chapter2\.pdf/);
+  assert.deepEqual(read()[0], ["launch", "chapter2.pdf", ""]);
+  assert.equal(modal.history.states[modal.history.cursor].label, "change a link", "the retarget is one undo step");
+
+  // a width change and a custom dash phase leave the launch alone
+  modal.content.linkStyleWidth = "2";
+  modal.content.linkStyleDash = "custom";
+  modal.content.linkStylePattern = "5 2";
+  modal.content.linkStylePhase = "3";
+  await clickButton(modal.dom, "Style link");
+  assert.match(statusText(modal), /phase 3/);
+  assert.deepEqual(read()[0], ["launch", "chapter2.pdf", ""]);
+
+  // the named destination is renamed in place
+  modal.content.linkEdit = "2";
+  modal.content.linkChangeKind = "named";
+  modal.content.linkNamedDest = "Chapter 4";
+  await clickButton(modal.dom, "Change link");
+  assert.match(statusText(modal), /now opens the destination Chapter 4/);
+  assert.deepEqual(read()[1], ["named", "", "Chapter 4"]);
+
+  // a bad name is refused with a message and no change
+  modal.content.linkNamedDest = "Chapter/5";
+  await clickButton(modal.dom, "Change link");
+  assert.deepEqual(read()[1], ["named", "", "Chapter 4"], "a slash in a name is refused");
+  assert.match(statusText(modal), /slash/);
+
+  const sourceBefore = Uint8Array.from(app.files.find((file) => file.path === "Papers/Exam.pdf").buffer);
+  await modal.saveCopy();
+  assert.deepEqual(app.files.find((file) => file.path === "Papers/Exam.pdf").buffer, sourceBefore, "the source PDF is byte-for-byte unchanged");
+  const reopened = await editor.loadEditorDocument(app.createdBinary[0].buffer);
+  const rows = editor.readLinks(reopened.doc).links;
+  assert.deepEqual(rows.map((row) => [row.target, row.file, row.name]), [["launch", "chapter2.pdf", ""], ["named", "", "Chapter 4"]], "the copy keeps both kinds and both targets");
+  assert.deepEqual([rows[0].style.width, rows[0].style.pattern, rows[0].style.phase], [2, [5, 2], 3], "the style and phase survive the retargets");
+  modal.close();
+});

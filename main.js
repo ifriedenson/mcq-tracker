@@ -50333,6 +50333,7 @@ const LINK_BORDERS = { solid: "S", dashed: "D", beveled: "B", inset: "I", underl
 const MAX_LINK_DASH = 8;
 const MAX_LINK_DASH_VALUE = 100;
 const MAX_LINK_DASH_PHASE = 1000;
+const MAX_LINK_NAME = 200;
 const MAX_OUTLINE = 200;
 const MAX_OUTLINE_TITLE = 120;
 const MAX_OUTLINE_DEPTH = 3;
@@ -52562,7 +52563,7 @@ function updateLink(doc, options) {
     };
     if (phase !== null) style.phase = phase;
   }
-  const retarget = opts.target !== undefined || opts.url !== undefined || opts.to !== undefined;
+  const retarget = opts.target !== undefined || opts.url !== undefined || opts.to !== undefined || opts.file !== undefined || opts.name !== undefined;
   if (!rect && !retarget && !style) return { ok: false, reason: "empty", message: "Give the link a new area, a new address or a new style." };
   if (retarget && previous.kind === "other") {
     return {
@@ -52573,16 +52574,44 @@ function updateLink(doc, options) {
         : "This link runs an action this editor does not rewrite; remove it and add a new link instead.",
     };
   }
-  const target = str(opts.target) === "page" ? "page" : "url";
+  /* the kind is the target the caller asked for, or the payload it supplied */
+  const requestedKind = str(opts.target);
+  const target = requestedKind || (opts.file !== undefined ? "launch" : opts.name !== undefined ? "named" : opts.to !== undefined ? "page" : "url");
   const url = winAnsiText(opts.url).trim();
   const to = Math.round(Number(opts.to));
+  const file = typeof opts.file === "string" ? opts.file.trim() : opts.file;
+  const name = typeof opts.name === "string" ? opts.name.trim() : opts.name;
   let replacement = null;
   if (retarget) {
+    if (target !== "url" && target !== "page" && target !== "launch" && target !== "named") {
+      return { ok: false, reason: "target", message: "A link can open an address, a page, a launch file or a named destination." };
+    }
+    if (target === "url" || target === "page") {
+      if (opts.file !== undefined) return { ok: false, reason: "target", message: "A file path only applies to a launch link." };
+      if (opts.name !== undefined) return { ok: false, reason: "target", message: "A destination name only applies to a named destination." };
+    }
+    if (target === "launch") {
+      if (opts.url !== undefined) return { ok: false, reason: "target", message: "A launch link takes a file path, not an address." };
+      if (opts.to !== undefined) return { ok: false, reason: "target", message: "A launch link takes a file path, not a page." };
+      if (opts.name !== undefined) return { ok: false, reason: "target", message: "A launch link takes a file path, not a destination name." };
+      if (typeof opts.file !== "string" || !file) return { ok: false, reason: "target", message: "Type the file a launch link opens." };
+      if (file.length > MAX_LINK_URL) return { ok: false, reason: "target", message: `A launch file path cannot be longer than ${MAX_LINK_URL} characters.` };
+      if (/[\u0000-\u001f\u007f]/.test(file)) return { ok: false, reason: "target", message: "A launch file path cannot contain a control character." };
+    }
+    if (target === "named") {
+      if (opts.url !== undefined) return { ok: false, reason: "target", message: "A named destination takes a name, not an address." };
+      if (opts.to !== undefined) return { ok: false, reason: "target", message: "A named destination takes a name, not a page." };
+      if (opts.file !== undefined) return { ok: false, reason: "target", message: "A named destination takes a name, not a file path." };
+      if (typeof opts.name !== "string" || !name) return { ok: false, reason: "target", message: "Type the destination name this link opens." };
+      if (name.length > MAX_LINK_NAME) return { ok: false, reason: "target", message: `A destination name cannot be longer than ${MAX_LINK_NAME} characters.` };
+      if (/[\u0000-\u001f\u007f]/.test(name)) return { ok: false, reason: "target", message: "A destination name cannot contain a control character." };
+      if (name.includes("/")) return { ok: false, reason: "target", message: "A destination name cannot contain a slash." };
+    }
     if (target === "url") {
       if (!url) return { ok: false, reason: "empty", message: "Type the address the link should open." };
       if (url.length > MAX_LINK_URL) return { ok: false, reason: "url", message: `A link address cannot be longer than ${MAX_LINK_URL} characters.` };
       if (!/^https?:\/\/\S+$/i.test(url)) return { ok: false, reason: "scheme", message: "A link opens an http or https address only." };
-    } else if (!Number.isFinite(to) || to < 1 || to > doc.getPageCount()) {
+    } else if (target === "page" && (!Number.isFinite(to) || to < 1 || to > doc.getPageCount())) {
       return { ok: false, reason: "page", message: `Page ${str(opts.to) || "?"} is not in this PDF.` };
     }
     try {
@@ -52590,8 +52619,21 @@ function updateLink(doc, options) {
         const action = doc.context.obj({ Type: "Action", S: "URI" });
         action.set(PDFName.of("URI"), PDFHexString.fromText(url));
         replacement = { key: PDFName.of("A"), value: action };
-      } else {
+      } else if (target === "page") {
         replacement = { key: PDFName.of("Dest"), value: doc.context.obj([doc.getPage(to - 1).ref, PDFName.of("Fit")]) };
+      } else if (target === "launch") {
+        /* /F is a file specification; the path is carried by its /F and /UF strings */
+        const spec = doc.context.obj({ Type: "Filespec" });
+        spec.set(PDFName.of("F"), PDFHexString.fromText(file));
+        spec.set(PDFName.of("UF"), PDFHexString.fromText(file));
+        const action = doc.context.obj({ Type: "Action", S: "Launch" });
+        action.set(PDFName.of("F"), spec);
+        replacement = { key: PDFName.of("A"), value: action };
+      } else {
+        /* a named destination is a go-to whose /D names it: a PDF name when it is a token, else its text */
+        const action = doc.context.obj({ Type: "Action", S: "GoTo" });
+        action.set(PDFName.of("D"), /^[A-Za-z0-9][A-Za-z0-9._+-]*$/.test(name) ? PDFName.of(name) : PDFHexString.fromText(name));
+        replacement = { key: PDFName.of("A"), value: action };
       }
     } catch (error) {
       return { ok: false, reason: "link", message: `That link could not be changed: ${pdfError(error)}` };
@@ -52642,6 +52684,8 @@ function updateLink(doc, options) {
     fromKind: retarget ? previous.kind : "",
     url: retarget && target === "url" ? url : "",
     to: retarget && target === "page" ? to : 0,
+    file: retarget && target === "launch" ? file : "",
+    name: retarget && target === "named" ? name : "",
   };
 }
 
@@ -53364,6 +53408,9 @@ class PdfEditorModal extends Modal {
       linkStyleDash: "keep",
       linkStylePattern: "",
       linkStylePhase: "",
+      linkChangeKind: "url",
+      linkLaunchFile: "",
+      linkNamedDest: "",
       linkStyleHighlight: "keep",
       bookmarks: null,
       bookmarkZoom: "",
@@ -54144,7 +54191,19 @@ class PdfEditorModal extends Modal {
     const changeButton = changeRow.createEl("button", { text: "Change link", cls: "qt-grow" });
     changeButton.addEventListener("click", () => this.changeLinkContent());
     changeRow.createSpan({ cls: "qt-hint", text: this.linkKindHint() });
-    changeRow.createSpan({ cls: "qt-hint", text: "Keeps the area; uses the kind, address and jump above." });
+    changeRow.createSpan({ cls: "qt-hint", text: "Keeps the area; the address and jump above feed Change to Address and Change to Page." });
+
+    const changeKindRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
+    this.contentSelect(changeKindRow, "Change to", "Link change kind", ["url", "page", "launch", "named"], this.content.linkChangeKind, (value) => {
+      this.content.linkChangeKind = value;
+    });
+    this.contentInput(changeKindRow, "File path", "text", "Link launch file", this.content.linkLaunchFile, (value) => {
+      this.content.linkLaunchFile = value;
+    });
+    this.contentInput(changeKindRow, "Destination", "text", "Link named destination", this.content.linkNamedDest, (value) => {
+      this.content.linkNamedDest = value;
+    });
+    changeKindRow.createSpan({ cls: "qt-hint", text: "Launch keeps /Launch and sets its file; Named keeps the destination name instead of converting it." });
 
     const linkAreaRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
     for (const [key, label] of [["linkAreaLeft", "Area left %"], ["linkAreaTop", "Area top %"], ["linkAreaWidth", "Area width %"], ["linkAreaHeight", "Area height %"]]) {
@@ -54678,17 +54737,21 @@ class PdfEditorModal extends Modal {
 
   /** Retargets one numbered link in place, as an ordinary undoable edit. */
   changeLinkContent() {
-    return this.runMutation("change a link", () => updateLink(this.doc, {
-      index: Number(this.content.linkEdit),
-      target: this.content.linkTarget,
-      url: this.content.linkUrl,
-      to: Number(this.content.linkTo),
-    }), (result) => {
+    const kind = String(this.content.linkChangeKind || "url");
+    const opts = { index: Number(this.content.linkEdit), target: kind };
+    if (kind === "page") opts.to = Number(this.content.linkTo);
+    else if (kind === "launch") opts.file = this.content.linkLaunchFile;
+    else if (kind === "named") opts.name = this.content.linkNamedDest;
+    else opts.url = this.content.linkUrl;
+    return this.runMutation("change a link", () => updateLink(this.doc, opts), (result) => {
       this.renderContent();
       const instead = result.fromKind && result.fromKind !== result.target ? ` instead of ${this.linkKindWords(result.fromKind)}` : "";
-      this.setStatus(result.target === "url"
-        ? `Link ${result.index} on page ${result.page} now opens ${result.url}${instead}. Nothing is written until you save a copy.`
-        : `Link ${result.index} on page ${result.page} now jumps to page ${result.to}${instead}. Nothing is written until you save a copy.`);
+      const opened = result.target === "url" ? result.url
+        : result.target === "page" ? `page ${result.to}`
+          : result.target === "launch" ? result.file
+            : `the destination ${result.name}`;
+      const verb = result.target === "page" ? "jumps to" : "opens";
+      this.setStatus(`Link ${result.index} on page ${result.page} now ${verb} ${opened}${instead}. Nothing is written until you save a copy.`);
     });
   }
 
@@ -54741,9 +54804,9 @@ class PdfEditorModal extends Modal {
     const row = found.links[index - 1];
     if (row.target === "url") return `Link ${index} opens ${row.url}.`;
     if (row.target === "page") return `Link ${index} jumps to page ${row.to}.`;
-    if (row.target === "launch") return `Link ${index} is a launch action for ${row.file || "a file"}; a change replaces it with the address or jump you choose.`;
+    if (row.target === "launch") return `Link ${index} is a launch action for ${row.file || "a file"}; Change to Launch keeps it and sets the file.`;
     if (row.target === "remote") return `Link ${index} is a remote go-to in ${row.file || "another file"}${row.to ? `, page ${row.to}` : ""}; a change replaces it.`;
-    if (row.target === "named") return `Link ${index} is a named destination${row.name ? ` ${row.name}` : ""}; a change replaces it.`;
+    if (row.target === "named") return `Link ${index} is a named destination${row.name ? ` ${row.name}` : ""}; Change to Named keeps it and sets the name.`;
     if (row.target === "other") return `Link ${index} runs ${row.name ? `a /${row.name}` : "an"} action, which this editor does not rewrite.`;
     return `Link ${index} has no action yet.`;
   }

@@ -211,6 +211,9 @@ class PdfEditorModal extends Modal {
       linkStyleDash: "keep",
       linkStylePattern: "",
       linkStylePhase: "",
+      linkChangeKind: "url",
+      linkLaunchFile: "",
+      linkNamedDest: "",
       linkStyleHighlight: "keep",
       bookmarks: null,
       bookmarkZoom: "",
@@ -991,7 +994,19 @@ class PdfEditorModal extends Modal {
     const changeButton = changeRow.createEl("button", { text: "Change link", cls: "qt-grow" });
     changeButton.addEventListener("click", () => this.changeLinkContent());
     changeRow.createSpan({ cls: "qt-hint", text: this.linkKindHint() });
-    changeRow.createSpan({ cls: "qt-hint", text: "Keeps the area; uses the kind, address and jump above." });
+    changeRow.createSpan({ cls: "qt-hint", text: "Keeps the area; the address and jump above feed Change to Address and Change to Page." });
+
+    const changeKindRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
+    this.contentSelect(changeKindRow, "Change to", "Link change kind", ["url", "page", "launch", "named"], this.content.linkChangeKind, (value) => {
+      this.content.linkChangeKind = value;
+    });
+    this.contentInput(changeKindRow, "File path", "text", "Link launch file", this.content.linkLaunchFile, (value) => {
+      this.content.linkLaunchFile = value;
+    });
+    this.contentInput(changeKindRow, "Destination", "text", "Link named destination", this.content.linkNamedDest, (value) => {
+      this.content.linkNamedDest = value;
+    });
+    changeKindRow.createSpan({ cls: "qt-hint", text: "Launch keeps /Launch and sets its file; Named keeps the destination name instead of converting it." });
 
     const linkAreaRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
     for (const [key, label] of [["linkAreaLeft", "Area left %"], ["linkAreaTop", "Area top %"], ["linkAreaWidth", "Area width %"], ["linkAreaHeight", "Area height %"]]) {
@@ -1525,17 +1540,21 @@ class PdfEditorModal extends Modal {
 
   /** Retargets one numbered link in place, as an ordinary undoable edit. */
   changeLinkContent() {
-    return this.runMutation("change a link", () => updateLink(this.doc, {
-      index: Number(this.content.linkEdit),
-      target: this.content.linkTarget,
-      url: this.content.linkUrl,
-      to: Number(this.content.linkTo),
-    }), (result) => {
+    const kind = String(this.content.linkChangeKind || "url");
+    const opts = { index: Number(this.content.linkEdit), target: kind };
+    if (kind === "page") opts.to = Number(this.content.linkTo);
+    else if (kind === "launch") opts.file = this.content.linkLaunchFile;
+    else if (kind === "named") opts.name = this.content.linkNamedDest;
+    else opts.url = this.content.linkUrl;
+    return this.runMutation("change a link", () => updateLink(this.doc, opts), (result) => {
       this.renderContent();
       const instead = result.fromKind && result.fromKind !== result.target ? ` instead of ${this.linkKindWords(result.fromKind)}` : "";
-      this.setStatus(result.target === "url"
-        ? `Link ${result.index} on page ${result.page} now opens ${result.url}${instead}. Nothing is written until you save a copy.`
-        : `Link ${result.index} on page ${result.page} now jumps to page ${result.to}${instead}. Nothing is written until you save a copy.`);
+      const opened = result.target === "url" ? result.url
+        : result.target === "page" ? `page ${result.to}`
+          : result.target === "launch" ? result.file
+            : `the destination ${result.name}`;
+      const verb = result.target === "page" ? "jumps to" : "opens";
+      this.setStatus(`Link ${result.index} on page ${result.page} now ${verb} ${opened}${instead}. Nothing is written until you save a copy.`);
     });
   }
 
@@ -1588,9 +1607,9 @@ class PdfEditorModal extends Modal {
     const row = found.links[index - 1];
     if (row.target === "url") return `Link ${index} opens ${row.url}.`;
     if (row.target === "page") return `Link ${index} jumps to page ${row.to}.`;
-    if (row.target === "launch") return `Link ${index} is a launch action for ${row.file || "a file"}; a change replaces it with the address or jump you choose.`;
+    if (row.target === "launch") return `Link ${index} is a launch action for ${row.file || "a file"}; Change to Launch keeps it and sets the file.`;
     if (row.target === "remote") return `Link ${index} is a remote go-to in ${row.file || "another file"}${row.to ? `, page ${row.to}` : ""}; a change replaces it.`;
-    if (row.target === "named") return `Link ${index} is a named destination${row.name ? ` ${row.name}` : ""}; a change replaces it.`;
+    if (row.target === "named") return `Link ${index} is a named destination${row.name ? ` ${row.name}` : ""}; Change to Named keeps it and sets the name.`;
     if (row.target === "other") return `Link ${index} runs ${row.name ? `a /${row.name}` : "an"} action, which this editor does not rewrite.`;
     return `Link ${index} has no action yet.`;
   }
