@@ -1104,3 +1104,78 @@ test("refuses to delete the last page and refuses a page that is not in the file
   assert.equal(removed.pageCount, 1);
   assert.equal(editor.pageList(two)[0].width, 400, "the right page was removed");
 });
+
+test("a URL link is stored as a link annotation and reads back unchanged", async () => {
+  const opened = await editor.loadEditorDocument(await fixture());
+  assert.equal(opened.ok, true);
+  assert.equal(editor.readLinks(opened.doc).total, 0);
+  const added = editor.addLink(opened.doc, {
+    target: "url",
+    url: "https://example.com/atp",
+    area: { x: 0.1, y: 0.2, width: 0.4, height: 0.05 },
+    pages: 0,
+  });
+  assert.equal(added.ok, true);
+  assert.equal(added.pages, 1);
+  const saved = await editor.savePdf(opened.doc);
+  const links = editor.readLinks((await editor.loadEditorDocument(saved.bytes)).doc);
+  assert.equal(links.total, 1);
+  assert.deepEqual(links.links[0], {
+    page: 1,
+    target: "url",
+    url: "https://example.com/atp",
+    to: 0,
+    area: { x: 0.1, y: 0.2, width: 0.4, height: 0.05 },
+  });
+  assert.equal((await pageContent(saved.bytes, 0)).includes("example.com"), false, "a link draws nothing into the page");
+});
+
+test("a page-jump link points at the chosen page and survives a save", async () => {
+  const opened = await editor.loadEditorDocument(await fixture());
+  const added = editor.addLink(opened.doc, {
+    target: "page",
+    to: 3,
+    area: { x: 0.5, y: 0.5, width: 0.2, height: 0.1 },
+    pages: [1, 2],
+  });
+  assert.equal(added.ok, true);
+  assert.equal(added.pages, 2);
+  const saved = await editor.savePdf(opened.doc);
+  const links = editor.readLinks((await editor.loadEditorDocument(saved.bytes)).doc);
+  assert.equal(links.total, 2);
+  assert.deepEqual(links.links.map((row) => [row.page, row.target, row.to]), [[2, "page", 3], [3, "page", 3]]);
+});
+
+test("a link on a rotated page keeps the same visible area", async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 500]).setRotation(degrees(90));
+  const opened = await editor.loadEditorDocument(await doc.save());
+  const added = editor.addLink(opened.doc, {
+    target: "url",
+    url: "https://example.com/rotated",
+    area: { x: 0.1, y: 0.2, width: 0.3, height: 0.1 },
+    pages: 0,
+  });
+  assert.equal(added.ok, true);
+  const saved = await editor.savePdf(opened.doc);
+  const links = editor.readLinks((await editor.loadEditorDocument(saved.bytes)).doc);
+  assert.deepEqual(links.links[0].area, { x: 0.1, y: 0.2, width: 0.3, height: 0.1 });
+});
+
+test("refuses a link without a usable address, page or area", async () => {
+  const opened = await editor.loadEditorDocument(await fixture());
+  const area = { x: 0.1, y: 0.1, width: 0.2, height: 0.05 };
+  assert.equal(editor.addLink(opened.doc, { target: "url", url: "", area }).reason, "empty");
+  assert.equal(editor.addLink(opened.doc, { target: "url", url: "javascript:alert(1)", area }).reason, "scheme");
+  assert.equal(editor.addLink(opened.doc, { target: "url", url: "data:text/html,x", area }).reason, "scheme");
+  assert.equal(editor.addLink(opened.doc, { target: "url", url: "file:///etc/passwd", area }).reason, "scheme");
+  assert.equal(editor.addLink(opened.doc, { target: "url", url: `https://example.com/${"a".repeat(3000)}`, area }).reason, "url");
+  assert.equal(editor.addLink(opened.doc, { target: "page", to: 5, area }).reason, "page");
+  assert.equal(editor.addLink(opened.doc, { target: "page", to: 0, area }).reason, "page");
+  assert.equal(editor.addLink(opened.doc, { target: "url", url: "https://example.com", area: { x: 0.9, y: 0.1, width: 0.4, height: 0.1 } }).reason, "area");
+  assert.equal(editor.addLink(opened.doc, { target: "url", url: "https://example.com", area: { x: 0.1, y: 0.1, width: 0, height: 0.1 } }).reason, "area");
+  assert.equal(editor.addLink(opened.doc, { target: "url", url: "https://example.com", area: { x: 0.1, y: 0.1, width: 0.0005, height: 0.1 } }).reason, "area");
+  assert.equal(editor.addLink(opened.doc, { target: "url", url: "https://example.com", area: { x: "left", y: 0.1, width: 0.2, height: 0.05 } }).reason, "area");
+  assert.equal(editor.addLink(opened.doc, { target: "url", url: "https://example.com", area, pages: 9 }).reason, "index");
+  assert.equal(editor.readLinks(opened.doc).total, 0, "a refused link is not added");
+});

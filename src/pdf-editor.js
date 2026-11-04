@@ -9,7 +9,7 @@
  *
  * The source PDF is never modified: every write goes to a new copy.
  */
-const { PDFDocument, PDFName, PDFHexString, PDFTextField, PDFCheckBox, PDFRadioGroup, PDFDropdown, PDFOptionList, StandardFonts, degrees, rgb } = require("../vendor/pdf-lib.js");
+const { PDFDocument, PDFName, PDFArray, PDFDict, PDFHexString, PDFRef, PDFTextField, PDFCheckBox, PDFRadioGroup, PDFDropdown, PDFOptionList, StandardFonts, degrees, rgb } = require("../vendor/pdf-lib.js");
 const { INK_COLOR_HEX, MARK_STYLES, clamp, normalizeHighlightAreas, normalizeInkStrokes, normalizeTextBoxes } = require("./pdf-ink");
 
 const MAX_BYTES = 80 * 1024 * 1024;
@@ -36,6 +36,9 @@ const MAX_KEYWORDS = 20;
 const MAX_WATERMARK_TEXT = 200;
 const WATERMARK_ANGLES = [0, 30, 45, 60, 90, 180, 270];
 const MAX_SPLIT_PARTS = 100;
+const MAX_LINKS = 500;
+const MAX_LINK_URL = 2000;
+const MIN_LINK_SIZE = 0.002;
 const TEXT_POSITIONS = ["top-left", "top-center", "top-right", "middle-left", "middle-center", "middle-right", "bottom-left", "bottom-center", "bottom-right"];
 const SHAPES = ["rectangle", "ellipse", "line"];
 const SHAPE_FILLS = ["none", "yellow", "green", "blue", "red", "purple", "gray"];
@@ -1659,6 +1662,180 @@ async function splitPdf(doc, every) {
   return { ok: true, parts, files: parts.length, pages: total, flattened };
 }
 
+/* ------------------------------------------------------------------- links */
+
+/** Text from a PDF string or hex string, or "" when it is neither. */
+function pdfText(value) {
+  if (!value) return "";
+  try {
+    if (typeof value.decodeText === "function") return str(value.decodeText());
+  } catch (error) {
+    /* an unreadable string is simply empty */
+  }
+  return "";
+}
+
+/** A PDF name without its leading slash, so "/Link" reads as "Link". */
+function pdfNameValue(value) {
+  if (!value) return "";
+  const raw = typeof value.toString === "function" ? value.toString() : str(value);
+  return raw.replace(/^\//, "");
+}
+
+function numberAt(array, index) {
+  const value = array && typeof array.get === "function" ? array.get(index) : undefined;
+  if (!value) return 0;
+  if (typeof value.asNumber === "function") return value.asNumber();
+  return Number(value) || 0;
+}
+
+/** A page-space rectangle back in normalized, display-oriented coordinates. */
+function displayArea(rect, size, rotation) {
+  if (!rect) return { x: 0, y: 0, width: 0, height: 0 };
+  const left = numberAt(rect, 0);
+  const bottom = numberAt(rect, 1);
+  const right = numberAt(rect, 2);
+  const top = numberAt(rect, 3);
+  const width = size.width || 1;
+  const height = size.height || 1;
+  const toDisplay = (x, y) => {
+    const u = x / width;
+    const v = y / height;
+    if (rotation === 90) return [v, u];
+    if (rotation === 180) return [1 - u, 1 - v];
+    if (rotation === 270) return [1 - v, 1 - u];
+    return [u, 1 - v];
+  };
+  const [ax, ay] = toDisplay(Math.min(left, right), Math.min(bottom, top));
+  const [bx, by] = toDisplay(Math.max(left, right), Math.max(bottom, top));
+  return {
+    x: round(Math.min(ax, bx), 3),
+    y: round(Math.min(ay, by), 3),
+    width: round(Math.abs(bx - ax), 3),
+    height: round(Math.abs(by - ay), 3),
+  };
+}
+
+/** The 1-based page a destination points at, or 0 when it points nowhere. */
+function destinationPage(value, pages) {
+  let array = null;
+  if (value instanceof PDFArray) array = value;
+  else if (value instanceof PDFDict) array = value.lookupMaybe(PDFName.of("D"), PDFArray);
+  if (!array || !array.size()) return 0;
+  const first = array.get(0);
+  if (!(first instanceof PDFRef)) return 0;
+  const index = pages.findIndex((page) => page.ref === first);
+  return index >= 0 ? index + 1 : 0;
+}
+
+/**
+ * A link annotation over a normalized area: an http(s) address or a jump to
+ * another page of the same file. Nothing is drawn into the page content, and
+ * the rectangle follows the page's own /Rotate.
+ */
+function addLink(doc, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const target = str(opts.target) === "page" ? "page" : "url";
+  const url = winAnsiText(opts.url).trim();
+  const to = Math.round(Number(opts.to));
+  if (target === "url") {
+    if (!url) return { ok: false, reason: "empty", message: "Type the address the link should open." };
+    if (url.length > MAX_LINK_URL) return { ok: false, reason: "url", message: `A link address cannot be longer than ${MAX_LINK_URL} characters.` };
+    if (!/^https?:\/\/\S+$/i.test(url)) return { ok: false, reason: "scheme", message: "A link opens an http or https address only." };
+  } else if (!Number.isFinite(to) || to < 1 || to > doc.getPageCount()) {
+    return { ok: false, reason: "page", message: `Page ${str(opts.to) || "?"} is not in this PDF.` };
+  }
+  const area = opts.area && typeof opts.area === "object" ? opts.area : {};
+  const box = {
+    x: Number(area.x),
+    y: Number(area.y),
+    width: Number(area.width),
+    height: Number(area.height),
+  };
+  if (![box.x, box.y, box.width, box.height].every((value) => Number.isFinite(value))) {
+    return { ok: false, reason: "area", message: "A link needs a left, a top, a width and a height." };
+  }
+  if (!(box.width > 0) || !(box.height > 0)) {
+    return { ok: false, reason: "area", message: "A link needs a width and a height." };
+  }
+  if (box.width < MIN_LINK_SIZE || box.height < MIN_LINK_SIZE) {
+    return { ok: false, reason: "area", message: "A link area is too small to click. Make it at least 0.2% of the page each way." };
+  }
+  if (box.x < 0 || box.y < 0 || box.x + box.width > 1.0001 || box.y + box.height > 1.0001) {
+    return { ok: false, reason: "area", message: "A link has to stay inside the page." };
+  }
+  const targets = resolvePages(doc, opts);
+  if (!targets.ok) return targets;
+  let added = 0;
+  for (const index of targets.pages) {
+    const page = doc.getPage(index);
+    const size = page.getSize();
+    const rect = displayRect(box, size.width, size.height, normalizedRotation(page.getRotation().angle));
+    try {
+      const annot = doc.context.obj({
+        Type: "Annot",
+        Subtype: "Link",
+        Rect: [rect.x, rect.y, rect.x + rect.width, rect.y + rect.height],
+        Border: [0, 0, 0],
+        F: 4,
+      });
+      if (target === "url") {
+        const action = doc.context.obj({ Type: "Action", S: "URI" });
+        action.set(PDFName.of("URI"), PDFHexString.fromText(url));
+        annot.set(PDFName.of("A"), action);
+      } else {
+        annot.set(PDFName.of("Dest"), doc.context.obj([doc.getPage(to - 1).ref, PDFName.of("Fit")]));
+      }
+      page.node.addAnnot(doc.context.register(annot));
+      added += 1;
+    } catch (error) {
+      return { ok: false, reason: "link", message: `That link could not be added: ${pdfError(error)}` };
+    }
+  }
+  return { ok: true, target, url: target === "url" ? url : "", to: target === "page" ? to : 0, pages: added };
+}
+
+/** Every link annotation in the file, in page order, capped. */
+function readLinks(doc) {
+  const pages = doc.getPages();
+  const links = [];
+  let total = 0;
+  pages.forEach((page, index) => {
+    let annots = null;
+    try {
+      annots = page.node.Annots();
+    } catch (error) {
+      annots = null;
+    }
+    if (!annots || typeof annots.asArray !== "function") return;
+    const size = page.getSize();
+    const rotation = normalizedRotation(page.getRotation().angle);
+    for (const ref of annots.asArray()) {
+      const dict = doc.context.lookup(ref, PDFDict);
+      if (!dict) continue;
+      if (pdfNameValue(dict.lookup(PDFName.of("Subtype"))) !== "Link") continue;
+      total += 1;
+      if (links.length >= MAX_LINKS) continue;
+      const row = {
+        page: index + 1,
+        target: "url",
+        url: "",
+        to: 0,
+        area: displayArea(dict.lookupMaybe(PDFName.of("Rect"), PDFArray), size, rotation),
+      };
+      const action = dict.lookupMaybe(PDFName.of("A"), PDFDict);
+      if (action) {
+        row.url = pdfText(action.lookup(PDFName.of("URI")));
+        if (!row.url) row.to = destinationPage(action.lookup(PDFName.of("D")), pages);
+      }
+      if (!row.url && !row.to) row.to = destinationPage(dict.lookup(PDFName.of("Dest")), pages);
+      row.target = row.url ? "url" : "page";
+      links.push(row);
+    }
+  });
+  return { ok: true, links, total };
+}
+
 /* ----------------------------------------------------------------- writing */
 
 async function savePdf(doc) {
@@ -1742,6 +1919,7 @@ module.exports = {
   addBlankPage,
   addFormField,
   addImage,
+  addLink,
   addPageNumbers,
   addShape,
   addText,
@@ -1762,6 +1940,7 @@ module.exports = {
   movePage,
   pageList,
   pdfError,
+  readLinks,
   resizePages,
   rotatePage,
   savePdf,

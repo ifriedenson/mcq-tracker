@@ -12,6 +12,7 @@ const {
   addBlankPage,
   addFormField,
   addImage,
+  addLink,
   addPageNumbers,
   addText,
   addWatermark,
@@ -27,6 +28,7 @@ const {
   loadEditorDocument,
   movePage,
   pageList,
+  readLinks,
   rotatePage,
   savePdf,
   setDocumentProperties,
@@ -179,6 +181,14 @@ class PdfEditorModal extends Modal {
       pageSize: "A4",
       resizePage: "all",
       insertAt: "1",
+      linkTarget: "url",
+      linkUrl: "https://",
+      linkTo: "1",
+      linkX: "10",
+      linkY: "10",
+      linkWidth: "30",
+      linkHeight: "5",
+      linkPage: "0",
     };
     this.statusEl = null;
     this.listEl = null;
@@ -912,6 +922,33 @@ class PdfEditorModal extends Modal {
     const paperButton = paperRow.createEl("button", { text: "Resize pages", cls: "qt-grow" });
     paperButton.addEventListener("click", () => this.resizeContent());
 
+    host.createEl("h4", { text: "Links" });
+    const linkRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
+    const linkUrl = linkRow.createEl("input", { cls: "qt-pdf-editor-input", type: "text" });
+    linkUrl.setAttribute("aria-label", "Link address");
+    linkUrl.placeholder = "https://example.com";
+    linkUrl.value = this.content.linkUrl;
+    linkUrl.addEventListener("change", () => {
+      this.content.linkUrl = linkUrl.value;
+    });
+    this.contentSelect(linkRow, "Kind", "Link kind", ["url", "page"], this.content.linkTarget, (value) => {
+      this.content.linkTarget = value;
+    });
+    this.contentInput(linkRow, "Jump to", "number", "Page the link jumps to", this.content.linkTo, (value) => {
+      this.content.linkTo = value;
+    });
+    linkRow.createSpan({ cls: "qt-hint", text: this.linksSummary() });
+
+    const linkBox = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
+    for (const [key, label] of [["linkX", "Left %"], ["linkY", "Top %"], ["linkWidth", "Width %"], ["linkHeight", "Height %"]]) {
+      this.contentInput(linkBox, label, "number", `Link ${label.toLowerCase()}`, this.content[key], (value) => {
+        this.content[key] = value;
+      });
+    }
+    this.pageSelect(linkBox, "Link page", "linkPage");
+    const linkButton = linkBox.createEl("button", { text: "Add link", cls: "qt-grow" });
+    linkButton.addEventListener("click", () => this.linkContent());
+
     host.createEl("h4", { text: "Watermark and document" });
     const watermarkRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
     const watermarkText = watermarkRow.createEl("input", { cls: "qt-pdf-editor-input", type: "text" });
@@ -1219,6 +1256,35 @@ class PdfEditorModal extends Modal {
       size: preset.id,
       pages: this.content.resizePage === "all" ? "all" : Number(this.content.resizePage),
     }), (value) => `Resized ${value.resized} page${value.resized === 1 ? "" : "s"} to ${Math.round(value.width)} by ${Math.round(value.height)} points${value.skipped ? `, ${value.skipped} already that size` : ""}.`);
+  }
+
+  linkContent() {
+    return this.runMutation("add a link", () => addLink(this.doc, {
+      target: this.content.linkTarget,
+      url: this.content.linkUrl,
+      to: Number(this.content.linkTo),
+      area: {
+        x: (Number(this.content.linkX) || 0) / 100,
+        y: (Number(this.content.linkY) || 0) / 100,
+        width: (Number(this.content.linkWidth) || 0) / 100,
+        height: (Number(this.content.linkHeight) || 0) / 100,
+      },
+      pages: this.content.linkPage === "all" ? "all" : Number(this.content.linkPage),
+    }), (result) => {
+      this.renderContent();
+      this.setStatus(result.target === "url"
+        ? `Linked ${result.pages} page${result.pages === 1 ? "" : "s"} to ${result.url}. Nothing is written until you save a copy.`
+        : `Linked ${result.pages} page${result.pages === 1 ? "" : "s"} to page ${result.to}. Nothing is written until you save a copy.`);
+    });
+  }
+
+  /** A short read-only line about the links the document already carries. */
+  linksSummary() {
+    if (!this.doc) return "No links yet.";
+    const found = readLinks(this.doc);
+    if (!found.ok || !found.total) return "No links yet.";
+    const shown = found.links.slice(0, 3).map((row) => (row.target === "url" ? `p${row.page} → ${row.url}` : `p${row.page} → page ${row.to}`));
+    return `${found.total} link${found.total === 1 ? "" : "s"}: ${shown.join(", ")}${found.total > 3 ? " …" : ""}`;
   }
 
   /** The annotation tool as an ordinary edit: draw the sidecar marks now, undoably. */
