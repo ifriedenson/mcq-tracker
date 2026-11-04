@@ -39,6 +39,10 @@ const MAX_SPLIT_PARTS = 100;
 const MAX_LINKS = 500;
 const MAX_LINK_URL = 2000;
 const MIN_LINK_SIZE = 0.002;
+const MAX_LINK_BORDER = 24;
+const LINK_DASHES = { solid: [], dashed: [6, 4], dotted: [2, 3] };
+const LINK_HIGHLIGHTS = { none: "N", invert: "I", outline: "O", push: "P" };
+const LINK_BORDER_STYLES = ["S", "D"];
 const MAX_OUTLINE = 200;
 const MAX_OUTLINE_TITLE = 120;
 const MAX_OUTLINE_DEPTH = 3;
@@ -1915,6 +1919,37 @@ function linkEntries(doc) {
   return entries;
 }
 
+function linkDashName(values) {
+  if (!values.length) return "solid";
+  const key = values.join(",");
+  if (key === LINK_DASHES.dashed.join(",")) return "dashed";
+  if (key === LINK_DASHES.dotted.join(",")) return "dotted";
+  return "custom";
+}
+
+/** The visible styling of one link: border width in points, dash and highlight mode. */
+function linkStyle(dict) {
+  const bs = dict.lookupMaybe(PDFName.of("BS"), PDFDict);
+  const border = dict.lookupMaybe(PDFName.of("Border"), PDFArray);
+  let width = 0;
+  if (bs) {
+    const value = bs.get(PDFName.of("W"));
+    if (value && typeof value.asNumber === "function") width = value.asNumber();
+  } else if (border && border.size() > 2) {
+    width = numberAt(border, 2);
+  }
+  let dash = "solid";
+  if (bs) {
+    const pattern = bs.get(PDFName.of("D"));
+    if (pattern && typeof pattern.asArray === "function") {
+      dash = linkDashName(pattern.asArray().map((entry) => (entry && typeof entry.asNumber === "function" ? entry.asNumber() : 0)));
+    }
+  }
+  const name = pdfNameValue(dict.get(PDFName.of("H")));
+  const highlight = name === "I" ? "invert" : name === "O" ? "outline" : name === "P" ? "push" : name === "" || name === "N" ? "none" : "other";
+  return { width, dash, highlight };
+}
+
 /**
  * Removes links: one by its number in `readLinks`, or every link at once.
  * Only the annotation is dropped; the page content is never touched.
@@ -2022,8 +2057,57 @@ function updateLink(doc, options) {
     const placed = displayRect(current, size.width, size.height, rotation);
     rect = [placed.x, placed.y, placed.x + placed.width, placed.y + placed.height];
   }
+  const wantsStyle = opts.style !== undefined && opts.style !== null;
+  let style = null;
+  let styleGiven = null;
+  let stylePattern = [];
+  if (wantsStyle) {
+    const source = opts.style && typeof opts.style === "object" ? opts.style : null;
+    if (!source) return { ok: false, reason: "style", message: "A link style needs a width, a dash or a highlight mode." };
+    const given = {};
+    if (source.width !== undefined && source.width !== null) {
+      const width = Number(source.width);
+      if (!Number.isFinite(width) || width <= 0 || width > MAX_LINK_BORDER) {
+        return { ok: false, reason: "style", message: `A link border needs a width above 0 and at most ${MAX_LINK_BORDER} points.` };
+      }
+      given.width = width;
+    }
+    if (source.dash !== undefined && source.dash !== null) {
+      const dash = str(source.dash);
+      if (!Object.prototype.hasOwnProperty.call(LINK_DASHES, dash)) {
+        return { ok: false, reason: "style", message: "A link dash has to be solid, dashed or dotted." };
+      }
+      given.dash = dash;
+    }
+    if (source.highlight !== undefined && source.highlight !== null) {
+      const highlight = str(source.highlight);
+      if (!Object.prototype.hasOwnProperty.call(LINK_HIGHLIGHTS, highlight)) {
+        return { ok: false, reason: "style", message: "A link highlight has to be none, invert, outline or push." };
+      }
+      given.highlight = highlight;
+    }
+    if (!Object.keys(given).length) {
+      return { ok: false, reason: "empty", message: "Give the link a border width, a dash style or a highlight mode." };
+    }
+    const bs = dict.lookupMaybe(PDFName.of("BS"), PDFDict);
+    const borderStyle = bs ? pdfNameValue(bs.get(PDFName.of("S"))) : "";
+    if (borderStyle && !LINK_BORDER_STYLES.includes(borderStyle)) {
+      return { ok: false, reason: "style", message: "This link's border style cannot be edited here; it is neither solid nor dashed." };
+    }
+    const pattern = bs ? bs.get(PDFName.of("D")) : null;
+    stylePattern = pattern && typeof pattern.asArray === "function"
+      ? pattern.asArray().map((entry) => (entry && typeof entry.asNumber === "function" ? entry.asNumber() : 0))
+      : [];
+    const current = linkStyle(dict);
+    styleGiven = given;
+    style = {
+      width: given.width !== undefined ? given.width : current.width,
+      dash: given.dash !== undefined ? given.dash : current.dash,
+      highlight: given.highlight !== undefined ? given.highlight : current.highlight,
+    };
+  }
   const retarget = opts.target !== undefined || opts.url !== undefined || opts.to !== undefined;
-  if (!rect && !retarget) return { ok: false, reason: "empty", message: "Give the link a new area or a new address." };
+  if (!rect && !retarget && !style) return { ok: false, reason: "empty", message: "Give the link a new area, a new address or a new style." };
   const target = str(opts.target) === "page" ? "page" : "url";
   const url = winAnsiText(opts.url).trim();
   const to = Math.round(Number(opts.to));
@@ -2055,6 +2139,16 @@ function updateLink(doc, options) {
       dict.delete(PDFName.of("Dest"));
       dict.set(replacement.key, replacement.value);
     }
+    if (styleGiven) {
+      if (styleGiven.width !== undefined || styleGiven.dash !== undefined) {
+        const dashArray = style.dash === "custom" ? stylePattern : LINK_DASHES[style.dash];
+        dict.set(PDFName.of("Border"), doc.context.obj([0, 0, style.width].concat(dashArray)));
+        const border = { W: style.width, S: PDFName.of(dashArray.length ? "D" : "S") };
+        if (dashArray.length) border.D = dashArray;
+        dict.set(PDFName.of("BS"), doc.context.obj(border));
+      }
+      if (styleGiven.highlight !== undefined) dict.set(PDFName.of("H"), PDFName.of(LINK_HIGHLIGHTS[style.highlight]));
+    }
     if (relocate) {
       /* one annotation: take the same reference out of the old /Annots and add it to the new one */
       const source = doc.getPage(entry.pageIndex).node.Annots();
@@ -2075,6 +2169,8 @@ function updateLink(doc, options) {
     fromPage,
     moved: Boolean(rect),
     relocated: Boolean(relocate),
+    styled: Boolean(style),
+    style: style || null,
     target: retarget ? target : "",
     url: retarget && target === "url" ? url : "",
     to: retarget && target === "page" ? to : 0,
@@ -2108,6 +2204,7 @@ function readLinks(doc) {
         url: "",
         to: 0,
         area: displayArea(dict.lookupMaybe(PDFName.of("Rect"), PDFArray), size, rotation),
+        style: linkStyle(dict),
       };
       const action = dict.lookupMaybe(PDFName.of("A"), PDFDict);
       if (action) {

@@ -1078,3 +1078,69 @@ test("pdf editor window: the link rows move the box and then the link to another
   assert.deepEqual([rows.links[0].page, rows.links[0].url], [3, "https://example.com/keep"]);
   modal.close();
 });
+
+test("pdf editor window: the style row restyles a link and keeps its box, page and target", async () => {
+  const { app, plugin } = await vault();
+  const modal = openEditor(app, plugin, "Papers/Exam.pdf");
+  await modal.loading;
+
+  modal.content.linkTarget = "url";
+  modal.content.linkUrl = "https://example.com/style";
+  modal.content.linkPage = "0";
+  modal.content.linkX = "10";
+  modal.content.linkY = "10";
+  modal.content.linkWidth = "20";
+  modal.content.linkHeight = "10";
+  await clickButton(modal.dom, "Add link");
+  assert.equal(editor.readLinks(modal.doc).total, 1);
+  const before = editor.readLinks(modal.doc).links[0];
+
+  const width = modal.dom.all.find((entry) => entry.meta.tag === "input" && entry.meta.attrs && entry.meta.attrs["aria-label"] === "Link border width");
+  assert.ok(width, "the border width input is rendered");
+  width.value = "3";
+  await fireOwn(width, "change");
+  assert.equal(modal.content.linkStyleWidth, "3", "the typed width is kept");
+  const dash = modal.dom.all.find((entry) => entry.meta.tag === "select" && entry.meta.attrs && entry.meta.attrs["aria-label"] === "Link border dash");
+  assert.ok(dash, "the dash select is rendered");
+  dash.value = "dashed";
+  await fireOwn(dash, "change");
+  const highlight = modal.dom.all.find((entry) => entry.meta.tag === "select" && entry.meta.attrs && entry.meta.attrs["aria-label"] === "Link highlight");
+  assert.ok(highlight, "the highlight select is rendered");
+  highlight.value = "invert";
+  await fireOwn(highlight, "change");
+  modal.content.linkEdit = "1";
+  await clickButton(modal.dom, "Style link");
+  assert.match(statusText(modal), /now has a 3-point dashed border and the invert highlight/);
+  const styled = editor.readLinks(modal.doc);
+  assert.equal(styled.total, 1, "styling keeps a single annotation");
+  assert.deepEqual(styled.links[0].style, { width: 3, dash: "dashed", highlight: "invert" });
+  assert.deepEqual(styled.links[0].area, before.area, "the clickable area is untouched");
+  assert.deepEqual([styled.links[0].page, styled.links[0].url], [1, "https://example.com/style"]);
+  assert.equal(modal.history.states[modal.history.cursor].label, "style a link", "the style change is one undo step");
+
+  // a zero width is refused with a message and no change
+  width.value = "0";
+  await fireOwn(width, "change");
+  await clickButton(modal.dom, "Style link");
+  assert.match(statusText(modal), /width above 0/);
+  assert.deepEqual(editor.readLinks(modal.doc).links[0].style, { width: 3, dash: "dashed", highlight: "invert" }, "a refused style changes nothing");
+
+  // one undo returns the plain border, one redo brings the style back
+  await clickMatching(modal.dom, /^Undo style a link$/);
+  assert.deepEqual(editor.readLinks(modal.doc).links[0].style, { width: 0, dash: "solid", highlight: "none" });
+  await clickMatching(modal.dom, /^Redo style a link$/);
+  assert.deepEqual(editor.readLinks(modal.doc).links[0].style, { width: 3, dash: "dashed", highlight: "invert" });
+
+  // the saved copy carries the style
+  const sourceBefore = Uint8Array.from(app.files.find((file) => file.path === "Papers/Exam.pdf").buffer);
+  await modal.saveCopy();
+  const written = app.createdBinary[0];
+  assert.ok(written, "a copy was written");
+  assert.deepEqual(app.files.find((file) => file.path === "Papers/Exam.pdf").buffer, sourceBefore, "the source PDF is byte-for-byte unchanged");
+  const reopened = await editor.loadEditorDocument(written.buffer);
+  assert.equal(reopened.ok, true, "the saved copy opens again");
+  const rows = editor.readLinks(reopened.doc);
+  assert.equal(rows.total, 1);
+  assert.deepEqual(rows.links[0].style, { width: 3, dash: "dashed", highlight: "invert" });
+  modal.close();
+});

@@ -206,6 +206,9 @@ class PdfEditorModal extends Modal {
       linkAreaWidth: "",
       linkAreaHeight: "",
       linkPageTo: "",
+      linkStyleWidth: "",
+      linkStyleDash: "keep",
+      linkStyleHighlight: "keep",
       bookmarks: null,
       bookmarkZoom: "",
       bookmarkTop: "",
@@ -1004,6 +1007,20 @@ class PdfEditorModal extends Modal {
     pageMoveButton.addEventListener("click", () => this.moveLinkToPageContent());
     linkPageRow.createSpan({ cls: "qt-hint", text: "Moves the link at Change to that page; all four Area % set its box there." });
 
+    const styleRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
+    this.contentInput(styleRow, "Width pt", "number", "Link border width", this.content.linkStyleWidth, (value) => {
+      this.content.linkStyleWidth = value;
+    });
+    this.contentSelect(styleRow, "Border", "Link border dash", ["keep", "solid", "dashed", "dotted"], this.content.linkStyleDash, (value) => {
+      this.content.linkStyleDash = value;
+    });
+    this.contentSelect(styleRow, "Highlight", "Link highlight", ["keep", "none", "invert", "outline", "push"], this.content.linkStyleHighlight, (value) => {
+      this.content.linkStyleHighlight = value;
+    });
+    const styleButton = styleRow.createEl("button", { text: "Style link", cls: "qt-grow" });
+    styleButton.addEventListener("click", () => this.styleLinkContent());
+    styleRow.createSpan({ cls: "qt-hint", text: this.linkStyleHint() });
+
     host.createEl("h4", { text: "Bookmarks" });
     const bookmarkRow = host.createDiv({ cls: "qt-pdf-editor-row" });
     const bookmarkArea = bookmarkRow.createEl("textarea", { cls: "qt-pdf-editor-input" });
@@ -1430,6 +1447,34 @@ class PdfEditorModal extends Modal {
       this.renderContent();
       this.setStatus(`Link ${result.index} on page ${result.page} now sits ${fields[2]}% wide and ${fields[3]}% tall at ${fields[0]}% across and ${fields[1]}% down, with its address unchanged. Nothing is written until you save a copy.`);
     });
+  }
+
+  /** Restyles one numbered link in place, as an ordinary undoable edit. */
+  styleLinkContent() {
+    const widthText = String(this.content.linkStyleWidth ?? "").trim();
+    const style = {};
+    if (widthText !== "") style.width = Number(widthText);
+    if (this.content.linkStyleDash !== "keep" && this.content.linkStyleDash !== "") style.dash = String(this.content.linkStyleDash);
+    if (this.content.linkStyleHighlight !== "keep" && this.content.linkStyleHighlight !== "") style.highlight = String(this.content.linkStyleHighlight);
+    return this.runMutation("style a link", () => updateLink(this.doc, { index: Number(this.content.linkEdit), style }), (result) => {
+      this.renderContent();
+      const border = result.style.width > 0 ? `a ${result.style.width}-point ${result.style.dash} border` : "no border";
+      const highlight = result.style.highlight === "none" ? "no highlight" : `the ${result.style.highlight} highlight`;
+      this.setStatus(`Link ${result.index} on page ${result.page} now has ${border} and ${highlight}. Nothing is written until you save a copy.`);
+    });
+  }
+
+  /** The current styling of the link at the Change number, read back from the file. */
+  linkStyleHint() {
+    if (!this.doc) return "Border width, dash and highlight for the link at Change.";
+    const found = readLinks(this.doc);
+    if (!found.ok || !found.total) return "No links yet.";
+    const index = Math.round(Number(this.content.linkEdit));
+    if (!Number.isFinite(index) || index < 1 || index > found.links.length) return `${found.total} link${found.total === 1 ? "" : "s"}; pick one by number.`;
+    const style = found.links[index - 1].style;
+    const border = style.width > 0 ? `${style.width}pt ${style.dash} border` : "no border";
+    const highlight = style.highlight === "none" ? "no highlight" : `${style.highlight} highlight`;
+    return `Link ${index}: ${border}, ${highlight}. Keep leaves a choice as it is.`;
   }
 
   /** Moves the same annotation to another page, with an optional new box there. */

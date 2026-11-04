@@ -1126,6 +1126,7 @@ test("a URL link is stored as a link annotation and reads back unchanged", async
     url: "https://example.com/atp",
     to: 0,
     area: { x: 0.1, y: 0.2, width: 0.4, height: 0.05 },
+    style: { width: 0, dash: "solid", highlight: "none" },
   });
   assert.equal((await pageContent(saved.bytes, 0)).includes("example.com"), false, "a link draws nothing into the page");
 });
@@ -1563,4 +1564,85 @@ test("refuses a page move that cannot be applied and changes nothing", async () 
   assert.deepEqual(kept, [40, 400, 120, 450], "the rectangle is untouched");
   const links = editor.readLinks((await editor.loadEditorDocument(saved.bytes)).doc).links;
   assert.deepEqual([links.length, links[0].page, links[0].url], [1, 1, "https://example.com/keep"]);
+});
+
+test("styles a link's border and highlight on the same annotation", async () => {
+  const opened = await editor.loadEditorDocument(await fixture());
+  editor.addLink(opened.doc, { target: "url", url: "https://example.com/keep", area: { x: 0.1, y: 0.1, width: 0.2, height: 0.1 }, pages: 0 });
+  const before = editor.readLinks(opened.doc).links[0];
+  assert.deepEqual(before.style, { width: 0, dash: "solid", highlight: "none" }, "a fresh link has no visible border");
+  const styled = editor.updateLink(opened.doc, { index: 1, style: { width: 2, dash: "dashed", highlight: "invert" } });
+  assert.deepEqual([styled.ok, styled.styled, styled.page], [true, true, 1]);
+  assert.deepEqual(styled.style, { width: 2, dash: "dashed", highlight: "invert" });
+  const saved = await editor.savePdf(opened.doc);
+  const raw = await PDFDocument.load(saved.bytes);
+  const annot = linkAnnotation(raw, 0);
+  const bs = annot.lookup(PDFName.of("BS"), PDFDict);
+  assert.equal(bs.lookup(PDFName.of("W")).asNumber(), 2, "the border width is in /BS");
+  assert.equal(String(bs.lookup(PDFName.of("S"))), "/D");
+  assert.deepEqual(bs.lookup(PDFName.of("D")).asArray().map((value) => value.asNumber()), [6, 4]);
+  assert.equal(String(annot.lookup(PDFName.of("H"))), "/I", "the highlight mode is /H");
+  assert.deepEqual(annot.lookup(PDFName.of("Border")).asArray().slice(0, 3).map((value) => value.asNumber()), [0, 0, 2], "/Border carries the same width");
+  const links = editor.readLinks((await editor.loadEditorDocument(saved.bytes)).doc);
+  assert.equal(links.total, 1, "styling edits one annotation, it never adds another");
+  assert.deepEqual([links.links[0].page, links.links[0].url], [1, "https://example.com/keep"], "the page and the target are untouched");
+  assert.deepEqual(links.links[0].area, before.area, "the clickable area is untouched");
+  assert.deepEqual(links.links[0].style, { width: 2, dash: "dashed", highlight: "invert" });
+});
+
+test("keeps the style parts a link edit did not choose", async () => {
+  const opened = await editor.loadEditorDocument(await fixture());
+  editor.addLink(opened.doc, { target: "page", to: 3, area: { x: 0.2, y: 0.2, width: 0.3, height: 0.1 }, pages: 1 });
+  editor.updateLink(opened.doc, { index: 1, style: { width: 2, dash: "dashed", highlight: "invert" } });
+  assert.deepEqual(editor.updateLink(opened.doc, { index: 1, style: { width: 4 } }).style, { width: 4, dash: "dashed", highlight: "invert" }, "the width changes, the dash and highlight stay");
+  assert.deepEqual(editor.updateLink(opened.doc, { index: 1, style: { dash: "solid" } }).style, { width: 4, dash: "solid", highlight: "invert" });
+  const outlined = editor.updateLink(opened.doc, { index: 1, style: { highlight: "outline" } });
+  assert.deepEqual(outlined.style, { width: 4, dash: "solid", highlight: "outline" });
+  const solid = await editor.savePdf(opened.doc);
+  const solidRaw = await PDFDocument.load(solid.bytes);
+  const solidAnnot = linkAnnotation(solidRaw, 1);
+  assert.equal(solidAnnot.lookup(PDFName.of("BS"), PDFDict).lookupMaybe(PDFName.of("D")), undefined, "a solid border carries no dash array");
+  assert.equal(String(solidAnnot.lookup(PDFName.of("H"))), "/O");
+  const dotted = editor.updateLink(opened.doc, { index: 1, style: { dash: "dotted", highlight: "none" } });
+  assert.deepEqual(dotted.style, { width: 4, dash: "dotted", highlight: "none" });
+  const dottedSaved = await editor.savePdf(opened.doc);
+  const dottedRaw = await PDFDocument.load(dottedSaved.bytes);
+  const dottedAnnot = linkAnnotation(dottedRaw, 1);
+  assert.deepEqual(dottedAnnot.lookup(PDFName.of("BS"), PDFDict).lookup(PDFName.of("D")).asArray().map((value) => value.asNumber()), [2, 3]);
+  assert.equal(String(dottedAnnot.lookup(PDFName.of("H"))), "/N", "no highlight is written as /N");
+  const rows = editor.readLinks((await editor.loadEditorDocument(dottedSaved.bytes)).doc).links;
+  assert.deepEqual([rows.length, rows[0].page, rows[0].to, rows[0].style], [1, 2, 3, { width: 4, dash: "dotted", highlight: "none" }], "the page jump and the box survive the styling");
+});
+
+test("refuses a link style that cannot be applied and changes nothing", async () => {
+  const opened = await editor.loadEditorDocument(await fixture());
+  assert.equal(editor.updateLink(opened.doc, { index: 1, style: { width: 2 } }).reason, "empty");
+  editor.addLink(opened.doc, { target: "url", url: "https://example.com/keep", area: { x: 0.1, y: 0.1, width: 0.2, height: 0.1 }, pages: 0 });
+  assert.equal(editor.updateLink(opened.doc, { index: 0, style: { width: 2 } }).reason, "index");
+  assert.equal(editor.updateLink(opened.doc, { index: 2, style: { width: 2 } }).reason, "index");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, style: {} }).reason, "empty");
+  assert.equal(editor.updateLink(opened.doc, { index: 1 }).reason, "empty");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, style: { width: 0 } }).reason, "style");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, style: { width: -2 } }).reason, "style");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, style: { width: "wide" } }).reason, "style");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, style: { width: 40 } }).reason, "style");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, style: { dash: "wavy" } }).reason, "style");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, style: { highlight: "flash" } }).reason, "style");
+  assert.match(editor.updateLink(opened.doc, { index: 1, style: { width: 0 } }).message, /width above 0/);
+  const saved = await editor.savePdf(opened.doc);
+  const raw = await PDFDocument.load(saved.bytes);
+  const annot = linkAnnotation(raw, 0);
+  assert.equal(annot.lookupMaybe(PDFName.of("BS"), PDFDict), undefined, "a refused style writes no border dictionary");
+  assert.equal(annot.lookupMaybe(PDFName.of("H"), PDFName), undefined, "a refused style writes no highlight mode");
+  const rect = annot.lookup(PDFName.of("Rect"));
+  assert.deepEqual([rect.get(0).asNumber(), rect.get(1).asNumber(), rect.get(2).asNumber(), rect.get(3).asNumber()].map((value) => Math.round(value * 100) / 100), [40, 400, 120, 450], "the rectangle is untouched");
+
+  /* a border style this editor does not understand is refused instead of overwritten */
+  const odd = await editor.loadEditorDocument(await fixture());
+  editor.addLink(odd.doc, { target: "url", url: "https://example.com/odd", area: { x: 0.1, y: 0.1, width: 0.2, height: 0.1 }, pages: 0 });
+  linkAnnotation(odd.doc, 0).set(PDFName.of("BS"), odd.doc.context.obj({ W: 1, S: PDFName.of("B") }));
+  const refused = editor.updateLink(odd.doc, { index: 1, style: { width: 3 } });
+  assert.equal(refused.reason, "style");
+  assert.match(refused.message, /border style cannot be edited/);
+  assert.equal(editor.readLinks(odd.doc).links[0].style.width, 1, "the beveled border is left exactly as it was");
 });
