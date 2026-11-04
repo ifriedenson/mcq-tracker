@@ -1128,7 +1128,7 @@ test("a URL link is stored as a link annotation and reads back unchanged", async
     file: "",
     name: "",
     area: { x: 0.1, y: 0.2, width: 0.4, height: 0.05 },
-    style: { width: 0, dash: "solid", highlight: "none" },
+    style: { width: 0, border: "solid", dash: "solid", highlight: "none", pattern: [] },
   });
   assert.equal((await pageContent(saved.bytes, 0)).includes("example.com"), false, "a link draws nothing into the page");
 });
@@ -1572,10 +1572,10 @@ test("styles a link's border and highlight on the same annotation", async () => 
   const opened = await editor.loadEditorDocument(await fixture());
   editor.addLink(opened.doc, { target: "url", url: "https://example.com/keep", area: { x: 0.1, y: 0.1, width: 0.2, height: 0.1 }, pages: 0 });
   const before = editor.readLinks(opened.doc).links[0];
-  assert.deepEqual(before.style, { width: 0, dash: "solid", highlight: "none" }, "a fresh link has no visible border");
+  assert.deepEqual(before.style, { width: 0, border: "solid", dash: "solid", highlight: "none", pattern: [] }, "a fresh link has no visible border");
   const styled = editor.updateLink(opened.doc, { index: 1, style: { width: 2, dash: "dashed", highlight: "invert" } });
   assert.deepEqual([styled.ok, styled.styled, styled.page], [true, true, 1]);
-  assert.deepEqual(styled.style, { width: 2, dash: "dashed", highlight: "invert" });
+  assert.deepEqual(styled.style, { width: 2, border: "dashed", dash: "dashed", highlight: "invert", pattern: [6, 4] });
   const saved = await editor.savePdf(opened.doc);
   const raw = await PDFDocument.load(saved.bytes);
   const annot = linkAnnotation(raw, 0);
@@ -1589,31 +1589,31 @@ test("styles a link's border and highlight on the same annotation", async () => 
   assert.equal(links.total, 1, "styling edits one annotation, it never adds another");
   assert.deepEqual([links.links[0].page, links.links[0].url], [1, "https://example.com/keep"], "the page and the target are untouched");
   assert.deepEqual(links.links[0].area, before.area, "the clickable area is untouched");
-  assert.deepEqual(links.links[0].style, { width: 2, dash: "dashed", highlight: "invert" });
+  assert.deepEqual(links.links[0].style, { width: 2, border: "dashed", dash: "dashed", highlight: "invert", pattern: [6, 4] });
 });
 
 test("keeps the style parts a link edit did not choose", async () => {
   const opened = await editor.loadEditorDocument(await fixture());
   editor.addLink(opened.doc, { target: "page", to: 3, area: { x: 0.2, y: 0.2, width: 0.3, height: 0.1 }, pages: 1 });
   editor.updateLink(opened.doc, { index: 1, style: { width: 2, dash: "dashed", highlight: "invert" } });
-  assert.deepEqual(editor.updateLink(opened.doc, { index: 1, style: { width: 4 } }).style, { width: 4, dash: "dashed", highlight: "invert" }, "the width changes, the dash and highlight stay");
-  assert.deepEqual(editor.updateLink(opened.doc, { index: 1, style: { dash: "solid" } }).style, { width: 4, dash: "solid", highlight: "invert" });
+  assert.deepEqual(editor.updateLink(opened.doc, { index: 1, style: { width: 4 } }).style, { width: 4, border: "dashed", dash: "dashed", highlight: "invert", pattern: [6, 4] }, "the width changes, the dash and highlight stay");
+  assert.deepEqual(editor.updateLink(opened.doc, { index: 1, style: { dash: "solid" } }).style, { width: 4, border: "solid", dash: "solid", highlight: "invert", pattern: [] });
   const outlined = editor.updateLink(opened.doc, { index: 1, style: { highlight: "outline" } });
-  assert.deepEqual(outlined.style, { width: 4, dash: "solid", highlight: "outline" });
+  assert.deepEqual(outlined.style, { width: 4, border: "solid", dash: "solid", highlight: "outline", pattern: [] });
   const solid = await editor.savePdf(opened.doc);
   const solidRaw = await PDFDocument.load(solid.bytes);
   const solidAnnot = linkAnnotation(solidRaw, 1);
   assert.equal(solidAnnot.lookup(PDFName.of("BS"), PDFDict).lookupMaybe(PDFName.of("D")), undefined, "a solid border carries no dash array");
   assert.equal(String(solidAnnot.lookup(PDFName.of("H"))), "/O");
   const dotted = editor.updateLink(opened.doc, { index: 1, style: { dash: "dotted", highlight: "none" } });
-  assert.deepEqual(dotted.style, { width: 4, dash: "dotted", highlight: "none" });
+  assert.deepEqual(dotted.style, { width: 4, border: "solid", dash: "dotted", highlight: "none", pattern: [2, 3] });
   const dottedSaved = await editor.savePdf(opened.doc);
   const dottedRaw = await PDFDocument.load(dottedSaved.bytes);
   const dottedAnnot = linkAnnotation(dottedRaw, 1);
   assert.deepEqual(dottedAnnot.lookup(PDFName.of("BS"), PDFDict).lookup(PDFName.of("D")).asArray().map((value) => value.asNumber()), [2, 3]);
   assert.equal(String(dottedAnnot.lookup(PDFName.of("H"))), "/N", "no highlight is written as /N");
   const rows = editor.readLinks((await editor.loadEditorDocument(dottedSaved.bytes)).doc).links;
-  assert.deepEqual([rows.length, rows[0].page, rows[0].to, rows[0].style], [1, 2, 3, { width: 4, dash: "dotted", highlight: "none" }], "the page jump and the box survive the styling");
+  assert.deepEqual([rows.length, rows[0].page, rows[0].to, rows[0].style], [1, 2, 3, { width: 4, border: "solid", dash: "dotted", highlight: "none", pattern: [2, 3] }], "the page jump and the box survive the styling");
 });
 
 test("refuses a link style that cannot be applied and changes nothing", async () => {
@@ -1639,14 +1639,15 @@ test("refuses a link style that cannot be applied and changes nothing", async ()
   const rect = annot.lookup(PDFName.of("Rect"));
   assert.deepEqual([rect.get(0).asNumber(), rect.get(1).asNumber(), rect.get(2).asNumber(), rect.get(3).asNumber()].map((value) => Math.round(value * 100) / 100), [40, 400, 120, 450], "the rectangle is untouched");
 
-  /* a border style this editor does not understand is refused instead of overwritten */
+  /* a beveled border is editable, and its /B style is kept */
   const odd = await editor.loadEditorDocument(await fixture());
   editor.addLink(odd.doc, { target: "url", url: "https://example.com/odd", area: { x: 0.1, y: 0.1, width: 0.2, height: 0.1 }, pages: 0 });
   linkAnnotation(odd.doc, 0).set(PDFName.of("BS"), odd.doc.context.obj({ W: 1, S: PDFName.of("B") }));
-  const refused = editor.updateLink(odd.doc, { index: 1, style: { width: 3 } });
-  assert.equal(refused.reason, "style");
-  assert.match(refused.message, /border style cannot be edited/);
-  assert.equal(editor.readLinks(odd.doc).links[0].style.width, 1, "the beveled border is left exactly as it was");
+  const widened = editor.updateLink(odd.doc, { index: 1, style: { width: 3 } });
+  assert.equal(widened.ok, true);
+  assert.deepEqual([widened.style.border, widened.style.width], ["beveled", 3]);
+  const oddSaved = await PDFDocument.load((await editor.savePdf(odd.doc)).bytes);
+  assert.equal(String(linkAnnotation(oddSaved, 0).lookup(PDFName.of("BS"), PDFDict).lookup(PDFName.of("S"))), "/B", "the beveled style survives the width change");
 });
 
 /** A raw /Link annotation whose action the test writes itself. */
@@ -1757,4 +1758,130 @@ test("refuses to rewrite an action it does not understand and leaves it byte for
   assert.deepEqual([rect.get(0).asNumber(), rect.get(1).asNumber(), rect.get(2).asNumber(), rect.get(3).asNumber()].map((value) => Math.round(value * 100) / 100), [80, 350, 200, 400], "the box the move wrote is the only change");
   const reread = editor.readLinks((await editor.loadEditorDocument(saved.bytes)).doc).links;
   assert.deepEqual([reread[1].target, reread[1].name], ["other", "JavaScript"], "it still reads back as the script action");
+});
+
+/** Page 1 of the fixture with a beveled, an inset, an underlined and a custom-dash link. */
+async function borderFixture() {
+  const raw = await PDFDocument.load(await fixture());
+  const url = (text) => {
+    const action = raw.context.obj({ Type: "Action", S: "URI" });
+    action.set(PDFName.of("URI"), PDFString.of(text));
+    return action;
+  };
+  const add = (rect, style, text) => {
+    const annot = raw.context.obj({ Type: "Annot", Subtype: "Link", Rect: rect, Border: [0, 0, style.W], F: 4 });
+    const bs = raw.context.obj({ W: style.W, S: style.S });
+    if (style.D) bs.set(PDFName.of("D"), raw.context.obj(style.D));
+    annot.set(PDFName.of("BS"), bs);
+    annot.set(PDFName.of("A"), url(text));
+    raw.getPage(0).node.addAnnot(raw.context.register(annot));
+  };
+  add([40, 400, 120, 450], { W: 2, S: "B" }, "https://example.com/bevel");
+  add([40, 340, 120, 380], { W: 1, S: "I" }, "https://example.com/inset");
+  add([40, 280, 120, 320], { W: 1, S: "U" }, "https://example.com/underline");
+  add([40, 220, 120, 260], { W: 1, S: "D", D: [5, 2] }, "https://example.com/custom");
+  return raw;
+}
+
+test("reads a beveled, inset, underlined or custom-dash border style", async () => {
+  const opened = await editor.loadEditorDocument(await (await borderFixture()).save());
+  const rows = editor.readLinks(opened.doc).links;
+  assert.deepEqual(rows.map((row) => [row.style.border, row.style.width, row.style.dash, row.style.pattern]), [
+    ["beveled", 2, "solid", []],
+    ["inset", 1, "solid", []],
+    ["underline", 1, "solid", []],
+    ["dashed", 1, "custom", [5, 2]],
+  ], "each border style is named and its width and dash pattern are readable");
+});
+
+test("edits the width of a beveled, inset or underlined border and keeps its style", async () => {
+  const opened = await editor.loadEditorDocument(await (await borderFixture()).save());
+  const before = editor.readLinks(opened.doc).links;
+  for (const index of [1, 2, 3]) {
+    const changed = editor.updateLink(opened.doc, { index, style: { width: 4 } });
+    assert.equal(changed.ok, true, `link ${index} accepts a width`);
+    assert.equal(changed.style.border, before[index - 1].style.border, `link ${index} keeps its border style`);
+  }
+  const saved = await editor.savePdf(opened.doc);
+  const savedRaw = await PDFDocument.load(saved.bytes);
+  const styles = savedRaw.getPage(0).node.Annots().asArray()
+    .map((ref) => savedRaw.context.lookup(ref, PDFDict))
+    .filter((dict) => dict && String(dict.get(PDFName.of("Subtype"))) === "/Link")
+    .map((dict) => {
+      const bs = dict.lookup(PDFName.of("BS"), PDFDict);
+      return [String(bs.lookup(PDFName.of("S"))), bs.lookup(PDFName.of("W")).asNumber()];
+    });
+  assert.deepEqual(styles, [["/B", 4], ["/I", 4], ["/U", 4], ["/D", 1]], "each /BS style survives with the new width");
+  const rows = editor.readLinks((await editor.loadEditorDocument(saved.bytes)).doc).links;
+  assert.deepEqual(rows.map((row) => [row.style.border, row.style.width, row.style.dash]), [
+    ["beveled", 4, "solid"],
+    ["inset", 4, "solid"],
+    ["underline", 4, "solid"],
+    ["dashed", 1, "custom"],
+  ]);
+  assert.deepEqual(rows[0].area, before[0].area, "a width change leaves the box alone");
+  assert.deepEqual([rows[0].url, rows[0].target], ["https://example.com/bevel", "url"]);
+});
+
+test("moves, retargets and removes a beveled link without losing its border", async () => {
+  const opened = await editor.loadEditorDocument(await (await borderFixture()).save());
+  assert.equal(editor.updateLink(opened.doc, { index: 1, area: { x: 0.5, y: 0.5, width: 0.2, height: 0.1 } }).ok, true);
+  assert.equal(editor.updateLink(opened.doc, { index: 1, target: "page", to: 3 }).ok, true);
+  const rows = editor.readLinks(opened.doc).links;
+  assert.deepEqual([rows[0].target, rows[0].to, rows[0].style.border, rows[0].style.width], ["page", 3, "beveled", 2]);
+  const saved = await editor.savePdf(opened.doc);
+  const savedRaw = await PDFDocument.load(saved.bytes);
+  const kept = linkAnnotation(savedRaw, 0);
+  const bs = kept.lookup(PDFName.of("BS"), PDFDict);
+  assert.deepEqual([String(bs.lookup(PDFName.of("S"))), bs.lookup(PDFName.of("W")).asNumber()], ["/B", 2], "the border survives the move and the retarget");
+  assert.deepEqual(editor.readLinks((await editor.loadEditorDocument(saved.bytes)).doc).links.map((row) => [row.target, row.style.border]), [
+    ["page", "beveled"],
+    ["url", "inset"],
+    ["url", "underline"],
+    ["url", "dashed"],
+  ]);
+  const removed = editor.removeLinks(opened.doc, { index: 2 });
+  assert.deepEqual([removed.ok, removed.removed, removed.left], [true, 1, 3]);
+  assert.deepEqual(editor.readLinks(opened.doc).links.map((row) => [row.style.border, row.style.width]), [["beveled", 2], ["underline", 1], ["dashed", 1]], "the links left behind keep their own borders");
+});
+
+test("chooses a custom dash pattern and carries it through a width change", async () => {
+  const opened = await editor.loadEditorDocument(await (await borderFixture()).save());
+  const custom = editor.updateLink(opened.doc, { index: 1, style: { dash: "custom", pattern: [7, 3] } });
+  assert.deepEqual([custom.ok, custom.style.dash, custom.style.pattern, custom.style.border], [true, "custom", [7, 3], "beveled"]);
+  const wider = editor.updateLink(opened.doc, { index: 1, style: { width: 3 } });
+  assert.deepEqual(wider.style, { width: 3, border: "beveled", dash: "custom", highlight: "none", pattern: [7, 3] }, "a width change keeps the custom pattern");
+  const saved = await editor.savePdf(opened.doc);
+  const savedRaw = await PDFDocument.load(saved.bytes);
+  const annot = linkAnnotation(savedRaw, 0);
+  const bs = annot.lookup(PDFName.of("BS"), PDFDict);
+  assert.deepEqual(bs.lookup(PDFName.of("D")).asArray().map((value) => value.asNumber()), [7, 3]);
+  assert.equal(String(bs.lookup(PDFName.of("S"))), "/B", "a custom dash keeps the border style the link had");
+  assert.deepEqual(annot.lookup(PDFName.of("Border")).asArray().map((value) => value.asNumber()), [0, 0, 3, 7, 3], "the /Border dash array carries the same pattern");
+  const rows = editor.readLinks((await editor.loadEditorDocument(saved.bytes)).doc).links;
+  assert.deepEqual([rows[0].style.dash, rows[0].style.pattern, rows[0].style.width], ["custom", [7, 3], 3]);
+  const back = editor.updateLink(opened.doc, { index: 1, style: { dash: "solid" } });
+  assert.deepEqual([back.style.dash, back.style.pattern], ["solid", []], "choosing solid drops the pattern");
+});
+
+test("refuses an unusable border style or dash pattern and changes nothing", async () => {
+  const opened = await editor.loadEditorDocument(await (await borderFixture()).save());
+  assert.equal(editor.updateLink(opened.doc, { index: 1, style: { border: "wavy" } }).reason, "style");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, style: { dash: "wavy" } }).reason, "style");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, style: { dash: "custom" } }).reason, "style", "a custom dash needs a pattern");
+  assert.match(editor.updateLink(opened.doc, { index: 1, style: { dash: "custom" } }).message, /custom dash needs a pattern/);
+  assert.equal(editor.updateLink(opened.doc, { index: 1, style: { dash: "custom", pattern: [] } }).reason, "style");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, style: { dash: "custom", pattern: [0] } }).reason, "style");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, style: { dash: "custom", pattern: [-2, 3] } }).reason, "style");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, style: { dash: "custom", pattern: [1, 1, 1, 1, 1, 1, 1, 1, 1] } }).reason, "style");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, style: { pattern: [2, 2] } }).reason, "style", "a pattern needs the custom dash");
+  const rows = editor.readLinks(opened.doc).links;
+
+  /* a /BS style outside the five known names is kept as other, not overwritten */
+  linkAnnotation(opened.doc, 0).set(PDFName.of("BS"), opened.doc.context.obj({ W: 2, S: PDFName.of("X") }));
+  const unknown = editor.updateLink(opened.doc, { index: 1, style: { width: 5 } });
+  assert.deepEqual([unknown.ok, unknown.style.border, unknown.style.width], [true, "other", 5]);
+  const unknownSaved = await PDFDocument.load((await editor.savePdf(opened.doc)).bytes);
+  assert.equal(String(linkAnnotation(unknownSaved, 0).lookup(PDFName.of("BS"), PDFDict).lookup(PDFName.of("S"))), "/X", "the unknown style survives a width change");
+  assert.deepEqual([rows[0].style.border, rows[0].style.width, rows[0].style.dash, rows[0].style.pattern], ["beveled", 2, "solid", []], "every refusal leaves the border alone");
 });

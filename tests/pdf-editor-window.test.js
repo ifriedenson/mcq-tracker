@@ -1113,7 +1113,7 @@ test("pdf editor window: the style row restyles a link and keeps its box, page a
   assert.match(statusText(modal), /now has a 3-point dashed border and the invert highlight/);
   const styled = editor.readLinks(modal.doc);
   assert.equal(styled.total, 1, "styling keeps a single annotation");
-  assert.deepEqual(styled.links[0].style, { width: 3, dash: "dashed", highlight: "invert" });
+  assert.deepEqual(styled.links[0].style, { width: 3, border: "dashed", dash: "dashed", highlight: "invert", pattern: [6, 4] });
   assert.deepEqual(styled.links[0].area, before.area, "the clickable area is untouched");
   assert.deepEqual([styled.links[0].page, styled.links[0].url], [1, "https://example.com/style"]);
   assert.equal(modal.history.states[modal.history.cursor].label, "style a link", "the style change is one undo step");
@@ -1123,13 +1123,13 @@ test("pdf editor window: the style row restyles a link and keeps its box, page a
   await fireOwn(width, "change");
   await clickButton(modal.dom, "Style link");
   assert.match(statusText(modal), /width above 0/);
-  assert.deepEqual(editor.readLinks(modal.doc).links[0].style, { width: 3, dash: "dashed", highlight: "invert" }, "a refused style changes nothing");
+  assert.deepEqual(editor.readLinks(modal.doc).links[0].style, { width: 3, border: "dashed", dash: "dashed", highlight: "invert", pattern: [6, 4] }, "a refused style changes nothing");
 
   // one undo returns the plain border, one redo brings the style back
   await clickMatching(modal.dom, /^Undo style a link$/);
-  assert.deepEqual(editor.readLinks(modal.doc).links[0].style, { width: 0, dash: "solid", highlight: "none" });
+  assert.deepEqual(editor.readLinks(modal.doc).links[0].style, { width: 0, border: "solid", dash: "solid", highlight: "none", pattern: [] });
   await clickMatching(modal.dom, /^Redo style a link$/);
-  assert.deepEqual(editor.readLinks(modal.doc).links[0].style, { width: 3, dash: "dashed", highlight: "invert" });
+  assert.deepEqual(editor.readLinks(modal.doc).links[0].style, { width: 3, border: "dashed", dash: "dashed", highlight: "invert", pattern: [6, 4] });
 
   // the saved copy carries the style
   const sourceBefore = Uint8Array.from(app.files.find((file) => file.path === "Papers/Exam.pdf").buffer);
@@ -1141,7 +1141,7 @@ test("pdf editor window: the style row restyles a link and keeps its box, page a
   assert.equal(reopened.ok, true, "the saved copy opens again");
   const rows = editor.readLinks(reopened.doc);
   assert.equal(rows.total, 1);
-  assert.deepEqual(rows.links[0].style, { width: 3, dash: "dashed", highlight: "invert" });
+  assert.deepEqual(rows.links[0].style, { width: 3, border: "dashed", dash: "dashed", highlight: "invert", pattern: [6, 4] });
   modal.close();
 });
 
@@ -1212,5 +1212,100 @@ test("pdf editor window: the change row retargets a launch link and refuses a sc
   const reopened = await editor.loadEditorDocument(written.buffer);
   assert.equal(reopened.ok, true, "the saved copy opens again");
   assert.deepEqual(editor.readLinks(reopened.doc).links.map((row) => row.target), ["url", "other"], "the copy carries the converted link and the untouched script");
+  modal.close();
+});
+
+/** The ordinary fixture plus a beveled link and an inset custom-dash link on page 1. */
+async function borderFixture() {
+  const doc = await PDFDocument.load(await fixture());
+  const add = (rect, style, url) => {
+    const annot = doc.context.obj({ Type: "Annot", Subtype: "Link", Rect: rect, Border: [0, 0, style.W], F: 4 });
+    const bs = doc.context.obj({ W: style.W, S: style.S });
+    if (style.D) bs.set(PDFName.of("D"), doc.context.obj(style.D));
+    annot.set(PDFName.of("BS"), bs);
+    const action = doc.context.obj({ Type: "Action", S: "URI" });
+    action.set(PDFName.of("URI"), PDFString.of(url));
+    annot.set(PDFName.of("A"), action);
+    doc.getPage(0).node.addAnnot(doc.context.register(annot));
+  };
+  add([40, 400, 120, 450], { W: 2, S: "B" }, "https://example.com/bevel");
+  add([40, 340, 120, 380], { W: 1, S: "I", D: [5, 2] }, "https://example.com/inset");
+  return doc.save();
+}
+
+/** The newest rendered element carrying one aria-label. */
+function fieldFor(modal, label) {
+  return modal.dom.all.filter((entry) => entry.meta && entry.meta.attrs && entry.meta.attrs["aria-label"] === label).pop();
+}
+
+test("pdf editor window: a beveled link is restyled, retargeted and removed with its border intact", async () => {
+  const app = makeApp([
+    { path: "Papers/Exam.pdf", noFm: true, text: "" },
+    { path: "Papers/Exam.annotations.md", noFm: true, text: SIDECAR },
+    { path: "Notes/Lecture.md", noFm: true, text: "# Lecture\n" },
+  ]);
+  app.files.find((file) => file.path === "Papers/Exam.pdf").buffer = await borderFixture();
+  const plugin = new QT(app);
+  await plugin.onload();
+  const modal = openEditor(app, plugin, "Papers/Exam.pdf");
+  await modal.loading;
+
+  const rows = editor.readLinks(modal.doc);
+  assert.deepEqual(rows.links.map((row) => [row.style.border, row.style.width, row.style.dash]), [["beveled", 2, "solid"], ["inset", 1, "custom"]], "both border styles are readable");
+  const hint = modal.dom.all.find((entry) => entry.meta && entry.meta.tag === "span" && /beveled border/.test(entry.meta.text || ""));
+  assert.ok(hint, "the style hint names the beveled border");
+
+  // a beveled link takes a new width and keeps its /B style
+  modal.content.linkEdit = "1";
+  const width = fieldFor(modal, "Link border width");
+  assert.ok(width, "the border width input is rendered");
+  width.value = "3";
+  await fireOwn(width, "change");
+  const border = fieldFor(modal, "Link border style");
+  assert.ok(border, "the border style select is rendered");
+  border.value = "beveled";
+  await fireOwn(border, "change");
+  await clickButton(modal.dom, "Style link");
+  assert.match(statusText(modal), /3-point beveled border/);
+  assert.deepEqual([editor.readLinks(modal.doc).links[0].style.border, editor.readLinks(modal.doc).links[0].style.width], ["beveled", 3]);
+  assert.equal(modal.history.states[modal.history.cursor].label, "style a link", "the restyle is one undo step");
+
+  // the inset link's custom dash can be re-picked with its own pattern
+  modal.content.linkEdit = "2";
+  const borderKept = fieldFor(modal, "Link border style");
+  borderKept.value = "keep";
+  await fireOwn(borderKept, "change");
+  const dash = fieldFor(modal, "Link border dash");
+  assert.ok(dash, "the dash select is rendered");
+  dash.value = "custom";
+  await fireOwn(dash, "change");
+  const pattern = fieldFor(modal, "Link dash pattern");
+  assert.ok(pattern, "the dash pattern input is rendered");
+  pattern.value = "8 2";
+  await fireOwn(pattern, "change");
+  await clickButton(modal.dom, "Style link");
+  const dashed = editor.readLinks(modal.doc).links[1].style;
+  assert.deepEqual([dashed.border, dashed.dash, dashed.pattern], ["inset", "custom", [8, 2]], "the chosen pattern is written");
+
+  // the beveled link still retargets, and the inset link is still removable
+  modal.content.linkEdit = "1";
+  modal.content.linkTarget = "url";
+  modal.content.linkUrl = "https://example.com/converted";
+  await clickButton(modal.dom, "Change link");
+  const changed = editor.readLinks(modal.doc).links[0];
+  assert.deepEqual([changed.target, changed.url, changed.style.border], ["url", "https://example.com/converted", "beveled"], "retargeting keeps the border");
+  modal.content.linkRemove = "2";
+  await clickButton(modal.dom, "Remove link");
+  assert.equal(editor.readLinks(modal.doc).total, 1, "the inset link is removed like any other");
+
+  const sourceBefore = Uint8Array.from(app.files.find((file) => file.path === "Papers/Exam.pdf").buffer);
+  await modal.saveCopy();
+  assert.deepEqual(app.files.find((file) => file.path === "Papers/Exam.pdf").buffer, sourceBefore, "the source PDF is byte-for-byte unchanged");
+  const written = app.createdBinary[0];
+  assert.ok(written, "a copy was written");
+  const reopened = await editor.loadEditorDocument(written.buffer);
+  assert.equal(reopened.ok, true);
+  const saved = editor.readLinks(reopened.doc).links;
+  assert.deepEqual([saved.length, saved[0].style.border, saved[0].style.width, saved[0].target], [1, "beveled", 3, "url"], "the copy keeps the beveled border after the retarget");
   modal.close();
 });

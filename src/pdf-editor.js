@@ -42,7 +42,9 @@ const MIN_LINK_SIZE = 0.002;
 const MAX_LINK_BORDER = 24;
 const LINK_DASHES = { solid: [], dashed: [6, 4], dotted: [2, 3] };
 const LINK_HIGHLIGHTS = { none: "N", invert: "I", outline: "O", push: "P" };
-const LINK_BORDER_STYLES = ["S", "D"];
+const LINK_BORDERS = { solid: "S", dashed: "D", beveled: "B", inset: "I", underline: "U" };
+const MAX_LINK_DASH = 8;
+const MAX_LINK_DASH_VALUE = 100;
 const MAX_OUTLINE = 200;
 const MAX_OUTLINE_TITLE = 120;
 const MAX_OUTLINE_DEPTH = 3;
@@ -2005,6 +2007,17 @@ function linkDashName(values) {
   return "custom";
 }
 
+/** The raw /BS /S name a link already carries, or "" when it has none. */
+function linkBorderName(dict) {
+  const bs = dict.lookupMaybe(PDFName.of("BS"), PDFDict);
+  return bs ? pdfNameValue(bs.get(PDFName.of("S"))) : "";
+}
+
+/** A /BS /S name as the word the editor shows. */
+function borderStyleName(raw) {
+  return raw === "D" ? "dashed" : raw === "B" ? "beveled" : raw === "I" ? "inset" : raw === "U" ? "underline" : raw === "" || raw === "S" ? "solid" : "other";
+}
+
 /** The visible styling of one link: border width in points, dash and highlight mode. */
 function linkStyle(dict) {
   const bs = dict.lookupMaybe(PDFName.of("BS"), PDFDict);
@@ -2017,15 +2030,18 @@ function linkStyle(dict) {
     width = numberAt(border, 2);
   }
   let dash = "solid";
+  let pattern = [];
   if (bs) {
-    const pattern = bs.get(PDFName.of("D"));
-    if (pattern && typeof pattern.asArray === "function") {
-      dash = linkDashName(pattern.asArray().map((entry) => (entry && typeof entry.asNumber === "function" ? entry.asNumber() : 0)));
+    const raw = bs.get(PDFName.of("D"));
+    if (raw && typeof raw.asArray === "function") {
+      pattern = raw.asArray().map((entry) => (entry && typeof entry.asNumber === "function" ? entry.asNumber() : 0));
+      dash = linkDashName(pattern);
     }
   }
+  const borderName = borderStyleName(linkBorderName(dict));
   const name = pdfNameValue(dict.get(PDFName.of("H")));
   const highlight = name === "I" ? "invert" : name === "O" ? "outline" : name === "P" ? "push" : name === "" || name === "N" ? "none" : "other";
-  return { width, dash, highlight };
+  return { width, border: borderName, dash, highlight, pattern };
 }
 
 /**
@@ -2141,9 +2157,10 @@ function updateLink(doc, options) {
   let style = null;
   let styleGiven = null;
   let stylePattern = [];
+  let styleName = "";
   if (wantsStyle) {
     const source = opts.style && typeof opts.style === "object" ? opts.style : null;
-    if (!source) return { ok: false, reason: "style", message: "A link style needs a width, a dash or a highlight mode." };
+    if (!source) return { ok: false, reason: "style", message: "A link style needs a width, a border, a dash or a highlight mode." };
     const given = {};
     if (source.width !== undefined && source.width !== null) {
       const width = Number(source.width);
@@ -2152,12 +2169,32 @@ function updateLink(doc, options) {
       }
       given.width = width;
     }
+    if (source.border !== undefined && source.border !== null) {
+      const border = str(source.border);
+      if (!Object.prototype.hasOwnProperty.call(LINK_BORDERS, border)) {
+        return { ok: false, reason: "style", message: "A link border style has to be solid, dashed, beveled, inset or underline." };
+      }
+      given.border = border;
+    }
     if (source.dash !== undefined && source.dash !== null) {
       const dash = str(source.dash);
-      if (!Object.prototype.hasOwnProperty.call(LINK_DASHES, dash)) {
-        return { ok: false, reason: "style", message: "A link dash has to be solid, dashed or dotted." };
+      if (dash !== "custom" && !Object.prototype.hasOwnProperty.call(LINK_DASHES, dash)) {
+        return { ok: false, reason: "style", message: "A link dash has to be solid, dashed, dotted or custom." };
       }
       given.dash = dash;
+    }
+    if (source.pattern !== undefined && source.pattern !== null) {
+      const raw = Array.isArray(source.pattern)
+        ? source.pattern
+        : typeof source.pattern === "string" ? str(source.pattern).trim().split(/[\s,]+/).filter(Boolean) : null;
+      if (!raw || !raw.length || raw.length > MAX_LINK_DASH) {
+        return { ok: false, reason: "style", message: `A custom dash needs 1 to ${MAX_LINK_DASH} lengths.` };
+      }
+      const values = raw.map((value) => Number(value));
+      if (!values.every((value) => Number.isFinite(value) && value > 0 && value <= MAX_LINK_DASH_VALUE)) {
+        return { ok: false, reason: "style", message: `A custom dash length has to be above 0 and at most ${MAX_LINK_DASH_VALUE}.` };
+      }
+      given.pattern = values;
     }
     if (source.highlight !== undefined && source.highlight !== null) {
       const highlight = str(source.highlight);
@@ -2167,23 +2204,36 @@ function updateLink(doc, options) {
       given.highlight = highlight;
     }
     if (!Object.keys(given).length) {
-      return { ok: false, reason: "empty", message: "Give the link a border width, a dash style or a highlight mode." };
+      return { ok: false, reason: "empty", message: "Give the link a border width, a border style, a dash or a highlight mode." };
     }
-    const bs = dict.lookupMaybe(PDFName.of("BS"), PDFDict);
-    const borderStyle = bs ? pdfNameValue(bs.get(PDFName.of("S"))) : "";
-    if (borderStyle && !LINK_BORDER_STYLES.includes(borderStyle)) {
-      return { ok: false, reason: "style", message: "This link's border style cannot be edited here; it is neither solid nor dashed." };
-    }
-    const pattern = bs ? bs.get(PDFName.of("D")) : null;
-    stylePattern = pattern && typeof pattern.asArray === "function"
-      ? pattern.asArray().map((entry) => (entry && typeof entry.asNumber === "function" ? entry.asNumber() : 0))
-      : [];
     const current = linkStyle(dict);
+    const currentName = linkBorderName(dict);
+    const wantedDash = given.dash !== undefined ? given.dash : null;
+    const wantedBorder = given.border !== undefined ? given.border : null;
+    if (given.pattern && wantedDash !== "custom") {
+      return { ok: false, reason: "style", message: "A dash pattern only applies to a custom dash." };
+    }
+    let pattern;
+    if (wantedDash === "custom") pattern = given.pattern !== undefined ? given.pattern : current.pattern;
+    else if (wantedDash) pattern = LINK_DASHES[wantedDash] || [];
+    else if (wantedBorder === "dashed" && !current.pattern.length) pattern = LINK_DASHES.dashed;
+    else pattern = given.pattern !== undefined ? given.pattern : current.pattern;
+    if (wantedDash === "custom" && !pattern.length) {
+      return { ok: false, reason: "style", message: `A custom dash needs a pattern of 1 to ${MAX_LINK_DASH} lengths above 0.` };
+    }
+    let writeName;
+    if (wantedBorder) writeName = LINK_BORDERS[wantedBorder];
+    else if (wantedDash) writeName = wantedDash === "dashed" ? "D" : wantedDash === "custom" ? currentName || "S" : "S";
+    else writeName = currentName || (pattern.length ? "D" : "S");
+    stylePattern = pattern;
+    styleName = writeName;
     styleGiven = given;
     style = {
       width: given.width !== undefined ? given.width : current.width,
-      dash: given.dash !== undefined ? given.dash : current.dash,
+      border: borderStyleName(writeName),
+      dash: linkDashName(pattern),
       highlight: given.highlight !== undefined ? given.highlight : current.highlight,
+      pattern,
     };
   }
   const retarget = opts.target !== undefined || opts.url !== undefined || opts.to !== undefined;
@@ -2229,10 +2279,10 @@ function updateLink(doc, options) {
       dict.set(replacement.key, replacement.value);
     }
     if (styleGiven) {
-      if (styleGiven.width !== undefined || styleGiven.dash !== undefined) {
-        const dashArray = style.dash === "custom" ? stylePattern : LINK_DASHES[style.dash];
+      if (styleGiven.width !== undefined || styleGiven.dash !== undefined || styleGiven.border !== undefined || styleGiven.pattern !== undefined) {
+        const dashArray = stylePattern;
         dict.set(PDFName.of("Border"), doc.context.obj([0, 0, style.width].concat(dashArray)));
-        const border = { W: style.width, S: PDFName.of(dashArray.length ? "D" : "S") };
+        const border = { W: style.width, S: PDFName.of(styleName || (dashArray.length ? "D" : "S")) };
         if (dashArray.length) border.D = dashArray;
         dict.set(PDFName.of("BS"), doc.context.obj(border));
       }

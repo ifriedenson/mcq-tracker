@@ -207,7 +207,9 @@ class PdfEditorModal extends Modal {
       linkAreaHeight: "",
       linkPageTo: "",
       linkStyleWidth: "",
+      linkStyleBorder: "keep",
       linkStyleDash: "keep",
+      linkStylePattern: "",
       linkStyleHighlight: "keep",
       bookmarks: null,
       bookmarkZoom: "",
@@ -1012,8 +1014,14 @@ class PdfEditorModal extends Modal {
     this.contentInput(styleRow, "Width pt", "number", "Link border width", this.content.linkStyleWidth, (value) => {
       this.content.linkStyleWidth = value;
     });
-    this.contentSelect(styleRow, "Border", "Link border dash", ["keep", "solid", "dashed", "dotted"], this.content.linkStyleDash, (value) => {
+    this.contentSelect(styleRow, "Border style", "Link border style", ["keep", "solid", "dashed", "beveled", "inset", "underline"], this.content.linkStyleBorder, (value) => {
+      this.content.linkStyleBorder = value;
+    });
+    this.contentSelect(styleRow, "Dash", "Link border dash", ["keep", "solid", "dashed", "dotted", "custom"], this.content.linkStyleDash, (value) => {
       this.content.linkStyleDash = value;
+    });
+    this.contentInput(styleRow, "Dash lengths", "text", "Link dash pattern", this.content.linkStylePattern, (value) => {
+      this.content.linkStylePattern = value;
     });
     this.contentSelect(styleRow, "Highlight", "Link highlight", ["keep", "none", "invert", "outline", "push"], this.content.linkStyleHighlight, (value) => {
       this.content.linkStyleHighlight = value;
@@ -1455,11 +1463,15 @@ class PdfEditorModal extends Modal {
     const widthText = String(this.content.linkStyleWidth ?? "").trim();
     const style = {};
     if (widthText !== "") style.width = Number(widthText);
+    if (this.content.linkStyleBorder !== "keep" && this.content.linkStyleBorder !== "") style.border = String(this.content.linkStyleBorder);
     if (this.content.linkStyleDash !== "keep" && this.content.linkStyleDash !== "") style.dash = String(this.content.linkStyleDash);
+    const patternText = String(this.content.linkStylePattern ?? "").trim();
+    if (patternText !== "") style.pattern = patternText;
     if (this.content.linkStyleHighlight !== "keep" && this.content.linkStyleHighlight !== "") style.highlight = String(this.content.linkStyleHighlight);
     return this.runMutation("style a link", () => updateLink(this.doc, { index: Number(this.content.linkEdit), style }), (result) => {
       this.renderContent();
-      const border = result.style.width > 0 ? `a ${result.style.width}-point ${result.style.dash} border` : "no border";
+      const dash = result.style.dash === "solid" || result.style.dash === result.style.border ? "" : result.style.dash === "custom" ? ` with a custom dash (${result.style.pattern.join(" ")})` : ` with a ${result.style.dash} dash`;
+      const border = result.style.width > 0 ? `a ${result.style.width}-point ${result.style.border} border${dash}` : "no border";
       const highlight = result.style.highlight === "none" ? "no highlight" : `the ${result.style.highlight} highlight`;
       this.setStatus(`Link ${result.index} on page ${result.page} now has ${border} and ${highlight}. Nothing is written until you save a copy.`);
     });
@@ -1473,9 +1485,10 @@ class PdfEditorModal extends Modal {
     const index = Math.round(Number(this.content.linkEdit));
     if (!Number.isFinite(index) || index < 1 || index > found.links.length) return `${found.total} link${found.total === 1 ? "" : "s"}; pick one by number.`;
     const style = found.links[index - 1].style;
-    const border = style.width > 0 ? `${style.width}pt ${style.dash} border` : "no border";
+    const border = style.width > 0 ? `${style.width}pt ${style.border} border` : "no border";
+    const dash = style.dash === "solid" || style.dash === style.border ? "" : style.dash === "custom" ? `, custom dash ${style.pattern.join(" ")}` : `, ${style.dash} dash`;
     const highlight = style.highlight === "none" ? "no highlight" : `${style.highlight} highlight`;
-    return `Link ${index}: ${border}, ${highlight}. Keep leaves a choice as it is.`;
+    return `Link ${index}: ${border}${dash}, ${highlight}. Keep leaves a choice as it is.`;
   }
 
   /** Moves the same annotation to another page, with an optional new box there. */

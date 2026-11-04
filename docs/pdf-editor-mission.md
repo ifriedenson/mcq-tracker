@@ -17,21 +17,21 @@ dispatches. No network request, provider, account or new dependency was added at
 | Pages | rotate 90/180/270, move, delete (never the last page), duplicate, blank insert, add pages from another vault PDF, extract, split every N pages, merge | 1.218.0–1.231.0 |
 | Content | typed text, vault PNG/JPEG, page numbers, crop, watermark, rectangle/ellipse/rule shapes, A4/Letter/Legal/custom page size | 1.218.0–1.219.0 |
 | Forms | fill text, checkbox, radio, dropdown and option lists; flatten; author a new field; **rename a field**; **delete a field and its widgets** | 1.218.0, **1.244.0** |
-| Navigation | **link annotations**: an `http(s)` address or a jump to another page, written over a chosen area and read back exactly on rotated pages, then retargeted in place, given a new rectangle in place, moved to another page as the same annotation, **restyled in place** (border width, dash and `/H` highlight), or removed by number; a link whose action is a launch, a remote go-to or a named destination reads its file or destination and converts to an address or jump in place | **1.242.0**, **1.245.0**, **1.247.0**, **1.248.0**, **1.249.0**, **1.250.0**, **1.251.0** |
+| Navigation | **link annotations**: an `http(s)` address or a jump to another page, written over a chosen area and read back exactly on rotated pages, then retargeted in place, given a new rectangle in place, moved to another page as the same annotation, **restyled in place** (border width, dash and `/H` highlight), or removed by number; a link whose action is a launch, a remote go-to or a named destination reads its file or destination and converts to an address or jump in place; any `/BS` border style — solid, dashed, beveled, inset or underline — and a chosen custom dash are read and edited in place | **1.242.0**, **1.245.0**, **1.247.0**, **1.248.0**, **1.249.0**, **1.250.0**, **1.251.0**, **1.252.0** |
 | Navigation | **bookmarks**: the document outline read as title/page/level rows and rewritten as a real outline tree, edited as indented `Title | page` lines, with an optional zoom and position written as a `/XYZ` destination | **1.243.0**, **1.246.0** |
 | Reading | continuous reader, text selection, marks, ink, text boxes, notes, in-reader annotation sidebar, ask-AI-about-a-passage | 1.215.0–1.226.0 |
 | Safety | every mutation is one undo step in a bounded byte-level history that returns the opened file byte-for-byte; Save always writes a new copy; the source PDF and its `.annotations.md` sidecar are never modified | 1.218.0 |
 
 ## Verification
 
-- `tests/pdf-editor.test.js` — 76 tests on real bytes: page operations, form fill and
+- `tests/pdf-editor.test.js` — 81 tests on real bytes: page operations, form fill and
   authoring, flattening, shapes, resizing, links (URL, page jump, rotated page, indirect
-  destination, retargeting, rectangle rewriting, moving to another page, border and highlight styling, launch, remote go-to and named-destination targets, removal, every refusal), bookmarks (nested
+  destination, retargeting, rectangle rewriting, moving to another page, border and highlight styling, launch, remote go-to and named-destination targets, beveled/inset/underline border styles and custom dash patterns, removal, every refusal), bookmarks (nested
   write/read, replacing, clearing, the raw tree, the text format, zoom and position views, every
   refusal), and field rename/delete with value and widget preservation.
 - `tests/pdf-editor-window.test.js` drives the real window against the built `main.js` in a
   mocked vault: rotate, move, fill, burn, save, the second-save path, the command, the reader
-  hand-over, and the **Add link**, **Move link**, **Move to page**, **Style link** and **Change link** rows.
+  hand-over, and the **Add link**, **Move link**, **Move to page**, **Style link** (border style and dash pattern included) and **Change link** rows.
 - `tests/pdf-editor-history.test.js` covers the undo/redo history and its byte budget.
 - At 1.244.0: full suite **1,887 pass**, `npm run check` clean across **297 source files**,
   `main.js` current across **298 modules**, `git diff --check` clean.
@@ -45,7 +45,9 @@ dispatches. No network request, provider, account or new dependency was added at
   **4,955,070 bytes**.
 - At 1.251.0: full suite **1909 pass**, `main.js` current across **298 modules** at
   **4,960,953 bytes**.
-- Release notes: `docs/release-notes/1.242.0.md` through `1.251.0.md`, with the earlier
+- At 1.252.0: full suite **1915 pass**, `main.js` current across **298 modules** at
+  **4,964,716 bytes**.
+- Release notes: `docs/release-notes/1.242.0.md` through `1.252.0.md`, with the earlier
   1.218.0–1.231.0 notes beside them.
 
 ## Remaining gates — refused, never approximated
@@ -59,9 +61,10 @@ dispatches. No network request, provider, account or new dependency was added at
 - **Link destinations are replaced, never rewritten.** A launch, a remote go-to and a named
   destination are read and converted in place (1.251.0), but the file specification or destination
   name itself is never edited and a remote file is never followed; an action this editor does not
-  model (`/JavaScript`, `/SubmitForm`, `/Named` …) is preserved and refused for retargeting. A `/BS`
-  border style that is neither solid nor dashed (`/B`, `/I`, `/U`) is preserved and refused for
-  editing, and a `custom` dash pattern can be kept but not chosen.
+  model (`/JavaScript`, `/SubmitForm`, `/Named` …) is preserved and refused for retargeting.
+- **Dash patterns are lengths only.** A custom dash is 1 to 8 lengths of 0 to 100 points each
+  (1.252.0), with no phase offset; a `/BS` style outside solid, dashed, beveled, inset and underline
+  is read as `other` and kept as it was until a style is chosen.
 - **Hierarchical `parent.child` field names**, which are renamed by their own segment only.
   Bookmark destinations beyond a whole page shipped in 1.246.0 as a zoom and a position; any other
   destination kind is read as a whole page rather than guessed at.
