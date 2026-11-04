@@ -1,3 +1,7 @@
+## 1.230.0 - 2026-11-04
+
+- **Live duplicate-page**: duplicating a page from a fillable PDF now clones every widget's terminal field, registers it in the AcroForm with a unique `_2`, `_3` … name, reparents the copied widget, and keeps the value and appearance, so the duplicate is genuinely fillable and independent of the source. Repeated duplicates and existing top-level names resolve deterministically, non-widget annotations survive the page copy, and the source form stays untouched. A button, signature, XFA or otherwise unsupported field refuses the whole duplicate with `reason: "form"` and a message naming Duplicate-page; extraction, split and merge keep their separate flatten-on-copy behavior, and Move keeps its live-page semantics. Covered by real-byte engine tests and a real-window duplicate/reorder test.
+
 ## 1.229.0 - 2026-11-04
 
 - **Duplicate-page and reorder form safety**: duplicating a page from a fillable PDF now copies it from a flattened

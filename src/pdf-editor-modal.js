@@ -623,7 +623,11 @@ class PdfEditorModal extends Modal {
       this.syncFields();
       this.renderPages();
       this.renderFooter();
-      const formNote = result.flattened ? " Form values were baked into the duplicate; the original form stays fillable." : "";
+      const formNote = result.fields
+        ? " Its live fields were copied with unique names; the source form stays untouched."
+        : result.liveForm
+          ? " The live form stays fillable."
+          : "";
       this.setStatus(`Page ${index + 1} was duplicated.${formNote} Nothing is written until you save a copy.`);
     });
   }

@@ -336,39 +336,138 @@ test("extracting pages from a form bakes the values in instead of dropping the f
   assert.equal(editor.formFields(doc).fields.length, 1, "the edited document keeps its live form");
 });
 
-test("duplicating a form page bakes its values in and leaves no orphan widget", async () => {
+/** Adds a non-form link annotation to a page, so page copies can prove it survives. */
+function addLinkAnnotation(doc, page) {
+  const annot = doc.context.obj({
+    Type: PDFName.of("Annot"),
+    Subtype: PDFName.of("Link"),
+    Rect: [20, 20, 180, 40],
+    Border: [0, 0, 0],
+    A: doc.context.obj({ S: PDFName.of("URI"), URI: "https://example.com/study" }),
+  });
+  const ref = doc.context.register(annot);
+  const annots = page.node.Annots();
+  if (annots) annots.push(ref);
+  else page.node.set(PDFName.of("Annots"), doc.context.obj([ref]));
+  return ref;
+}
+
+test("duplicating a form page creates a live, independently fillable copy", async () => {
   const doc = await authorFixture();
+  addLinkAnnotation(doc, doc.getPage(0));
   const duplicated = await editor.duplicatePage(doc, 0);
   assert.equal(duplicated.ok, true, duplicated.message);
-  assert.equal(duplicated.flattened, true, "the duplicate is prepared from a flattened copy");
+  assert.equal(duplicated.flattened, false, "a live duplicate is not flattened");
+  assert.equal(duplicated.liveForm, true);
+  assert.equal(duplicated.fields, 1, "one field was cloned");
   assert.equal(duplicated.pageCount, 4);
-  assert.equal(editor.formFields(doc).fields.length, 1, "the edited document keeps one live field");
-  assert.equal(editor.formFields(doc).fields[0].page, 0, "the original field stays on the original page");
+
+  const fields = editor.formFields(doc).fields;
+  assert.deepEqual(fields.map((field) => field.name), ["student", "student_2"]);
+  assert.equal(fields[0].page, 0, "the source field stays on the source page");
+  assert.equal(fields[1].page, 1, "the cloned field sits on the duplicate");
+  assert.equal(fields[0].value, "keep me");
+  assert.equal(fields[1].value, "keep me");
+
+  assert.equal(editor.setFieldValue(doc, "student_2", "copy value").ok, true);
+  assert.equal(editor.formFields(doc).fields.find((field) => field.name === "student").value, "keep me", "filling the copy does not change the source");
 
   const saved = await editor.savePdf(doc);
   const reopened = await PDFDocument.load(saved.bytes);
+  const form = reopened.getForm();
+  assert.deepEqual(form.getFields().map((field) => field.getName()), ["student", "student_2"]);
+  assert.equal(form.getTextField("student").getText(), "keep me");
+  assert.equal(form.getTextField("student_2").getText(), "copy value");
   assert.equal(reopened.getPageCount(), 4);
-  const fields = reopened.getForm().getFields();
-  assert.equal(fields.length, 1, "the duplicate adds no form field");
-  assert.equal(reopened.getForm().getTextField("student").getText(), "keep me", "the live value is intact");
-  assert.equal(fields[0].acroField.getWidgets().length, 1, "only the original page owns a widget");
-  const annotations = reopened.getPages().map((page) => {
-    const annots = page.node.Annots();
-    return annots ? annots.size() : 0;
-  });
-  assert.deepEqual(annotations, [1, 0, 0, 0], "the duplicate carries no dead widget annotation");
-  assert.match(await pageContent(saved.bytes, 1), /FlatWidget/, "the duplicate bakes the field appearance into its page content");
-  assert.doesNotMatch(await pageContent(saved.bytes, 0), /FlatWidget/, "the live original stays an interactive widget");
+
+  const pages = reopened.getPages();
+  const widgetPage = (name) => {
+    const widget = form.getTextField(name).acroField.getWidgets()[0];
+    return pages.findIndex((page) => page.ref === widget.P());
+  };
+  assert.equal(widgetPage("student"), 0);
+  assert.equal(widgetPage("student_2"), 1);
+  const duplicateWidget = form.getTextField("student_2").acroField.getWidgets()[0];
+  assert.ok(duplicateWidget.dict.get(PDFName.of("AP")), "the cloned widget has an appearance");
+  assert.equal(form.getFields().filter((field) => field.getName().startsWith("student")).length, 2, "both names are registered in the AcroForm");
+
+  const duplicateAnnots = reopened.getPage(1).node.Annots();
+  const subtypes = duplicateAnnots.asArray().map((ref) => String(reopened.context.lookup(ref).get(PDFName.of("Subtype"))));
+  assert.ok(subtypes.includes("/Widget"), "the live widget is on the duplicate");
+  assert.ok(subtypes.includes("/Link"), "the non-widget link annotation survives the copy");
+  assert.doesNotMatch(await pageContent(saved.bytes, 1), /FlatWidget/, "the duplicate is not a flattened appearance");
 });
 
-test("duplicating a form page refuses with a form-specific message when flattening is impossible", async () => {
+test("duplicating a page keeps checkbox and dropdown values in live cloned fields", async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 500]);
+  doc.addPage([400, 500]);
+  const form = doc.getForm();
+  const agree = form.createCheckBox("agree");
+  agree.addToPage(doc.getPage(0), { x: 40, y: 350, width: 16, height: 16 });
+  agree.check();
+  const grade = form.createDropdown("grade");
+  grade.addOptions(["A", "B"]);
+  grade.addToPage(doc.getPage(0), { x: 40, y: 300, width: 80, height: 18 });
+  grade.select("B");
+  const duplicated = await editor.duplicatePage(doc, 0);
+  assert.equal(duplicated.ok, true, duplicated.message);
+  assert.equal(duplicated.fields, 2);
+  const fields = editor.formFields(doc).fields;
+  assert.deepEqual(fields.map((field) => field.name), ["agree", "grade", "agree_2", "grade_2"]);
+  assert.deepEqual(fields.map((field) => field.value), [true, "B", true, "B"]);
+  assert.deepEqual(fields.find((field) => field.name === "grade_2").options, ["A", "B"]);
+
+  assert.equal(editor.setFieldValue(doc, "agree_2", false).ok, true);
+  assert.equal(editor.setFieldValue(doc, "grade_2", "A").ok, true);
+  assert.equal(editor.formFields(doc).fields.find((field) => field.name === "agree").value, true, "unchecking the copy leaves the source checked");
+  assert.equal(editor.formFields(doc).fields.find((field) => field.name === "grade").value, "B", "changing the copy leaves the source selection alone");
+
+  const saved = await editor.savePdf(doc);
+  const reopened = await PDFDocument.load(saved.bytes);
+  const reopenedForm = reopened.getForm();
+  assert.equal(reopenedForm.getCheckBox("agree").isChecked(), true);
+  assert.equal(reopenedForm.getCheckBox("agree_2").isChecked(), false);
+  assert.deepEqual(reopenedForm.getDropdown("grade").getSelected(), ["B"]);
+  assert.deepEqual(reopenedForm.getDropdown("grade_2").getSelected(), ["A"]);
+});
+
+test("duplicating twice creates distinct, collision-free live fields", async () => {
+  const doc = await authorFixture();
+  const first = await editor.duplicatePage(doc, 0);
+  const second = await editor.duplicatePage(doc, 0);
+  assert.equal(first.ok, true, first.message);
+  assert.equal(second.ok, true, second.message);
+  const fields = editor.formFields(doc).fields;
+  assert.deepEqual(fields.map((field) => field.name), ["student", "student_2", "student_3"]);
+  assert.equal(new Set(fields.map((field) => field.name)).size, 3);
+  assert.equal(fields.find((field) => field.name === "student_3").page, 1, "the newest duplicate is first");
+  assert.equal(fields.find((field) => field.name === "student_2").page, 2, "the first duplicate moved down with its page");
+  assert.equal(fields.filter((field) => field.value === "keep me").length, 3);
+});
+
+test("duplicating a form page avoids an existing field name", async () => {
+  const doc = await authorFixture();
+  const existing = doc.getForm().createTextField("student_2");
+  existing.addToPage(doc.getPage(1), { x: 40, y: 300, width: 120, height: 20 });
+  existing.setText("already here");
+  const duplicated = await editor.duplicatePage(doc, 0);
+  assert.equal(duplicated.ok, true, duplicated.message);
+  const fields = editor.formFields(doc).fields;
+  assert.deepEqual(fields.map((field) => field.name), ["student", "student_2", "student_3"]);
+  assert.equal(fields.find((field) => field.name === "student_2").value, "already here", "the existing field is untouched");
+  assert.equal(fields.find((field) => field.name === "student_3").page, 1);
+});
+
+test("duplicating a page with an unsupported field refuses with a duplicate-page form message", async () => {
   const doc = await authorFixture();
   const button = doc.getForm().createButton("submit");
   button.addToPage("Submit", doc.getPage(0), { x: 240, y: 400, width: 80, height: 22 });
   const refused = await editor.duplicatePage(doc, 0);
   assert.equal(refused.ok, false);
   assert.equal(refused.reason, "form");
-  assert.match(refused.message, /could not be flattened for the duplicate/i);
+  assert.match(refused.message, /duplicate-page/i);
+  assert.match(refused.message, /button|signature|flatten/i);
   assert.equal(doc.getPageCount(), 3, "a refused duplicate leaves the page count alone");
   assert.equal(editor.formFields(doc).fields.find((field) => field.name === "student").value, "keep me");
 });

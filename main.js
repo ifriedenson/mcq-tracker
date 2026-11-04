@@ -48251,7 +48251,7 @@ __defs["pdf-editor"] = function (module, exports, require) {
  *
  * The source PDF is never modified: every write goes to a new copy.
  */
-const { PDFDocument, PDFTextField, PDFCheckBox, PDFRadioGroup, PDFDropdown, PDFOptionList, StandardFonts, degrees, rgb } = require("../vendor/pdf-lib.js");
+const { PDFDocument, PDFName, PDFHexString, PDFTextField, PDFCheckBox, PDFRadioGroup, PDFDropdown, PDFOptionList, StandardFonts, degrees, rgb } = require("../vendor/pdf-lib.js");
 const { INK_COLOR_HEX, MARK_STYLES, clamp, normalizeHighlightAreas, normalizeInkStrokes, normalizeTextBoxes } = require("./pdf-ink");
 
 const MAX_BYTES = 80 * 1024 * 1024;
@@ -48533,26 +48533,156 @@ function movePage(doc, from, to) {
   return { ok: true, moved: true, pageCount: doc.getPageCount(), flattened: false, liveForm };
 }
 
+/** Refs of the widget annotations owned by one terminal form field. */
+function fieldWidgetRefs(field) {
+  try {
+    const kids = field.acroField.Kids();
+    if (kids && typeof kids.size === "function" && kids.size()) return kids.asArray();
+    const dict = field.acroField.dict;
+    if (dict && String(dict.get(PDFName.of("Subtype"))) === "/Widget") return [field.ref];
+  } catch (error) {
+    /* a malformed field has no usable widgets */
+  }
+  return [];
+}
+
+/** Widget annotations on one page, with the terminal field that owns each. */
+function formWidgetsOnPage(doc, page) {
+  const form = doc.getForm();
+  const byRef = new Map();
+  for (const field of form.getFields()) {
+    for (const ref of fieldWidgetRefs(field)) byRef.set(String(ref), field);
+  }
+  const entries = page.node.Annots();
+  const widgets = [];
+  const unknown = [];
+  for (const ref of entries ? entries.asArray() : []) {
+    const dict = doc.context.lookup(ref);
+    const subtype = dict && String(dict.get(PDFName.of("Subtype")));
+    if (byRef.has(String(ref))) widgets.push({ ref, field: byRef.get(String(ref)) });
+    else if (subtype === "/Widget") unknown.push(String(ref));
+  }
+  return { form, widgets, unknown };
+}
+
+/** Widget refs on a copied page, in the same order as their original page. */
+function pageWidgetRefs(doc, page) {
+  const entries = page.node.Annots();
+  const refs = [];
+  for (const ref of entries ? entries.asArray() : []) {
+    const dict = doc.context.lookup(ref);
+    if (dict && String(dict.get(PDFName.of("Subtype"))) === "/Widget") refs.push(ref);
+  }
+  return refs;
+}
+
+/** A name for a cloned field, deterministic and unique across the AcroForm. */
+function duplicateFieldName(taken, field) {
+  const base = (fieldNameBase(field.getName()) || "field").slice(0, Math.max(1, MAX_FIELD_NAME - 4));
+  const name = uniqueFieldName(taken, base);
+  taken.push(name);
+  return name;
+}
+
+/** Clone a terminal field and re-parent one copied widget to it. */
+function cloneDuplicateField(doc, field, copiedWidgetRef, pageRef, name) {
+  const context = doc.context;
+  const hasKids = fieldWidgetRefs(field).length > 0;
+  const fieldRef = hasKids ? context.register(field.acroField.dict.clone(context)) : copiedWidgetRef;
+  const dict = context.lookup(fieldRef);
+  dict.set(PDFName.of("T"), PDFHexString.fromText(name));
+  try {
+    dict.delete(PDFName.of("Parent"));
+  } catch (error) {
+    /* a top-level field has no parent to remove */
+  }
+  if (hasKids) {
+    const widget = context.lookup(copiedWidgetRef);
+    dict.set(PDFName.of("Kids"), context.obj([copiedWidgetRef]));
+    widget.set(PDFName.of("Parent"), fieldRef);
+    widget.set(PDFName.of("P"), pageRef);
+  } else {
+    /* A merged field-widget keeps its own dict as the registered field. */
+    dict.set(PDFName.of("P"), pageRef);
+  }
+  return fieldRef;
+}
+
 /**
- * Duplicates one page without carrying its widget into the copied page. When
- * the document has an AcroForm, prepare a flattened serialised copy and copy
- * the page from it, so the duplicate keeps the visible values and the original
- * document keeps its live, fillable form.
+ * Duplicates one page and keeps a form page genuinely fillable. Every widget
+ * on the copied page gets a cloned terminal field, a unique name and a fresh
+ * /Parent, so its value and appearance are independent of the source. A page
+ * with an unsupported field is refused as a whole; extraction, split and merge
+ * keep their separate flatten-on-copy policy.
  */
 async function duplicatePage(doc, index) {
   const check = checkIndex(doc, index);
   if (!check.ok) return check;
   if (doc.getPageCount() >= MAX_PAGES) return { ok: false, reason: "pages", message: `A document cannot exceed ${MAX_PAGES} pages here.` };
-  const prepared = await prepareForPageCopy(doc, "duplicate");
-  if (!prepared.ok) return prepared;
+
+  let found;
   try {
-    const [copy] = await doc.copyPages(prepared.source, [check.index]);
-    doc.insertPage(check.index + 1, copy);
-    forgetPageCache(doc);
+    const form = doc.getForm();
+    if (typeof form.hasXFA === "function" && form.hasXFA()) {
+      return { ok: false, reason: "form", message: "Duplicate-page cannot safely duplicate an XFA form. Flatten it first." };
+    }
+    found = formWidgetsOnPage(doc, doc.getPage(check.index));
+  } catch (error) {
+    return { ok: false, reason: "form", message: `Duplicate-page could not read this form safely: ${pdfError(error)}` };
+  }
+  if (found.unknown.length) {
+    return { ok: false, reason: "form", message: "Duplicate-page cannot safely duplicate a widget annotation that is not registered in this PDF's AcroForm. Flatten it first." };
+  }
+  const unsupported = found.widgets.find((entry) => fieldKind(entry.field) === "other");
+  if (unsupported) {
+    const label = str(unsupported.field.getName()) || "unnamed";
+    return { ok: false, reason: "form", message: `Duplicate-page cannot safely duplicate the “${label}” button, signature or unsupported field. Flatten it first, or duplicate a page without it.` };
+  }
+
+  let copy;
+  try {
+    [copy] = await doc.copyPages(doc, [check.index]);
   } catch (error) {
     return { ok: false, reason: "duplicate", message: `That page could not be duplicated: ${pdfError(error)}` };
   }
-  return { ok: true, pageCount: doc.getPageCount(), flattened: prepared.flattened, liveForm: formFieldCount(doc) > 0 };
+  const copiedWidgets = pageWidgetRefs(doc, copy);
+  if (copiedWidgets.length !== found.widgets.length) {
+    return { ok: false, reason: "form", message: "Duplicate-page could not match the copied widgets to their form fields. Flatten the form first." };
+  }
+
+  const taken = found.form.getFields().map((field) => field.getName()).filter(Boolean);
+  const newFields = [];
+  let inserted = false;
+  try {
+    for (let offset = 0; offset < found.widgets.length; offset++) {
+      const entry = found.widgets[offset];
+      const name = duplicateFieldName(taken, entry.field);
+      newFields.push(cloneDuplicateField(doc, entry.field, copiedWidgets[offset], copy.ref, name));
+    }
+    doc.insertPage(check.index + 1, copy);
+    inserted = true;
+    for (const ref of newFields) found.form.acroForm.addField(ref);
+    forgetPageCache(doc);
+  } catch (error) {
+    if (inserted) {
+      try {
+        doc.removePage(check.index + 1);
+        forgetPageCache(doc);
+      } catch (removeError) {
+        /* the page tree is already damaged; report the clone failure below */
+      }
+    }
+    for (const ref of newFields) {
+      try {
+        found.form.acroForm.removeField(ref);
+      } catch (removeError) {
+        /* a field that was never registered needs no cleanup */
+      }
+    }
+    return { ok: false, reason: "form", message: `Duplicate-page could not copy this form safely: ${pdfError(error)}` };
+  }
+
+  return { ok: true, pageCount: doc.getPageCount(), flattened: false, liveForm: formFieldCount(doc) > 0, fields: newFields.length };
 }
 
 function addBlankPage(doc, index, size) {
@@ -50584,7 +50714,11 @@ class PdfEditorModal extends Modal {
       this.syncFields();
       this.renderPages();
       this.renderFooter();
-      const formNote = result.flattened ? " Form values were baked into the duplicate; the original form stays fillable." : "";
+      const formNote = result.fields
+        ? " Its live fields were copied with unique names; the source form stays untouched."
+        : result.liveForm
+          ? " The live form stays fillable."
+          : "";
       this.setStatus(`Page ${index + 1} was duplicated.${formNote} Nothing is written until you save a copy.`);
     });
   }
