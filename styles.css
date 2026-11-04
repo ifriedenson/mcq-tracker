@@ -12283,3 +12283,30 @@ body.is-mobile .qt-screen .qt-local-events-tab {
     pointer-events: auto;
   }
 }
+
+/* Web browser view */
+.qt-web-browser { display: flex; flex-direction: column; gap: 8px; height: 100%; }
+.qt-web-browser-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.qt-web-browser-nav, .qt-web-browser-tools { display: flex; align-items: center; gap: 4px; }
+.qt-web-browser-address-row { display: flex; flex: 1 1 320px; align-items: center; gap: 4px; }
+.qt-web-browser-address { flex: 1 1 auto; min-width: 180px; }
+.qt-web-browser-button { min-width: 28px; padding: 2px 6px; }
+.qt-web-browser-button:disabled { opacity: 0.45; }
+.qt-web-browser-zoom { font-variant-numeric: tabular-nums; min-width: 42px; text-align: center; }
+.qt-web-browser-tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--background-modifier-border); padding-bottom: 4px; }
+.qt-web-browser-tab { display: flex; align-items: center; max-width: 220px; border-radius: var(--radius-s); background: var(--background-secondary); }
+.qt-web-browser-tab.is-active { background: var(--background-modifier-hover); }
+.qt-web-browser-tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 190px; }
+.qt-web-browser-tab-close { padding: 0 6px; }
+.qt-web-browser-bookmarks { display: flex; flex-wrap: wrap; gap: 4px; }
+.qt-web-browser-bookmark { font-size: var(--font-ui-smaller); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qt-web-browser-stage { position: relative; flex: 1 1 auto; min-height: 320px; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-s); overflow: hidden; }
+.qt-web-browser-frame { width: 100%; height: 100%; min-height: 320px; border: 0; background: var(--background-primary); }
+.qt-web-browser-blank { padding: 24px; }
+.qt-web-browser-hint { font-size: var(--font-ui-smaller); color: var(--text-muted); }
+.qt-web-browser-meta { color: var(--text-muted); }
+.qt-web-browser-private-note { font-size: var(--font-ui-smaller); color: var(--text-muted); }
+.qt-web-browser-history { border-top: 1px solid var(--background-modifier-border); padding-top: 6px; max-height: 220px; overflow: auto; }
+.qt-web-browser-history-head { display: flex; align-items: center; justify-content: space-between; }
+.qt-web-browser-history-row { display: flex; gap: 8px; align-items: baseline; }
+.qt-web-browser-history-host { color: var(--text-muted); font-size: var(--font-ui-smaller); }

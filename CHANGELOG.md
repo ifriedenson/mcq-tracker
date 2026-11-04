@@ -1,3 +1,7 @@
+## 1.241.0 - 2026-11-04
+
+- **Web browser (opt-in).** A new view opens pages inside Obsidian in a sandboxed frame, with tabs (including a private tab that records no history), an address bar that accepts a URL or searches DuckDuckGo, Google, Bing or Wikipedia, per-tab back, forward, reload and home, bookmarks, a session history panel and 50–250% zoom. Only `http` and `https` addresses open; `javascript:`, `data:`, `file:` and every other scheme are refused before a frame exists. It adds no engine, extension, download manager, proxy, account or injected script, and a page that refuses framing falls back to **Open in browser**.
+
 ## 1.240.0 - 2026-11-04
 
 - **Time-block tags (optional, off by default)**: a time block keeps up to six local tags, entered in the new **Tags (optional)** field and shown as chips on its card. A **Filter by tag** field in the Day view narrows that day's blocks and names the active tag when nothing matches, and **Write day note** now writes the tags after the title. Tags are lowercase, limited to letters, digits, `/`, `_` and `-`, deduplicated and never created in the vault. No note is written by tagging, and no dependency or network request was added.

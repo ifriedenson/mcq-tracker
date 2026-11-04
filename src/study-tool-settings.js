@@ -24,6 +24,7 @@ const courseTemplates = require("./course-templates");
 const audioBookmarks = require("./audio-bookmarks");
 const readingLibrary = require("./reading-library");
 const timeBlocks = require("./time-blocks");
+const webBrowser = require("./web-browser");
 const citations = require("./citations");
 const voiceMemo = require("./voice-memo");
 const wordnet = require("./wordnet");
@@ -315,6 +316,18 @@ const PAGES = {
       return `${studyWorkspace.dueStudyTasks(tasks, new Date().toISOString().slice(0, 10)).length} due today of ${tasks.length}.`;
     },
     open: { label: "Open Tasks", run: (plugin) => plugin.activateStudyWorkspace("tasks") },
+  },
+  "web-browser": {
+    title: "Web browser",
+    description:
+      "Open pages inside Obsidian in a sandboxed frame, with tabs, an address and search bar, per-tab back and forward, bookmarks, a session history panel and zoom. Only http and https addresses open; nothing is proxied, injected or read from a page. Sites that refuse to be embedded fall back to Open in browser. Off by default.",
+    enabledGetter: "webBrowserEnabled",
+    enable: (plugin, v) => update(plugin, "webBrowser", webBrowser.normalizeBrowserSettings, { enabled: v }),
+    status: (plugin) => {
+      const s = webBrowser.normalizeBrowserSettings(plugin.settings.webBrowser);
+      return `${s.bookmarks.length} bookmark(s), ${s.history.length} visit(s), ${webBrowser.searchEngineLabel(s.search)} search.`;
+    },
+    open: { label: "Open Web browser", run: (plugin) => plugin.openWebBrowser() },
   },
   "time-blocks": {
     title: "Time blocks",

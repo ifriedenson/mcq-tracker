@@ -2,7 +2,7 @@
 const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST, VIEW_TYPE_AGENT } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST, VIEW_TYPE_WEB_BROWSER, VIEW_TYPE_AGENT } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const practiceFullscreen = require("./practice-fullscreen");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
@@ -17,6 +17,8 @@ const { StudyWorkspaceView } = require("./study-workspace-view");
 const { TaskListView } = require("./task-list-view");
 const studyWorkspace = require("./study-workspace");
 const timeBlocks = require("./time-blocks");
+const webBrowser = require("./web-browser");
+const { WebBrowserView } = require("./web-browser-view");
 const calendarPlanner = require("./calendar-planner");
 const citations = require("./citations");
 const courseIdentity = require("./course-identity");
@@ -286,6 +288,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_LOCAL_EVENTS, (leaf) => new LocalEventsView(leaf, this));
     this.registerView(VIEW_TYPE_POMODORO, (leaf) => new PomodoroView(leaf, this));
     this.registerView(VIEW_TYPE_TASK_LIST, (leaf) => new TaskListView(leaf, this));
+    this.registerView(VIEW_TYPE_WEB_BROWSER, (leaf) => new WebBrowserView(leaf, this));
     const { AgentView: StudyAgentView } = require("./agent-view");
     this.registerView(VIEW_TYPE_AGENT, (leaf) => new StudyAgentView(leaf, this));
     this.noteReviewDock = new NoteReviewDock(this);
@@ -413,6 +416,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "new-cornell-note", name: "Cornell notes: create a note", callback: () => this.activateStudyTools("cornell") });
     this.addCommand({ id: "open-study-workspace", name: "Open Study Workspace", callback: () => this.activateStudyWorkspace() });
     this.addCommand({ id: "open-time-blocks", name: "Time blocks: open the planner", callback: () => this.activateStudyWorkspace("timeBlocks") });
+    this.addCommand({ id: "open-web-browser", name: "Web browser: open", callback: () => this.openWebBrowser() });
     this.addCommand({ id: "open-task-list", name: "Open the task list", callback: () => this.activateTaskList() });
     this.addCommand({ id: "open-reading-library", name: "Reading library: open the bookshelf", callback: () => this.activateStudyWorkspace("readingLibrary") });
     this.addCommand({ id: "new-feynman-cycle", name: "Feynman Learning: start a cycle", callback: () => this.activateStudyWorkspace("feynman") });
@@ -1899,6 +1903,35 @@ class QuestionTrackerPlugin extends Plugin {
 
   studyWorkspaceSettings() {
     return studyWorkspace.normalizeStudyWorkspaceSettings(this.settings);
+  }
+
+  webBrowserEnabled() {
+    return webBrowser.normalizeBrowserSettings(this.settings.webBrowser).enabled;
+  }
+
+  webBrowserSettings() {
+    return webBrowser.normalizeBrowserSettings(this.settings.webBrowser);
+  }
+
+  /** Save the browser's local bookmarks and history; nothing here is sent anywhere. */
+  async updateWebBrowser(patch) {
+    const next = webBrowser.normalizeBrowserSettings({ ...this.webBrowserSettings(), ...(patch || {}) });
+    this.settings.webBrowser = next;
+    await this.save();
+    return next;
+  }
+
+  /** Open (or reuse) the browser view, optionally at an address or search. */
+  async openWebBrowser(address) {
+    const workspace = this.app.workspace;
+    let leaf = null;
+    if (typeof workspace.getLeavesOfType === "function") leaf = workspace.getLeavesOfType(VIEW_TYPE_WEB_BROWSER)[0] || null;
+    if (!leaf && typeof workspace.getRightLeaf === "function") leaf = workspace.getRightLeaf(false);
+    if (leaf && typeof leaf.setViewState === "function") await leaf.setViewState({ type: VIEW_TYPE_WEB_BROWSER, active: true });
+    if (leaf && typeof workspace.revealLeaf === "function") workspace.revealLeaf(leaf);
+    const view = leaf && leaf.view;
+    if (view && address && typeof view.openAddress === "function") await view.openAddress(address);
+    return view || null;
   }
 
   timeBlocksSettings() {
