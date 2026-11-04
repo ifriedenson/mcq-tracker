@@ -24,6 +24,8 @@ const canvasKanban = require("./canvas-kanban");
 const { KanbanReportModal } = require("./canvas-kanban-view");
 const canvasAutoLink = require("./canvas-auto-link");
 const { LinkReportModal } = require("./canvas-auto-link-view");
+const canvasPresentations = require("./canvas-presentations");
+const { PresentationModal, PresentationPlanModal } = require("./canvas-presentations-view");
 const { WebBrowserView } = require("./web-browser-view");
 const calendarPlanner = require("./calendar-planner");
 const citations = require("./citations");
@@ -434,6 +436,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "canvas-kanban-restack", name: "Canvas: re-stack the active board's kanban columns", callback: () => this.restackCanvasKanban() });
     this.addCommand({ id: "canvas-auto-link-report", name: "Canvas: report the active board's proposed links", callback: () => this.reportCanvasLinks() });
     this.addCommand({ id: "canvas-auto-link-apply", name: "Canvas: link the active board's matching cards", callback: () => this.applyCanvasLinks() });
+    this.addCommand({ id: "canvas-present-report", name: "Canvas: report the active board's presentation plan", callback: () => this.reportCanvasPresentation() });
+    this.addCommand({ id: "canvas-present", name: "Canvas: present the active board", callback: () => this.presentActiveCanvas() });
     this.addCommand({ id: "open-task-list", name: "Open the task list", callback: () => this.activateTaskList() });
     this.addCommand({ id: "open-reading-library", name: "Reading library: open the bookshelf", callback: () => this.activateStudyWorkspace("readingLibrary") });
     this.addCommand({ id: "new-feynman-cycle", name: "Feynman Learning: start a cycle", callback: () => this.activateStudyWorkspace("feynman") });
@@ -2143,6 +2147,45 @@ class QuestionTrackerPlugin extends Plugin {
     const message = "Added " + count + (count === 1 ? " link" : " links") + "; " + linked.summary;
     new Notice(message);
     return { ok: true, path: file.path, changed: true, applied: linked.applied, stats: linked.stats, summary: linked.summary, message };
+  }
+
+  /** Show the slide plan a presentation would walk through, without drawing it. */
+  async reportCanvasPresentation() {
+    const file = typeof this.app.workspace.getActiveFile === "function" ? this.app.workspace.getActiveFile() : null;
+    if (!file || !/\.canvas$/i.test(file.path)) {
+      new Notice("Open a canvas first.");
+      return { ok: false, reason: "file", message: "Open a canvas first." };
+    }
+    const report = canvasPresentations.presentationReport(await this.app.vault.read(file));
+    if (!report.ok) {
+      new Notice(report.message);
+      return report;
+    }
+    new PresentationPlanModal(this.app, report).open();
+    new Notice(report.summary);
+    return report;
+  }
+
+  /** Walk the open board as a read-only deck; the board is never written. */
+  async presentActiveCanvas() {
+    const file = typeof this.app.workspace.getActiveFile === "function" ? this.app.workspace.getActiveFile() : null;
+    if (!file || !/\.canvas$/i.test(file.path)) {
+      new Notice("Open a canvas first.");
+      return { ok: false, reason: "file", message: "Open a canvas first." };
+    }
+    const plan = canvasPresentations.presentationPlan(await this.app.vault.read(file));
+    if (!plan.ok) {
+      new Notice(plan.message);
+      return plan;
+    }
+    const modal = new PresentationModal(this.app, plan, (step) => {
+      new Notice("Slide " + (step.index + 1) + " of " + step.total + ": " + step.slide.title);
+    });
+    modal.open();
+    const first = plan.slides[0];
+    const total = plan.slides.length;
+    new Notice("Presenting " + total + (total === 1 ? " slide" : " slides") + ". Slide 1 of " + total + ": " + first.title);
+    return { ok: true, path: file.path, slides: total, mode: plan.mode, summary: plan.summary, stats: plan.stats, modal };
   }
 
   webBrowserEnabled() {

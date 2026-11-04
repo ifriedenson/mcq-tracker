@@ -29,5 +29,5 @@ portals, minimap, frames, LOD rendering, RTL and localisation, tutorials, and th
 TypeScript build (declined: the plugin stays dependency-free) or the `x-opc` format,
 which would write a private data model into the user's boards.
 
-The kanban column slice is in [canvas-kanban.md](canvas-kanban.md); auto-link is in [canvas-auto-link.md](canvas-auto-link.md), and the next slice, if
-approved, is presentations on the same pure model.
+The kanban column slice is in [canvas-kanban.md](canvas-kanban.md); auto-link is in [canvas-auto-link.md](canvas-auto-link.md) and presentations are in
+[canvas-presentations.md](canvas-presentations.md), on the same pure model.

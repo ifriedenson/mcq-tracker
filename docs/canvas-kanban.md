@@ -55,5 +55,7 @@ needs the canvas view's own drag handling (an Obsidian-internal surface), so the
 slice reads and re-stacks columns instead.
 
 The auto-link slice is in [canvas-auto-link.md](canvas-auto-link.md), on the same pure
-model. The next slice, if approved, is presentations: a full-window walkthrough that
-steps through a board's root cards without patching canvas internals.
+model. The presentations slice is in [canvas-presentations.md](canvas-presentations.md), on the
+same pure model. The next slice, if approved, is query groups: a frame whose label names
+a search, filled with the matching cards from the same model, never moving or removing
+the user's cards.

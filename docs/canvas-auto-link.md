@@ -73,5 +73,7 @@ Also not claimed: link arrows styled, labelled or routed by the plugin, and matc
 card to a vault note that has no card on the board. The slice links cards that are on the
 board and refuses to invent targets.
 
-The next slice, if approved, is presentations: a full-window walkthrough that steps
-through a board's root cards one at a time, without patching canvas internals.
+The presentations slice is in [canvas-presentations.md](canvas-presentations.md), on the
+same pure model. The next slice, if approved, is query groups: a frame whose label names
+a search, filled with the matching cards from the same model, never moving or removing
+the user's cards.

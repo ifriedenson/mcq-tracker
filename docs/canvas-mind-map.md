@@ -58,5 +58,7 @@ which would mean writing a private data model into the user's boards.
 
 The kanban column slice is in [canvas-kanban.md](canvas-kanban.md), on the same pure
 model and with the same no-dependency rule. The auto-link slice is in [canvas-auto-link.md](canvas-auto-link.md), on the same pure
-model. The next slice, if approved, is presentations: a full-window walkthrough that
-steps through a board's root cards without patching canvas internals.
+model. The presentations slice is in [canvas-presentations.md](canvas-presentations.md), on the
+same pure model. The next slice, if approved, is query groups: a frame whose label names
+a search, filled with the matching cards from the same model, never moving or removing
+the user's cards.
