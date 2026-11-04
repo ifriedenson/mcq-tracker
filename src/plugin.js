@@ -18,6 +18,7 @@ const { TaskListView } = require("./task-list-view");
 const studyWorkspace = require("./study-workspace");
 const timeBlocks = require("./time-blocks");
 const webBrowser = require("./web-browser");
+const canvasMarkdown = require("./canvas-markdown");
 const { WebBrowserView } = require("./web-browser-view");
 const calendarPlanner = require("./calendar-planner");
 const citations = require("./citations");
@@ -417,6 +418,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-study-workspace", name: "Open Study Workspace", callback: () => this.activateStudyWorkspace() });
     this.addCommand({ id: "open-time-blocks", name: "Time blocks: open the planner", callback: () => this.activateStudyWorkspace("timeBlocks") });
     this.addCommand({ id: "open-web-browser", name: "Web browser: open", callback: () => this.openWebBrowser() });
+    this.addCommand({ id: "canvas-to-outline", name: "Canvas: export the active canvas to a Markdown outline", callback: () => this.exportCanvasToMarkdown() });
+    this.addCommand({ id: "canvas-from-outline", name: "Canvas: build a board from the active note outline", callback: () => this.boardFromActiveNote() });
     this.addCommand({ id: "open-task-list", name: "Open the task list", callback: () => this.activateTaskList() });
     this.addCommand({ id: "open-reading-library", name: "Reading library: open the bookshelf", callback: () => this.activateStudyWorkspace("readingLibrary") });
     this.addCommand({ id: "new-feynman-cycle", name: "Feynman Learning: start a cycle", callback: () => this.activateStudyWorkspace("feynman") });
@@ -1903,6 +1906,53 @@ class QuestionTrackerPlugin extends Plugin {
 
   studyWorkspaceSettings() {
     return studyWorkspace.normalizeStudyWorkspaceSettings(this.settings);
+  }
+
+  async uniqueVaultPath(path) {
+    let candidate = path;
+    let index = 2;
+    while (this.app.vault.getAbstractFileByPath(candidate)) {
+      candidate = path.replace(/(\.[^.]+)$/, ` ${index}$1`);
+      index += 1;
+    }
+    return candidate;
+  }
+
+  /** Export the open canvas as a Markdown outline; the canvas itself is never written. */
+  async exportCanvasToMarkdown() {
+    const file = typeof this.app.workspace.getActiveFile === "function" ? this.app.workspace.getActiveFile() : null;
+    if (!file || !/\.canvas$/i.test(file.path)) {
+      new Notice("Open a canvas first.");
+      return { ok: false, reason: "file", message: "Open a canvas first." };
+    }
+    const parsed = canvasMarkdown.parseCanvas(await this.app.vault.read(file));
+    if (!parsed.ok) {
+      new Notice(parsed.message);
+      return parsed;
+    }
+    const converted = canvasMarkdown.canvasToOutline(parsed.canvas);
+    const path = await this.uniqueVaultPath(file.path.replace(/\.canvas$/i, "") + " outline.md");
+    await this.app.vault.create(path, converted.markdown);
+    new Notice(`Wrote ${path} from ${converted.stats.cards} cards.`);
+    return { ok: true, path, cards: converted.stats.cards };
+  }
+
+  /** Build a JSON Canvas board from the open note's heading/bullet outline. */
+  async boardFromActiveNote() {
+    const file = typeof this.app.workspace.getActiveFile === "function" ? this.app.workspace.getActiveFile() : null;
+    if (!file || !/\.md$/i.test(file.path)) {
+      new Notice("Open a Markdown note first.");
+      return { ok: false, reason: "file", message: "Open a Markdown note first." };
+    }
+    const converted = canvasMarkdown.outlineToCanvas(await this.app.vault.read(file));
+    if (!converted.ok) {
+      new Notice(converted.message);
+      return converted;
+    }
+    const path = await this.uniqueVaultPath(file.path.replace(/\.md$/i, "") + ".canvas");
+    await this.app.vault.create(path, canvasMarkdown.serializeCanvas(converted.canvas));
+    new Notice(`Wrote ${path} with ${converted.canvas.nodes.length} cards.`);
+    return { ok: true, path, cards: converted.canvas.nodes.length };
   }
 
   webBrowserEnabled() {
