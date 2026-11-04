@@ -56,6 +56,7 @@ portals, minimap, frames, LOD rendering, RTL and localisation, tutorials, and th
 TypeScript build (declined: the plugin stays dependency-free) or the `x-opc` format,
 which would mean writing a private data model into the user's boards.
 
-The next slice, if approved, is kanban columns: read a board's columns from its card
-positions and write them back as grouped cards, on the same pure model and with the
-same no-dependency rule.
+The kanban column slice is in [canvas-kanban.md](canvas-kanban.md), on the same pure
+model and with the same no-dependency rule. The next slice, if approved, is auto-link:
+one command that links a card to the vault note its text names, refusing to write an
+edge to a missing file.

@@ -39,6 +39,7 @@ function parseCanvas(raw) {
       id: node.id,
       type: node.type,
       text: text(node.text),
+      label: text(node.label),
       file: text(node.file),
       url: text(node.url),
       x: Number(node.x) || 0,

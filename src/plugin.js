@@ -20,6 +20,8 @@ const timeBlocks = require("./time-blocks");
 const webBrowser = require("./web-browser");
 const canvasMarkdown = require("./canvas-markdown");
 const canvasMap = require("./canvas-map");
+const canvasKanban = require("./canvas-kanban");
+const { KanbanReportModal } = require("./canvas-kanban-view");
 const { WebBrowserView } = require("./web-browser-view");
 const calendarPlanner = require("./calendar-planner");
 const citations = require("./citations");
@@ -426,6 +428,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "canvas-walk-next-sibling", name: "Canvas: mind map, go to the next sibling card", callback: () => this.walkCanvas("next") });
     this.addCommand({ id: "canvas-walk-prev-sibling", name: "Canvas: mind map, go to the previous sibling card", callback: () => this.walkCanvas("prev") });
     this.addCommand({ id: "canvas-layout", name: "Canvas: arrange the active board as a mind map", callback: () => this.layoutActiveCanvas() });
+    this.addCommand({ id: "canvas-kanban-report", name: "Canvas: report the active board's kanban columns", callback: () => this.reportCanvasKanban() });
+    this.addCommand({ id: "canvas-kanban-restack", name: "Canvas: re-stack the active board's kanban columns", callback: () => this.restackCanvasKanban() });
     this.addCommand({ id: "open-task-list", name: "Open the task list", callback: () => this.activateTaskList() });
     this.addCommand({ id: "open-reading-library", name: "Reading library: open the bookshelf", callback: () => this.activateStudyWorkspace("readingLibrary") });
     this.addCommand({ id: "new-feynman-cycle", name: "Feynman Learning: start a cycle", callback: () => this.activateStudyWorkspace("feynman") });
@@ -2054,6 +2058,46 @@ class QuestionTrackerPlugin extends Plugin {
     const message = "Arranged " + laid.stats.placed + " cards" + loose + ".";
     new Notice(message);
     return { ok: true, path: file.path, changed: true, stats: laid.stats, message };
+  }
+
+  /** Show the board's kanban columns and the cards that belong to none of them. */
+  async reportCanvasKanban() {
+    const file = typeof this.app.workspace.getActiveFile === "function" ? this.app.workspace.getActiveFile() : null;
+    if (!file || !/\.canvas$/i.test(file.path)) {
+      new Notice("Open a canvas first.");
+      return { ok: false, reason: "file", message: "Open a canvas first." };
+    }
+    const report = canvasKanban.kanbanReport(await this.app.vault.read(file));
+    if (!report.ok) {
+      new Notice(report.message);
+      return report;
+    }
+    new KanbanReportModal(this.app, report).open();
+    new Notice(report.summary);
+    return report;
+  }
+
+  /** Re-stack the open board's columns; only coordinates and group frames are written. */
+  async restackCanvasKanban() {
+    const file = typeof this.app.workspace.getActiveFile === "function" ? this.app.workspace.getActiveFile() : null;
+    if (!file || !/\.canvas$/i.test(file.path)) {
+      new Notice("Open a canvas first.");
+      return { ok: false, reason: "file", message: "Open a canvas first." };
+    }
+    const stacked = canvasKanban.restackColumns(await this.app.vault.read(file));
+    if (!stacked.ok) {
+      new Notice(stacked.message);
+      return stacked;
+    }
+    if (!stacked.changed) {
+      const message = "Those columns are already stacked (" + stacked.stats.cards + " cards).";
+      new Notice(message);
+      return { ok: true, path: file.path, changed: false, mode: stacked.mode, stats: stacked.stats, message };
+    }
+    await this.app.vault.modify(file, stacked.text);
+    const message = "Stacked " + stacked.stats.cards + " cards into " + stacked.stats.columns + (stacked.stats.columns === 1 ? " column" : " columns") + ".";
+    new Notice(message);
+    return { ok: true, path: file.path, changed: true, mode: stacked.mode, stats: stacked.stats, message };
   }
 
   webBrowserEnabled() {
