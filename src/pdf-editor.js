@@ -47,6 +47,7 @@ const MAX_LINK_DASH = 8;
 const MAX_LINK_DASH_VALUE = 100;
 const MAX_LINK_DASH_PHASE = 1000;
 const MAX_LINK_NAME = 200;
+const MAX_REMOTE_PAGE = 100000;
 const MAX_OUTLINE = 200;
 const MAX_OUTLINE_TITLE = 120;
 const MAX_OUTLINE_DEPTH = 3;
@@ -2289,14 +2290,17 @@ function updateLink(doc, options) {
   }
   /* the kind is the target the caller asked for, or the payload it supplied */
   const requestedKind = str(opts.target);
-  const target = requestedKind || (opts.file !== undefined ? "launch" : opts.name !== undefined ? "named" : opts.to !== undefined ? "page" : "url");
+  const target = requestedKind
+    || (opts.file !== undefined && (opts.to !== undefined || opts.name !== undefined) ? "remote"
+      : opts.file !== undefined ? "launch" : opts.name !== undefined ? "named" : opts.to !== undefined ? "page" : "url");
   const url = winAnsiText(opts.url).trim();
   const to = Math.round(Number(opts.to));
   const file = typeof opts.file === "string" ? opts.file.trim() : opts.file;
   const name = typeof opts.name === "string" ? opts.name.trim() : opts.name;
+  const nameText = typeof name === "string" ? name : "";
   let replacement = null;
   if (retarget) {
-    if (target !== "url" && target !== "page" && target !== "launch" && target !== "named") {
+    if (target !== "url" && target !== "page" && target !== "launch" && target !== "named" && target !== "remote") {
       return { ok: false, reason: "target", message: "A link can open an address, a page, a launch file or a named destination." };
     }
     if (target === "url" || target === "page") {
@@ -2320,6 +2324,27 @@ function updateLink(doc, options) {
       if (/[\u0000-\u001f\u007f]/.test(name)) return { ok: false, reason: "target", message: "A destination name cannot contain a control character." };
       if (name.includes("/")) return { ok: false, reason: "target", message: "A destination name cannot contain a slash." };
     }
+    if (target === "remote") {
+      if (opts.url !== undefined) return { ok: false, reason: "target", message: "A remote go-to takes a file path and a destination, not an address." };
+      if (typeof opts.file !== "string" || !file) return { ok: false, reason: "target", message: "Type the file a remote go-to opens." };
+      if (file.length > MAX_LINK_URL) return { ok: false, reason: "target", message: `A remote file path cannot be longer than ${MAX_LINK_URL} characters.` };
+      if (/[\u0000-\u001f\u007f]/.test(file)) return { ok: false, reason: "target", message: "A remote file path cannot contain a control character." };
+      if (opts.to !== undefined && opts.name !== undefined) {
+        return { ok: false, reason: "target", message: "A remote go-to names either a page or a destination name, not both." };
+      }
+      if (opts.to !== undefined) {
+        const remoteTo = Number(opts.to);
+        if (!Number.isFinite(remoteTo) || Math.round(remoteTo) !== remoteTo || remoteTo < 1 || remoteTo > MAX_REMOTE_PAGE) {
+          return { ok: false, reason: "target", message: `A remote page has to be a whole number from 1 to ${MAX_REMOTE_PAGE}.` };
+        }
+      } else if (typeof opts.name !== "string" || !name) {
+        return { ok: false, reason: "target", message: "Type the page or destination name this remote link opens." };
+      } else if (name.length > MAX_LINK_NAME) {
+        return { ok: false, reason: "target", message: `A remote destination name cannot be longer than ${MAX_LINK_NAME} characters.` };
+      } else if (/[\u0000-\u001f\u007f]/.test(name)) {
+        return { ok: false, reason: "target", message: "A remote destination name cannot contain a control character." };
+      }
+    }
     if (target === "url") {
       if (!url) return { ok: false, reason: "empty", message: "Type the address the link should open." };
       if (url.length > MAX_LINK_URL) return { ok: false, reason: "url", message: `A link address cannot be longer than ${MAX_LINK_URL} characters.` };
@@ -2334,6 +2359,17 @@ function updateLink(doc, options) {
         replacement = { key: PDFName.of("A"), value: action };
       } else if (target === "page") {
         replacement = { key: PDFName.of("Dest"), value: doc.context.obj([doc.getPage(to - 1).ref, PDFName.of("Fit")]) };
+      } else if (target === "remote") {
+        /* /GoToR: /F is a file specification, /D an explicit destination or a destination name */
+        const spec = doc.context.obj({ Type: "Filespec" });
+        spec.set(PDFName.of("F"), PDFHexString.fromText(file));
+        spec.set(PDFName.of("UF"), PDFHexString.fromText(file));
+        const action = doc.context.obj({ Type: "Action", S: "GoToR" });
+        action.set(PDFName.of("F"), spec);
+        action.set(PDFName.of("D"), opts.to !== undefined
+          ? doc.context.obj([to, PDFName.of("Fit")])
+          : /^[A-Za-z0-9][A-Za-z0-9._+-]*$/.test(name) ? PDFName.of(name) : PDFHexString.fromText(name));
+        replacement = { key: PDFName.of("A"), value: action };
       } else if (target === "launch") {
         /* /F is a file specification; the path is carried by its /F and /UF strings */
         const spec = doc.context.obj({ Type: "Filespec" });
@@ -2396,9 +2432,9 @@ function updateLink(doc, options) {
     target: retarget ? target : "",
     fromKind: retarget ? previous.kind : "",
     url: retarget && target === "url" ? url : "",
-    to: retarget && target === "page" ? to : 0,
-    file: retarget && target === "launch" ? file : "",
-    name: retarget && target === "named" ? name : "",
+    to: retarget && (target === "page" || target === "remote") && Number.isFinite(to) ? to : 0,
+    file: retarget && (target === "launch" || target === "remote") ? file : "",
+    name: retarget && (target === "named" || target === "remote") ? nameText : "",
   };
 }
 

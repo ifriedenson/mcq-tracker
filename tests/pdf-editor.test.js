@@ -2,7 +2,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const zlib = require("node:zlib");
-const { PDFDocument, PDFName, PDFDict, PDFString, PDFNumber, StandardFonts, degrees } = require("../vendor/pdf-lib.js");
+const { PDFDocument, PDFName, PDFDict, PDFArray, PDFString, PDFNumber, StandardFonts, degrees } = require("../vendor/pdf-lib.js");
 const editor = require("../src/pdf-editor");
 
 /** Four plain pages plus a text field, a checkbox and a dropdown on page one. */
@@ -2024,6 +2024,67 @@ test("keeps a launch target through every edit and refuses a wrong or unusable t
   assert.equal(editor.updateLink(opened.doc, { index: 1, target: "named", name: "\u0001" }).reason, "target", "a lone control character is refused");
   assert.equal(editor.updateLink(opened.doc, { index: 1, target: "named", name: "" }).reason, "target");
   assert.equal(editor.updateLink(opened.doc, { index: 1, target: "named", name: "/Chapter" }).reason, "target", "a slash is not part of a PDF name");
+  const after = (await editor.savePdf(opened.doc)).bytes;
+  assert.deepEqual(Array.from(after), Array.from(before), "a refused target changes no bytes");
+});
+
+test("retargets a remote go-to's file and page and keeps /S /GoToR", async () => {
+  const opened = await editor.loadEditorDocument(await (await linkedFixture()).save());
+  const asRemote = editor.updateLink(opened.doc, { index: 2, target: "remote", file: "notes2.pdf", to: 5 });
+  assert.deepEqual([asRemote.ok, asRemote.target, asRemote.file, asRemote.to, asRemote.fromKind], [true, "remote", "notes2.pdf", 5, "remote"], "the link stays a remote go-to");
+  const saved = await editor.savePdf(opened.doc);
+  const savedRaw = await PDFDocument.load(saved.bytes);
+  const action = linkAnnotation(savedRaw, 1).lookup(PDFName.of("A"), PDFDict);
+  assert.equal(String(action.get(PDFName.of("S"))), "/GoToR", "the emitted action is still /GoToR");
+  assert.equal(action.lookup(PDFName.of("F"), PDFDict).lookup(PDFName.of("F")).decodeText(), "notes2.pdf", "the file specifier carries the new path");
+  const destination = action.lookup(PDFName.of("D"), PDFArray);
+  assert.equal(destination.get(0).asNumber(), 5, "the destination names the page in the other file");
+  assert.equal(String(destination.get(1)), "/Fit");
+  const rows = editor.readLinks(savedRaw).links;
+  assert.deepEqual([rows[1].target, rows[1].file, rows[1].to, rows[1].name], ["remote", "notes2.pdf", 5, ""], "the file and page read back");
+});
+
+test("retargets a remote go-to's named destination and keeps it", async () => {
+  const opened = await editor.loadEditorDocument(await (await linkedFixture()).save());
+  const asNamed = editor.updateLink(opened.doc, { index: 2, target: "remote", file: "notes2.pdf", name: "Chapter 4" });
+  assert.deepEqual([asNamed.ok, asNamed.target, asNamed.file, asNamed.name, asNamed.to], [true, "remote", "notes2.pdf", "Chapter 4", 0]);
+  const saved = await editor.savePdf(opened.doc);
+  const savedRaw = await PDFDocument.load(saved.bytes);
+  const action = linkAnnotation(savedRaw, 1).lookup(PDFName.of("A"), PDFDict);
+  assert.equal(String(action.get(PDFName.of("S"))), "/GoToR");
+  assert.equal(action.lookup(PDFName.of("D")).decodeText(), "Chapter 4", "the destination is written as the name's text");
+  const rows = editor.readLinks(savedRaw).links;
+  assert.deepEqual([rows[1].target, rows[1].file, rows[1].to, rows[1].name], ["remote", "notes2.pdf", 0, "Chapter 4"], "the file and destination read back");
+});
+
+test("keeps a remote target through every edit and refuses a wrong or unusable one", async () => {
+  const opened = await editor.loadEditorDocument(await (await linkedFixture()).save());
+  assert.equal(editor.updateLink(opened.doc, { index: 2, target: "remote", file: "handout.pdf", to: 2 }).ok, true);
+  const styled = editor.updateLink(opened.doc, { index: 2, style: { width: 2, dash: "custom", pattern: [5, 2], phase: 3 } });
+  assert.deepEqual([styled.style.width, styled.style.phase], [2, 3]);
+  assert.equal(editor.updateLink(opened.doc, { index: 2, style: { highlight: "outline" } }).ok, true);
+  assert.equal(editor.updateLink(opened.doc, { index: 2, area: { x: 0.4, y: 0.4, width: 0.2, height: 0.1 } }).ok, true);
+  assert.equal(editor.updateLink(opened.doc, { index: 2, page: 4 }).ok, true, "the annotation moves to another page");
+
+  const saved = await editor.savePdf(opened.doc);
+  const savedRaw = await PDFDocument.load(saved.bytes);
+  const rows = editor.readLinks(savedRaw).links;
+  const remote = rows.find((row) => row.target === "remote");
+  assert.deepEqual([remote.page, remote.file, remote.to, remote.style.width, remote.style.phase, remote.style.highlight], [4, "handout.pdf", 2, 2, 3, "outline"], "the file, page destination, width, phase and highlight all survive");
+
+  const before = (await editor.savePdf(opened.doc)).bytes;
+  assert.equal(editor.updateLink(opened.doc, { index: 2, target: "remote", file: "", to: 2 }).reason, "target");
+  assert.match(editor.updateLink(opened.doc, { index: 2, target: "remote", file: "", to: 2 }).message, /file/i);
+  assert.equal(editor.updateLink(opened.doc, { index: 2, target: "remote", file: 42, to: 2 }).reason, "target", "a non-string path is refused");
+  assert.equal(editor.updateLink(opened.doc, { index: 2, target: "remote", file: "a\u0000b.pdf", to: 2 }).reason, "target", "a NUL is refused");
+  assert.equal(editor.updateLink(opened.doc, { index: 2, target: "remote", file: "a.pdf" }).reason, "target", "a remote link needs a destination");
+  assert.equal(editor.updateLink(opened.doc, { index: 2, target: "remote", file: "a.pdf", to: 0 }).reason, "target", "page 0 is not a remote page");
+  assert.equal(editor.updateLink(opened.doc, { index: 2, target: "remote", file: "a.pdf", to: "x" }).reason, "target", "a non-numeric page is refused");
+  assert.equal(editor.updateLink(opened.doc, { index: 2, target: "remote", file: "a.pdf", name: "" }).reason, "target");
+  assert.equal(editor.updateLink(opened.doc, { index: 2, target: "remote", file: "a.pdf", name: "A\u0001B" }).reason, "target", "a control character in a name is refused");
+  assert.equal(editor.updateLink(opened.doc, { index: 2, target: "remote", file: "a.pdf", to: 2, name: "Both" }).reason, "target", "a page and a name together are refused");
+  assert.equal(editor.updateLink(opened.doc, { index: 2, target: "remote", file: "a.pdf", to: 2, url: "https://example.com/x" }).reason, "target", "an address does not belong on a remote link");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, target: "launch", file: "a.pdf", to: 2 }).reason, "target", "a page does not belong on a launch link");
   const after = (await editor.savePdf(opened.doc)).bytes;
   assert.deepEqual(Array.from(after), Array.from(before), "a refused target changes no bytes");
 });

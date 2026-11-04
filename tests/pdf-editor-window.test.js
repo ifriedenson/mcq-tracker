@@ -1461,3 +1461,74 @@ test("pdf editor window: a launch file and a named destination are retargeted in
   assert.deepEqual([rows[0].style.width, rows[0].style.pattern, rows[0].style.phase], [2, [5, 2], 3], "the style and phase survive the retargets");
   modal.close();
 });
+
+/** The ordinary fixture plus a remote go-to on page 1. */
+async function remoteFixture() {
+  const doc = await PDFDocument.load(await fixture());
+  const annot = doc.context.obj({ Type: "Annot", Subtype: "Link", Rect: [40, 400, 120, 450], Border: [0, 0, 0], F: 4 });
+  const spec = doc.context.obj({ Type: "Filespec" });
+  spec.set(PDFName.of("F"), PDFString.of("notes.pdf"));
+  const action = doc.context.obj({ Type: "Action", S: "GoToR" });
+  action.set(PDFName.of("F"), spec);
+  action.set(PDFName.of("D"), doc.context.obj([PDFNumber.of(3), PDFName.of("Fit")]));
+  annot.set(PDFName.of("A"), action);
+  doc.getPage(0).node.addAnnot(doc.context.register(annot));
+  return doc.save();
+}
+
+test("pdf editor window: a remote go-to's file and destination are retargeted in place", async () => {
+  const app = makeApp([
+    { path: "Papers/Exam.pdf", noFm: true, text: "" },
+    { path: "Papers/Exam.annotations.md", noFm: true, text: SIDECAR },
+    { path: "Notes/Lecture.md", noFm: true, text: "# Lecture\n" },
+  ]);
+  app.files.find((file) => file.path === "Papers/Exam.pdf").buffer = await remoteFixture();
+  const plugin = new QT(app);
+  await plugin.onload();
+  const modal = openEditor(app, plugin, "Papers/Exam.pdf");
+  await modal.loading;
+
+  const read = () => editor.readLinks(modal.doc).links.map((row) => [row.target, row.file, row.to, row.name]);
+  assert.deepEqual(read(), [["remote", "notes.pdf", 3, ""]]);
+  const hint = modal.dom.all.find((entry) => entry.meta && entry.meta.tag === "span" && /remote go-to in notes\.pdf/.test(entry.meta.text || ""));
+  assert.ok(hint, "the change row names the remote file");
+
+  // the file and the page are set on the remote link, which keeps its kind
+  modal.content.linkEdit = "1";
+  modal.content.linkChangeKind = "remote";
+  modal.content.linkRemoteFile = "notes2.pdf";
+  modal.content.linkRemoteDest = "5";
+  await clickButton(modal.dom, "Change link");
+  assert.match(statusText(modal), /now opens notes2\.pdf page 5/);
+  assert.deepEqual(read()[0], ["remote", "notes2.pdf", 5, ""], "the remote link is still a remote go-to");
+  assert.equal(modal.history.states[modal.history.cursor].label, "change a link", "the retarget is one undo step");
+
+  // a width change and a custom dash phase leave the remote alone
+  modal.content.linkStyleWidth = "2";
+  modal.content.linkStyleDash = "custom";
+  modal.content.linkStylePattern = "5 2";
+  modal.content.linkStylePhase = "3";
+  await clickButton(modal.dom, "Style link");
+  assert.deepEqual(read()[0], ["remote", "notes2.pdf", 5, ""], "a restyle keeps the remote target");
+
+  // the destination can be a name in the other file instead of a page
+  modal.content.linkRemoteDest = "Chapter 4";
+  await clickButton(modal.dom, "Change link");
+  assert.match(statusText(modal), /now opens notes2\.pdf at Chapter 4/);
+  assert.deepEqual(read()[0], ["remote", "notes2.pdf", 0, "Chapter 4"]);
+
+  // an empty file is refused with a message and no change
+  modal.content.linkRemoteFile = "";
+  await clickButton(modal.dom, "Change link");
+  assert.deepEqual(read()[0], ["remote", "notes2.pdf", 0, "Chapter 4"], "an empty file is refused");
+  assert.match(statusText(modal), /file a remote go-to opens/i);
+
+  const sourceBefore = Uint8Array.from(app.files.find((file) => file.path === "Papers/Exam.pdf").buffer);
+  await modal.saveCopy();
+  assert.deepEqual(app.files.find((file) => file.path === "Papers/Exam.pdf").buffer, sourceBefore, "the source PDF is byte-for-byte unchanged");
+  const reopened = await editor.loadEditorDocument(app.createdBinary[0].buffer);
+  const rows = editor.readLinks(reopened.doc).links;
+  assert.deepEqual(rows.map((row) => [row.target, row.file, row.to, row.name]), [["remote", "notes2.pdf", 0, "Chapter 4"]], "the copy keeps the remote kind and its target");
+  assert.deepEqual([rows[0].style.width, rows[0].style.pattern, rows[0].style.phase], [2, [5, 2], 3], "the width, dash and phase survive the remote retargets");
+  modal.close();
+});

@@ -50334,6 +50334,7 @@ const MAX_LINK_DASH = 8;
 const MAX_LINK_DASH_VALUE = 100;
 const MAX_LINK_DASH_PHASE = 1000;
 const MAX_LINK_NAME = 200;
+const MAX_REMOTE_PAGE = 100000;
 const MAX_OUTLINE = 200;
 const MAX_OUTLINE_TITLE = 120;
 const MAX_OUTLINE_DEPTH = 3;
@@ -52576,14 +52577,17 @@ function updateLink(doc, options) {
   }
   /* the kind is the target the caller asked for, or the payload it supplied */
   const requestedKind = str(opts.target);
-  const target = requestedKind || (opts.file !== undefined ? "launch" : opts.name !== undefined ? "named" : opts.to !== undefined ? "page" : "url");
+  const target = requestedKind
+    || (opts.file !== undefined && (opts.to !== undefined || opts.name !== undefined) ? "remote"
+      : opts.file !== undefined ? "launch" : opts.name !== undefined ? "named" : opts.to !== undefined ? "page" : "url");
   const url = winAnsiText(opts.url).trim();
   const to = Math.round(Number(opts.to));
   const file = typeof opts.file === "string" ? opts.file.trim() : opts.file;
   const name = typeof opts.name === "string" ? opts.name.trim() : opts.name;
+  const nameText = typeof name === "string" ? name : "";
   let replacement = null;
   if (retarget) {
-    if (target !== "url" && target !== "page" && target !== "launch" && target !== "named") {
+    if (target !== "url" && target !== "page" && target !== "launch" && target !== "named" && target !== "remote") {
       return { ok: false, reason: "target", message: "A link can open an address, a page, a launch file or a named destination." };
     }
     if (target === "url" || target === "page") {
@@ -52607,6 +52611,27 @@ function updateLink(doc, options) {
       if (/[\u0000-\u001f\u007f]/.test(name)) return { ok: false, reason: "target", message: "A destination name cannot contain a control character." };
       if (name.includes("/")) return { ok: false, reason: "target", message: "A destination name cannot contain a slash." };
     }
+    if (target === "remote") {
+      if (opts.url !== undefined) return { ok: false, reason: "target", message: "A remote go-to takes a file path and a destination, not an address." };
+      if (typeof opts.file !== "string" || !file) return { ok: false, reason: "target", message: "Type the file a remote go-to opens." };
+      if (file.length > MAX_LINK_URL) return { ok: false, reason: "target", message: `A remote file path cannot be longer than ${MAX_LINK_URL} characters.` };
+      if (/[\u0000-\u001f\u007f]/.test(file)) return { ok: false, reason: "target", message: "A remote file path cannot contain a control character." };
+      if (opts.to !== undefined && opts.name !== undefined) {
+        return { ok: false, reason: "target", message: "A remote go-to names either a page or a destination name, not both." };
+      }
+      if (opts.to !== undefined) {
+        const remoteTo = Number(opts.to);
+        if (!Number.isFinite(remoteTo) || Math.round(remoteTo) !== remoteTo || remoteTo < 1 || remoteTo > MAX_REMOTE_PAGE) {
+          return { ok: false, reason: "target", message: `A remote page has to be a whole number from 1 to ${MAX_REMOTE_PAGE}.` };
+        }
+      } else if (typeof opts.name !== "string" || !name) {
+        return { ok: false, reason: "target", message: "Type the page or destination name this remote link opens." };
+      } else if (name.length > MAX_LINK_NAME) {
+        return { ok: false, reason: "target", message: `A remote destination name cannot be longer than ${MAX_LINK_NAME} characters.` };
+      } else if (/[\u0000-\u001f\u007f]/.test(name)) {
+        return { ok: false, reason: "target", message: "A remote destination name cannot contain a control character." };
+      }
+    }
     if (target === "url") {
       if (!url) return { ok: false, reason: "empty", message: "Type the address the link should open." };
       if (url.length > MAX_LINK_URL) return { ok: false, reason: "url", message: `A link address cannot be longer than ${MAX_LINK_URL} characters.` };
@@ -52621,6 +52646,17 @@ function updateLink(doc, options) {
         replacement = { key: PDFName.of("A"), value: action };
       } else if (target === "page") {
         replacement = { key: PDFName.of("Dest"), value: doc.context.obj([doc.getPage(to - 1).ref, PDFName.of("Fit")]) };
+      } else if (target === "remote") {
+        /* /GoToR: /F is a file specification, /D an explicit destination or a destination name */
+        const spec = doc.context.obj({ Type: "Filespec" });
+        spec.set(PDFName.of("F"), PDFHexString.fromText(file));
+        spec.set(PDFName.of("UF"), PDFHexString.fromText(file));
+        const action = doc.context.obj({ Type: "Action", S: "GoToR" });
+        action.set(PDFName.of("F"), spec);
+        action.set(PDFName.of("D"), opts.to !== undefined
+          ? doc.context.obj([to, PDFName.of("Fit")])
+          : /^[A-Za-z0-9][A-Za-z0-9._+-]*$/.test(name) ? PDFName.of(name) : PDFHexString.fromText(name));
+        replacement = { key: PDFName.of("A"), value: action };
       } else if (target === "launch") {
         /* /F is a file specification; the path is carried by its /F and /UF strings */
         const spec = doc.context.obj({ Type: "Filespec" });
@@ -52683,9 +52719,9 @@ function updateLink(doc, options) {
     target: retarget ? target : "",
     fromKind: retarget ? previous.kind : "",
     url: retarget && target === "url" ? url : "",
-    to: retarget && target === "page" ? to : 0,
-    file: retarget && target === "launch" ? file : "",
-    name: retarget && target === "named" ? name : "",
+    to: retarget && (target === "page" || target === "remote") && Number.isFinite(to) ? to : 0,
+    file: retarget && (target === "launch" || target === "remote") ? file : "",
+    name: retarget && (target === "named" || target === "remote") ? nameText : "",
   };
 }
 
@@ -53411,6 +53447,8 @@ class PdfEditorModal extends Modal {
       linkChangeKind: "url",
       linkLaunchFile: "",
       linkNamedDest: "",
+      linkRemoteFile: "",
+      linkRemoteDest: "",
       linkStyleHighlight: "keep",
       bookmarks: null,
       bookmarkZoom: "",
@@ -54194,7 +54232,7 @@ class PdfEditorModal extends Modal {
     changeRow.createSpan({ cls: "qt-hint", text: "Keeps the area; the address and jump above feed Change to Address and Change to Page." });
 
     const changeKindRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
-    this.contentSelect(changeKindRow, "Change to", "Link change kind", ["url", "page", "launch", "named"], this.content.linkChangeKind, (value) => {
+    this.contentSelect(changeKindRow, "Change to", "Link change kind", ["url", "page", "launch", "named", "remote"], this.content.linkChangeKind, (value) => {
       this.content.linkChangeKind = value;
     });
     this.contentInput(changeKindRow, "File path", "text", "Link launch file", this.content.linkLaunchFile, (value) => {
@@ -54203,7 +54241,13 @@ class PdfEditorModal extends Modal {
     this.contentInput(changeKindRow, "Destination", "text", "Link named destination", this.content.linkNamedDest, (value) => {
       this.content.linkNamedDest = value;
     });
-    changeKindRow.createSpan({ cls: "qt-hint", text: "Launch keeps /Launch and sets its file; Named keeps the destination name instead of converting it." });
+    this.contentInput(changeKindRow, "Remote file", "text", "Link remote file", this.content.linkRemoteFile, (value) => {
+      this.content.linkRemoteFile = value;
+    });
+    this.contentInput(changeKindRow, "Remote page or name", "text", "Link remote destination", this.content.linkRemoteDest, (value) => {
+      this.content.linkRemoteDest = value;
+    });
+    changeKindRow.createSpan({ cls: "qt-hint", text: "Launch keeps /Launch and sets its file, Named keeps the destination name, Remote keeps /GoToR and sets its file and page or name instead of converting it." });
 
     const linkAreaRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
     for (const [key, label] of [["linkAreaLeft", "Area left %"], ["linkAreaTop", "Area top %"], ["linkAreaWidth", "Area width %"], ["linkAreaHeight", "Area height %"]]) {
@@ -54742,14 +54786,20 @@ class PdfEditorModal extends Modal {
     if (kind === "page") opts.to = Number(this.content.linkTo);
     else if (kind === "launch") opts.file = this.content.linkLaunchFile;
     else if (kind === "named") opts.name = this.content.linkNamedDest;
-    else opts.url = this.content.linkUrl;
+    else if (kind === "remote") {
+      opts.file = this.content.linkRemoteFile;
+      const destination = String(this.content.linkRemoteDest ?? "").trim();
+      if (/^\d+$/.test(destination)) opts.to = Number(destination);
+      else if (destination !== "") opts.name = destination;
+    } else opts.url = this.content.linkUrl;
     return this.runMutation("change a link", () => updateLink(this.doc, opts), (result) => {
       this.renderContent();
       const instead = result.fromKind && result.fromKind !== result.target ? ` instead of ${this.linkKindWords(result.fromKind)}` : "";
       const opened = result.target === "url" ? result.url
         : result.target === "page" ? `page ${result.to}`
           : result.target === "launch" ? result.file
-            : `the destination ${result.name}`;
+            : result.target === "remote" ? `${result.file} ${result.to ? `page ${result.to}` : `at ${result.name}`}`
+              : `the destination ${result.name}`;
       const verb = result.target === "page" ? "jumps to" : "opens";
       this.setStatus(`Link ${result.index} on page ${result.page} now ${verb} ${opened}${instead}. Nothing is written until you save a copy.`);
     });
@@ -54805,7 +54855,7 @@ class PdfEditorModal extends Modal {
     if (row.target === "url") return `Link ${index} opens ${row.url}.`;
     if (row.target === "page") return `Link ${index} jumps to page ${row.to}.`;
     if (row.target === "launch") return `Link ${index} is a launch action for ${row.file || "a file"}; Change to Launch keeps it and sets the file.`;
-    if (row.target === "remote") return `Link ${index} is a remote go-to in ${row.file || "another file"}${row.to ? `, page ${row.to}` : ""}; a change replaces it.`;
+    if (row.target === "remote") return `Link ${index} is a remote go-to in ${row.file || "another file"}${row.to ? `, page ${row.to}` : row.name ? `, ${row.name}` : ""}; Change to Remote keeps it and sets the file and destination.`;
     if (row.target === "named") return `Link ${index} is a named destination${row.name ? ` ${row.name}` : ""}; Change to Named keeps it and sets the name.`;
     if (row.target === "other") return `Link ${index} runs ${row.name ? `a /${row.name}` : "an"} action, which this editor does not rewrite.`;
     return `Link ${index} has no action yet.`;
