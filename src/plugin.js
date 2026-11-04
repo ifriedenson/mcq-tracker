@@ -36,6 +36,7 @@ const vaultTaskIndex = require("./vault-task-index");
 const taskTags = require("./task-tags");
 const glossary = require("./glossary");
 const wordnet = require("./wordnet");
+const tableEditor = require("./table-editor");
 const writingSessions = require("./writing-sessions");
 const voiceMemo = require("./voice-memo");
 const { buildCornellNote } = require("./cornell");
@@ -235,6 +236,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.agentEditUndo = null;
     this.wordNetIndex = null;
     this.wordNetLoadedAt = 0;
+    this._tableEditQueue = Promise.resolve();
 
     // The timer is kept per device (not in the synced settings). One that was running when the
     // app closed becomes paused, counting only up to the last heartbeat (time away isn't counted).
@@ -289,6 +291,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.noteReviewDock = new NoteReviewDock(this);
     if (typeof this.registerMarkdownPostProcessor === "function") {
       this.registerMarkdownPostProcessor((el) => satCallout.syncSatCallouts(el));
+      this.registerMarkdownPostProcessor((el, ctx) => this.decorateTableEditor(el, ctx));
     }
     if (typeof activeDocument !== "undefined" && activeDocument) {
       this.registerDomEvent(activeDocument, "click", (event) => {
@@ -1004,6 +1007,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.retention = studyWorkspace.normalizeRetention(saved.retention);
     this.settings.vocabulary = studyWorkspace.normalizeVocabulary(saved.vocabulary);
     this.settings.wordNet = wordnet.normalizeWordNetSettings(saved.wordNet);
+    this.settings.tableEditor = tableEditor.normalizeTableEditorSettings(saved.tableEditor);
     this.settings.readingLibrary = readingLibrary.normalizeLibrary(saved.readingLibrary);
     this.settings.writingSession = writingSessions.normalizeWritingSession(saved.writingSession);
     this.settings.readAloud = readAloud.normalizeReadAloudSettings(saved.readAloud);
@@ -1845,6 +1849,10 @@ class QuestionTrackerPlugin extends Plugin {
     return studyWorkspace.normalizeVocabulary(this.settings.vocabulary).enabled;
   }
 
+  tableEditorEnabled() {
+    return tableEditor.normalizeTableEditorSettings(this.settings.tableEditor).enabled;
+  }
+
   readingLibraryEnabled() {
     return this.readingLibrarySettings().enabled;
   }
@@ -2150,6 +2158,26 @@ class QuestionTrackerPlugin extends Plugin {
     if (!this.studyWorkspaceEnabled()) {
       this.detachModuleLeaves([VIEW_TYPE_STUDY_WORKSPACE]);
       return;
+    }
+    this.refreshViews();
+  }
+
+  async onTableEditorToggled() {
+    const leaves = [];
+    const workspace = this.app && this.app.workspace;
+    if (workspace && typeof workspace.iterateAllLeaves === "function") {
+      workspace.iterateAllLeaves((leaf) => leaves.push(leaf));
+    }
+    for (const leaf of leaves) {
+      const view = leaf && leaf.view;
+      const preview = view && view.previewMode;
+      if (preview && typeof preview.rerender === "function") {
+        try {
+          preview.rerender(true);
+        } catch (e) {
+          // A view that is closing can refuse a rerender; the next open applies the switch.
+        }
+      }
     }
     this.refreshViews();
   }
@@ -9361,6 +9389,86 @@ ${body}
 
   wordNetLookup(query) {
     return wordnet.lookupWord(this.wordNetIndex, query);
+  }
+
+  /* ---- In-place rendered-table editing -------------------------------- */
+
+  tableEditorSettings() {
+    return tableEditor.normalizeTableEditorSettings(this.settings.tableEditor);
+  }
+
+  /** Attach editing only to rendered tables in a real reading view note. */
+  decorateTableEditor(el, ctx) {
+    if (!this.tableEditorEnabled() || !el) return;
+    if (typeof el.closest === "function" && el.closest(".markdown-embed")) return;
+    const root = typeof el.closest === "function" ? el.closest(".markdown-preview-view") || el.closest(".markdown-reading-view") : null;
+    if (!root) return;
+    const tables = typeof el.querySelectorAll === "function" ? Array.from(el.querySelectorAll("table")) : [];
+    if (!tables.length) return;
+    const sourcePath = str(ctx && ctx.sourcePath).trim();
+    if (!sourcePath) return;
+    const info = typeof ctx.getSectionInfo === "function" ? ctx.getSectionInfo(el) : null;
+    if (!info || !info.text) return;
+    const parsed = tableEditor.parseTables(info.text);
+    if (!parsed.length) return;
+    const lineStart = Math.max(0, Math.round(Number(info.lineStart) || 0));
+    tables.forEach((tableEl, index) => {
+      const table = tableEditor.findTable(parsed, tableEditor.renderedHeader(tableEl), index);
+      if (!table) return;
+      tableEditor.decorateTable(tableEl, {
+        table,
+        commit: (row, column, value) => this.updateTableCell(sourcePath, lineStart, table, row, column, value),
+        onError: (message) => {
+          if (message) new Notice(message);
+        },
+      });
+    });
+  }
+
+  /** Rewrites one table block in the note, preferring the live editor over disk. */
+  async updateTableCell(sourcePath, sectionStart, table, row, column, value) {
+    const path = str(sourcePath).trim();
+    if (!path) return { ok: false, reason: "path", message: "The note path is unavailable." };
+    if (!table || !Array.isArray(table.rows)) return { ok: false, reason: "table", message: "The table is no longer available." };
+    const task = async () => {
+      const file = this.app.vault.getAbstractFileByPath ? this.app.vault.getAbstractFileByPath(path) : null;
+      if (!file) return { ok: false, reason: "file", message: `Could not find ${path}.` };
+      const active = this.app.workspace && this.app.workspace.activeEditor;
+      const editor = active && active.file && active.file.path === path && active.editor ? active.editor : null;
+      let current = "";
+      if (editor && typeof editor.getValue === "function") current = str(editor.getValue());
+      else {
+        try {
+          current = await this.app.vault.read(file);
+        } catch (e) {
+          return { ok: false, reason: "read", message: `Could not read ${path}: ${str(e && e.message ? e.message : e)}` };
+        }
+      }
+      const startLine = Number.isFinite(Number(sectionStart)) ? Math.max(0, Math.round(Number(sectionStart))) : table.start;
+      const result = tableEditor.updateTableText(current, startLine, row, column, value, table);
+      if (!result.ok || !result.changed) return result;
+      const canUseEditor = editor && typeof editor.replaceRange === "function" && typeof editor.getLine === "function";
+      if (canUseEditor) {
+        const nextLine = editor.getLine(result.endLine + 1);
+        const hasNextLine = nextLine !== undefined && nextLine !== null;
+        const from = { line: result.startLine, ch: 0 };
+        const to = hasNextLine
+          ? { line: result.endLine + 1, ch: 0 }
+          : { line: result.endLine, ch: str(editor.getLine(result.endLine)).length };
+        // CodeMirror uses \n even when the file on disk uses CRLF.
+        editor.replaceRange(result.replacement.replace(/\r\n/g, "\n") + (hasNextLine ? "\n" : ""), from, to);
+      } else {
+        try {
+          await this.app.vault.modify(file, result.text);
+        } catch (e) {
+          return { ok: false, reason: "write", message: `Could not save ${path}: ${str(e && e.message ? e.message : e)}` };
+        }
+      }
+      return result;
+    };
+    const next = this._tableEditQueue.then(task, task);
+    this._tableEditQueue = next.catch(() => {});
+    return next;
   }
 
   async loadWordNet(folder) {

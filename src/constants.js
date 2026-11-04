@@ -184,6 +184,7 @@ const DEFAULT_SETTINGS = {
   retention: { enabled: true }, // read-only card forecast
   vocabulary: { enabled: true, words: [] }, // local dictionary and per-word review ladder
   wordNet: { enabled: false, folder: "WordNet" }, // offline full WordNet import, opt-in
+  tableEditor: { enabled: false }, // rendered-table cell editing and keyboard navigation, opt-in
   readingLibrary: { enabled: true, hideFinished: false, books: [] }, // local bookshelf, page progress and captured quotes
   writingSession: { path: "", startedAt: 0, baseline: 0, sessions: [] }, // read-only writing-session count; only session times are stored
   readAloud: { enabled: true, style: "full", rate: 1, pitch: 1, voice: "" }, // device speech synthesis, local only

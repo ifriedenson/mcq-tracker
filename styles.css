@@ -12226,3 +12226,16 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 .qt-text-timer-message {
   color: var(--text-error);
 }
+
+/* Advanced Tables: in-place rendered cell editing. */
+.qt-table-editor td[contenteditable="true"],
+.qt-table-editor th[contenteditable="true"] {
+  cursor: text;
+  outline: none;
+}
+
+.qt-table-editor td[contenteditable="true"]:focus,
+.qt-table-editor th[contenteditable="true"]:focus {
+  background: var(--background-modifier-hover);
+  box-shadow: inset 0 0 0 2px var(--interactive-accent);
+}

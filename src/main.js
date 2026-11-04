@@ -120,6 +120,7 @@ const vaultTaskIndex = require("./vault-task-index");
 const taskTags = require("./task-tags");
 const glossary = require("./glossary");
 const wordnet = require("./wordnet");
+const tableEditor = require("./table-editor");
 const writingSessions = require("./writing-sessions");
 const voiceMemo = require("./voice-memo");
 const { StudyWorkspaceView } = require("./study-workspace-view");
@@ -571,6 +572,7 @@ QuestionTrackerPlugin.__test = {
   taskTags,
   glossary,
   wordnet,
+  tableEditor,
   writingSessions,
   voiceMemo,
   cornell,

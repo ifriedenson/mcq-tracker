@@ -62,6 +62,7 @@ MCQ Tracker turns Obsidian into a local-first exam-prep workspace. Keep question
 - **Reading plans.** A `reading-plan` block schedules a book by page count, start and target dates, reading days and optional off days. It shows today's chunk, progress and the remaining schedule, and redistributes pages when you fall behind. Progress is logged locally and survives a restart; a passed target becomes **Off pace** rather than inventing a new deadline.
 - **Tag timers.** A `tag-timer` block turns Obsidian tags such as `#study/biology` into local stopwatches or countdowns, with start, pause, stop, reset and per-tag time analytics. State is stored locally and a running timer survives a restart.
 - **Tally and text timer.** A `tally` block counts Correct and Incorrect with adjustable steps, accuracy, CPS and elapsed time. A `text-timer` block adds a count-up clock to a passage. Both keep only local scratchpad state and never write a note, attempt or schedule. See [Tally and text timer](#tally-and-text-timer).
+- **Edit rendered tables in place (optional, off by default).** In reading view, turn on **Settings → Global → Advanced Tables** to make table cells editable. Tab/Shift+Tab and Enter/Shift+Enter move through the table (Tab leaves at the outer edge), and Alt+Arrow moves one cell. A commit rewrites the source table with aligned columns and escaped pipes, so the note stays valid Markdown. No sorting, formulas, CSV export, row/column insertion or merged cells are added in this slice.
 - **Optional local reminder.** Off by default, a quiet Today card and status-bar nudge appear once a day after the hour you choose. Dismiss it until tomorrow; it never sends an OS notification or a network request.
 - **Focus timer and study log.** Start a 15, 25 or 45 minute session tied to a course, pause and resume it, and log the result. Manual study entry covers offline work. Today shows today's minutes against a configurable daily goal, the current streak, the last seven days and your top courses.
 - **First-run welcome guide.** A short three-step guide on first install: what the plugin does, a preset chooser that sets the real module switches, and buttons for import, practice, Today, cards, calendar and settings. It is shown once per device, never blocks startup, stores progress locally and can be reopened from the command palette or Settings, Global, About.
@@ -150,6 +151,12 @@ The passage you want to time. The body is shown as plain text.
 ````
 
 **Start** begins a count-up clock, **Pause** freezes it, **Start** resumes and **Reset** clears it. The body is plain text, the run is capped at 24 hours and state survives a reload. This is separate from the Focus and Tag timers and is not added to study history.
+
+## Advanced Tables (optional, off by default)
+
+Turn on **Settings → Global → Advanced Tables** (or its own settings page) to edit rendered Markdown table cells in reading view. Click a cell, type, then press Tab, Shift+Tab or Enter to commit; clicking or tabbing away also commits. **Tab** at the last cell leaves the table through the browser's normal tab order, so the next table can receive focus. **Shift+Tab** at the first cell leaves backwards. **Enter** and **Shift+Enter** move down and up, and **Alt+Arrow** moves one cell in that direction. **Esc** cancels the current cell edit.
+
+The source stays an ordinary Markdown table. Every commit re-parses the block, pads all cells to the same width, preserves left/right/center alignment and escapes a typed pipe as `\|`. Code fences and YAML frontmatter are skipped when locating a table. The feature is deliberately limited to reading view and to editing/navigation: row and column insertion or deletion, move, sorting, formulas, merged cells and CSV export are not part of this release. Editing a cell replaces its inline formatting with plain text; use source mode for rich cell content.
 
 ## Analytics dashboard
 

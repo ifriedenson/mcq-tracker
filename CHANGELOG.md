@@ -1,3 +1,7 @@
+## 1.234.0 - 2026-11-04
+
+- **Advanced Tables editing and navigation (optional, off by default)**: rendered Markdown table cells can be edited in place in reading view, with Tab/Shift+Tab, Enter/Shift+Enter and Alt+Arrow moving between cells without wrapping or inserting a stray newline. Every commit maps the rendered table back to its source block and rewrites the whole block with padded columns, preserved alignment and escaped pipes, so the note stays valid after a cell contains `|` or after columns grow. The module reuses Obsidian's Markdown renderer and the plugin's existing editor/note-write path; it adds no second editor, provider, dependency or network request. Sorting, formulas, CSV export, row/column insertion and merged cells remain deferred.
+
 ## 1.233.0 - 2026-11-04
 
 - **Offline full WordNet**: the Vocabulary tab can import all four standard WordNet 3.x data files from the user's own copy, then search every noun, verb, adjective and adverb sense with glosses, synonyms and selected semantic relations. The parser and index are local and bounded; the data is stored in a vault folder, the index stays in memory, and a partial set or existing target is refused instead of overwritten. No lexical data is bundled or downloaded, and no dependency, provider, account or network request was added. The release also records the owner decisions: Code Runner stays deferred, full table-editor parity starts with editing/navigation after WordNet, UI/theme/navigation plugins stay out, and Copilot/Desmos/Excalidraw keep their local alternatives.

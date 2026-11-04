@@ -27,6 +27,7 @@ const timeBlocks = require("./time-blocks");
 const citations = require("./citations");
 const voiceMemo = require("./voice-memo");
 const wordnet = require("./wordnet");
+const tableEditor = require("./table-editor");
 
 /** Sidebar order follows the plan: local tools, then the workspace, then analysis. */
 const STUDY_TOOL_SETTINGS_MODULES = [
@@ -45,6 +46,7 @@ const STUDY_TOOL_SETTINGS_MODULES = [
   { id: "deep-notes", label: "Deep Notes", icon: "messages-square" },
   { id: "retention", label: "Retention", icon: "line-chart" },
   { id: "vocabulary", label: "Vocabulary", icon: "book-a" },
+  { id: "advanced-tables", label: "Advanced Tables", icon: "table" },
   { id: "reading-library", label: "Reading library", icon: "library" },
   { id: "citations", label: "Citations", icon: "book-marked" },
   { id: "quiz-index", label: "Quiz index", icon: "list-checks" },
@@ -438,6 +440,18 @@ const PAGES = {
       },
     ],
     open: { label: "Open Vocabulary", run: (plugin) => plugin.activateStudyWorkspace("vocabulary") },
+  },
+  "advanced-tables": {
+    title: "Advanced Tables",
+    description:
+      "Edit rendered Markdown table cells in place and move between them with Tab, Shift+Tab, Enter, Shift+Enter or Alt+Arrow. Every commit rewrites the source table with padded columns, escaped pipes and a valid delimiter row; formatting, sorting, formulas, merged cells and CSV export stay out of this slice.",
+    enabledGetter: "tableEditorEnabled",
+    enable: (plugin, v) => update(plugin, "tableEditor", tableEditor.normalizeTableEditorSettings, { enabled: v }),
+    afterToggle: "onTableEditorToggled",
+    toggleDesc: "Adds in-place cell editing and keyboard navigation to rendered Markdown tables. Off by default; no note changes happen until you edit a cell.",
+    status: (plugin) => plugin.tableEditorEnabled()
+      ? "Editable cells in reading view; the note keeps padded, valid Markdown table rows."
+      : "Off: rendered tables keep Obsidian's normal read-only behaviour.",
   },
   citations: {
     title: "Citations",
