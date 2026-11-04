@@ -52240,8 +52240,9 @@ function removeLinks(doc, options) {
 }
 
 /**
- * Retargets one link, keeping its page, rectangle, border and flags. The old
- * address or page jump is replaced in place, so nothing moves on the page.
+ * Changes one existing link in place: a new rectangle, a new address or page
+ * jump, or both. The page, border, flags and annotation identity are kept, so
+ * the box moves without deleting and re-adding the link.
  */
 function updateLink(doc, options) {
   const opts = options && typeof options === "object" ? options : {};
@@ -52251,35 +52252,71 @@ function updateLink(doc, options) {
   if (!Number.isFinite(index) || index < 1 || index > entries.length) {
     return { ok: false, reason: "index", message: `Link ${str(opts.index) || "?"} is not in this PDF (1 to ${entries.length}).` };
   }
-  const target = str(opts.target) === "page" ? "page" : "url";
-  const url = winAnsiText(opts.url).trim();
-  const to = Math.round(Number(opts.to));
-  if (target === "url") {
-    if (!url) return { ok: false, reason: "empty", message: "Type the address the link should open." };
-    if (url.length > MAX_LINK_URL) return { ok: false, reason: "url", message: `A link address cannot be longer than ${MAX_LINK_URL} characters.` };
-    if (!/^https?:\/\/\S+$/i.test(url)) return { ok: false, reason: "scheme", message: "A link opens an http or https address only." };
-  } else if (!Number.isFinite(to) || to < 1 || to > doc.getPageCount()) {
-    return { ok: false, reason: "page", message: `Page ${str(opts.to) || "?"} is not in this PDF.` };
-  }
   const entry = entries[index - 1];
   const dict = doc.context.lookup(entry.ref, PDFDict);
   if (!dict) return { ok: false, reason: "link", message: "That link could not be read back from this PDF." };
-  let replacement = null;
-  try {
-    if (target === "url") {
-      const action = doc.context.obj({ Type: "Action", S: "URI" });
-      action.set(PDFName.of("URI"), PDFHexString.fromText(url));
-      replacement = { key: PDFName.of("A"), value: action };
-    } else {
-      replacement = { key: PDFName.of("Dest"), value: doc.context.obj([doc.getPage(to - 1).ref, PDFName.of("Fit")]) };
+  const page = doc.getPage(entry.pageIndex);
+  let rect = null;
+  if (opts.area !== undefined && opts.area !== null) {
+    const area = typeof opts.area === "object" ? opts.area : {};
+    const box = { x: Number(area.x), y: Number(area.y), width: Number(area.width), height: Number(area.height) };
+    if (![box.x, box.y, box.width, box.height].every((value) => Number.isFinite(value))) {
+      return { ok: false, reason: "area", message: "A link area needs a left, a top, a width and a height." };
     }
-  } catch (error) {
-    return { ok: false, reason: "link", message: `That link could not be changed: ${pdfError(error)}` };
+    if (!(box.width > 0) || !(box.height > 0)) {
+      return { ok: false, reason: "area", message: "A link needs a width and a height." };
+    }
+    if (box.width < MIN_LINK_SIZE || box.height < MIN_LINK_SIZE) {
+      return { ok: false, reason: "area", message: "A link area is too small to click. Make it at least 0.2% of the page each way." };
+    }
+    if (box.x < 0 || box.y < 0 || box.x + box.width > 1.0001 || box.y + box.height > 1.0001) {
+      return { ok: false, reason: "area", message: "A link has to stay inside the page." };
+    }
+    const size = page.getSize();
+    const placed = displayRect(box, size.width, size.height, normalizedRotation(page.getRotation().angle));
+    rect = [placed.x, placed.y, placed.x + placed.width, placed.y + placed.height];
   }
-  dict.delete(PDFName.of("A"));
-  dict.delete(PDFName.of("Dest"));
-  dict.set(replacement.key, replacement.value);
-  return { ok: true, index, page: entry.pageIndex + 1, target, url: target === "url" ? url : "", to: target === "page" ? to : 0 };
+  const retarget = opts.target !== undefined || opts.url !== undefined || opts.to !== undefined;
+  if (!rect && !retarget) return { ok: false, reason: "empty", message: "Give the link a new area or a new address." };
+  const target = str(opts.target) === "page" ? "page" : "url";
+  const url = winAnsiText(opts.url).trim();
+  const to = Math.round(Number(opts.to));
+  let replacement = null;
+  if (retarget) {
+    if (target === "url") {
+      if (!url) return { ok: false, reason: "empty", message: "Type the address the link should open." };
+      if (url.length > MAX_LINK_URL) return { ok: false, reason: "url", message: `A link address cannot be longer than ${MAX_LINK_URL} characters.` };
+      if (!/^https?:\/\/\S+$/i.test(url)) return { ok: false, reason: "scheme", message: "A link opens an http or https address only." };
+    } else if (!Number.isFinite(to) || to < 1 || to > doc.getPageCount()) {
+      return { ok: false, reason: "page", message: `Page ${str(opts.to) || "?"} is not in this PDF.` };
+    }
+    try {
+      if (target === "url") {
+        const action = doc.context.obj({ Type: "Action", S: "URI" });
+        action.set(PDFName.of("URI"), PDFHexString.fromText(url));
+        replacement = { key: PDFName.of("A"), value: action };
+      } else {
+        replacement = { key: PDFName.of("Dest"), value: doc.context.obj([doc.getPage(to - 1).ref, PDFName.of("Fit")]) };
+      }
+    } catch (error) {
+      return { ok: false, reason: "link", message: `That link could not be changed: ${pdfError(error)}` };
+    }
+  }
+  if (rect) dict.set(PDFName.of("Rect"), doc.context.obj(rect));
+  if (replacement) {
+    dict.delete(PDFName.of("A"));
+    dict.delete(PDFName.of("Dest"));
+    dict.set(replacement.key, replacement.value);
+  }
+  return {
+    ok: true,
+    index,
+    page: entry.pageIndex + 1,
+    moved: Boolean(rect),
+    target: retarget ? target : "",
+    url: retarget && target === "url" ? url : "",
+    to: retarget && target === "page" ? to : 0,
+  };
 }
 
 /** Every link annotation in the file, in page order, capped. */
@@ -52995,6 +53032,10 @@ class PdfEditorModal extends Modal {
       linkPage: "0",
       linkRemove: "1",
       linkEdit: "1",
+      linkAreaLeft: "",
+      linkAreaTop: "",
+      linkAreaWidth: "",
+      linkAreaHeight: "",
       bookmarks: null,
       bookmarkZoom: "",
       bookmarkTop: "",
@@ -53775,6 +53816,16 @@ class PdfEditorModal extends Modal {
     changeButton.addEventListener("click", () => this.changeLinkContent());
     changeRow.createSpan({ cls: "qt-hint", text: "Keeps the area; uses the kind, address and jump above." });
 
+    const linkAreaRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
+    for (const [key, label] of [["linkAreaLeft", "Area left %"], ["linkAreaTop", "Area top %"], ["linkAreaWidth", "Area width %"], ["linkAreaHeight", "Area height %"]]) {
+      this.contentInput(linkAreaRow, label, "number", `New link ${label.toLowerCase()}`, this.content[key], (value) => {
+        this.content[key] = value;
+      });
+    }
+    const moveButton = linkAreaRow.createEl("button", { text: "Move link", cls: "qt-grow" });
+    moveButton.addEventListener("click", () => this.moveLinkContent());
+    linkAreaRow.createSpan({ cls: "qt-hint", text: "All four move the box and keep the address." });
+
     host.createEl("h4", { text: "Bookmarks" });
     const bookmarkRow = host.createDiv({ cls: "qt-pdf-editor-row" });
     const bookmarkArea = bookmarkRow.createEl("textarea", { cls: "qt-pdf-editor-input" });
@@ -54182,6 +54233,24 @@ class PdfEditorModal extends Modal {
       this.setStatus(result.written
         ? `Wrote ${result.written} bookmark${result.written === 1 ? "" : "s"} in ${result.depth} level${result.depth === 1 ? "" : "s"}${at}. Nothing is written until you save a copy.`
         : "The bookmarks are cleared for the copy you save. Nothing is written until you save a copy.");
+    });
+  }
+
+  /** Replaces one link's rectangle in place, keeping its address. */
+  moveLinkContent() {
+    const fields = [this.content.linkAreaLeft, this.content.linkAreaTop, this.content.linkAreaWidth, this.content.linkAreaHeight]
+      .map((value) => String(value ?? "").trim());
+    return this.runMutation("move a link", () => updateLink(this.doc, {
+      index: Number(this.content.linkEdit),
+      area: {
+        x: fields[0] === "" ? NaN : Number(fields[0]) / 100,
+        y: fields[1] === "" ? NaN : Number(fields[1]) / 100,
+        width: fields[2] === "" ? NaN : Number(fields[2]) / 100,
+        height: fields[3] === "" ? NaN : Number(fields[3]) / 100,
+      },
+    }), (result) => {
+      this.renderContent();
+      this.setStatus(`Link ${result.index} on page ${result.page} now sits ${fields[2]}% wide and ${fields[3]}% tall at ${fields[0]}% across and ${fields[1]}% down, with its address unchanged. Nothing is written until you save a copy.`);
     });
   }
 

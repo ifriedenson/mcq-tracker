@@ -1427,3 +1427,68 @@ test("refuses a link edit that cannot be applied", async () => {
   assert.equal(editor.updateLink(opened.doc, { index: 1, target: "page", to: 9 }).reason, "page");
   assert.equal(editor.readLinks(opened.doc).links[0].url, "https://example.com/keep", "a refused edit changes nothing");
 });
+
+/** The first /Link annotation on a page of a reloaded document, not a form widget. */
+function linkAnnotation(doc, pageIndex) {
+  for (const ref of doc.getPage(pageIndex).node.Annots().asArray()) {
+    const dict = doc.context.lookup(ref, PDFDict);
+    if (dict && String(dict.get(PDFName.of("Subtype"))) === "/Link") return dict;
+  }
+  return null;
+}
+
+test("moves a link rectangle and keeps its annotation and address", async () => {
+  const opened = await editor.loadEditorDocument(await fixture());
+  editor.addLink(opened.doc, { target: "url", url: "https://example.com/keep", area: { x: 0.1, y: 0.1, width: 0.2, height: 0.05 }, pages: 0 });
+  const moved = editor.updateLink(opened.doc, { index: 1, area: { x: 0.5, y: 0.6, width: 0.25, height: 0.1 } });
+  assert.equal(moved.ok, true);
+  assert.equal(moved.moved, true);
+  const saved = await editor.savePdf(opened.doc);
+  const links = editor.readLinks((await editor.loadEditorDocument(saved.bytes)).doc);
+  assert.equal(links.total, 1, "the same single annotation is edited, not replaced");
+  assert.equal(links.links[0].url, "https://example.com/keep", "the address is untouched");
+  const raw = await PDFDocument.load(saved.bytes);
+  const annot = linkAnnotation(raw, 0);
+  assert.ok(annot, "the link annotation is still there");
+  const rect = annot.lookup(PDFName.of("Rect"));
+  const corners = [rect.get(0).asNumber(), rect.get(1).asNumber(), rect.get(2).asNumber(), rect.get(3).asNumber()].map((value) => Math.round(value * 100) / 100);
+  assert.deepEqual(corners, [200, 150, 300, 200], "the new box is written to /Rect in PDF points");
+  assert.deepEqual([annot.lookup(PDFName.of("Border")).get(0).asNumber(), annot.lookup(PDFName.of("F")).asNumber()], [0, 4], "border and flags survive");
+});
+
+test("moves the rectangle and retargets in the same edit", async () => {
+  const opened = await editor.loadEditorDocument(await fixture());
+  editor.addLink(opened.doc, { target: "page", to: 3, area: { x: 0.1, y: 0.1, width: 0.2, height: 0.1 }, pages: 1 });
+  const changed = editor.updateLink(opened.doc, {
+    index: 1,
+    target: "url",
+    url: "https://example.com/moved",
+    area: { x: 0, y: 0, width: 0.5, height: 0.2 },
+  });
+  assert.deepEqual([changed.ok, changed.page, changed.target, changed.url], [true, 2, "url", "https://example.com/moved"]);
+  const saved = await editor.savePdf(opened.doc);
+  const rows = editor.readLinks((await editor.loadEditorDocument(saved.bytes)).doc).links;
+  assert.deepEqual([rows.length, rows[0].page, rows[0].url, rows[0].to], [1, 2, "https://example.com/moved", 0]);
+  const area = rows[0].area;
+  assert.ok(Math.abs(area.width - 0.5) < 0.01 && Math.abs(area.height - 0.2) < 0.01, `moved area is ${JSON.stringify(area)}`);
+});
+
+test("refuses an unusable link rectangle", async () => {
+  const opened = await editor.loadEditorDocument(await fixture());
+  assert.equal(editor.updateLink(opened.doc, { index: 1, area: { x: 0.1, y: 0.1, width: 0.2, height: 0.1 } }).reason, "empty");
+  editor.addLink(opened.doc, { target: "url", url: "https://example.com/keep", area: { x: 0.1, y: 0.1, width: 0.2, height: 0.05 }, pages: 0 });
+  assert.equal(editor.updateLink(opened.doc, { index: 0, area: { x: 0.1, y: 0.1, width: 0.2, height: 0.1 } }).reason, "index");
+  assert.equal(editor.updateLink(opened.doc, { index: 2, area: { x: 0.1, y: 0.1, width: 0.2, height: 0.1 } }).reason, "index");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, area: { x: "left", y: 0.1, width: 0.2, height: 0.1 } }).reason, "area");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, area: { x: 0.1, y: 0.1, width: 0, height: 0.1 } }).reason, "area");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, area: { x: 0.1, y: 0.1, width: 0.2, height: -0.1 } }).reason, "area");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, area: { x: 0.9, y: 0.1, width: 0.5, height: 0.1 } }).reason, "area");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, area: { x: 0.1, y: 0.1, width: 0.2 } }).reason, "area");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, target: "page", to: 9, area: { x: 0.1, y: 0.1, width: 0.2, height: 0.1 } }).reason, "page");
+  const raw = await PDFDocument.load((await editor.savePdf(opened.doc)).bytes);
+  const annot = linkAnnotation(raw, 0);
+  const rect = annot.lookup(PDFName.of("Rect"));
+  const kept = [rect.get(0).asNumber(), rect.get(1).asNumber(), rect.get(2).asNumber(), rect.get(3).asNumber()].map((value) => Math.round(value * 100) / 100);
+  assert.deepEqual(kept, [40, 425, 120, 450], "a refused edit leaves the original rectangle alone");
+  assert.equal(editor.readLinks((await editor.loadEditorDocument((await editor.savePdf(opened.doc)).bytes)).doc).links[0].url, "https://example.com/keep");
+});

@@ -201,6 +201,10 @@ class PdfEditorModal extends Modal {
       linkPage: "0",
       linkRemove: "1",
       linkEdit: "1",
+      linkAreaLeft: "",
+      linkAreaTop: "",
+      linkAreaWidth: "",
+      linkAreaHeight: "",
       bookmarks: null,
       bookmarkZoom: "",
       bookmarkTop: "",
@@ -981,6 +985,16 @@ class PdfEditorModal extends Modal {
     changeButton.addEventListener("click", () => this.changeLinkContent());
     changeRow.createSpan({ cls: "qt-hint", text: "Keeps the area; uses the kind, address and jump above." });
 
+    const linkAreaRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
+    for (const [key, label] of [["linkAreaLeft", "Area left %"], ["linkAreaTop", "Area top %"], ["linkAreaWidth", "Area width %"], ["linkAreaHeight", "Area height %"]]) {
+      this.contentInput(linkAreaRow, label, "number", `New link ${label.toLowerCase()}`, this.content[key], (value) => {
+        this.content[key] = value;
+      });
+    }
+    const moveButton = linkAreaRow.createEl("button", { text: "Move link", cls: "qt-grow" });
+    moveButton.addEventListener("click", () => this.moveLinkContent());
+    linkAreaRow.createSpan({ cls: "qt-hint", text: "All four move the box and keep the address." });
+
     host.createEl("h4", { text: "Bookmarks" });
     const bookmarkRow = host.createDiv({ cls: "qt-pdf-editor-row" });
     const bookmarkArea = bookmarkRow.createEl("textarea", { cls: "qt-pdf-editor-input" });
@@ -1388,6 +1402,24 @@ class PdfEditorModal extends Modal {
       this.setStatus(result.written
         ? `Wrote ${result.written} bookmark${result.written === 1 ? "" : "s"} in ${result.depth} level${result.depth === 1 ? "" : "s"}${at}. Nothing is written until you save a copy.`
         : "The bookmarks are cleared for the copy you save. Nothing is written until you save a copy.");
+    });
+  }
+
+  /** Replaces one link's rectangle in place, keeping its address. */
+  moveLinkContent() {
+    const fields = [this.content.linkAreaLeft, this.content.linkAreaTop, this.content.linkAreaWidth, this.content.linkAreaHeight]
+      .map((value) => String(value ?? "").trim());
+    return this.runMutation("move a link", () => updateLink(this.doc, {
+      index: Number(this.content.linkEdit),
+      area: {
+        x: fields[0] === "" ? NaN : Number(fields[0]) / 100,
+        y: fields[1] === "" ? NaN : Number(fields[1]) / 100,
+        width: fields[2] === "" ? NaN : Number(fields[2]) / 100,
+        height: fields[3] === "" ? NaN : Number(fields[3]) / 100,
+      },
+    }), (result) => {
+      this.renderContent();
+      this.setStatus(`Link ${result.index} on page ${result.page} now sits ${fields[2]}% wide and ${fields[3]}% tall at ${fields[0]}% across and ${fields[1]}% down, with its address unchanged. Nothing is written until you save a copy.`);
     });
   }
 

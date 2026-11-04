@@ -1953,8 +1953,9 @@ function removeLinks(doc, options) {
 }
 
 /**
- * Retargets one link, keeping its page, rectangle, border and flags. The old
- * address or page jump is replaced in place, so nothing moves on the page.
+ * Changes one existing link in place: a new rectangle, a new address or page
+ * jump, or both. The page, border, flags and annotation identity are kept, so
+ * the box moves without deleting and re-adding the link.
  */
 function updateLink(doc, options) {
   const opts = options && typeof options === "object" ? options : {};
@@ -1964,35 +1965,71 @@ function updateLink(doc, options) {
   if (!Number.isFinite(index) || index < 1 || index > entries.length) {
     return { ok: false, reason: "index", message: `Link ${str(opts.index) || "?"} is not in this PDF (1 to ${entries.length}).` };
   }
-  const target = str(opts.target) === "page" ? "page" : "url";
-  const url = winAnsiText(opts.url).trim();
-  const to = Math.round(Number(opts.to));
-  if (target === "url") {
-    if (!url) return { ok: false, reason: "empty", message: "Type the address the link should open." };
-    if (url.length > MAX_LINK_URL) return { ok: false, reason: "url", message: `A link address cannot be longer than ${MAX_LINK_URL} characters.` };
-    if (!/^https?:\/\/\S+$/i.test(url)) return { ok: false, reason: "scheme", message: "A link opens an http or https address only." };
-  } else if (!Number.isFinite(to) || to < 1 || to > doc.getPageCount()) {
-    return { ok: false, reason: "page", message: `Page ${str(opts.to) || "?"} is not in this PDF.` };
-  }
   const entry = entries[index - 1];
   const dict = doc.context.lookup(entry.ref, PDFDict);
   if (!dict) return { ok: false, reason: "link", message: "That link could not be read back from this PDF." };
-  let replacement = null;
-  try {
-    if (target === "url") {
-      const action = doc.context.obj({ Type: "Action", S: "URI" });
-      action.set(PDFName.of("URI"), PDFHexString.fromText(url));
-      replacement = { key: PDFName.of("A"), value: action };
-    } else {
-      replacement = { key: PDFName.of("Dest"), value: doc.context.obj([doc.getPage(to - 1).ref, PDFName.of("Fit")]) };
+  const page = doc.getPage(entry.pageIndex);
+  let rect = null;
+  if (opts.area !== undefined && opts.area !== null) {
+    const area = typeof opts.area === "object" ? opts.area : {};
+    const box = { x: Number(area.x), y: Number(area.y), width: Number(area.width), height: Number(area.height) };
+    if (![box.x, box.y, box.width, box.height].every((value) => Number.isFinite(value))) {
+      return { ok: false, reason: "area", message: "A link area needs a left, a top, a width and a height." };
     }
-  } catch (error) {
-    return { ok: false, reason: "link", message: `That link could not be changed: ${pdfError(error)}` };
+    if (!(box.width > 0) || !(box.height > 0)) {
+      return { ok: false, reason: "area", message: "A link needs a width and a height." };
+    }
+    if (box.width < MIN_LINK_SIZE || box.height < MIN_LINK_SIZE) {
+      return { ok: false, reason: "area", message: "A link area is too small to click. Make it at least 0.2% of the page each way." };
+    }
+    if (box.x < 0 || box.y < 0 || box.x + box.width > 1.0001 || box.y + box.height > 1.0001) {
+      return { ok: false, reason: "area", message: "A link has to stay inside the page." };
+    }
+    const size = page.getSize();
+    const placed = displayRect(box, size.width, size.height, normalizedRotation(page.getRotation().angle));
+    rect = [placed.x, placed.y, placed.x + placed.width, placed.y + placed.height];
   }
-  dict.delete(PDFName.of("A"));
-  dict.delete(PDFName.of("Dest"));
-  dict.set(replacement.key, replacement.value);
-  return { ok: true, index, page: entry.pageIndex + 1, target, url: target === "url" ? url : "", to: target === "page" ? to : 0 };
+  const retarget = opts.target !== undefined || opts.url !== undefined || opts.to !== undefined;
+  if (!rect && !retarget) return { ok: false, reason: "empty", message: "Give the link a new area or a new address." };
+  const target = str(opts.target) === "page" ? "page" : "url";
+  const url = winAnsiText(opts.url).trim();
+  const to = Math.round(Number(opts.to));
+  let replacement = null;
+  if (retarget) {
+    if (target === "url") {
+      if (!url) return { ok: false, reason: "empty", message: "Type the address the link should open." };
+      if (url.length > MAX_LINK_URL) return { ok: false, reason: "url", message: `A link address cannot be longer than ${MAX_LINK_URL} characters.` };
+      if (!/^https?:\/\/\S+$/i.test(url)) return { ok: false, reason: "scheme", message: "A link opens an http or https address only." };
+    } else if (!Number.isFinite(to) || to < 1 || to > doc.getPageCount()) {
+      return { ok: false, reason: "page", message: `Page ${str(opts.to) || "?"} is not in this PDF.` };
+    }
+    try {
+      if (target === "url") {
+        const action = doc.context.obj({ Type: "Action", S: "URI" });
+        action.set(PDFName.of("URI"), PDFHexString.fromText(url));
+        replacement = { key: PDFName.of("A"), value: action };
+      } else {
+        replacement = { key: PDFName.of("Dest"), value: doc.context.obj([doc.getPage(to - 1).ref, PDFName.of("Fit")]) };
+      }
+    } catch (error) {
+      return { ok: false, reason: "link", message: `That link could not be changed: ${pdfError(error)}` };
+    }
+  }
+  if (rect) dict.set(PDFName.of("Rect"), doc.context.obj(rect));
+  if (replacement) {
+    dict.delete(PDFName.of("A"));
+    dict.delete(PDFName.of("Dest"));
+    dict.set(replacement.key, replacement.value);
+  }
+  return {
+    ok: true,
+    index,
+    page: entry.pageIndex + 1,
+    moved: Boolean(rect),
+    target: retarget ? target : "",
+    url: retarget && target === "url" ? url : "",
+    to: retarget && target === "page" ? to : 0,
+  };
 }
 
 /** Every link annotation in the file, in page order, capped. */
