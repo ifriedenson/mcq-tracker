@@ -1954,8 +1954,9 @@ function removeLinks(doc, options) {
 
 /**
  * Changes one existing link in place: a new rectangle, a new address or page
- * jump, or both. The page, border, flags and annotation identity are kept, so
- * the box moves without deleting and re-adding the link.
+ * jump, and optionally a new page for the annotation itself. The border, flags
+ * and annotation identity are kept, so the same annotation moves instead of
+ * being deleted and re-added somewhere else.
  */
 function updateLink(doc, options) {
   const opts = options && typeof options === "object" ? options : {};
@@ -1968,7 +1969,27 @@ function updateLink(doc, options) {
   const entry = entries[index - 1];
   const dict = doc.context.lookup(entry.ref, PDFDict);
   if (!dict) return { ok: false, reason: "link", message: "That link could not be read back from this PDF." };
-  const page = doc.getPage(entry.pageIndex);
+  const fromPage = entry.pageIndex + 1;
+  const relocate = opts.page !== undefined && opts.page !== null && str(opts.page) !== "";
+  let pageNumber = fromPage;
+  let page = doc.getPage(entry.pageIndex);
+  if (relocate) {
+    const requested = Number(opts.page);
+    if (!Number.isFinite(requested) || Math.round(requested) !== requested) {
+      return { ok: false, reason: "page", message: `Page ${str(opts.page) || "?"} is not in this PDF.` };
+    }
+    if (requested < 1 || requested > doc.getPageCount()) {
+      return { ok: false, reason: "page", message: `Page ${requested} is not in this PDF (1 to ${doc.getPageCount()}).` };
+    }
+    if (requested === fromPage) {
+      return { ok: false, reason: "samepage", message: `Link ${index} is already on page ${fromPage}. Pick a different page to move it to.` };
+    }
+    pageNumber = requested;
+    page = doc.getPage(pageNumber - 1);
+  }
+  /* the target page owns the geometry: its own size and /Rotate place the box */
+  const size = page.getSize();
+  const rotation = normalizedRotation(page.getRotation().angle);
   let rect = null;
   if (opts.area !== undefined && opts.area !== null) {
     const area = typeof opts.area === "object" ? opts.area : {};
@@ -1985,8 +2006,20 @@ function updateLink(doc, options) {
     if (box.x < 0 || box.y < 0 || box.x + box.width > 1.0001 || box.y + box.height > 1.0001) {
       return { ok: false, reason: "area", message: "A link has to stay inside the page." };
     }
-    const size = page.getSize();
-    const placed = displayRect(box, size.width, size.height, normalizedRotation(page.getRotation().angle));
+    const placed = displayRect(box, size.width, size.height, rotation);
+    if (placed.x < -0.01 || placed.y < -0.01 || placed.x + placed.width > size.width + 0.01 || placed.y + placed.height > size.height + 0.01) {
+      return { ok: false, reason: "area", message: "A link has to stay inside the page." };
+    }
+    rect = [placed.x, placed.y, placed.x + placed.width, placed.y + placed.height];
+  }
+  if (relocate && !rect) {
+    /* no new box asked for: keep the link's visible place on its new page */
+    const source = doc.getPage(entry.pageIndex);
+    const current = displayArea(dict.lookupMaybe(PDFName.of("Rect"), PDFArray), source.getSize(), normalizedRotation(source.getRotation().angle));
+    if (!(current.width > 0) || !(current.height > 0)) {
+      return { ok: false, reason: "area", message: "That link has no clickable area to carry to another page." };
+    }
+    const placed = displayRect(current, size.width, size.height, rotation);
     rect = [placed.x, placed.y, placed.x + placed.width, placed.y + placed.height];
   }
   const retarget = opts.target !== undefined || opts.url !== undefined || opts.to !== undefined;
@@ -2015,17 +2048,33 @@ function updateLink(doc, options) {
       return { ok: false, reason: "link", message: `That link could not be changed: ${pdfError(error)}` };
     }
   }
-  if (rect) dict.set(PDFName.of("Rect"), doc.context.obj(rect));
-  if (replacement) {
-    dict.delete(PDFName.of("A"));
-    dict.delete(PDFName.of("Dest"));
-    dict.set(replacement.key, replacement.value);
+  try {
+    if (rect) dict.set(PDFName.of("Rect"), doc.context.obj(rect));
+    if (replacement) {
+      dict.delete(PDFName.of("A"));
+      dict.delete(PDFName.of("Dest"));
+      dict.set(replacement.key, replacement.value);
+    }
+    if (relocate) {
+      /* one annotation: take the same reference out of the old /Annots and add it to the new one */
+      const source = doc.getPage(entry.pageIndex).node.Annots();
+      const list = source.asArray();
+      let at = list.indexOf(entry.ref);
+      if (at < 0) at = list.findIndex((ref) => String(ref) === String(entry.ref));
+      if (at >= 0) source.remove(at);
+      page.node.addAnnot(entry.ref);
+      if (dict.get(PDFName.of("P"))) dict.set(PDFName.of("P"), page.ref);
+    }
+  } catch (error) {
+    return { ok: false, reason: "link", message: `That link could not be changed: ${pdfError(error)}` };
   }
   return {
     ok: true,
     index,
-    page: entry.pageIndex + 1,
+    page: pageNumber,
+    fromPage,
     moved: Boolean(rect),
+    relocated: Boolean(relocate),
     target: retarget ? target : "",
     url: retarget && target === "url" ? url : "",
     to: retarget && target === "page" ? to : 0,

@@ -1492,3 +1492,75 @@ test("refuses an unusable link rectangle", async () => {
   assert.deepEqual(kept, [40, 425, 120, 450], "a refused edit leaves the original rectangle alone");
   assert.equal(editor.readLinks((await editor.loadEditorDocument((await editor.savePdf(opened.doc)).bytes)).doc).links[0].url, "https://example.com/keep");
 });
+
+/** How many /Link annotations a page of a reloaded document carries. */
+function linkCount(doc, pageIndex) {
+  return doc.getPage(pageIndex).node.Annots().asArray().filter((ref) => {
+    const dict = doc.context.lookup(ref, PDFDict);
+    return dict && String(dict.get(PDFName.of("Subtype"))) === "/Link";
+  }).length;
+}
+
+test("moves a link to another page and keeps one annotation, its flags and address", async () => {
+  const opened = await editor.loadEditorDocument(await fixture());
+  editor.addLink(opened.doc, { target: "url", url: "https://example.com/keep", area: { x: 0.1, y: 0.1, width: 0.2, height: 0.1 }, pages: 0 });
+  const before = editor.readLinks(opened.doc).links[0];
+  const moved = editor.updateLink(opened.doc, { index: 1, page: 3 });
+  assert.deepEqual([moved.ok, moved.fromPage, moved.page, moved.relocated], [true, 1, 3, true], "the link reports the page it left and the page it moved to");
+  const saved = await editor.savePdf(opened.doc);
+  const raw = await PDFDocument.load(saved.bytes);
+  assert.equal(linkCount(raw, 0), 0, "nothing is left behind on the source page");
+  assert.equal(linkCount(raw, 2), 1, "the link sits on the target page exactly once");
+  const annot = linkAnnotation(raw, 2);
+  assert.ok(annot, "the annotation itself moved, it was not rebuilt");
+  assert.deepEqual([annot.lookup(PDFName.of("Border")).get(0).asNumber(), annot.lookup(PDFName.of("F")).asNumber()], [0, 4], "border and flags survive the page move");
+  const links = editor.readLinks((await editor.loadEditorDocument(saved.bytes)).doc);
+  assert.equal(links.total, 1, "there is still a single link annotation in the file");
+  assert.deepEqual([links.links[0].page, links.links[0].url], [3, "https://example.com/keep"]);
+  const area = links.links[0].area;
+  assert.ok(Math.abs(area.x - before.area.x) < 0.01 && Math.abs(area.width - before.area.width) < 0.01, `the link keeps its visible place, got ${JSON.stringify(area)}`);
+});
+
+test("places a moved link's area against the target page, rotation included", async () => {
+  const opened = await editor.loadEditorDocument(await fixture());
+  editor.addLink(opened.doc, { target: "url", url: "https://example.com/a", area: { x: 0.1, y: 0.1, width: 0.2, height: 0.1 }, pages: 0 });
+  assert.deepEqual(editor.rotatePage(opened.doc, 2, 90), { ok: true, index: 2, rotation: 90 });
+  const area = { x: 0.25, y: 0.1, width: 0.5, height: 0.2 };
+  const moved = editor.updateLink(opened.doc, { index: 1, page: 3, area, target: "page", to: 4 });
+  assert.deepEqual([moved.ok, moved.page, moved.target, moved.to], [true, 3, "page", 4], "the page and the destination change in one edit");
+  const saved = await editor.savePdf(opened.doc);
+  const raw = await PDFDocument.load(saved.bytes);
+  const rect = linkAnnotation(raw, 2).lookup(PDFName.of("Rect"));
+  const corners = [rect.get(0).asNumber(), rect.get(1).asNumber(), rect.get(2).asNumber(), rect.get(3).asNumber()].map((value) => Math.round(value * 100) / 100);
+  const placed = editor.displayRect(area, 400, 500, 90);
+  assert.deepEqual(corners, [placed.x, placed.y, placed.x + placed.width, placed.y + placed.height].map((value) => Math.round(value * 100) / 100), "the target page's own rotation places the box");
+  const rows = editor.readLinks((await editor.loadEditorDocument(saved.bytes)).doc).links;
+  assert.deepEqual([rows.length, rows[0].page, rows[0].to], [1, 3, 4]);
+  assert.ok(Math.abs(rows[0].area.width - 0.5) < 0.01 && Math.abs(rows[0].area.height - 0.2) < 0.01, `the box reads back where it was asked for, got ${JSON.stringify(rows[0].area)}`);
+});
+
+test("refuses a page move that cannot be applied and changes nothing", async () => {
+  const opened = await editor.loadEditorDocument(await fixture());
+  assert.equal(editor.updateLink(opened.doc, { index: 1, page: 2 }).reason, "empty");
+  editor.addLink(opened.doc, { target: "url", url: "https://example.com/keep", area: { x: 0.1, y: 0.1, width: 0.2, height: 0.1 }, pages: 0 });
+  assert.equal(editor.updateLink(opened.doc, { index: 0, page: 2 }).reason, "index");
+  assert.equal(editor.updateLink(opened.doc, { index: 2, page: 2 }).reason, "index");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, page: 9 }).reason, "page");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, page: 0 }).reason, "page");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, page: "two" }).reason, "page");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, page: 1 }).reason, "samepage");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, page: 2, area: { x: 0.1, y: 0.1, width: 0, height: 0.1 } }).reason, "area");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, page: 2, area: { x: 0.9, y: 0.1, width: 0.5, height: 0.1 } }).reason, "area");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, page: 2, area: { x: 0.1, y: 0.1, width: 0.001, height: 0.1 } }).reason, "area");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, page: 2, area: { x: "left", y: 0.1, width: 0.2, height: 0.1 } }).reason, "area");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, page: 2, target: "page", to: 9 }).reason, "page");
+  const saved = await editor.savePdf(opened.doc);
+  const raw = await PDFDocument.load(saved.bytes);
+  assert.equal(linkCount(raw, 0), 1, "a refused move leaves the link on its own page");
+  assert.equal(linkCount(raw, 1), 0, "no copy reaches the page that was asked for");
+  const rect = linkAnnotation(raw, 0).lookup(PDFName.of("Rect"));
+  const kept = [rect.get(0).asNumber(), rect.get(1).asNumber(), rect.get(2).asNumber(), rect.get(3).asNumber()].map((value) => Math.round(value * 100) / 100);
+  assert.deepEqual(kept, [40, 400, 120, 450], "the rectangle is untouched");
+  const links = editor.readLinks((await editor.loadEditorDocument(saved.bytes)).doc).links;
+  assert.deepEqual([links.length, links[0].page, links[0].url], [1, 1, "https://example.com/keep"]);
+});

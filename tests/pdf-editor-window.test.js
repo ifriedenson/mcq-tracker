@@ -1002,3 +1002,79 @@ test("pdf editor window: insert a blank page at a position, rotate and delete wi
   assert.deepEqual(app.createdBinary || [], [], "nothing reached the vault");
   modal.close();
 });
+
+test("pdf editor window: the link rows move the box and then the link to another page", async () => {
+  const { app, plugin } = await vault();
+  const modal = openEditor(app, plugin, "Papers/Exam.pdf");
+  await modal.loading;
+
+  // 1. add a link through the panel, so the rows below act on a real annotation
+  modal.content.linkTarget = "url";
+  modal.content.linkUrl = "https://example.com/keep";
+  modal.content.linkPage = "0";
+  modal.content.linkX = "10";
+  modal.content.linkY = "10";
+  modal.content.linkWidth = "20";
+  modal.content.linkHeight = "10";
+  await clickButton(modal.dom, "Add link");
+  assert.match(statusText(modal), /Linked 1 page to https:\/\/example\.com\/keep/);
+  assert.equal(editor.readLinks(modal.doc).total, 1);
+
+  // 2. Move link: the button 1.248.0 added, driven here for the first time
+  modal.content.linkEdit = "1";
+  modal.content.linkAreaLeft = "50";
+  modal.content.linkAreaTop = "60";
+  modal.content.linkAreaWidth = "25";
+  modal.content.linkAreaHeight = "10";
+  await clickButton(modal.dom, "Move link");
+  assert.match(statusText(modal), /now sits 25% wide and 10% tall at 50% across and 60% down/);
+  assert.equal(editor.readLinks(modal.doc).total, 1, "the same annotation is edited, not replaced");
+  const boxed = editor.readLinks(modal.doc).links[0].area;
+  assert.ok(Math.abs(boxed.x - 0.5) < 0.01 && Math.abs(boxed.width - 0.25) < 0.01, `the box moved to ${JSON.stringify(boxed)}`);
+
+  // 3. Move to page: with no new box the link keeps its visible place on page 3
+  const annotsOn = (pageIndex) => {
+    try {
+      return modal.doc.getPage(pageIndex).node.Annots().asArray().length;
+    } catch (error) {
+      return 0;
+    }
+  };
+  const sourceAnnots = annotsOn(0);
+  const targetAnnots = annotsOn(2);
+  for (const key of ["linkAreaLeft", "linkAreaTop", "linkAreaWidth", "linkAreaHeight"]) modal.content[key] = "";
+  modal.content.linkPageTo = "3";
+  await clickButton(modal.dom, "Move to page");
+  assert.match(statusText(modal), /now sits on page 3, was page 1/);
+  const links = editor.readLinks(modal.doc);
+  assert.equal(links.total, 1, "one single annotation after the page move");
+  assert.deepEqual([links.links[0].page, links.links[0].url], [3, "https://example.com/keep"]);
+  assert.equal(annotsOn(0), sourceAnnots - 1, "the annotation is taken out of the source page");
+  assert.equal(annotsOn(2), targetAnnots + 1, "the same annotation is added to the target page once");
+  assert.equal(modal.history.states[modal.history.cursor].label, "move a link to another page", "the page move is one undo step");
+
+  // 4. the same page is refused with a message and no change
+  const stillOn = editor.readLinks(modal.doc).links[0].page;
+  await clickButton(modal.dom, "Move to page");
+  assert.match(statusText(modal), /already on page 3/);
+  assert.equal(editor.readLinks(modal.doc).links[0].page, stillOn, "a refused page move changes nothing");
+
+  // 5. one undo returns the link to its own page, one redo brings it back
+  await clickMatching(modal.dom, /^Undo move a link to another page$/);
+  assert.deepEqual(editor.readLinks(modal.doc).links.map((row) => row.page), [1]);
+  await clickMatching(modal.dom, /^Redo move a link to another page$/);
+  assert.deepEqual(editor.readLinks(modal.doc).links.map((row) => row.page), [3]);
+
+  // 6. the saved copy carries the relocated link exactly once
+  const sourceBefore = Uint8Array.from(app.files.find((file) => file.path === "Papers/Exam.pdf").buffer);
+  await modal.saveCopy();
+  const written = app.createdBinary[0];
+  assert.ok(written, "a copy was written");
+  assert.deepEqual(app.files.find((file) => file.path === "Papers/Exam.pdf").buffer, sourceBefore, "the source PDF is byte-for-byte unchanged");
+  const reopened = await editor.loadEditorDocument(written.buffer);
+  assert.equal(reopened.ok, true, "the saved copy opens again");
+  const rows = editor.readLinks(reopened.doc);
+  assert.equal(rows.total, 1);
+  assert.deepEqual([rows.links[0].page, rows.links[0].url], [3, "https://example.com/keep"]);
+  modal.close();
+});

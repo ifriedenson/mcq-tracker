@@ -205,6 +205,7 @@ class PdfEditorModal extends Modal {
       linkAreaTop: "",
       linkAreaWidth: "",
       linkAreaHeight: "",
+      linkPageTo: "",
       bookmarks: null,
       bookmarkZoom: "",
       bookmarkTop: "",
@@ -995,6 +996,14 @@ class PdfEditorModal extends Modal {
     moveButton.addEventListener("click", () => this.moveLinkContent());
     linkAreaRow.createSpan({ cls: "qt-hint", text: "All four move the box and keep the address." });
 
+    const linkPageRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
+    this.contentInput(linkPageRow, "To page", "number", "Page to move the link to", this.content.linkPageTo, (value) => {
+      this.content.linkPageTo = value;
+    });
+    const pageMoveButton = linkPageRow.createEl("button", { text: "Move to page", cls: "qt-grow" });
+    pageMoveButton.addEventListener("click", () => this.moveLinkToPageContent());
+    linkPageRow.createSpan({ cls: "qt-hint", text: "Moves the link at Change to that page; all four Area % set its box there." });
+
     host.createEl("h4", { text: "Bookmarks" });
     const bookmarkRow = host.createDiv({ cls: "qt-pdf-editor-row" });
     const bookmarkArea = bookmarkRow.createEl("textarea", { cls: "qt-pdf-editor-input" });
@@ -1420,6 +1429,30 @@ class PdfEditorModal extends Modal {
     }), (result) => {
       this.renderContent();
       this.setStatus(`Link ${result.index} on page ${result.page} now sits ${fields[2]}% wide and ${fields[3]}% tall at ${fields[0]}% across and ${fields[1]}% down, with its address unchanged. Nothing is written until you save a copy.`);
+    });
+  }
+
+  /** Moves the same annotation to another page, with an optional new box there. */
+  moveLinkToPageContent() {
+    const fields = [this.content.linkAreaLeft, this.content.linkAreaTop, this.content.linkAreaWidth, this.content.linkAreaHeight]
+      .map((value) => String(value ?? "").trim());
+    const filled = fields.filter((value) => value !== "").length;
+    const area = filled === 0
+      ? undefined
+      : {
+        x: fields[0] === "" ? NaN : Number(fields[0]) / 100,
+        y: fields[1] === "" ? NaN : Number(fields[1]) / 100,
+        width: fields[2] === "" ? NaN : Number(fields[2]) / 100,
+        height: fields[3] === "" ? NaN : Number(fields[3]) / 100,
+      };
+    const pageField = String(this.content.linkPageTo ?? "").trim();
+    return this.runMutation("move a link to another page", () => updateLink(this.doc, {
+      index: Number(this.content.linkEdit),
+      page: pageField === "" ? NaN : Number(pageField),
+      area,
+    }), (result) => {
+      this.renderContent();
+      this.setStatus(`Link ${result.index} now sits on page ${result.page}, was page ${result.fromPage}, with its address unchanged. Nothing is written until you save a copy.`);
     });
   }
 

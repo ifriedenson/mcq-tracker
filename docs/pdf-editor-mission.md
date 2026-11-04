@@ -17,21 +17,21 @@ dispatches. No network request, provider, account or new dependency was added at
 | Pages | rotate 90/180/270, move, delete (never the last page), duplicate, blank insert, add pages from another vault PDF, extract, split every N pages, merge | 1.218.0–1.231.0 |
 | Content | typed text, vault PNG/JPEG, page numbers, crop, watermark, rectangle/ellipse/rule shapes, A4/Letter/Legal/custom page size | 1.218.0–1.219.0 |
 | Forms | fill text, checkbox, radio, dropdown and option lists; flatten; author a new field; **rename a field**; **delete a field and its widgets** | 1.218.0, **1.244.0** |
-| Navigation | **link annotations**: an `http(s)` address or a jump to another page, written over a chosen area and read back exactly on rotated pages, then retargeted in place, given a new rectangle in place or removed by number | **1.242.0**, **1.245.0**, **1.247.0**, **1.248.0** |
+| Navigation | **link annotations**: an `http(s)` address or a jump to another page, written over a chosen area and read back exactly on rotated pages, then retargeted in place, given a new rectangle in place, **moved to another page as the same annotation** or removed by number | **1.242.0**, **1.245.0**, **1.247.0**, **1.248.0**, **1.249.0** |
 | Navigation | **bookmarks**: the document outline read as title/page/level rows and rewritten as a real outline tree, edited as indented `Title | page` lines, with an optional zoom and position written as a `/XYZ` destination | **1.243.0**, **1.246.0** |
 | Reading | continuous reader, text selection, marks, ink, text boxes, notes, in-reader annotation sidebar, ask-AI-about-a-passage | 1.215.0–1.226.0 |
 | Safety | every mutation is one undo step in a bounded byte-level history that returns the opened file byte-for-byte; Save always writes a new copy; the source PDF and its `.annotations.md` sidecar are never modified | 1.218.0 |
 
 ## Verification
 
-- `tests/pdf-editor.test.js` — 67 tests on real bytes: page operations, form fill and
+- `tests/pdf-editor.test.js` — 70 tests on real bytes: page operations, form fill and
   authoring, flattening, shapes, resizing, links (URL, page jump, rotated page, indirect
-  destination, retargeting, rectangle rewriting, removal, every refusal), bookmarks (nested
+  destination, retargeting, rectangle rewriting, moving to another page, removal, every refusal), bookmarks (nested
   write/read, replacing, clearing, the raw tree, the text format, zoom and position views, every
   refusal), and field rename/delete with value and widget preservation.
 - `tests/pdf-editor-window.test.js` drives the real window against the built `main.js` in a
-  mocked vault: rotate, move, fill, burn, save, the second-save path, the command, and the
-  reader hand-over.
+  mocked vault: rotate, move, fill, burn, save, the second-save path, the command, the reader
+  hand-over, and the **Add link**, **Move link** and **Move to page** rows.
 - `tests/pdf-editor-history.test.js` covers the undo/redo history and its byte budget.
 - At 1.244.0: full suite **1,887 pass**, `npm run check` clean across **297 source files**,
   `main.js` current across **298 modules**, `git diff --check` clean.
@@ -39,7 +39,9 @@ dispatches. No network request, provider, account or new dependency was added at
   **4,939,537 bytes**.
 - At 1.248.0: full suite **1897 pass**, `main.js` current across **298 modules** at
   **4,943,104 bytes**.
-- Release notes: `docs/release-notes/1.242.0.md` through `1.248.0.md`, with the earlier
+- At 1.249.0: full suite **1901 pass**, `main.js` current across **298 modules** at
+  **4,947,473 bytes**.
+- Release notes: `docs/release-notes/1.242.0.md` through `1.249.0.md`, with the earlier
   1.218.0–1.231.0 notes beside them.
 
 ## Remaining gates — refused, never approximated
@@ -50,9 +52,10 @@ dispatches. No network request, provider, account or new dependency was added at
   removing the password is the user's step.
 - **Rewording existing page text.** Text is only added, never reflowed, because rewriting a
   content stream would mean owning layout and font metrics.
-- **Moving a link to another page.** `updateLink` rewrites the rectangle, destination or both of
-  a link on its own page, and `removeLinks` deletes it, but the annotation never changes page; a
-  link on another page means adding a new one there.
+- **Link styling and other link kinds.** A link's `/Border`, `/H` highlight mode and `/BS` border
+  style are preserved but never edited, and a link whose action is neither an `http(s)` URI nor an
+  in-file page jump (a launch, a remote go-to, a named destination) has no readable target here, so
+  it can be moved and removed but not retargeted.
 - **Hierarchical `parent.child` field names**, which are renamed by their own segment only.
   Bookmark destinations beyond a whole page shipped in 1.246.0 as a zoom and a position; any other
   destination kind is read as a whole page rather than guessed at.
