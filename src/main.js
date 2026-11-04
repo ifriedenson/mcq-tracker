@@ -119,6 +119,7 @@ const pdfAnnotationIndex = require("./pdf-annotation-index");
 const vaultTaskIndex = require("./vault-task-index");
 const taskTags = require("./task-tags");
 const glossary = require("./glossary");
+const wordnet = require("./wordnet");
 const writingSessions = require("./writing-sessions");
 const voiceMemo = require("./voice-memo");
 const { StudyWorkspaceView } = require("./study-workspace-view");
@@ -569,6 +570,7 @@ QuestionTrackerPlugin.__test = {
   vaultTaskIndex,
   taskTags,
   glossary,
+  wordnet,
   writingSessions,
   voiceMemo,
   cornell,

@@ -1,3 +1,7 @@
+## 1.233.0 - 2026-11-04
+
+- **Offline full WordNet**: the Vocabulary tab can import all four standard WordNet 3.x data files from the user's own copy, then search every noun, verb, adjective and adverb sense with glosses, synonyms and selected semantic relations. The parser and index are local and bounded; the data is stored in a vault folder, the index stays in memory, and a partial set or existing target is refused instead of overwritten. No lexical data is bundled or downloaded, and no dependency, provider, account or network request was added. The release also records the owner decisions: Code Runner stays deferred, full table-editor parity starts with editing/navigation after WordNet, UI/theme/navigation plugins stay out, and Copilot/Desmos/Excalidraw keep their local alternatives.
+
 ## 1.232.0 - 2026-11-04
 
 - **Tally and text-timer blocks**: the installed-plugin review adds two local study blocks. A `tally` block shows side-by-side Correct/Incorrect counters with adjustable step sizes, accuracy, CPS and elapsed session time; state is keyed by note and optional id, survives a reload and never records a graded attempt. A `text-timer` block shows a plain-text passage with a start/pause/reset count-up clock and local state. Both write only their own settings slice. The accompanying audit records all 23 installed plugins, corrects the Advanced Tables, Hider and Markmind community ids, and documents the licensing, Code Runner security and UI/theme boundaries. No dependency, provider or network request was added.

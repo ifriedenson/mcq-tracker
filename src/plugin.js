@@ -35,6 +35,7 @@ const readingCompanion = require("./reading-companion");
 const vaultTaskIndex = require("./vault-task-index");
 const taskTags = require("./task-tags");
 const glossary = require("./glossary");
+const wordnet = require("./wordnet");
 const writingSessions = require("./writing-sessions");
 const voiceMemo = require("./voice-memo");
 const { buildCornellNote } = require("./cornell");
@@ -232,6 +233,8 @@ class QuestionTrackerPlugin extends Plugin {
     this._pendingCardGradeFlush = null;
     this._aiRun = { startedAt: 0, requests: 0 };
     this.agentEditUndo = null;
+    this.wordNetIndex = null;
+    this.wordNetLoadedAt = 0;
 
     // The timer is kept per device (not in the synced settings). One that was running when the
     // app closed becomes paused, counting only up to the last heartbeat (time away isn't counted).
@@ -1000,6 +1003,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.deepNotes = studyWorkspace.normalizeDeepNotes(saved.deepNotes);
     this.settings.retention = studyWorkspace.normalizeRetention(saved.retention);
     this.settings.vocabulary = studyWorkspace.normalizeVocabulary(saved.vocabulary);
+    this.settings.wordNet = wordnet.normalizeWordNetSettings(saved.wordNet);
     this.settings.readingLibrary = readingLibrary.normalizeLibrary(saved.readingLibrary);
     this.settings.writingSession = writingSessions.normalizeWritingSession(saved.writingSession);
     this.settings.readAloud = readAloud.normalizeReadAloudSettings(saved.readAloud);
@@ -9335,6 +9339,99 @@ ${body}
       source: "vocabulary",
     }));
     return glossary.collectGlossary(entries, settings, words);
+  }
+
+  /* ---- Offline WordNet dictionary ------------------------------------- */
+
+  wordNetSettings() {
+    return wordnet.normalizeWordNetSettings(this.settings.wordNet);
+  }
+
+  wordNetStatus() {
+    const settings = this.wordNetSettings();
+    const loaded = !!(this.wordNetIndex && this.wordNetIndex.ok);
+    return {
+      enabled: settings.enabled,
+      folder: settings.folder,
+      loaded,
+      loadedAt: loaded ? this.wordNetLoadedAt : 0,
+      stats: loaded ? this.wordNetIndex.stats : null,
+    };
+  }
+
+  wordNetLookup(query) {
+    return wordnet.lookupWord(this.wordNetIndex, query);
+  }
+
+  async loadWordNet(folder) {
+    const target = wordnet.normalizeFolder(folder || this.wordNetSettings().folder);
+    const files = this.app.vault.getFiles ? this.app.vault.getFiles() : [];
+    const byPath = new Map(files.map((file) => [file.path, file]));
+    const found = [];
+    const missing = [];
+    for (const name of wordnet.DATA_FILES) {
+      const path = wordnet.filePath(target, name);
+      const file = byPath.get(path) || this.app.vault.getAbstractFileByPath(path);
+      if (!file) {
+        missing.push(name);
+        continue;
+      }
+      let text = "";
+      try {
+        if (typeof this.app.vault.read === "function") text = await this.app.vault.read(file);
+        else if (this.app.vault.adapter && typeof this.app.vault.adapter.read === "function") text = await this.app.vault.adapter.read(path);
+      } catch (e) {
+        return { ok: false, reason: "read", message: `Could not read ${path}: ${str(e && e.message ? e.message : e)}` };
+      }
+      if (!text) missing.push(name);
+      else found.push({ name, text });
+    }
+    if (missing.length) {
+      return { ok: false, reason: "missing", message: `No ${missing.join(", ")} in ${target}. Import the four WordNet data files first.` };
+    }
+    const index = wordnet.buildWordNetIndex(found);
+    if (!index.ok) return index;
+    this.settings.wordNet = wordnet.normalizeWordNetSettings({ enabled: true, folder: target });
+    await this.save();
+    this.wordNetIndex = index;
+    this.wordNetLoadedAt = Date.now();
+    return { ok: true, folder: target, stats: index.stats };
+  }
+
+  async importWordNetFiles(files, folder) {
+    const target = wordnet.normalizeFolder(folder || this.wordNetSettings().folder);
+    const provided = new Map();
+    for (const file of Array.isArray(files) ? files : []) {
+      const name = str(file && file.name).trim().toLowerCase();
+      if (!wordnet.DATA_FILES.includes(name)) {
+        return { ok: false, reason: "name", message: `Expected ${wordnet.DATA_FILES.join(", ")}; got ${name || "an unnamed file"}.` };
+      }
+      const text = str(file && file.text);
+      if (!text) return { ok: false, reason: "empty_file", message: `${name} is empty.` };
+      provided.set(name, text);
+    }
+    const missing = wordnet.DATA_FILES.filter((name) => !provided.has(name));
+    if (missing.length) {
+      return { ok: false, reason: "missing", message: `Select all four WordNet files. Missing: ${missing.join(", ")}.` };
+    }
+    const index = wordnet.buildWordNetIndex(wordnet.DATA_FILES.map((name) => ({ name, text: provided.get(name) })));
+    if (!index.ok) return index;
+    const paths = wordnet.DATA_FILES.map((name) => wordnet.filePath(target, name));
+    const existing = paths.filter((path) => this.app.vault.getAbstractFileByPath(path));
+    if (existing.length) {
+      return { ok: false, reason: "exists", message: `WordNet data already exists at ${existing[0]}. Move or delete it first, or change the data folder.` };
+    }
+    try {
+      await ensureFolder(this.app, target);
+      for (const name of wordnet.DATA_FILES) await this.app.vault.create(wordnet.filePath(target, name), provided.get(name));
+    } catch (e) {
+      return { ok: false, reason: "write", message: `Could not save the WordNet files: ${str(e && e.message ? e.message : e)}` };
+    }
+    this.settings.wordNet = wordnet.normalizeWordNetSettings({ enabled: true, folder: target });
+    await this.save();
+    this.wordNetIndex = index;
+    this.wordNetLoadedAt = Date.now();
+    return { ok: true, folder: target, stats: index.stats, imported: wordnet.DATA_FILES.slice() };
   }
 
   /* ---- Read-only writing-session count -------------------------------- */

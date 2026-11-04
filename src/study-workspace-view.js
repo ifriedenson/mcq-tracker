@@ -197,6 +197,7 @@ class StudyWorkspaceView extends ItemView {
     this.vaultTaskFilter = "";
     this.glossaryData = null;
     this.glossaryFilter = "";
+    this.wordNetFilter = "";
     this.writingReport = null;
     this.timeBlockView = "day";
     this.timeBlockDate = localDate();
@@ -1485,6 +1486,7 @@ class StudyWorkspaceView extends ItemView {
     });
     if (!hasWords) {
       this.renderGlossary(root);
+      this.renderWordNet(root);
       return;
     }
     const stats = root.createDiv({ cls: "qt-study-stats" });
@@ -1513,6 +1515,7 @@ class StudyWorkspaceView extends ItemView {
     if (!words.length) {
       listCard.createDiv({ cls: "qt-study-empty", text: data.words.length ? "No word matches that search." : "No words yet. Add one or paste a list." });
       this.renderGlossary(root);
+      this.renderWordNet(root);
       return;
     }
     const list = listCard.createDiv({ cls: "qt-study-list" });
@@ -1590,6 +1593,90 @@ class StudyWorkspaceView extends ItemView {
       main.createDiv({ cls: "qt-study-row-meta", text: row.path ? `${row.path}:${row.line}` : "Vocabulary list" });
       const buttons = item.createDiv({ cls: "qt-row qt-study-row-actions" });
       if (row.path) buttons.createEl("button", { text: "Open note" }).addEventListener("click", () => this.app.workspace.openLinkText(row.path, "", false));
+    }
+    this.renderWordNet(root);
+  }
+
+  /** Full local WordNet lookup, imported from the user's own four data files. */
+  renderWordNet(root) {
+    const status = this.plugin.wordNetStatus();
+    if (!status.enabled) return;
+    const card = root.createEl("details", { cls: "qt-study-card qt-workspace-disclosure", attr: status.loaded ? { open: "" } : {} });
+    card.createEl("summary", { cls: "qt-workspace-disclosure-title", text: "WordNet offline dictionary" });
+    card.createDiv({
+      cls: "qt-hint",
+      text: "Reads the four standard WordNet data files from a vault folder. Nothing is bundled, downloaded or sent anywhere; imported data stays in your vault.",
+    });
+    card.createDiv({
+      cls: "qt-study-row-meta",
+      text: status.loaded
+        ? `${status.stats.words.toLocaleString()} words · ${status.stats.synsets.toLocaleString()} synsets · ${status.stats.senses.toLocaleString()} senses · ${status.folder}`
+        : `Not loaded. Data folder: ${status.folder}`,
+    });
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    const importButton = actions.createEl("button", { text: "Import WordNet files", cls: "mod-cta" });
+    const input = card.createEl("input", { cls: "qt-hidden", attr: { type: "file", accept: ".noun,.verb,.adj,.adv", multiple: "" } });
+    input.style.display = "none";
+    importButton.addEventListener("click", () => input.click());
+    input.addEventListener("change", async () => {
+      const selected = input.files && input.files.length ? Array.from(input.files) : [];
+      const files = [];
+      for (const file of selected) {
+        if (!/^data\.(noun|verb|adj|adv)$/i.test(file.name)) continue;
+        try {
+          files.push({ name: file.name, text: await file.text() });
+        } catch (e) {
+          this.saveMessage(`Could not read ${file.name}.`);
+          this.render();
+          return;
+        }
+      }
+      const result = await this.plugin.importWordNetFiles(files);
+      this.saveMessage(result.ok ? `Imported ${result.stats.synsets} synsets from ${result.folder}.` : result.message || "Could not import WordNet.");
+      this.render();
+    });
+    actions.createEl("button", { text: "Load from folder" }).addEventListener("click", async () => {
+      const result = await this.plugin.loadWordNet();
+      this.saveMessage(result.ok ? `Loaded ${result.stats.words.toLocaleString()} words from ${result.folder}.` : result.message || "Could not load WordNet.");
+      this.render();
+    });
+    if (!status.loaded) return;
+    const field = this.renderField(card, "WordNet lookup", "search", "Search a word", this.wordNetFilter);
+    field.addEventListener("input", () => {
+      this.wordNetFilter = field.value;
+      this.render();
+    });
+    const query = str(this.wordNetFilter).trim();
+    if (!query) {
+      card.createDiv({ cls: "qt-study-row-meta", text: "Type a word to see every sense, its gloss, synonyms and selected relations." });
+      return;
+    }
+    const result = this.plugin.wordNetLookup(query);
+    if (!result.ok) {
+      card.createDiv({ cls: "qt-study-row-meta", text: result.message });
+      if (result.suggestions && result.suggestions.length) {
+        const suggestions = card.createDiv({ cls: "qt-row qt-study-actions" });
+        for (const suggestion of result.suggestions) {
+          suggestions.createEl("button", { text: suggestion }).addEventListener("click", () => {
+            this.wordNetFilter = suggestion;
+            this.render();
+          });
+        }
+      }
+      return;
+    }
+    card.createDiv({ cls: "qt-study-row-meta", text: `${result.senses.length} sense${result.senses.length === 1 ? "" : "s"} for “${result.word}”.` });
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const sense of result.senses) {
+      const row = list.createDiv({ cls: "qt-study-row" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: `${result.word} · ${sense.posLabel}` });
+      if (sense.gloss) main.createDiv({ cls: "qt-study-row-meta", text: sense.gloss });
+      if (sense.synonyms.length > 1) main.createDiv({ cls: "qt-study-row-meta", text: `Synonyms: ${sense.synonyms.join(", ")}` });
+      if (sense.relations.length) {
+        const shown = sense.relations.slice(0, 8).map((relation) => `${relation.label}: ${relation.words.slice(0, 6).join(", ")}`);
+        main.createDiv({ cls: "qt-study-row-meta", text: shown.join(" · ") });
+      }
     }
   }
 

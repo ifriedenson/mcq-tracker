@@ -62,14 +62,14 @@ consistent with a personal or unlisted plugin; no public listing was found.
 
 ## Feature matrix
 
-Status meanings: **Added** means shipped by MCQ Tracker in 1.232.0; **Covered**
+Status meanings: **Added** means shipped by MCQ Tracker in 1.233.0; **Planned** means the owner approved a later slice; **Covered**
 means an existing local module already performs the study-facing job; **Partial**
 means a real but deliberately narrower path exists; **Boundary** means the plan
 or a licence/security rule deliberately excludes it.
 
 | Plugin | Status | What exists / what is missing |
 |---|---|---|
-| **Advanced Tables** | Boundary | Markdown tables already render. The plan records the editing/navigation/formula surface as reference only (§5.24). No live table widget, sort, merged cells or formula engine was added. |
+| **Advanced Tables** | Planned | Full table-editor parity is approved. The first slice is editing and navigation (formatting, row/column insert and delete, move, alignment and Tab navigation), after 1.233.0; formulas, sorting and merged cells follow. No live table widget, sort, merged cells or formula engine is in this release. |
 | **Annotator** | Partial | PDF annotation index, PDF reader, ink, text marks, tags, annotation sidecar and the PDF editor cover PDF study. EPUB annotation is not an MCQ feature. |
 | **Code Runner** | Boundary | The plan's §11 security gate prohibits in-plugin code execution; no sandbox or language allow-list has been approved. No runner, Pyodide, shell or language runtime was added. |
 | **Copilot** | Boundary / Covered workflow | Copilot is AGPL-3.0, so its code cannot be copied into this MIT plugin. The original Study agent already provides note-grounded chat, local retrieval, provider selection, write review and undo. |
@@ -91,7 +91,7 @@ or a licence/security rule deliberately excludes it.
 | **Recent Files** | Boundary | Obsidian already provides recents and quick switching; the plan records this as a non-study navigation surface not to adopt. |
 | **Tally Counter** | **Added** | A `tally` block with side-by-side Correct/Incorrect counts, adjustable step sizes, accuracy, CPS, elapsed session time, reset and local persistence. |
 | **Text Block Timer** | **Added** | A `text-timer` block with a plain-text passage and a local start/pause/reset count-up clock. It is an explicit block, not an arbitrary editor-text widget. |
-| **WordNet Dictionary** | Partial | The local glossary reads `Term: definition` lines, two-column tables, saved vocabulary and lecture vocabulary, with path/line links. It does not bundle the WordNet lexical database or its senses/relations. |
+| **WordNet Dictionary** | **Added** | Full local WordNet 3.x import from the four standard data files, with every sense, gloss, synonyms and selected semantic relations. The data stays in the vault, the index is memory-only, and nothing is bundled or downloaded. |
 
 ## What would need an owner decision
 
@@ -105,7 +105,8 @@ or a licence/security rule deliberately excludes it.
 3. **Licences:** Copilot (AGPL-3.0) and Desmos (GPL-3.0) cannot be copied into
    this MIT codebase. A clean-room reimplementation of specific behaviour is
    possible only with a separately approved spec.
-4. **WordNet and Importer depth:** bundling the WordNet database or cloud
-   importer clients is a data/dependency decision, not a small block addition.
+4. **Importer depth:** cloud importer clients remain a data/dependency
+   decision, not a small block addition. WordNet is now handled by a local
+   full-data import instead of a bundled database.
 
-No plugin source, styles or data were copied for 1.232.0.
+No plugin source, styles or data were copied for 1.233.0.

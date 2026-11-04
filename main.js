@@ -22429,6 +22429,7 @@ const DEFAULT_SETTINGS = {
   deepNotes: { enabled: true, sessions: [] }, // guided Socratic sessions
   retention: { enabled: true }, // read-only card forecast
   vocabulary: { enabled: true, words: [] }, // local dictionary and per-word review ladder
+  wordNet: { enabled: false, folder: "WordNet" }, // offline full WordNet import, opt-in
   readingLibrary: { enabled: true, hideFinished: false, books: [] }, // local bookshelf, page progress and captured quotes
   writingSession: { path: "", startedAt: 0, baseline: 0, sessions: [] }, // read-only writing-session count; only session times are stored
   readAloud: { enabled: true, style: "full", rate: 1, pitch: 1, voice: "" }, // device speech synthesis, local only
@@ -53574,6 +53575,7 @@ const readingCompanion = require("./reading-companion");
 const vaultTaskIndex = require("./vault-task-index");
 const taskTags = require("./task-tags");
 const glossary = require("./glossary");
+const wordnet = require("./wordnet");
 const writingSessions = require("./writing-sessions");
 const voiceMemo = require("./voice-memo");
 const { buildCornellNote } = require("./cornell");
@@ -53771,6 +53773,8 @@ class QuestionTrackerPlugin extends Plugin {
     this._pendingCardGradeFlush = null;
     this._aiRun = { startedAt: 0, requests: 0 };
     this.agentEditUndo = null;
+    this.wordNetIndex = null;
+    this.wordNetLoadedAt = 0;
 
     // The timer is kept per device (not in the synced settings). One that was running when the
     // app closed becomes paused, counting only up to the last heartbeat (time away isn't counted).
@@ -54539,6 +54543,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.deepNotes = studyWorkspace.normalizeDeepNotes(saved.deepNotes);
     this.settings.retention = studyWorkspace.normalizeRetention(saved.retention);
     this.settings.vocabulary = studyWorkspace.normalizeVocabulary(saved.vocabulary);
+    this.settings.wordNet = wordnet.normalizeWordNetSettings(saved.wordNet);
     this.settings.readingLibrary = readingLibrary.normalizeLibrary(saved.readingLibrary);
     this.settings.writingSession = writingSessions.normalizeWritingSession(saved.writingSession);
     this.settings.readAloud = readAloud.normalizeReadAloudSettings(saved.readAloud);
@@ -62874,6 +62879,99 @@ ${body}
       source: "vocabulary",
     }));
     return glossary.collectGlossary(entries, settings, words);
+  }
+
+  /* ---- Offline WordNet dictionary ------------------------------------- */
+
+  wordNetSettings() {
+    return wordnet.normalizeWordNetSettings(this.settings.wordNet);
+  }
+
+  wordNetStatus() {
+    const settings = this.wordNetSettings();
+    const loaded = !!(this.wordNetIndex && this.wordNetIndex.ok);
+    return {
+      enabled: settings.enabled,
+      folder: settings.folder,
+      loaded,
+      loadedAt: loaded ? this.wordNetLoadedAt : 0,
+      stats: loaded ? this.wordNetIndex.stats : null,
+    };
+  }
+
+  wordNetLookup(query) {
+    return wordnet.lookupWord(this.wordNetIndex, query);
+  }
+
+  async loadWordNet(folder) {
+    const target = wordnet.normalizeFolder(folder || this.wordNetSettings().folder);
+    const files = this.app.vault.getFiles ? this.app.vault.getFiles() : [];
+    const byPath = new Map(files.map((file) => [file.path, file]));
+    const found = [];
+    const missing = [];
+    for (const name of wordnet.DATA_FILES) {
+      const path = wordnet.filePath(target, name);
+      const file = byPath.get(path) || this.app.vault.getAbstractFileByPath(path);
+      if (!file) {
+        missing.push(name);
+        continue;
+      }
+      let text = "";
+      try {
+        if (typeof this.app.vault.read === "function") text = await this.app.vault.read(file);
+        else if (this.app.vault.adapter && typeof this.app.vault.adapter.read === "function") text = await this.app.vault.adapter.read(path);
+      } catch (e) {
+        return { ok: false, reason: "read", message: `Could not read ${path}: ${str(e && e.message ? e.message : e)}` };
+      }
+      if (!text) missing.push(name);
+      else found.push({ name, text });
+    }
+    if (missing.length) {
+      return { ok: false, reason: "missing", message: `No ${missing.join(", ")} in ${target}. Import the four WordNet data files first.` };
+    }
+    const index = wordnet.buildWordNetIndex(found);
+    if (!index.ok) return index;
+    this.settings.wordNet = wordnet.normalizeWordNetSettings({ enabled: true, folder: target });
+    await this.save();
+    this.wordNetIndex = index;
+    this.wordNetLoadedAt = Date.now();
+    return { ok: true, folder: target, stats: index.stats };
+  }
+
+  async importWordNetFiles(files, folder) {
+    const target = wordnet.normalizeFolder(folder || this.wordNetSettings().folder);
+    const provided = new Map();
+    for (const file of Array.isArray(files) ? files : []) {
+      const name = str(file && file.name).trim().toLowerCase();
+      if (!wordnet.DATA_FILES.includes(name)) {
+        return { ok: false, reason: "name", message: `Expected ${wordnet.DATA_FILES.join(", ")}; got ${name || "an unnamed file"}.` };
+      }
+      const text = str(file && file.text);
+      if (!text) return { ok: false, reason: "empty_file", message: `${name} is empty.` };
+      provided.set(name, text);
+    }
+    const missing = wordnet.DATA_FILES.filter((name) => !provided.has(name));
+    if (missing.length) {
+      return { ok: false, reason: "missing", message: `Select all four WordNet files. Missing: ${missing.join(", ")}.` };
+    }
+    const index = wordnet.buildWordNetIndex(wordnet.DATA_FILES.map((name) => ({ name, text: provided.get(name) })));
+    if (!index.ok) return index;
+    const paths = wordnet.DATA_FILES.map((name) => wordnet.filePath(target, name));
+    const existing = paths.filter((path) => this.app.vault.getAbstractFileByPath(path));
+    if (existing.length) {
+      return { ok: false, reason: "exists", message: `WordNet data already exists at ${existing[0]}. Move or delete it first, or change the data folder.` };
+    }
+    try {
+      await ensureFolder(this.app, target);
+      for (const name of wordnet.DATA_FILES) await this.app.vault.create(wordnet.filePath(target, name), provided.get(name));
+    } catch (e) {
+      return { ok: false, reason: "write", message: `Could not save the WordNet files: ${str(e && e.message ? e.message : e)}` };
+    }
+    this.settings.wordNet = wordnet.normalizeWordNetSettings({ enabled: true, folder: target });
+    await this.save();
+    this.wordNetIndex = index;
+    this.wordNetLoadedAt = Date.now();
+    return { ok: true, folder: target, stats: index.stats, imported: wordnet.DATA_FILES.slice() };
   }
 
   /* ---- Read-only writing-session count -------------------------------- */
@@ -89119,6 +89217,7 @@ const readingLibrary = require("./reading-library");
 const timeBlocks = require("./time-blocks");
 const citations = require("./citations");
 const voiceMemo = require("./voice-memo");
+const wordnet = require("./wordnet");
 
 /** Sidebar order follows the plan: local tools, then the workspace, then analysis. */
 const STUDY_TOOL_SETTINGS_MODULES = [
@@ -89508,6 +89607,27 @@ const PAGES = {
     enable: (plugin, v) => update(plugin, "vocabulary", studyWorkspace.normalizeVocabulary, { enabled: v }),
     afterToggle: "onStudyWorkspaceToggled",
     status: (plugin) => `${studyWorkspace.normalizeVocabulary(plugin.settings.vocabulary).words.length} word(s).`,
+    fields: [
+      {
+        type: "toggle",
+        name: "WordNet offline dictionary",
+        desc: "Enables the full local WordNet lookup in Vocabulary. Import the four data.* files from that tab; nothing is bundled, downloaded or sent anywhere.",
+        get: (plugin) => wordnet.normalizeWordNetSettings(plugin.settings.wordNet).enabled,
+        set: async (plugin, v) => update(plugin, "wordNet", wordnet.normalizeWordNetSettings, { enabled: v }),
+      },
+      {
+        type: "text",
+        name: "WordNet data folder",
+        desc: "Vault folder that holds data.noun, data.verb, data.adj and data.adv.",
+        placeholder: "WordNet",
+        get: (plugin) => wordnet.normalizeWordNetSettings(plugin.settings.wordNet).folder,
+        set: async (plugin, v) => {
+          update(plugin, "wordNet", wordnet.normalizeWordNetSettings, { folder: v });
+          plugin.wordNetIndex = null;
+          plugin.wordNetLoadedAt = 0;
+        },
+      },
+    ],
     open: { label: "Open Vocabulary", run: (plugin) => plugin.activateStudyWorkspace("vocabulary") },
   },
   citations: {
@@ -92361,6 +92481,7 @@ class StudyWorkspaceView extends ItemView {
     this.vaultTaskFilter = "";
     this.glossaryData = null;
     this.glossaryFilter = "";
+    this.wordNetFilter = "";
     this.writingReport = null;
     this.timeBlockView = "day";
     this.timeBlockDate = localDate();
@@ -93649,6 +93770,7 @@ class StudyWorkspaceView extends ItemView {
     });
     if (!hasWords) {
       this.renderGlossary(root);
+      this.renderWordNet(root);
       return;
     }
     const stats = root.createDiv({ cls: "qt-study-stats" });
@@ -93677,6 +93799,7 @@ class StudyWorkspaceView extends ItemView {
     if (!words.length) {
       listCard.createDiv({ cls: "qt-study-empty", text: data.words.length ? "No word matches that search." : "No words yet. Add one or paste a list." });
       this.renderGlossary(root);
+      this.renderWordNet(root);
       return;
     }
     const list = listCard.createDiv({ cls: "qt-study-list" });
@@ -93754,6 +93877,90 @@ class StudyWorkspaceView extends ItemView {
       main.createDiv({ cls: "qt-study-row-meta", text: row.path ? `${row.path}:${row.line}` : "Vocabulary list" });
       const buttons = item.createDiv({ cls: "qt-row qt-study-row-actions" });
       if (row.path) buttons.createEl("button", { text: "Open note" }).addEventListener("click", () => this.app.workspace.openLinkText(row.path, "", false));
+    }
+    this.renderWordNet(root);
+  }
+
+  /** Full local WordNet lookup, imported from the user's own four data files. */
+  renderWordNet(root) {
+    const status = this.plugin.wordNetStatus();
+    if (!status.enabled) return;
+    const card = root.createEl("details", { cls: "qt-study-card qt-workspace-disclosure", attr: status.loaded ? { open: "" } : {} });
+    card.createEl("summary", { cls: "qt-workspace-disclosure-title", text: "WordNet offline dictionary" });
+    card.createDiv({
+      cls: "qt-hint",
+      text: "Reads the four standard WordNet data files from a vault folder. Nothing is bundled, downloaded or sent anywhere; imported data stays in your vault.",
+    });
+    card.createDiv({
+      cls: "qt-study-row-meta",
+      text: status.loaded
+        ? `${status.stats.words.toLocaleString()} words · ${status.stats.synsets.toLocaleString()} synsets · ${status.stats.senses.toLocaleString()} senses · ${status.folder}`
+        : `Not loaded. Data folder: ${status.folder}`,
+    });
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    const importButton = actions.createEl("button", { text: "Import WordNet files", cls: "mod-cta" });
+    const input = card.createEl("input", { cls: "qt-hidden", attr: { type: "file", accept: ".noun,.verb,.adj,.adv", multiple: "" } });
+    input.style.display = "none";
+    importButton.addEventListener("click", () => input.click());
+    input.addEventListener("change", async () => {
+      const selected = input.files && input.files.length ? Array.from(input.files) : [];
+      const files = [];
+      for (const file of selected) {
+        if (!/^data\.(noun|verb|adj|adv)$/i.test(file.name)) continue;
+        try {
+          files.push({ name: file.name, text: await file.text() });
+        } catch (e) {
+          this.saveMessage(`Could not read ${file.name}.`);
+          this.render();
+          return;
+        }
+      }
+      const result = await this.plugin.importWordNetFiles(files);
+      this.saveMessage(result.ok ? `Imported ${result.stats.synsets} synsets from ${result.folder}.` : result.message || "Could not import WordNet.");
+      this.render();
+    });
+    actions.createEl("button", { text: "Load from folder" }).addEventListener("click", async () => {
+      const result = await this.plugin.loadWordNet();
+      this.saveMessage(result.ok ? `Loaded ${result.stats.words.toLocaleString()} words from ${result.folder}.` : result.message || "Could not load WordNet.");
+      this.render();
+    });
+    if (!status.loaded) return;
+    const field = this.renderField(card, "WordNet lookup", "search", "Search a word", this.wordNetFilter);
+    field.addEventListener("input", () => {
+      this.wordNetFilter = field.value;
+      this.render();
+    });
+    const query = str(this.wordNetFilter).trim();
+    if (!query) {
+      card.createDiv({ cls: "qt-study-row-meta", text: "Type a word to see every sense, its gloss, synonyms and selected relations." });
+      return;
+    }
+    const result = this.plugin.wordNetLookup(query);
+    if (!result.ok) {
+      card.createDiv({ cls: "qt-study-row-meta", text: result.message });
+      if (result.suggestions && result.suggestions.length) {
+        const suggestions = card.createDiv({ cls: "qt-row qt-study-actions" });
+        for (const suggestion of result.suggestions) {
+          suggestions.createEl("button", { text: suggestion }).addEventListener("click", () => {
+            this.wordNetFilter = suggestion;
+            this.render();
+          });
+        }
+      }
+      return;
+    }
+    card.createDiv({ cls: "qt-study-row-meta", text: `${result.senses.length} sense${result.senses.length === 1 ? "" : "s"} for “${result.word}”.` });
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const sense of result.senses) {
+      const row = list.createDiv({ cls: "qt-study-row" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: `${result.word} · ${sense.posLabel}` });
+      if (sense.gloss) main.createDiv({ cls: "qt-study-row-meta", text: sense.gloss });
+      if (sense.synonyms.length > 1) main.createDiv({ cls: "qt-study-row-meta", text: `Synonyms: ${sense.synonyms.join(", ")}` });
+      if (sense.relations.length) {
+        const shown = sense.relations.slice(0, 8).map((relation) => `${relation.label}: ${relation.words.slice(0, 6).join(", ")}`);
+        main.createDiv({ cls: "qt-study-row-meta", text: shown.join(" · ") });
+      }
     }
   }
 
@@ -101204,6 +101411,378 @@ module.exports = {
 };
 };
 
+/* ---- src/wordnet.js ---- */
+__defs["wordnet"] = function (module, exports, require) {
+/*
+ * Offline WordNet lookup. The plugin does not ship or download the lexical
+ * database: the reader imports the four standard WordNet `data.*` files from
+ * the user's own copy, keeps the parsed index in memory and never changes a
+ * note. This is the full local-data implementation the owner chose over a
+ * bundled subset. No provider, network request or package dependency is used.
+ */
+const { str } = require("./util");
+
+const DATA_FILES = ["data.noun", "data.verb", "data.adj", "data.adv"];
+const DEFAULT_FOLDER = "WordNet";
+const MAX_FOLDER = 400;
+const MAX_WORD = 120;
+const MAX_GLOSS = 700;
+const MAX_RELATIONS = 24;
+const MAX_RESULTS = 40;
+const MAX_FILE_CHARS = 64 * 1024 * 1024;
+const MAX_TOTAL_CHARS = 128 * 1024 * 1024;
+
+const POS_LABELS = { n: "Noun", v: "Verb", a: "Adjective", r: "Adverb" };
+const POS_ORDER = { n: 0, v: 1, a: 2, r: 3 };
+
+/* Pointer symbols used by the WordNet data files. An unknown symbol is shown
+   as-is rather than hidden, so a new database version cannot silently lose a
+   relationship. */
+const RELATION_LABELS = {
+  "!": "Antonym",
+  "@": "Hypernym",
+  "@i": "Instance hypernym",
+  "~": "Hyponym",
+  "~i": "Instance hyponym",
+  "#m": "Member holonym",
+  "#s": "Substance holonym",
+  "#p": "Part holonym",
+  "%m": "Member meronym",
+  "%s": "Substance meronym",
+  "%p": "Part meronym",
+  "=": "Attribute",
+  "+": "Derivationally related",
+  ";c": "Domain topic",
+  ";r": "Domain region",
+  ";u": "Domain usage",
+  "-c": "Domain topic",
+  "-r": "Domain region",
+  "-u": "Domain usage",
+  "*": "Entailment",
+  ">": "Cause",
+  "^": "Also see",
+  "$": "Verb group",
+  "&": "Similar to",
+  "<": "Participle",
+  "\\": "Pertainym",
+};
+
+function asObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function normalizeFolder(value) {
+  const folder = str(value)
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^\/+|\/+$/g, "")
+    .slice(0, MAX_FOLDER);
+  return folder || DEFAULT_FOLDER;
+}
+
+/** The four files are the complete WordNet database; the folder is vault-relative. */
+function normalizeWordNetSettings(value) {
+  const source = asObject(value);
+  return {
+    enabled: source.enabled === true,
+    folder: normalizeFolder(source.folder),
+  };
+}
+
+function normalizePos(value) {
+  const pos = str(value).trim().toLowerCase();
+  if (pos === "n" || pos === "v" || pos === "r") return pos;
+  if (pos === "a" || pos === "s") return "a";
+  return "";
+}
+
+/** WordNet stores multi-word entries with underscores. */
+function normalizeWord(value) {
+  return str(value)
+    .replace(/\uFEFF/g, "")
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
+    .slice(0, MAX_WORD);
+}
+
+function cleanGloss(value) {
+  return str(value).replace(/\s+/g, " ").trim().slice(0, MAX_GLOSS);
+}
+
+/**
+ * Parse one synset line from a WordNet `data.*` file. License/header lines do
+ * not start with an offset digit and are rejected. The gloss follows the first
+ * `|`; pointer tokens are retained so related senses can be resolved after all
+ * four files have been read.
+ */
+function parseWordNetLine(line) {
+  const text = str(line).replace(/^\uFEFF/, "");
+  if (!/^\d/.test(text)) return null;
+  const bar = text.indexOf("|");
+  if (bar < 0) return null;
+  const header = text.slice(0, bar).trim();
+  const tokens = header.split(/\s+/).filter(Boolean);
+  if (tokens.length < 5) return null;
+  const offset = Number(tokens[0]);
+  const lexFilenum = Number(tokens[1]);
+  const pos = normalizePos(tokens[2]);
+  const wordCount = parseInt(tokens[3], 16);
+  if (!Number.isInteger(offset) || offset < 0 || !pos || !Number.isInteger(wordCount) || wordCount < 1) return null;
+  const words = [];
+  let at = 4;
+  for (let index = 0; index < wordCount && at < tokens.length; index++, at += 2) {
+    const word = normalizeWord(tokens[at]);
+    if (word && !words.includes(word)) words.push(word);
+  }
+  if (!words.length) return null;
+  const pointerCount = parseInt(tokens[at], 10);
+  at += 1;
+  const pointers = [];
+  if (Number.isInteger(pointerCount) && pointerCount > 0) {
+    for (let index = 0; index < pointerCount && at + 3 < tokens.length; index++, at += 4) {
+      const symbol = tokens[at];
+      const target = Number(tokens[at + 1]);
+      const targetPos = normalizePos(tokens[at + 2]);
+      if (symbol && Number.isInteger(target) && target >= 0 && targetPos) {
+        pointers.push({ symbol, target, targetPos });
+      }
+    }
+  }
+  return {
+    offset,
+    lexFilenum: Number.isInteger(lexFilenum) ? lexFilenum : 0,
+    pos,
+    words,
+    gloss: cleanGloss(text.slice(bar + 1)),
+    pointers,
+  };
+}
+
+function suffixPos(name) {
+  const match = /^data\.(noun|verb|adj|adv)$/i.exec(str(name).trim());
+  if (!match) return "";
+  return { noun: "n", verb: "v", adj: "a", adv: "r" }[match[1].toLowerCase()];
+}
+
+function fileEntries(input) {
+  if (Array.isArray(input)) {
+    return input.map((file) => {
+      const source = asObject(file);
+      return { name: str(source.name).trim().toLowerCase(), text: str(source.text) };
+    });
+  }
+  const source = asObject(input);
+  return DATA_FILES.filter((name) => typeof source[name] === "string").map((name) => ({ name, text: source[name] }));
+}
+
+/**
+ * Build one index from the four data files. Synsets are stored once by
+ * `pos:offset`; each word maps to lightweight refs, so a full database does not
+ * duplicate every gloss per synonym. Relations are resolved in a second pass.
+ */
+function buildWordNetIndex(input) {
+  const files = fileEntries(input);
+  const entries = new Map();
+  const synsets = new Map();
+  const fileNames = [];
+  const seenFiles = new Set();
+  let skipped = 0;
+  let characters = 0;
+
+  for (const file of files) {
+    if (!file.text) continue;
+    if (characters + file.text.length > MAX_TOTAL_CHARS) {
+      return { ok: false, reason: "too_large", message: `The WordNet files are larger than the ${Math.round(MAX_TOTAL_CHARS / 1048576)} MB import limit.` };
+    }
+    characters += file.text.length;
+    if (file.text.length > MAX_FILE_CHARS) {
+      return { ok: false, reason: "too_large", message: `${file.name} is larger than the ${Math.round(MAX_FILE_CHARS / 1048576)} MB per-file limit.` };
+    }
+    if (file.name && !seenFiles.has(file.name)) {
+      seenFiles.add(file.name);
+      fileNames.push(file.name);
+    }
+    const posHint = suffixPos(file.name);
+    for (const line of file.text.replace(/\r\n?/g, "\n").split("\n")) {
+      const synset = parseWordNetLine(line);
+      if (!synset) {
+        if (line.includes("|")) skipped += 1;
+        continue;
+      }
+      if (!synset.pos && posHint) synset.pos = posHint;
+      if (!synset.pos) {
+        skipped += 1;
+        continue;
+      }
+      const key = `${synset.pos}:${synset.offset}`;
+      if (synsets.has(key)) {
+        skipped += 1;
+        continue;
+      }
+      const stored = { ...synset, key, relations: [] };
+      synsets.set(key, stored);
+      for (const word of synset.words) {
+        let refs = entries.get(word);
+        if (!refs) {
+          refs = [];
+          entries.set(word, refs);
+        }
+        if (!refs.some((ref) => ref.pos === stored.pos && ref.offset === stored.offset)) {
+          refs.push({ pos: stored.pos, offset: stored.offset });
+        }
+      }
+    }
+  }
+
+  if (!synsets.size) {
+    return {
+      ok: false,
+      reason: "empty",
+      message: "No WordNet synsets were found. Add data.noun, data.verb, data.adj and data.adv from a WordNet 3.x database.",
+    };
+  }
+
+  let relationCount = 0;
+  for (const synset of synsets.values()) {
+    const seen = new Set();
+    for (const pointer of synset.pointers) {
+      const target = synsets.get(`${pointer.targetPos}:${pointer.target}`);
+      if (!target || target.key === synset.key) continue;
+      const label = RELATION_LABELS[pointer.symbol] || pointer.symbol;
+      const signature = `${label}|${target.words.join("|")}`;
+      if (seen.has(signature)) continue;
+      seen.add(signature);
+      synset.relations.push({
+        symbol: pointer.symbol,
+        label,
+        words: target.words.slice(0, 12),
+        gloss: target.gloss,
+      });
+      relationCount += 1;
+      if (synset.relations.length >= MAX_RELATIONS) break;
+    }
+    delete synset.pointers;
+  }
+
+  const wordList = [...entries.keys()].sort();
+  const senseCount = [...entries.values()].reduce((sum, refs) => sum + refs.length, 0);
+  return {
+    ok: true,
+    entries,
+    synsets,
+    wordList,
+    stats: {
+      files: fileNames.length,
+      words: entries.size,
+      synsets: synsets.size,
+      senses: senseCount,
+      relations: relationCount,
+      skipped,
+      characters,
+    },
+  };
+}
+
+function lowerBound(list, needle) {
+  let low = 0;
+  let high = list.length;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (list[mid] < needle) low = mid + 1;
+    else high = mid;
+  }
+  return low;
+}
+
+/** Exact word first, then words sharing the typed prefix. */
+function searchWords(index, query, limit) {
+  const max = Math.max(1, Math.min(MAX_RESULTS, Math.round(Number(limit) || 8)));
+  const word = normalizeWord(query);
+  if (!index || !index.ok || !word) return [];
+  const out = [];
+  if (index.entries.has(word)) out.push(word);
+  for (let at = lowerBound(index.wordList, word); at < index.wordList.length && out.length < max; at++) {
+    const candidate = index.wordList[at];
+    if (!candidate.startsWith(word)) break;
+    if (!out.includes(candidate)) out.push(candidate);
+  }
+  return out;
+}
+
+function resolveSense(index, ref) {
+  const synset = index.synsets.get(`${ref.pos}:${ref.offset}`);
+  if (!synset) return null;
+  return {
+    pos: synset.pos,
+    posLabel: POS_LABELS[synset.pos] || synset.pos,
+    gloss: synset.gloss,
+    synonyms: synset.words.slice(),
+    relations: synset.relations.map((relation) => ({
+      label: relation.label,
+      words: relation.words.slice(),
+      gloss: relation.gloss,
+    })),
+  };
+}
+
+/**
+ * Return every sense of the exact word, or a short list of prefix suggestions
+ * when the word is not in the imported database.
+ */
+function lookupWord(index, query, limit) {
+  if (!index || !index.ok) {
+    return { ok: false, reason: "not_loaded", message: "Import or load a WordNet database first." };
+  }
+  const word = normalizeWord(query);
+  if (!word) return { ok: false, reason: "query", message: "Type a word to look up." };
+  const refs = index.entries.get(word);
+  if (!refs || !refs.length) {
+    return {
+      ok: false,
+      reason: "missing",
+      word,
+      suggestions: searchWords(index, word, 8),
+      message: `No WordNet entry for "${word}".`,
+    };
+  }
+  const max = Math.max(1, Math.min(MAX_RESULTS, Math.round(Number(limit) || 20)));
+  const senses = refs
+    .slice(0, max)
+    .map((ref) => resolveSense(index, ref))
+    .filter(Boolean)
+    .sort((a, b) => (POS_ORDER[a.pos] - POS_ORDER[b.pos]) || a.gloss.localeCompare(b.gloss));
+  return { ok: true, word, senses, suggestions: [] };
+}
+
+function filePath(folder, name) {
+  const clean = normalizeFolder(folder);
+  return clean === "/" ? name : `${clean}/${name}`;
+}
+
+module.exports = {
+  DATA_FILES,
+  DEFAULT_FOLDER,
+  MAX_FILE_CHARS,
+  MAX_GLOSS,
+  MAX_RELATIONS,
+  MAX_RESULTS,
+  MAX_TOTAL_CHARS,
+  POS_LABELS,
+  RELATION_LABELS,
+  buildWordNetIndex,
+  filePath,
+  lookupWord,
+  normalizeFolder,
+  normalizePos,
+  normalizeWord,
+  normalizeWordNetSettings,
+  parseWordNetLine,
+  searchWords,
+};
+};
+
 /* ---- src/writing-sessions.js ---- */
 __defs["writing-sessions"] = function (module, exports, require) {
 /*
@@ -101622,6 +102201,7 @@ const pdfAnnotationIndex = require("./pdf-annotation-index");
 const vaultTaskIndex = require("./vault-task-index");
 const taskTags = require("./task-tags");
 const glossary = require("./glossary");
+const wordnet = require("./wordnet");
 const writingSessions = require("./writing-sessions");
 const voiceMemo = require("./voice-memo");
 const { StudyWorkspaceView } = require("./study-workspace-view");
@@ -102072,6 +102652,7 @@ QuestionTrackerPlugin.__test = {
   vaultTaskIndex,
   taskTags,
   glossary,
+  wordnet,
   writingSessions,
   voiceMemo,
   cornell,

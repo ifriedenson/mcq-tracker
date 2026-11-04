@@ -26,6 +26,7 @@ const readingLibrary = require("./reading-library");
 const timeBlocks = require("./time-blocks");
 const citations = require("./citations");
 const voiceMemo = require("./voice-memo");
+const wordnet = require("./wordnet");
 
 /** Sidebar order follows the plan: local tools, then the workspace, then analysis. */
 const STUDY_TOOL_SETTINGS_MODULES = [
@@ -415,6 +416,27 @@ const PAGES = {
     enable: (plugin, v) => update(plugin, "vocabulary", studyWorkspace.normalizeVocabulary, { enabled: v }),
     afterToggle: "onStudyWorkspaceToggled",
     status: (plugin) => `${studyWorkspace.normalizeVocabulary(plugin.settings.vocabulary).words.length} word(s).`,
+    fields: [
+      {
+        type: "toggle",
+        name: "WordNet offline dictionary",
+        desc: "Enables the full local WordNet lookup in Vocabulary. Import the four data.* files from that tab; nothing is bundled, downloaded or sent anywhere.",
+        get: (plugin) => wordnet.normalizeWordNetSettings(plugin.settings.wordNet).enabled,
+        set: async (plugin, v) => update(plugin, "wordNet", wordnet.normalizeWordNetSettings, { enabled: v }),
+      },
+      {
+        type: "text",
+        name: "WordNet data folder",
+        desc: "Vault folder that holds data.noun, data.verb, data.adj and data.adv.",
+        placeholder: "WordNet",
+        get: (plugin) => wordnet.normalizeWordNetSettings(plugin.settings.wordNet).folder,
+        set: async (plugin, v) => {
+          update(plugin, "wordNet", wordnet.normalizeWordNetSettings, { folder: v });
+          plugin.wordNetIndex = null;
+          plugin.wordNetLoadedAt = 0;
+        },
+      },
+    ],
     open: { label: "Open Vocabulary", run: (plugin) => plugin.activateStudyWorkspace("vocabulary") },
   },
   citations: {
