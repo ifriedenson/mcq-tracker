@@ -1384,3 +1384,46 @@ test("refuses an unusable bookmark zoom or position", async () => {
   const rows = editor.readOutline((await editor.loadEditorDocument((await editor.savePdf(opened.doc)).bytes)).doc).entries;
   assert.deepEqual([rows[0].zoom, rows[0].top], [0, 40], "a position on its own keeps the viewer's zoom");
 });
+
+test("retargets an existing link and keeps its page and area", async () => {
+  const opened = await editor.loadEditorDocument(await fixture());
+  editor.addLink(opened.doc, { target: "url", url: "https://example.com/old", area: { x: 0.1, y: 0.1, width: 0.2, height: 0.05 }, pages: 0 });
+  const before = editor.readLinks(opened.doc).links[0];
+  const changed = editor.updateLink(opened.doc, { index: 1, target: "url", url: "https://example.com/new" });
+  assert.equal(changed.ok, true);
+  assert.deepEqual([changed.page, changed.target, changed.url], [1, "url", "https://example.com/new"]);
+  const saved = await editor.savePdf(opened.doc);
+  const after = editor.readLinks((await editor.loadEditorDocument(saved.bytes)).doc).links;
+  assert.equal(after.length, 1, "no second annotation is added");
+  assert.deepEqual([after[0].page, after[0].target, after[0].url], [1, "url", "https://example.com/new"]);
+  assert.deepEqual(after[0].area, before.area, "the clickable area stays exactly where it was");
+});
+
+test("turns a link into a page jump and back into an address", async () => {
+  const opened = await editor.loadEditorDocument(await fixture());
+  editor.addLink(opened.doc, { target: "url", url: "https://example.com/a", area: { x: 0.5, y: 0.5, width: 0.2, height: 0.1 }, pages: 1 });
+  const jumped = editor.updateLink(opened.doc, { index: 1, target: "page", to: 4 });
+  assert.deepEqual([jumped.target, jumped.to, jumped.page], ["page", 4, 2], "the link stays on its own page");
+  const saved = await editor.savePdf(opened.doc);
+  const rows = editor.readLinks((await editor.loadEditorDocument(saved.bytes)).doc).links;
+  assert.deepEqual([rows[0].target, rows[0].to, rows[0].url], ["page", 4, ""]);
+  const raw = await PDFDocument.load(saved.bytes);
+  const annot = raw.context.lookup(raw.getPage(1).node.Annots().asArray()[0], PDFDict);
+  assert.equal(annot.lookupMaybe(PDFName.of("A"), PDFDict), undefined, "the old address action is gone");
+  const back = editor.updateLink(opened.doc, { index: 1, target: "url", url: "https://example.com/b" });
+  assert.equal(back.url, "https://example.com/b");
+  assert.equal(editor.readLinks(opened.doc).links[0].to, 0, "the page jump is replaced, not kept");
+});
+
+test("refuses a link edit that cannot be applied", async () => {
+  const opened = await editor.loadEditorDocument(await fixture());
+  assert.equal(editor.updateLink(opened.doc, { index: 1, target: "url", url: "https://example.com/a" }).reason, "empty");
+  editor.addLink(opened.doc, { target: "url", url: "https://example.com/keep", area: { x: 0.1, y: 0.1, width: 0.2, height: 0.05 }, pages: 0 });
+  assert.equal(editor.updateLink(opened.doc, { index: 0, target: "url", url: "https://example.com/a" }).reason, "index");
+  assert.equal(editor.updateLink(opened.doc, { index: 2, target: "url", url: "https://example.com/a" }).reason, "index");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, target: "url", url: "" }).reason, "empty");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, target: "url", url: "javascript:alert(1)" }).reason, "scheme");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, target: "url", url: `https://example.com/${"a".repeat(2000)}` }).reason, "url");
+  assert.equal(editor.updateLink(opened.doc, { index: 1, target: "page", to: 9 }).reason, "page");
+  assert.equal(editor.readLinks(opened.doc).links[0].url, "https://example.com/keep", "a refused edit changes nothing");
+});

@@ -52239,6 +52239,49 @@ function removeLinks(doc, options) {
   return { ok: true, removed, left: total - removed, pages: [...byPage.keys()].map((index) => index + 1).sort((a, b) => a - b) };
 }
 
+/**
+ * Retargets one link, keeping its page, rectangle, border and flags. The old
+ * address or page jump is replaced in place, so nothing moves on the page.
+ */
+function updateLink(doc, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const entries = linkEntries(doc);
+  if (!entries.length) return { ok: false, reason: "empty", message: "This PDF has no links to change." };
+  const index = Math.round(Number(opts.index));
+  if (!Number.isFinite(index) || index < 1 || index > entries.length) {
+    return { ok: false, reason: "index", message: `Link ${str(opts.index) || "?"} is not in this PDF (1 to ${entries.length}).` };
+  }
+  const target = str(opts.target) === "page" ? "page" : "url";
+  const url = winAnsiText(opts.url).trim();
+  const to = Math.round(Number(opts.to));
+  if (target === "url") {
+    if (!url) return { ok: false, reason: "empty", message: "Type the address the link should open." };
+    if (url.length > MAX_LINK_URL) return { ok: false, reason: "url", message: `A link address cannot be longer than ${MAX_LINK_URL} characters.` };
+    if (!/^https?:\/\/\S+$/i.test(url)) return { ok: false, reason: "scheme", message: "A link opens an http or https address only." };
+  } else if (!Number.isFinite(to) || to < 1 || to > doc.getPageCount()) {
+    return { ok: false, reason: "page", message: `Page ${str(opts.to) || "?"} is not in this PDF.` };
+  }
+  const entry = entries[index - 1];
+  const dict = doc.context.lookup(entry.ref, PDFDict);
+  if (!dict) return { ok: false, reason: "link", message: "That link could not be read back from this PDF." };
+  let replacement = null;
+  try {
+    if (target === "url") {
+      const action = doc.context.obj({ Type: "Action", S: "URI" });
+      action.set(PDFName.of("URI"), PDFHexString.fromText(url));
+      replacement = { key: PDFName.of("A"), value: action };
+    } else {
+      replacement = { key: PDFName.of("Dest"), value: doc.context.obj([doc.getPage(to - 1).ref, PDFName.of("Fit")]) };
+    }
+  } catch (error) {
+    return { ok: false, reason: "link", message: `That link could not be changed: ${pdfError(error)}` };
+  }
+  dict.delete(PDFName.of("A"));
+  dict.delete(PDFName.of("Dest"));
+  dict.set(replacement.key, replacement.value);
+  return { ok: true, index, page: entry.pageIndex + 1, target, url: target === "url" ? url : "", to: target === "page" ? to : 0 };
+}
+
 /** Every link annotation in the file, in page order, capped. */
 function readLinks(doc) {
   const pages = doc.getPages();
@@ -52551,6 +52594,7 @@ module.exports = {
   readOutline,
   removeLinks,
   renameFormField,
+  updateLink,
   setOutline,
   resizePages,
   rotatePage,
@@ -52785,6 +52829,7 @@ const {
   readOutline,
   removeLinks,
   renameFormField,
+  updateLink,
   rotatePage,
   savePdf,
   setDocumentProperties,
@@ -52949,6 +52994,7 @@ class PdfEditorModal extends Modal {
       linkHeight: "5",
       linkPage: "0",
       linkRemove: "1",
+      linkEdit: "1",
       bookmarks: null,
       bookmarkZoom: "",
       bookmarkTop: "",
@@ -53721,6 +53767,14 @@ class PdfEditorModal extends Modal {
     const removeAllButton = removeRow.createEl("button", { text: "Remove all links", cls: "qt-grow" });
     removeAllButton.addEventListener("click", () => this.removeLinksContent(true));
 
+    const changeRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
+    this.contentInput(changeRow, "Change", "number", "Number of the link to change", this.content.linkEdit, (value) => {
+      this.content.linkEdit = value;
+    });
+    const changeButton = changeRow.createEl("button", { text: "Change link", cls: "qt-grow" });
+    changeButton.addEventListener("click", () => this.changeLinkContent());
+    changeRow.createSpan({ cls: "qt-hint", text: "Keeps the area; uses the kind, address and jump above." });
+
     host.createEl("h4", { text: "Bookmarks" });
     const bookmarkRow = host.createDiv({ cls: "qt-pdf-editor-row" });
     const bookmarkArea = bookmarkRow.createEl("textarea", { cls: "qt-pdf-editor-input" });
@@ -54128,6 +54182,21 @@ class PdfEditorModal extends Modal {
       this.setStatus(result.written
         ? `Wrote ${result.written} bookmark${result.written === 1 ? "" : "s"} in ${result.depth} level${result.depth === 1 ? "" : "s"}${at}. Nothing is written until you save a copy.`
         : "The bookmarks are cleared for the copy you save. Nothing is written until you save a copy.");
+    });
+  }
+
+  /** Retargets one numbered link in place, as an ordinary undoable edit. */
+  changeLinkContent() {
+    return this.runMutation("change a link", () => updateLink(this.doc, {
+      index: Number(this.content.linkEdit),
+      target: this.content.linkTarget,
+      url: this.content.linkUrl,
+      to: Number(this.content.linkTo),
+    }), (result) => {
+      this.renderContent();
+      this.setStatus(result.target === "url"
+        ? `Link ${result.index} on page ${result.page} now opens ${result.url}. Nothing is written until you save a copy.`
+        : `Link ${result.index} on page ${result.page} now jumps to page ${result.to}. Nothing is written until you save a copy.`);
     });
   }
 

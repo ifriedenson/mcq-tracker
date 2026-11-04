@@ -35,6 +35,7 @@ const {
   readOutline,
   removeLinks,
   renameFormField,
+  updateLink,
   rotatePage,
   savePdf,
   setDocumentProperties,
@@ -199,6 +200,7 @@ class PdfEditorModal extends Modal {
       linkHeight: "5",
       linkPage: "0",
       linkRemove: "1",
+      linkEdit: "1",
       bookmarks: null,
       bookmarkZoom: "",
       bookmarkTop: "",
@@ -971,6 +973,14 @@ class PdfEditorModal extends Modal {
     const removeAllButton = removeRow.createEl("button", { text: "Remove all links", cls: "qt-grow" });
     removeAllButton.addEventListener("click", () => this.removeLinksContent(true));
 
+    const changeRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
+    this.contentInput(changeRow, "Change", "number", "Number of the link to change", this.content.linkEdit, (value) => {
+      this.content.linkEdit = value;
+    });
+    const changeButton = changeRow.createEl("button", { text: "Change link", cls: "qt-grow" });
+    changeButton.addEventListener("click", () => this.changeLinkContent());
+    changeRow.createSpan({ cls: "qt-hint", text: "Keeps the area; uses the kind, address and jump above." });
+
     host.createEl("h4", { text: "Bookmarks" });
     const bookmarkRow = host.createDiv({ cls: "qt-pdf-editor-row" });
     const bookmarkArea = bookmarkRow.createEl("textarea", { cls: "qt-pdf-editor-input" });
@@ -1378,6 +1388,21 @@ class PdfEditorModal extends Modal {
       this.setStatus(result.written
         ? `Wrote ${result.written} bookmark${result.written === 1 ? "" : "s"} in ${result.depth} level${result.depth === 1 ? "" : "s"}${at}. Nothing is written until you save a copy.`
         : "The bookmarks are cleared for the copy you save. Nothing is written until you save a copy.");
+    });
+  }
+
+  /** Retargets one numbered link in place, as an ordinary undoable edit. */
+  changeLinkContent() {
+    return this.runMutation("change a link", () => updateLink(this.doc, {
+      index: Number(this.content.linkEdit),
+      target: this.content.linkTarget,
+      url: this.content.linkUrl,
+      to: Number(this.content.linkTo),
+    }), (result) => {
+      this.renderContent();
+      this.setStatus(result.target === "url"
+        ? `Link ${result.index} on page ${result.page} now opens ${result.url}. Nothing is written until you save a copy.`
+        : `Link ${result.index} on page ${result.page} now jumps to page ${result.to}. Nothing is written until you save a copy.`);
     });
   }
 
