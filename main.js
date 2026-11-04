@@ -50296,7 +50296,7 @@ __defs["pdf-editor"] = function (module, exports, require) {
  *
  * The source PDF is never modified: every write goes to a new copy.
  */
-const { PDFDocument, PDFName, PDFArray, PDFDict, PDFHexString, PDFRef, PDFTextField, PDFCheckBox, PDFRadioGroup, PDFDropdown, PDFOptionList, StandardFonts, degrees, rgb } = require("../vendor/pdf-lib.js");
+const { PDFDocument, PDFName, PDFArray, PDFDict, PDFHexString, PDFNumber, PDFRef, PDFTextField, PDFCheckBox, PDFRadioGroup, PDFDropdown, PDFOptionList, StandardFonts, degrees, rgb } = require("../vendor/pdf-lib.js");
 const { INK_COLOR_HEX, MARK_STYLES, clamp, normalizeHighlightAreas, normalizeInkStrokes, normalizeTextBoxes } = require("./pdf-ink");
 
 const MAX_BYTES = 80 * 1024 * 1024;
@@ -50326,6 +50326,9 @@ const MAX_SPLIT_PARTS = 100;
 const MAX_LINKS = 500;
 const MAX_LINK_URL = 2000;
 const MIN_LINK_SIZE = 0.002;
+const MAX_OUTLINE = 200;
+const MAX_OUTLINE_TITLE = 120;
+const MAX_OUTLINE_DEPTH = 3;
 const TEXT_POSITIONS = ["top-left", "top-center", "top-right", "middle-left", "middle-center", "middle-right", "bottom-left", "bottom-center", "bottom-right"];
 const SHAPES = ["rectangle", "ellipse", "line"];
 const SHAPE_FILLS = ["none", "yellow", "green", "blue", "red", "purple", "gray"];
@@ -52004,10 +52007,12 @@ function displayArea(rect, size, rotation) {
 }
 
 /** The 1-based page a destination points at, or 0 when it points nowhere. */
-function destinationPage(value, pages) {
+function destinationPage(value, pages, context) {
+  let target = value;
+  if (target instanceof PDFRef && context) target = context.lookup(target);
   let array = null;
-  if (value instanceof PDFArray) array = value;
-  else if (value instanceof PDFDict) array = value.lookupMaybe(PDFName.of("D"), PDFArray);
+  if (target instanceof PDFArray) array = target;
+  else if (target instanceof PDFDict) array = target.lookupMaybe(PDFName.of("D"), PDFArray);
   if (!array || !array.size()) return 0;
   const first = array.get(0);
   if (!(first instanceof PDFRef)) return 0;
@@ -52113,14 +52118,143 @@ function readLinks(doc) {
       const action = dict.lookupMaybe(PDFName.of("A"), PDFDict);
       if (action) {
         row.url = pdfText(action.lookup(PDFName.of("URI")));
-        if (!row.url) row.to = destinationPage(action.lookup(PDFName.of("D")), pages);
+        if (!row.url) row.to = destinationPage(action.get(PDFName.of("D")), pages, doc.context);
       }
-      if (!row.url && !row.to) row.to = destinationPage(dict.lookup(PDFName.of("Dest")), pages);
+      if (!row.url && !row.to) row.to = destinationPage(dict.get(PDFName.of("Dest")), pages, doc.context);
       row.target = row.url ? "url" : "page";
       links.push(row);
     }
   });
   return { ok: true, links, total };
+}
+
+/* ---------------------------------------------------------------- bookmarks */
+
+/** The document outline as a flat list: title, 1-based page and nesting level. */
+function readOutline(doc) {
+  const root = doc.catalog.lookupMaybe(PDFName.of("Outlines"), PDFDict);
+  const pages = doc.getPages();
+  const entries = [];
+  let total = 0;
+  const visit = (parent, level) => {
+    let item = parent.lookupMaybe(PDFName.of("First"), PDFDict);
+    let guard = 0;
+    while (item && guard <= MAX_OUTLINE) {
+      guard += 1;
+      total += 1;
+      if (entries.length < MAX_OUTLINE) {
+        const row = { title: pdfText(item.get(PDFName.of("Title"))), page: 0, level };
+        const action = item.lookupMaybe(PDFName.of("A"), PDFDict);
+        if (action) row.page = destinationPage(action.get(PDFName.of("D")), pages, doc.context);
+        if (!row.page) row.page = destinationPage(item.get(PDFName.of("Dest")), pages, doc.context);
+        entries.push(row);
+      }
+      if (level + 1 < MAX_OUTLINE_DEPTH) visit(item, level + 1);
+      item = item.lookupMaybe(PDFName.of("Next"), PDFDict);
+    }
+  };
+  if (root) visit(root, 0);
+  return { ok: true, entries, total, truncated: total > entries.length };
+}
+
+/**
+ * Replaces the document outline with a nested list of bookmarks. Each entry
+ * points at a whole page with /Fit; the root, parents, siblings and counts are
+ * all written as indirect objects, because the tree is cyclic.
+ */
+function setOutline(doc, entries) {
+  if (!Array.isArray(entries)) return { ok: false, reason: "shape", message: "Bookmarks need a list of entries." };
+  if (entries.length > MAX_OUTLINE) return { ok: false, reason: "size", message: `Keep the bookmarks to ${MAX_OUTLINE} entries.` };
+  const total = doc.getPageCount();
+  const rows = [];
+  for (let index = 0; index < entries.length; index++) {
+    const raw = entries[index] && typeof entries[index] === "object" ? entries[index] : {};
+    const title = winAnsiText(raw.title).replace(/\s+/g, " ").trim();
+    if (!title) return { ok: false, reason: "title", message: `Bookmark ${index + 1} needs a title.` };
+    if (title.length > MAX_OUTLINE_TITLE) return { ok: false, reason: "title", message: `Bookmark ${index + 1} has a title longer than ${MAX_OUTLINE_TITLE} characters.` };
+    const page = Math.round(Number(raw.page));
+    if (!Number.isFinite(page) || page < 1 || page > total) {
+      return { ok: false, reason: "page", message: `Bookmark ${index + 1} points at page ${str(raw.page) || "?"}, which is not in this PDF.` };
+    }
+    const level = Math.round(Number(raw.level) || 0);
+    if (level < 0 || level > MAX_OUTLINE_DEPTH - 1) {
+      return { ok: false, reason: "level", message: `Bookmark ${index + 1} is nested too deeply; use at most ${MAX_OUTLINE_DEPTH} levels.` };
+    }
+    if (!index && level) return { ok: false, reason: "level", message: "The first bookmark has to be a top-level one." };
+    if (index && level > rows[index - 1].level + 1) {
+      return { ok: false, reason: "level", message: `Bookmark ${index + 1} is nested under nothing; move it one level up.` };
+    }
+    rows.push({ title, page, level });
+  }
+  doc.catalog.delete(PDFName.of("Outlines"));
+  if (!rows.length) return { ok: true, written: 0, depth: 0, entries: [] };
+  const context = doc.context;
+  const root = context.obj({ Type: "Outlines" });
+  const rootRef = context.register(root);
+  doc.catalog.set(PDFName.of("Outlines"), rootRef);
+  const items = rows.map((row) => {
+    const dict = context.obj({ Title: PDFHexString.fromText(row.title) });
+    dict.set(PDFName.of("Dest"), context.obj([doc.getPage(row.page - 1).ref, PDFName.of("Fit")]));
+    return { title: row.title, page: row.page, level: row.level, dict, ref: context.register(dict) };
+  });
+  const stack = [];
+  items.forEach((item, index) => {
+    while (stack.length > item.level) stack.pop();
+    item.parentIndex = item.level === 0 ? -1 : stack[item.level - 1];
+    stack[item.level] = index;
+  });
+  const childIndexes = (parentIndex) => items.map((item, index) => (item.parentIndex === parentIndex ? index : -1)).filter((index) => index >= 0);
+  const descendants = (index) => childIndexes(index).reduce((sum, child) => sum + 1 + descendants(child), 0);
+  const linkChildren = (parentRef, parentDict, parentIndex) => {
+    const kids = childIndexes(parentIndex);
+    if (!kids.length) return;
+    parentDict.set(PDFName.of("First"), items[kids[0]].ref);
+    parentDict.set(PDFName.of("Last"), items[kids[kids.length - 1]].ref);
+    kids.forEach((index, order) => {
+      const item = items[index];
+      item.dict.set(PDFName.of("Parent"), parentRef);
+      if (order > 0) item.dict.set(PDFName.of("Prev"), items[kids[order - 1]].ref);
+      if (order < kids.length - 1) item.dict.set(PDFName.of("Next"), items[kids[order + 1]].ref);
+      const below = descendants(index);
+      if (below) item.dict.set(PDFName.of("Count"), PDFNumber.of(below));
+      linkChildren(item.ref, item.dict, index);
+    });
+  };
+  linkChildren(rootRef, root, -1);
+  root.set(PDFName.of("Count"), PDFNumber.of(items.length));
+  const depth = rows.reduce((max, row) => Math.max(max, row.level + 1), 0);
+  return { ok: true, written: items.length, depth, entries: rows.map((row) => ({ title: row.title, page: row.page, level: row.level })) };
+}
+
+/** `Title | page` lines, two spaces of indent per level. */
+function parseBookmarkText(text) {
+  const lines = str(text).split(/\r?\n/);
+  const entries = [];
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+    if (!line.trim()) continue;
+    if (entries.length >= MAX_OUTLINE) return { ok: false, reason: "size", message: `Keep the bookmarks to ${MAX_OUTLINE} lines.` };
+    const indent = line.match(/^[ \t]*/)[0].replace(/\t/g, "  ").length;
+    const body = line.trim();
+    const split = body.lastIndexOf("|");
+    if (split < 0) return { ok: false, reason: "format", message: `Bookmark line ${index + 1} needs a page, like "Introduction | 1".` };
+    const title = body.slice(0, split).trim();
+    const page = Number(body.slice(split + 1).trim());
+    if (!title) return { ok: false, reason: "title", message: `Bookmark line ${index + 1} needs a title before the |.` };
+    if (!Number.isFinite(page) || !Number.isInteger(page)) {
+      return { ok: false, reason: "format", message: `Bookmark line ${index + 1} needs a whole page number after the |.` };
+    }
+    entries.push({ title, page, level: Math.floor(indent / 2) });
+  }
+  const depth = entries.reduce((max, entry) => Math.max(max, entry.level + 1), 0);
+  return { ok: true, entries, depth };
+}
+
+/** The textarea's text for a list of bookmarks, so it round-trips. */
+function formatBookmarkText(entries) {
+  return (Array.isArray(entries) ? entries : [])
+    .map((entry) => `${"  ".repeat(clamp(Math.round(Number(entry.level) || 0), 0, MAX_OUTLINE_DEPTH - 1))}${str(entry.title)} | ${Math.round(Number(entry.page) || 1)}`)
+    .join("\n");
 }
 
 /* ----------------------------------------------------------------- writing */
@@ -52226,8 +52360,12 @@ module.exports = {
   loadEditorDocument,
   movePage,
   pageList,
+  formatBookmarkText,
+  parseBookmarkText,
   pdfError,
   readLinks,
+  readOutline,
+  setOutline,
   resizePages,
   rotatePage,
   savePdf,
@@ -52450,15 +52588,19 @@ const {
   flattenAnnotations,
   flattenForm,
   formFields,
+  formatBookmarkText,
   insertPdfPages,
   loadEditorDocument,
   movePage,
   pageList,
+  parseBookmarkText,
   readLinks,
+  readOutline,
   rotatePage,
   savePdf,
   setDocumentProperties,
   setFieldValue,
+  setOutline,
   splitPdf,
   addShape,
   resizePages,
@@ -52615,6 +52757,7 @@ class PdfEditorModal extends Modal {
       linkWidth: "30",
       linkHeight: "5",
       linkPage: "0",
+      bookmarks: null,
     };
     this.statusEl = null;
     this.listEl = null;
@@ -53375,6 +53518,20 @@ class PdfEditorModal extends Modal {
     const linkButton = linkBox.createEl("button", { text: "Add link", cls: "qt-grow" });
     linkButton.addEventListener("click", () => this.linkContent());
 
+    host.createEl("h4", { text: "Bookmarks" });
+    const bookmarkRow = host.createDiv({ cls: "qt-pdf-editor-row" });
+    const bookmarkArea = bookmarkRow.createEl("textarea", { cls: "qt-pdf-editor-input" });
+    bookmarkArea.setAttribute("aria-label", "Bookmarks, one per line as Title | page");
+    bookmarkArea.rows = 4;
+    if (this.content.bookmarks === null) this.content.bookmarks = formatBookmarkText(readOutline(this.doc).entries);
+    bookmarkArea.value = this.content.bookmarks;
+    bookmarkArea.addEventListener("change", () => {
+      this.content.bookmarks = bookmarkArea.value;
+    });
+    bookmarkRow.createSpan({ cls: "qt-hint", text: "One per line as Title | page; indent two spaces to nest." });
+    const bookmarkButton = bookmarkRow.createEl("button", { text: "Save bookmarks", cls: "qt-grow" });
+    bookmarkButton.addEventListener("click", () => this.bookmarksContent());
+
     host.createEl("h4", { text: "Watermark and document" });
     const watermarkRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
     const watermarkText = watermarkRow.createEl("input", { cls: "qt-pdf-editor-input", type: "text" });
@@ -53701,6 +53858,21 @@ class PdfEditorModal extends Modal {
       this.setStatus(result.target === "url"
         ? `Linked ${result.pages} page${result.pages === 1 ? "" : "s"} to ${result.url}. Nothing is written until you save a copy.`
         : `Linked ${result.pages} page${result.pages === 1 ? "" : "s"} to page ${result.to}. Nothing is written until you save a copy.`);
+    });
+  }
+
+  bookmarksContent() {
+    const parsed = parseBookmarkText(this.content.bookmarks);
+    if (!parsed.ok) {
+      this.setStatus(parsed.message);
+      return Promise.resolve(parsed);
+    }
+    return this.runMutation("set the bookmarks", () => setOutline(this.doc, parsed.entries), (result) => {
+      this.content.bookmarks = formatBookmarkText(parsed.entries);
+      this.renderContent();
+      this.setStatus(result.written
+        ? `Wrote ${result.written} bookmark${result.written === 1 ? "" : "s"} in ${result.depth} level${result.depth === 1 ? "" : "s"}. Nothing is written until you save a copy.`
+        : "The bookmarks are cleared for the copy you save. Nothing is written until you save a copy.");
     });
   }
 

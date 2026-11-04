@@ -24,15 +24,19 @@ const {
   flattenAnnotations,
   flattenForm,
   formFields,
+  formatBookmarkText,
   insertPdfPages,
   loadEditorDocument,
   movePage,
   pageList,
+  parseBookmarkText,
   readLinks,
+  readOutline,
   rotatePage,
   savePdf,
   setDocumentProperties,
   setFieldValue,
+  setOutline,
   splitPdf,
   addShape,
   resizePages,
@@ -189,6 +193,7 @@ class PdfEditorModal extends Modal {
       linkWidth: "30",
       linkHeight: "5",
       linkPage: "0",
+      bookmarks: null,
     };
     this.statusEl = null;
     this.listEl = null;
@@ -949,6 +954,20 @@ class PdfEditorModal extends Modal {
     const linkButton = linkBox.createEl("button", { text: "Add link", cls: "qt-grow" });
     linkButton.addEventListener("click", () => this.linkContent());
 
+    host.createEl("h4", { text: "Bookmarks" });
+    const bookmarkRow = host.createDiv({ cls: "qt-pdf-editor-row" });
+    const bookmarkArea = bookmarkRow.createEl("textarea", { cls: "qt-pdf-editor-input" });
+    bookmarkArea.setAttribute("aria-label", "Bookmarks, one per line as Title | page");
+    bookmarkArea.rows = 4;
+    if (this.content.bookmarks === null) this.content.bookmarks = formatBookmarkText(readOutline(this.doc).entries);
+    bookmarkArea.value = this.content.bookmarks;
+    bookmarkArea.addEventListener("change", () => {
+      this.content.bookmarks = bookmarkArea.value;
+    });
+    bookmarkRow.createSpan({ cls: "qt-hint", text: "One per line as Title | page; indent two spaces to nest." });
+    const bookmarkButton = bookmarkRow.createEl("button", { text: "Save bookmarks", cls: "qt-grow" });
+    bookmarkButton.addEventListener("click", () => this.bookmarksContent());
+
     host.createEl("h4", { text: "Watermark and document" });
     const watermarkRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
     const watermarkText = watermarkRow.createEl("input", { cls: "qt-pdf-editor-input", type: "text" });
@@ -1275,6 +1294,21 @@ class PdfEditorModal extends Modal {
       this.setStatus(result.target === "url"
         ? `Linked ${result.pages} page${result.pages === 1 ? "" : "s"} to ${result.url}. Nothing is written until you save a copy.`
         : `Linked ${result.pages} page${result.pages === 1 ? "" : "s"} to page ${result.to}. Nothing is written until you save a copy.`);
+    });
+  }
+
+  bookmarksContent() {
+    const parsed = parseBookmarkText(this.content.bookmarks);
+    if (!parsed.ok) {
+      this.setStatus(parsed.message);
+      return Promise.resolve(parsed);
+    }
+    return this.runMutation("set the bookmarks", () => setOutline(this.doc, parsed.entries), (result) => {
+      this.content.bookmarks = formatBookmarkText(parsed.entries);
+      this.renderContent();
+      this.setStatus(result.written
+        ? `Wrote ${result.written} bookmark${result.written === 1 ? "" : "s"} in ${result.depth} level${result.depth === 1 ? "" : "s"}. Nothing is written until you save a copy.`
+        : "The bookmarks are cleared for the copy you save. Nothing is written until you save a copy.");
     });
   }
 

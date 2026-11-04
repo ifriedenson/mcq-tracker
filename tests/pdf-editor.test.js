@@ -2,7 +2,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const zlib = require("node:zlib");
-const { PDFDocument, PDFName, StandardFonts, degrees } = require("../vendor/pdf-lib.js");
+const { PDFDocument, PDFName, PDFDict, StandardFonts, degrees } = require("../vendor/pdf-lib.js");
 const editor = require("../src/pdf-editor");
 
 /** Four plain pages plus a text field, a checkbox and a dropdown on page one. */
@@ -1178,4 +1178,91 @@ test("refuses a link without a usable address, page or area", async () => {
   assert.equal(editor.addLink(opened.doc, { target: "url", url: "https://example.com", area: { x: "left", y: 0.1, width: 0.2, height: 0.05 } }).reason, "area");
   assert.equal(editor.addLink(opened.doc, { target: "url", url: "https://example.com", area, pages: 9 }).reason, "index");
   assert.equal(editor.readLinks(opened.doc).total, 0, "a refused link is not added");
+});
+
+test("writes a nested document outline and reads it back after a save", async () => {
+  const opened = await editor.loadEditorDocument(await fixture());
+  const written = editor.setOutline(opened.doc, [
+    { title: "Unit 1", page: 1 },
+    { title: "Cells", page: 2, level: 1 },
+    { title: "ATP", page: 3, level: 2 },
+    { title: "Unit 2", page: 4 },
+  ]);
+  assert.equal(written.ok, true);
+  assert.equal(written.written, 4);
+  assert.equal(written.depth, 3);
+  const saved = await editor.savePdf(opened.doc);
+  const outline = editor.readOutline((await editor.loadEditorDocument(saved.bytes)).doc);
+  assert.equal(outline.total, 4);
+  assert.deepEqual(outline.entries, [
+    { title: "Unit 1", page: 1, level: 0 },
+    { title: "Cells", page: 2, level: 1 },
+    { title: "ATP", page: 3, level: 2 },
+    { title: "Unit 2", page: 4, level: 0 },
+  ]);
+  const raw = await PDFDocument.load(saved.bytes);
+  const root = raw.catalog.lookup(PDFName.of("Outlines"), PDFDict);
+  assert.ok(root, "the catalog carries an outline");
+  assert.equal(root.lookup(PDFName.of("Count")).asNumber(), 4);
+  const first = raw.context.lookup(root.lookup(PDFName.of("First")), PDFDict);
+  assert.equal(first.lookup(PDFName.of("Count")).asNumber(), 2, "the first item counts its two descendants");
+  assert.equal(first.lookup(PDFName.of("Next")).toString(), root.lookup(PDFName.of("Last")).toString(), "the second top-level item follows it");
+
+  const replaced = editor.setOutline(opened.doc, [{ title: "Only", page: 2 }]);
+  assert.equal(replaced.written, 1);
+  const replacedRead = editor.readOutline((await editor.loadEditorDocument((await editor.savePdf(opened.doc)).bytes)).doc);
+  assert.deepEqual(replacedRead.entries, [{ title: "Only", page: 2, level: 0 }]);
+});
+
+test("clears an outline, and refuses one that cannot be written", async () => {
+  const opened = await editor.loadEditorDocument(await fixture());
+  editor.setOutline(opened.doc, [{ title: "Unit 1", page: 1 }]);
+  const cleared = editor.setOutline(opened.doc, []);
+  assert.equal(cleared.ok, true);
+  assert.equal(cleared.written, 0);
+  assert.equal(editor.readOutline(opened.doc).total, 0);
+  assert.equal((await editor.loadEditorDocument((await editor.savePdf(opened.doc)).bytes)).doc.catalog.lookupMaybe(PDFName.of("Outlines"), PDFDict), undefined);
+
+  assert.equal(editor.setOutline(opened.doc, [{ title: "", page: 1 }]).reason, "title");
+  assert.equal(editor.setOutline(opened.doc, [{ title: "x".repeat(200), page: 1 }]).reason, "title");
+  assert.equal(editor.setOutline(opened.doc, [{ title: "A", page: 0 }]).reason, "page");
+  assert.equal(editor.setOutline(opened.doc, [{ title: "A", page: 9 }]).reason, "page");
+  assert.equal(editor.setOutline(opened.doc, [{ title: "A", page: 1, level: 1 }]).reason, "level");
+  assert.equal(editor.setOutline(opened.doc, [{ title: "A", page: 1 }, { title: "B", page: 2, level: 2 }]).reason, "level");
+  assert.equal(editor.setOutline(opened.doc, [{ title: "A", page: 1 }, { title: "B", page: 2, level: 3 }]).reason, "level");
+  const many = Array.from({ length: 201 }, (unused, index) => ({ title: `Part ${index}`, page: 1 }));
+  assert.equal(editor.setOutline(opened.doc, many).reason, "size");
+  assert.equal(editor.setOutline(opened.doc, "nope").reason, "shape");
+});
+
+test("bookmark text round-trips through the textarea format", () => {
+  const parsed = editor.parseBookmarkText("Unit 1 | 1\n  Cells | 2\n    ATP | 3\n\nUnit 2 | 4");
+  assert.equal(parsed.ok, true);
+  assert.deepEqual(parsed.entries, [
+    { title: "Unit 1", page: 1, level: 0 },
+    { title: "Cells", page: 2, level: 1 },
+    { title: "ATP", page: 3, level: 2 },
+    { title: "Unit 2", page: 4, level: 0 },
+  ]);
+  assert.equal(parsed.depth, 3);
+  assert.equal(editor.formatBookmarkText(parsed.entries), "Unit 1 | 1\n  Cells | 2\n    ATP | 3\nUnit 2 | 4");
+  assert.equal(editor.formatBookmarkText([]), "");
+  assert.deepEqual(editor.parseBookmarkText("").entries, []);
+  assert.equal(editor.parseBookmarkText("Unit 1").reason, "format");
+  assert.equal(editor.parseBookmarkText(" | 2").reason, "title");
+  assert.equal(editor.parseBookmarkText("Intro | two").reason, "format");
+  assert.equal(editor.parseBookmarkText("Intro | 1.5").reason, "format");
+});
+
+test("reads a link whose destination is an indirect object", async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage([200, 200]);
+  doc.addPage([200, 200]);
+  const context = doc.context;
+  const dest = context.register(context.obj([doc.getPage(1).ref, PDFName.of("Fit")]));
+  const annot = context.obj({ Type: "Annot", Subtype: "Link", Rect: [10, 10, 60, 30], Border: [0, 0, 0] });
+  annot.set(PDFName.of("Dest"), dest);
+  doc.getPage(0).node.addAnnot(context.register(annot));
+  const links = editor.readLinks((await editor.loadEditorDocument(await doc.save())).doc);
+  assert.deepEqual(links.links.map((row) => [row.page, row.target, row.to]), [[1, "page", 2]]);
 });
