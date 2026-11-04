@@ -1,3 +1,7 @@
+## 1.235.0 - 2026-11-04
+
+- **Advanced Tables row and column controls (optional, off by default)**: a compact toolbar below each rendered table adds **+ Row**, **− Row**, **↑ Row**, **↓ Row**, **+ Col**, **− Col**, **← Col** and **→ Col**. It commits the active cell first, then inserts, deletes or moves the selected row or column through the same live-editor/`vault.modify` path as a cell edit. The header row cannot be deleted or moved, the last column cannot be deleted, and edge moves are refused with a message rather than wrapping. Every change rewrites the whole block with padded columns, preserved alignment, escaped pipes and the note's original line endings. Formatting commands, sorting, formulas, merged cells and CSV export remain deferred.
+
 ## 1.234.0 - 2026-11-04
 
 - **Advanced Tables editing and navigation (optional, off by default)**: rendered Markdown table cells can be edited in place in reading view, with Tab/Shift+Tab, Enter/Shift+Enter and Alt+Arrow moving between cells without wrapping or inserting a stray newline. Every commit maps the rendered table back to its source block and rewrites the whole block with padded columns, preserved alignment and escaped pipes, so the note stays valid after a cell contains `|` or after columns grow. The module reuses Obsidian's Markdown renderer and the plugin's existing editor/note-write path; it adds no second editor, provider, dependency or network request. Sorting, formulas, CSV export, row/column insertion and merged cells remain deferred.

@@ -12239,3 +12239,35 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   background: var(--background-modifier-hover);
   box-shadow: inset 0 0 0 2px var(--interactive-accent);
 }
+
+.qt-table-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
+  margin: 4px 0 10px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.qt-table-editor:hover + .qt-table-toolbar,
+.qt-table-editor:focus-within + .qt-table-toolbar,
+.qt-table-toolbar:hover,
+.qt-table-toolbar:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.qt-table-toolbar-button {
+  font-size: var(--font-ui-smaller);
+  min-height: 26px;
+  padding: 2px 7px;
+}
+
+@media (hover: none) {
+  .qt-table-toolbar {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}

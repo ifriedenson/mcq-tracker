@@ -12,6 +12,18 @@ const MAX_TABLE_COLUMNS = 40;
 const MIN_COLUMN_WIDTH = 3;
 const MAX_CELL_LENGTH = 4000;
 
+/** Structural actions exposed by the table toolbar. */
+const TABLE_STRUCTURE_ACTIONS = [
+  { id: "row-insert-below", short: "+ Row", label: "Insert row below" },
+  { id: "row-delete", short: "− Row", label: "Delete row" },
+  { id: "row-move-up", short: "↑ Row", label: "Move row up" },
+  { id: "row-move-down", short: "↓ Row", label: "Move row down" },
+  { id: "column-insert-right", short: "+ Col", label: "Insert column right" },
+  { id: "column-delete", short: "− Col", label: "Delete column" },
+  { id: "column-move-left", short: "← Col", label: "Move column left" },
+  { id: "column-move-right", short: "→ Col", label: "Move column right" },
+];
+
 function text(value) {
   return value === null || value === undefined ? "" : String(value);
 }
@@ -219,6 +231,105 @@ function renderTable(table) {
   return lines;
 }
 
+/**
+ * Inserts, deletes or moves one row or column. The header row stays the first
+ * row, and every structural change keeps the table rectangular and aligned.
+ */
+function structureTable(table, action, row, column) {
+  if (!table || !Array.isArray(table.rows) || !Array.isArray(table.align)) {
+    return { ok: false, reason: "table", message: "The table is no longer available." };
+  }
+  const columns = Math.max(1, table.columns || table.align.length || 0);
+  const rowCount = table.rows.length;
+  const rows = table.rows.map((cells) => padRow(cells, columns));
+  const align = table.align.slice(0, columns);
+  while (align.length < columns) align.push("none");
+  const hasRow = Number.isInteger(row) && row >= 0 && row < rowCount;
+  const hasColumn = Number.isInteger(column) && column >= 0 && column < columns;
+
+  if (action === "row-insert-below") {
+    if (!hasRow) return { ok: false, reason: "row", message: "That table row is no longer available." };
+    if (rowCount >= MAX_TABLE_ROWS) return { ok: false, reason: "limit", message: `A table cannot have more than ${MAX_TABLE_ROWS} rows.` };
+    rows.splice(row + 1, 0, new Array(columns).fill(""));
+  } else if (action === "row-delete") {
+    if (!hasRow) return { ok: false, reason: "row", message: "That table row is no longer available." };
+    if (row === 0) return { ok: false, reason: "header", message: "The header row cannot be deleted." };
+    rows.splice(row, 1);
+  } else if (action === "row-move-up" || action === "row-move-down") {
+    if (!hasRow) return { ok: false, reason: "row", message: "That table row is no longer available." };
+    if (row === 0) return { ok: false, reason: "header", message: "The header row cannot be moved." };
+    const target = row + (action === "row-move-up" ? -1 : 1);
+    if (target < 1 || target >= rowCount) return { ok: false, reason: "boundary", message: `That row is already ${action === "row-move-up" ? "first" : "last"}.` };
+    const [moved] = rows.splice(row, 1);
+    rows.splice(target, 0, moved);
+  } else if (action === "column-insert-right") {
+    if (!hasColumn) return { ok: false, reason: "column", message: "That table column is no longer available." };
+    if (columns >= MAX_TABLE_COLUMNS) return { ok: false, reason: "limit", message: `A table cannot have more than ${MAX_TABLE_COLUMNS} columns.` };
+    for (const cells of rows) cells.splice(column + 1, 0, "");
+    align.splice(column + 1, 0, "none");
+  } else if (action === "column-delete") {
+    if (!hasColumn) return { ok: false, reason: "column", message: "That table column is no longer available." };
+    if (columns <= 1) return { ok: false, reason: "limit", message: "A table needs at least one column." };
+    for (const cells of rows) cells.splice(column, 1);
+    align.splice(column, 1);
+  } else if (action === "column-move-left" || action === "column-move-right") {
+    if (!hasColumn) return { ok: false, reason: "column", message: "That table column is no longer available." };
+    const target = column + (action === "column-move-left" ? -1 : 1);
+    if (target < 0 || target >= columns) return { ok: false, reason: "boundary", message: `That column is already ${action === "column-move-left" ? "leftmost" : "rightmost"}.` };
+    for (const cells of rows) {
+      const [moved] = cells.splice(column, 1);
+      cells.splice(target, 0, moved);
+    }
+    const [movedAlign] = align.splice(column, 1);
+    align.splice(target, 0, movedAlign);
+  } else {
+    return { ok: false, reason: "action", message: "Unknown table action." };
+  }
+
+  const nextRows = rows.map((cells) => padRow(cells, align.length));
+  return {
+    ok: true,
+    table: { ...table, columns: align.length, align, rows: nextRows, header: nextRows[0].slice() },
+  };
+}
+
+/** Creates the compact controls beside a table; hidden until hover or focus. */
+function createTableToolbar(tableEl, run) {
+  const doc = tableEl && (tableEl.ownerDocument || (typeof document !== "undefined" ? document : null));
+  if (!doc || typeof doc.createElement !== "function") return null;
+  const toolbar = doc.createElement("div");
+  toolbar.className = "qt-table-toolbar";
+  toolbar.setAttribute("role", "toolbar");
+  toolbar.setAttribute("aria-label", "Table controls");
+  toolbar.setAttribute("contenteditable", "false");
+
+  for (const action of TABLE_STRUCTURE_ACTIONS) {
+    const button = doc.createElement("button");
+    button.type = "button";
+    button.className = "qt-table-toolbar-button";
+    button.setAttribute("data-qt-table-action", action.id);
+    button.setAttribute("aria-label", action.label);
+    button.setAttribute("title", action.label);
+    button.textContent = action.short;
+    if (typeof button.addEventListener === "function") {
+      button.addEventListener("pointerdown", (event) => {
+        // Keep the active cell focused so its pending text is committed with the action.
+        if (event && event.preventDefault) event.preventDefault();
+      });
+      button.addEventListener("click", (event) => {
+        if (event && event.preventDefault) event.preventDefault();
+        run(action.id);
+      });
+    }
+    toolbar.appendChild(button);
+  }
+
+  if (typeof tableEl.insertAdjacentElement === "function") tableEl.insertAdjacentElement("afterend", toolbar);
+  else if (tableEl.parentNode && typeof tableEl.parentNode.insertBefore === "function") tableEl.parentNode.insertBefore(toolbar, tableEl.nextSibling);
+  else return null;
+  return toolbar;
+}
+
 /** Escapes a committed cell so a typed pipe becomes data, not a new column. */
 function escapeCell(value) {
   let cell = text(value).replace(/\r\n?/g, "\n").replace(/\n+/g, " ").trim().slice(0, MAX_CELL_LENGTH);
@@ -301,13 +412,25 @@ function tableForUpdate(lines, startLine, expected) {
   return null;
 }
 
-/**
- * Edits one cell in the full note text. Returns the replacement for the block
- * and the complete updated note, both with the note's original line endings.
- */
+/** Replaces one source table block and preserves the note's line endings. */
+function tableBlockUpdate(source, table, nextTable) {
+  const eol = source.includes("\r\n") ? "\r\n" : "\n";
+  const lines = source.split(/\r?\n/);
+  const rendered = renderTable(nextTable).join(eol);
+  const fullLines = lines.slice(0, table.start).concat(rendered.split(eol), lines.slice(table.end + 1));
+  return {
+    ok: true,
+    table: nextTable,
+    startLine: table.start,
+    endLine: table.end,
+    replacement: rendered,
+    text: fullLines.join(eol),
+  };
+}
+
+/** Edits one cell in the full note text. */
 function updateTableText(markdown, startLine, row, column, value, expected) {
   const source = text(markdown);
-  const eol = source.includes("\r\n") ? "\r\n" : "\n";
   const lines = source.split(/\r?\n/);
   const table = tableForUpdate(lines, Number.isInteger(startLine) ? startLine : -1, expected);
   if (!table) return { ok: false, reason: "not-found", message: "This table could not be matched to the note." };
@@ -323,17 +446,18 @@ function updateTableText(markdown, startLine, row, column, value, expected) {
   const changed = nextRows[row][column] !== nextValue;
   nextRows[row][column] = nextValue;
   const next = { ...table, rows: nextRows, header: nextRows[0].slice() };
-  const rendered = renderTable(next).join(eol);
-  const fullLines = lines.slice(0, table.start).concat(rendered.split(eol), lines.slice(table.end + 1));
-  return {
-    ok: true,
-    changed,
-    table: next,
-    startLine: table.start,
-    endLine: table.end,
-    replacement: rendered,
-    text: fullLines.join(eol),
-  };
+  return { ...tableBlockUpdate(source, table, next), changed };
+}
+
+/** Applies one row/column insertion, deletion or move to a source table. */
+function updateTableStructure(markdown, startLine, expected, action, row, column) {
+  const source = text(markdown);
+  const lines = source.split(/\r?\n/);
+  const table = tableForUpdate(lines, Number.isInteger(startLine) ? startLine : -1, expected);
+  if (!table) return { ok: false, reason: "not-found", message: "This table could not be matched to the note." };
+  const change = structureTable(table, action, row, column);
+  if (!change.ok) return change;
+  return { ...tableBlockUpdate(source, table, change.table), changed: true };
 }
 
 /**
@@ -426,9 +550,11 @@ function decorateTable(tableEl, options) {
   const table = opts.table;
   if (!tableEl || !table || !Array.isArray(table.rows)) return null;
   const commit = typeof opts.commit === "function" ? opts.commit : null;
+  const structure = typeof opts.structure === "function" ? opts.structure : null;
   const onError = typeof opts.onError === "function" ? opts.onError : null;
   const rows = tableRows(tableEl);
   if (!rows.length || rows.length !== table.rows.length) return null;
+  if (tableEl.getAttribute && tableEl.getAttribute("data-qt-table-editor") === "on") return null;
 
   addClass(tableEl, "qt-table-editor");
   setAttribute(tableEl, "data-qt-table-editor", "on");
@@ -439,29 +565,50 @@ function decorateTable(tableEl, options) {
     if (message && onError) onError(message);
   };
 
+  let active = null;
   const save = (cell, row, column) => {
-    if (!commit || !cell) return;
+    if (!commit || !cell) return Promise.resolve({ ok: true, changed: false });
     const value = text(cell.textContent);
-    if (value === cell.__qtTableOriginal) return;
+    if (value === cell.__qtTableOriginal) return Promise.resolve({ ok: true, changed: false });
     cell.__qtTableOriginal = value;
     let pending;
     try {
       pending = commit(row, column, value);
     } catch (error) {
       fail(error && error.message ? error.message : "The table cell could not be saved.");
-      return;
+      return Promise.resolve({ ok: false, reason: "commit" });
     }
-    Promise.resolve(pending)
+    return Promise.resolve(pending)
       .then((result) => {
         if (result && result.ok === false) {
           cell.textContent = cell.__qtTableLastGood || "";
           cell.__qtTableOriginal = cell.textContent;
           fail(result.message || "The table cell could not be saved.");
-        } else if (result && result.ok) {
-          cell.__qtTableLastGood = text(cell.textContent);
+          return result;
         }
+        if (result && result.ok) cell.__qtTableLastGood = text(cell.textContent);
+        return result || { ok: true };
       })
-      .catch((error) => fail(error && error.message ? error.message : "The table cell could not be saved."));
+      .catch((error) => {
+        fail(error && error.message ? error.message : "The table cell could not be saved.");
+        return { ok: false, reason: "commit" };
+      });
+  };
+
+  const commitActive = () => (active ? save(active.cell, active.row, active.column) : Promise.resolve({ ok: true }));
+
+  const runStructure = (action) => {
+    if (!structure) return;
+    const at = active || { row: table.rows.length > 1 ? 1 : 0, column: 0 };
+    return Promise.resolve(commitActive())
+      .then((saved) => {
+        if (saved && saved.ok === false) return null;
+        return structure(action, at.row, at.column);
+      })
+      .then((result) => {
+        if (result && result.ok === false) fail(result.message || "The table could not be changed.");
+      })
+      .catch((error) => fail(error && error.message ? error.message : "The table could not be changed."));
   };
 
   const focusCell = (row, column) => {
@@ -486,6 +633,7 @@ function decorateTable(tableEl, options) {
       if (typeof cell.addEventListener !== "function") return;
 
       cell.addEventListener("focus", () => {
+        active = { row, column, cell };
         cell.__qtTableOriginal = text(cell.textContent);
       });
       cell.addEventListener("blur", () => save(cell, row, column));
@@ -527,13 +675,15 @@ function decorateTable(tableEl, options) {
   });
 
   decorating = false;
-  return { cells, rows: table.rows.length, columns: table.columns, focusCell };
+  const toolbar = structure ? createTableToolbar(tableEl, runStructure) : null;
+  return { cells, rows: table.rows.length, columns: table.columns, focusCell, toolbar };
 }
 
 module.exports = {
   MAX_CELL_LENGTH,
   MAX_TABLE_COLUMNS,
   MAX_TABLE_ROWS,
+  TABLE_STRUCTURE_ACTIONS,
   decorateTable,
   escapeCell,
   findTable,
@@ -544,5 +694,7 @@ module.exports = {
   renderTable,
   renderedHeader,
   splitTableRow,
+  structureTable,
+  updateTableStructure,
   updateTableText,
 };

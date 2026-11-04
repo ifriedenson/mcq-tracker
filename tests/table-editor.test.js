@@ -65,6 +65,11 @@ function fakeTable(header, body) {
       remove: (...names) => names.forEach((name) => table.classes.delete(name)),
       contains: (name) => table.classes.has(name),
     },
+    ownerDocument: null,
+    inserted: null,
+    insertAdjacentElement(position, element) {
+      this.inserted = { position, element };
+    },
     querySelectorAll() {
       return [];
     },
@@ -73,6 +78,39 @@ function fakeTable(header, body) {
     },
   };
   return table;
+}
+
+function fakeToolbarDoc() {
+  const createElement = (tag) => {
+    const attrs = {};
+    const listeners = {};
+    const children = [];
+    return {
+      tagName: String(tag).toUpperCase(),
+      attrs,
+      listeners,
+      children,
+      className: "",
+      textContent: "",
+      appendChild(child) {
+        children.push(child);
+      },
+      setAttribute(name, value) {
+        attrs[name] = String(value);
+      },
+      getAttribute(name) {
+        return attrs[name];
+      },
+      addEventListener(name, fn) {
+        (listeners[name] = listeners[name] || []).push(fn);
+      },
+    };
+  };
+  return { createElement };
+}
+
+function fire(element, name, event) {
+  for (const handler of element.listeners[name] || []) handler(event || {});
 }
 
 function keydown(cell, key, options) {
@@ -331,4 +369,122 @@ test("an active Markdown editor is used instead of a disk read/modify race", asy
   const updated = editor.parseTables(live.getValue())[0];
   assert.deepEqual(updated.rows[1], ["Adenosine triphosphate", "Energy"]);
   assert.equal(updated.rows.every((row) => row.length === 2), true);
+});
+
+test("row and column operations keep the table rectangular and aligned", () => {
+  const source = "| A | B | C |\n| :--- | :---: | ---: |\n| 1 | 2 | 3 |\n| 4 | 5 | 6 |\n";
+  const table = editor.parseTables(source)[0];
+
+  const addedRow = editor.updateTableStructure(source, 0, table, "row-insert-below", 1, 0);
+  assert.equal(addedRow.ok, true);
+  const rowTable = editor.parseTables(addedRow.text)[0];
+  assert.equal(rowTable.rows.length, 4);
+  assert.deepEqual(rowTable.rows[2], ["", "", ""]);
+  assert.deepEqual(rowTable.align, ["left", "center", "right"]);
+  assert.equal(rowTable.rows.every((row) => row.length === 3), true);
+
+  const addedColumn = editor.updateTableStructure(source, 0, table, "column-insert-right", 1, 0);
+  assert.equal(addedColumn.ok, true);
+  const columnTable = editor.parseTables(addedColumn.text)[0];
+  assert.deepEqual(columnTable.header, ["A", "", "B", "C"]);
+  assert.deepEqual(columnTable.align, ["left", "none", "center", "right"]);
+  assert.equal(columnTable.rows.every((row) => row.length === 4), true);
+  assert.equal(editor.splitTableRow(addedColumn.replacement.split("\n")[1]).cells.length, 4);
+
+  const removedRow = editor.updateTableStructure(addedRow.text, 0, rowTable, "row-delete", 2, 0);
+  assert.equal(removedRow.ok, true);
+  assert.equal(editor.parseTables(removedRow.text)[0].rows.length, 3);
+
+  const removedColumn = editor.updateTableStructure(addedColumn.text, 0, columnTable, "column-delete", 1, 1);
+  assert.equal(removedColumn.ok, true);
+  assert.deepEqual(editor.parseTables(removedColumn.text)[0].header, ["A", "B", "C"]);
+
+  const movedRow = editor.updateTableStructure(source, 0, table, "row-move-down", 1, 0);
+  assert.equal(movedRow.ok, true);
+  assert.deepEqual(editor.parseTables(movedRow.text)[0].rows.slice(1), [["4", "5", "6"], ["1", "2", "3"]]);
+
+  const movedColumn = editor.updateTableStructure(source, 0, table, "column-move-right", 0, 0);
+  assert.equal(movedColumn.ok, true);
+  const movedTable = editor.parseTables(movedColumn.text)[0];
+  assert.deepEqual(movedTable.header, ["B", "A", "C"]);
+  assert.deepEqual(movedTable.align, ["center", "left", "right"]);
+  assert.equal(movedColumn.text.includes("\r\n"), false);
+});
+
+test("structural actions preserve CRLF endings and refuse invalid boundaries", () => {
+  const source = "| A | B |\r\n| --- | --- |\r\n| 1 | 2 |\r\n";
+  const table = editor.parseTables(source)[0];
+  const added = editor.updateTableStructure(source, 0, table, "row-insert-below", 1, 0);
+  assert.equal(added.ok, true);
+  assert.ok(added.text.includes("\r\n"));
+  assert.equal(added.text.includes("\n\n"), false);
+
+  assert.equal(editor.structureTable(table, "row-delete", 0, 0).reason, "header");
+  assert.equal(editor.structureTable(table, "row-move-up", 0, 0).reason, "header");
+  assert.equal(editor.structureTable(table, "row-move-up", 1, 0).reason, "boundary");
+  assert.equal(editor.structureTable(table, "row-move-down", 1, 0).reason, "boundary");
+  assert.equal(editor.structureTable(table, "column-move-left", 1, 0).reason, "boundary");
+  assert.equal(editor.structureTable(table, "column-move-right", 1, 1).reason, "boundary");
+  assert.equal(editor.structureTable(table, "row-delete", 9, 0).reason, "row");
+
+  const oneColumn = editor.parseTables("| Only |\n| --- |\n| x |\n")[0];
+  assert.equal(editor.structureTable(oneColumn, "column-delete", 1, 0).reason, "limit");
+  assert.equal(editor.structureTable(table, "unknown", 1, 0).reason, "action");
+});
+
+test("the table toolbar commits the active cell before applying a structure action", async () => {
+  const source = "| Term | Meaning |\n| --- | --- |\n| ATP | Energy |\n";
+  const table = editor.parseTables(source)[0];
+  const tableEl = fakeTable(["Term", "Meaning"], [["ATP", "Energy"]]);
+  tableEl.ownerDocument = fakeToolbarDoc();
+  const edits = [];
+  const actions = [];
+  const decorated = editor.decorateTable(tableEl, {
+    table,
+    commit: (row, column, value) => {
+      edits.push({ row, column, value });
+      return { ok: true };
+    },
+    structure: (action, row, column) => {
+      actions.push({ action, row, column });
+      return { ok: true };
+    },
+  });
+
+  assert.ok(decorated.toolbar);
+  assert.equal(tableEl.inserted.position, "afterend");
+  assert.equal(decorated.toolbar.attrs.role, "toolbar");
+  assert.equal(decorated.toolbar.attrs["aria-label"], "Table controls");
+  assert.equal(decorated.toolbar.children.length, editor.TABLE_STRUCTURE_ACTIONS.length);
+  assert.equal(decorated.toolbar.children[0].attrs["data-qt-table-action"], "row-insert-below");
+  assert.equal(decorated.toolbar.children[0].attrs["aria-label"], "Insert row below");
+
+  const cell = tableEl.rows[1].cells[0];
+  fire(cell, "focus");
+  cell.textContent = "Adenosine triphosphate";
+  fire(decorated.toolbar.children[0], "click", { preventDefault() {} });
+  await flush();
+  await flush();
+
+  assert.deepEqual(edits, [{ row: 1, column: 0, value: "Adenosine triphosphate" }]);
+  assert.deepEqual(actions, [{ action: "row-insert-below", row: 1, column: 0 }]);
+});
+
+test("structural changes use the note write path and keep the source valid", async () => {
+  const note = "Before\n\n| Term | Meaning |\n| --- | --- |\n| ATP | Energy |\n\nAfter";
+  const app = makeApp([{ path: "note.md", text: note }]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.tableEditor = { enabled: true };
+  const table = editor.parseTables(note)[0];
+
+  const result = await plugin.updateTableStructure("note.md", 0, table, "column-insert-right", 1, 0);
+  assert.equal(result.ok, true);
+  assert.equal(app.modified && app.modified.length, 1);
+  const saved = app.modified[0].text;
+  const updated = editor.parseTables(saved)[0];
+  assert.deepEqual(updated.header, ["Term", "", "Meaning"]);
+  assert.deepEqual(updated.align, ["none", "none", "none"]);
+  assert.equal(updated.rows.every((row) => row.length === 3), true);
+  assert.match(saved, /\| ATP\s+\|\s+\| Energy\s+\|/);
 });

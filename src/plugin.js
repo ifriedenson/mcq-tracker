@@ -9418,6 +9418,7 @@ ${body}
       tableEditor.decorateTable(tableEl, {
         table,
         commit: (row, column, value) => this.updateTableCell(sourcePath, lineStart, table, row, column, value),
+        structure: (action, row, column) => this.updateTableStructure(sourcePath, lineStart, table, action, row, column),
         onError: (message) => {
           if (message) new Notice(message);
         },
@@ -9427,9 +9428,23 @@ ${body}
 
   /** Rewrites one table block in the note, preferring the live editor over disk. */
   async updateTableCell(sourcePath, sectionStart, table, row, column, value) {
+    return this.updateTableBlock(sourcePath, sectionStart, table, (current, startLine, expected) =>
+      tableEditor.updateTableText(current, startLine, row, column, value, expected)
+    );
+  }
+
+  /** Applies a row/column insertion, deletion or move through the same write path. */
+  async updateTableStructure(sourcePath, sectionStart, table, action, row, column) {
+    return this.updateTableBlock(sourcePath, sectionStart, table, (current, startLine, expected) =>
+      tableEditor.updateTableStructure(current, startLine, expected, action, row, column)
+    );
+  }
+
+  async updateTableBlock(sourcePath, sectionStart, table, update) {
     const path = str(sourcePath).trim();
     if (!path) return { ok: false, reason: "path", message: "The note path is unavailable." };
     if (!table || !Array.isArray(table.rows)) return { ok: false, reason: "table", message: "The table is no longer available." };
+    if (typeof update !== "function") return { ok: false, reason: "update", message: "The table change is unavailable." };
     const task = async () => {
       const file = this.app.vault.getAbstractFileByPath ? this.app.vault.getAbstractFileByPath(path) : null;
       if (!file) return { ok: false, reason: "file", message: `Could not find ${path}.` };
@@ -9445,8 +9460,13 @@ ${body}
         }
       }
       const startLine = Number.isFinite(Number(sectionStart)) ? Math.max(0, Math.round(Number(sectionStart))) : table.start;
-      const result = tableEditor.updateTableText(current, startLine, row, column, value, table);
-      if (!result.ok || !result.changed) return result;
+      let result;
+      try {
+        result = update(current, startLine, table);
+      } catch (e) {
+        return { ok: false, reason: "change", message: `Could not change ${path}: ${str(e && e.message ? e.message : e)}` };
+      }
+      if (!result || !result.ok || !result.changed) return result || { ok: false, reason: "change", message: "The table change was not available." };
       const canUseEditor = editor && typeof editor.replaceRange === "function" && typeof editor.getLine === "function";
       if (canUseEditor) {
         const nextLine = editor.getLine(result.endLine + 1);
