@@ -22,6 +22,8 @@ const canvasMarkdown = require("./canvas-markdown");
 const canvasMap = require("./canvas-map");
 const canvasKanban = require("./canvas-kanban");
 const { KanbanReportModal } = require("./canvas-kanban-view");
+const canvasAutoLink = require("./canvas-auto-link");
+const { LinkReportModal } = require("./canvas-auto-link-view");
 const { WebBrowserView } = require("./web-browser-view");
 const calendarPlanner = require("./calendar-planner");
 const citations = require("./citations");
@@ -430,6 +432,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "canvas-layout", name: "Canvas: arrange the active board as a mind map", callback: () => this.layoutActiveCanvas() });
     this.addCommand({ id: "canvas-kanban-report", name: "Canvas: report the active board's kanban columns", callback: () => this.reportCanvasKanban() });
     this.addCommand({ id: "canvas-kanban-restack", name: "Canvas: re-stack the active board's kanban columns", callback: () => this.restackCanvasKanban() });
+    this.addCommand({ id: "canvas-auto-link-report", name: "Canvas: report the active board's proposed links", callback: () => this.reportCanvasLinks() });
+    this.addCommand({ id: "canvas-auto-link-apply", name: "Canvas: link the active board's matching cards", callback: () => this.applyCanvasLinks() });
     this.addCommand({ id: "open-task-list", name: "Open the task list", callback: () => this.activateTaskList() });
     this.addCommand({ id: "open-reading-library", name: "Reading library: open the bookshelf", callback: () => this.activateStudyWorkspace("readingLibrary") });
     this.addCommand({ id: "new-feynman-cycle", name: "Feynman Learning: start a cycle", callback: () => this.activateStudyWorkspace("feynman") });
@@ -2098,6 +2102,47 @@ class QuestionTrackerPlugin extends Plugin {
     const message = "Stacked " + stacked.stats.cards + " cards into " + stacked.stats.columns + (stacked.stats.columns === 1 ? " column" : " columns") + ".";
     new Notice(message);
     return { ok: true, path: file.path, changed: true, mode: stacked.mode, stats: stacked.stats, message };
+  }
+
+  /** Show the edges auto-link would add, plus everything it refuses to guess at. */
+  async reportCanvasLinks() {
+    const file = typeof this.app.workspace.getActiveFile === "function" ? this.app.workspace.getActiveFile() : null;
+    if (!file || !/\.canvas$/i.test(file.path)) {
+      new Notice("Open a canvas first.");
+      return { ok: false, reason: "file", message: "Open a canvas first." };
+    }
+    const report = canvasAutoLink.linkReport(await this.app.vault.read(file));
+    if (!report.ok) {
+      new Notice(report.message);
+      return report;
+    }
+    new LinkReportModal(this.app, report).open();
+    new Notice(report.summary);
+    return report;
+  }
+
+  /** Add the proposed edges to the open board; no node is touched. */
+  async applyCanvasLinks() {
+    const file = typeof this.app.workspace.getActiveFile === "function" ? this.app.workspace.getActiveFile() : null;
+    if (!file || !/\.canvas$/i.test(file.path)) {
+      new Notice("Open a canvas first.");
+      return { ok: false, reason: "file", message: "Open a canvas first." };
+    }
+    const linked = canvasAutoLink.applyLinks(await this.app.vault.read(file));
+    if (!linked.ok) {
+      new Notice(linked.message);
+      return linked;
+    }
+    if (!linked.changed) {
+      const message = "No new links; that board is already linked (" + linked.stats.nodes + " cards).";
+      new Notice(message);
+      return { ok: true, path: file.path, changed: false, stats: linked.stats, summary: linked.summary, message };
+    }
+    await this.app.vault.modify(file, linked.text);
+    const count = linked.applied.length;
+    const message = "Added " + count + (count === 1 ? " link" : " links") + "; " + linked.summary;
+    new Notice(message);
+    return { ok: true, path: file.path, changed: true, applied: linked.applied, stats: linked.stats, summary: linked.summary, message };
   }
 
   webBrowserEnabled() {

@@ -54,5 +54,6 @@ Also not claimed: dragging a card from one column to another inside the canvas. 
 needs the canvas view's own drag handling (an Obsidian-internal surface), so the current
 slice reads and re-stacks columns instead.
 
-The next slice, if approved, is auto-link: one command that links a card to the vault
-note its text names, refusing to write an edge to a missing file.
+The auto-link slice is in [canvas-auto-link.md](canvas-auto-link.md), on the same pure
+model. The next slice, if approved, is presentations: a full-window walkthrough that
+steps through a board's root cards without patching canvas internals.
