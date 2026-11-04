@@ -2,7 +2,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const zlib = require("node:zlib");
-const { PDFDocument, PDFName, PDFDict, StandardFonts, degrees } = require("../vendor/pdf-lib.js");
+const { PDFDocument, PDFName, PDFDict, PDFString, PDFNumber, StandardFonts, degrees } = require("../vendor/pdf-lib.js");
 const editor = require("../src/pdf-editor");
 
 /** Four plain pages plus a text field, a checkbox and a dropdown on page one. */
@@ -1125,6 +1125,8 @@ test("a URL link is stored as a link annotation and reads back unchanged", async
     target: "url",
     url: "https://example.com/atp",
     to: 0,
+    file: "",
+    name: "",
     area: { x: 0.1, y: 0.2, width: 0.4, height: 0.05 },
     style: { width: 0, dash: "solid", highlight: "none" },
   });
@@ -1645,4 +1647,114 @@ test("refuses a link style that cannot be applied and changes nothing", async ()
   assert.equal(refused.reason, "style");
   assert.match(refused.message, /border style cannot be edited/);
   assert.equal(editor.readLinks(odd.doc).links[0].style.width, 1, "the beveled border is left exactly as it was");
+});
+
+/** A raw /Link annotation whose action the test writes itself. */
+function addRawLink(doc, pageIndex, rect, action) {
+  const annot = doc.context.obj({ Type: "Annot", Subtype: "Link", Rect: rect, Border: [0, 0, 0], F: 4 });
+  annot.set(PDFName.of("A"), action);
+  doc.getPage(pageIndex).node.addAnnot(doc.context.register(annot));
+  return annot;
+}
+
+/** A fixture whose pages carry a launch, a remote go-to and a named destination. */
+async function linkedFixture() {
+  const raw = await PDFDocument.load(await fixture());
+  const launch = raw.context.obj({ Type: "Action", S: "Launch" });
+  launch.set(PDFName.of("F"), PDFString.of("chapter1.pdf"));
+  addRawLink(raw, 0, [40, 400, 120, 450], launch);
+  const remote = raw.context.obj({ Type: "Action", S: "GoToR" });
+  const spec = raw.context.obj({ Type: "Filespec" });
+  spec.set(PDFName.of("F"), PDFString.of("notes.pdf"));
+  remote.set(PDFName.of("F"), spec);
+  remote.set(PDFName.of("D"), raw.context.obj([PDFNumber.of(3), PDFName.of("Fit")]));
+  addRawLink(raw, 1, [200, 150, 300, 200], remote);
+  const goto = raw.context.obj({ Type: "Action", S: "GoTo" });
+  goto.set(PDFName.of("D"), PDFString.of("Chapter 3"));
+  addRawLink(raw, 2, [10, 10, 60, 40], goto);
+  const direct = raw.context.obj({ Type: "Annot", Subtype: "Link", Rect: [10, 10, 60, 40], Border: [0, 0, 0], F: 4 });
+  direct.set(PDFName.of("Dest"), PDFString.of("Appendix"));
+  raw.getPage(3).node.addAnnot(raw.context.register(direct));
+  return raw;
+}
+
+test("reads what a launch, a remote go-to and a named destination point at", async () => {
+  const opened = await editor.loadEditorDocument(await (await linkedFixture()).save());
+  const rows = editor.readLinks(opened.doc);
+  assert.equal(rows.total, 4);
+  assert.deepEqual(rows.links.map((row) => [row.page, row.target, row.file, row.name, row.to]), [
+    [1, "launch", "chapter1.pdf", "", 0],
+    [2, "remote", "notes.pdf", "", 3],
+    [3, "named", "", "Chapter 3", 0],
+    [4, "named", "", "Appendix", 0],
+  ], "each action reports the file or destination it opens instead of an empty address");
+});
+
+test("retargets a launch, a remote go-to or a named destination onto one address", async () => {
+  const opened = await editor.loadEditorDocument(await (await linkedFixture()).save());
+  const before = editor.readLinks(opened.doc).links;
+  assert.deepEqual(before.map((row) => row.target), ["launch", "remote", "named", "named"]);
+
+  const asUrl = editor.updateLink(opened.doc, { index: 1, target: "url", url: "https://example.com/new" });
+  assert.deepEqual([asUrl.ok, asUrl.fromKind, asUrl.url], [true, "launch", "https://example.com/new"], "a launch link becomes the address");
+  const asPage = editor.updateLink(opened.doc, { index: 2, target: "page", to: 4 });
+  assert.deepEqual([asPage.ok, asPage.fromKind, asPage.to], [true, "remote", 4], "a remote go-to becomes a page jump");
+  const named = editor.updateLink(opened.doc, { index: 3, target: "url", url: "https://example.com/named" });
+  assert.deepEqual([named.ok, named.fromKind], [true, "named"], "a named destination becomes the address");
+
+  const saved = await editor.savePdf(opened.doc);
+  assert.equal(saved.ok, true);
+  const rows = editor.readLinks((await editor.loadEditorDocument(saved.bytes)).doc);
+  assert.equal(rows.total, 4, "the same annotations are retargeted, none is replaced");
+  assert.deepEqual(rows.links.map((row) => [row.page, row.target, row.url, row.to, row.file, row.name]), [
+    [1, "url", "https://example.com/new", 0, "", ""],
+    [2, "page", "", 4, "", ""],
+    [3, "url", "https://example.com/named", 0, "", ""],
+    [4, "named", "", 0, "", "Appendix"],
+  ]);
+  assert.deepEqual(rows.links[0].area, before[0].area, "the clickable area stays exactly where it was");
+  assert.deepEqual(rows.links[0].style, before[0].style, "the border is untouched");
+
+  const savedRaw = await PDFDocument.load(saved.bytes);
+  const launch = linkAnnotation(savedRaw, 0);
+  assert.equal(String(launch.lookup(PDFName.of("A"), PDFDict).lookup(PDFName.of("S"))), "/URI", "the launch action is gone");
+  assert.equal(launch.get(PDFName.of("Dest")), undefined);
+  const remote = linkAnnotation(savedRaw, 1);
+  assert.equal(remote.lookupMaybe(PDFName.of("A"), PDFDict), undefined, "the remote action is gone");
+  assert.equal(String(remote.lookup(PDFName.of("Dest")).get(0)), String(savedRaw.getPage(3).ref), "the page jump names page 4");
+});
+
+test("refuses to rewrite an action it does not understand and leaves it byte for byte", async () => {
+  const raw = await linkedFixture();
+  const script = raw.context.obj({ Type: "Action", S: "JavaScript" });
+  script.set(PDFName.of("JS"), PDFString.of("app.alert(1)"));
+  const annot = raw.context.obj({ Type: "Annot", Subtype: "Link", Rect: [40, 350, 120, 380], Border: [0, 0, 0], F: 4 });
+  annot.set(PDFName.of("A"), script);
+  raw.getPage(0).node.addAnnot(raw.context.register(annot));
+  const opened = await editor.loadEditorDocument(await raw.save());
+  assert.deepEqual(editor.readLinks(opened.doc).links.map((row) => [row.target, row.name]), [["launch", ""], ["other", "JavaScript"], ["remote", ""], ["named", "Chapter 3"], ["named", "Appendix"]]);
+
+  const asUrl = editor.updateLink(opened.doc, { index: 2, target: "url", url: "https://example.com/a" });
+  assert.equal(asUrl.reason, "kind");
+  assert.match(asUrl.message, /a \/JavaScript action this editor does not rewrite/);
+  const asPage = editor.updateLink(opened.doc, { index: 2, target: "page", to: 2 });
+  assert.equal(asPage.reason, "kind", "a page jump is refused the same way");
+  assert.equal(editor.updateLink(opened.doc, { index: 2, area: { x: 0.2, y: 0.2, width: 0.3, height: 0.1 } }).ok, true, "the box can still be moved");
+  assert.equal(editor.updateLink(opened.doc, { index: 3, target: "url", url: "https://example.com/keep" }).fromKind, "remote", "only the unknown action is refused");
+
+  const saved = await editor.savePdf(opened.doc);
+  const savedRaw = await PDFDocument.load(saved.bytes);
+  const kept = savedRaw.getPage(0).node.Annots().asArray()
+    .map((ref) => savedRaw.context.lookup(ref, PDFDict))
+    .filter((dict) => dict && String(dict.get(PDFName.of("Subtype"))) === "/Link")
+    .find((dict) => String(dict.lookup(PDFName.of("A"), PDFDict).get(PDFName.of("S"))) === "/JavaScript");
+  assert.ok(kept, "the script link is still there");
+  const action = kept.lookup(PDFName.of("A"), PDFDict);
+  assert.equal(String(action.lookup(PDFName.of("S"))), "/JavaScript", "the script action is untouched");
+  assert.equal(action.lookup(PDFName.of("JS")).decodeText(), "app.alert(1)");
+  assert.equal(kept.get(PDFName.of("Dest")), undefined, "no address or jump was written beside the script");
+  const rect = kept.lookup(PDFName.of("Rect"));
+  assert.deepEqual([rect.get(0).asNumber(), rect.get(1).asNumber(), rect.get(2).asNumber(), rect.get(3).asNumber()].map((value) => Math.round(value * 100) / 100), [80, 350, 200, 400], "the box the move wrote is the only change");
+  const reread = editor.readLinks((await editor.loadEditorDocument(saved.bytes)).doc).links;
+  assert.deepEqual([reread[1].target, reread[1].name], ["other", "JavaScript"], "it still reads back as the script action");
 });

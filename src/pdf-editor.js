@@ -1833,6 +1833,84 @@ function destinationView(value, pages, context) {
   return view;
 }
 
+/** The name a named destination points at, or "" for a page jump. */
+function destinationName(value, context) {
+  let target = value;
+  if (target instanceof PDFRef && context) target = context.lookup(target);
+  if (!target) return "";
+  if (target instanceof PDFName) return pdfNameValue(target);
+  return pdfText(target);
+}
+
+/** The file a /Launch or /GoToR action opens, from a string or a file specification. */
+function linkFileSpec(value, context) {
+  let spec = value;
+  if (spec instanceof PDFRef && context) spec = context.lookup(spec);
+  if (!spec) return "";
+  if (spec instanceof PDFDict) return pdfText(spec.get(PDFName.of("UF"))) || pdfText(spec.get(PDFName.of("F")));
+  return pdfText(spec);
+}
+
+/** The 1-based page a remote go-to names in the other file, or 0 when it names none. */
+function remotePage(value, context) {
+  let target = value;
+  if (target instanceof PDFRef && context) target = context.lookup(target);
+  if (!(target instanceof PDFArray) || !target.size()) return 0;
+  const first = target.get(0);
+  const number = first && typeof first.asNumber === "function" ? first.asNumber() : NaN;
+  return Number.isFinite(number) && number >= 1 ? Math.round(number) : 0;
+}
+
+/**
+ * What a link annotation does: an address, a page in this file, a launch, a
+ * remote go-to, a named destination, an action this editor does not rewrite,
+ * or nothing at all. `file` and `name` carry the target a launch, a remote
+ * go-to or a named destination names, so those links can be read and changed
+ * instead of reporting an empty address.
+ */
+function linkAction(dict, pages, context) {
+  const row = { kind: "none", url: "", to: 0, file: "", name: "" };
+  const action = dict.lookupMaybe(PDFName.of("A"), PDFDict);
+  if (action) {
+    const kind = pdfNameValue(action.get(PDFName.of("S")));
+    if (kind === "URI") {
+      row.kind = "url";
+      row.url = pdfText(action.lookup(PDFName.of("URI")));
+      return row;
+    }
+    if (kind === "GoTo") {
+      const destination = action.get(PDFName.of("D"));
+      row.to = destinationPage(destination, pages, context);
+      row.name = row.to ? "" : destinationName(destination, context);
+      row.kind = row.to ? "page" : row.name ? "named" : "other";
+      return row;
+    }
+    if (kind === "Launch") {
+      row.kind = "launch";
+      row.file = linkFileSpec(action.get(PDFName.of("F")), context);
+      return row;
+    }
+    if (kind === "GoToR") {
+      const destination = action.get(PDFName.of("D"));
+      row.kind = "remote";
+      row.file = linkFileSpec(action.get(PDFName.of("F")), context);
+      row.to = remotePage(destination, context);
+      row.name = row.to ? "" : destinationName(destination, context);
+      return row;
+    }
+    row.kind = "other";
+    row.name = kind;
+    return row;
+  }
+  const direct = dict.get(PDFName.of("Dest"));
+  if (direct) {
+    row.to = destinationPage(direct, pages, context);
+    row.name = row.to ? "" : destinationName(direct, context);
+    row.kind = row.to ? "page" : row.name ? "named" : "other";
+  }
+  return row;
+}
+
 /**
  * A link annotation over a normalized area: an http(s) address or a jump to
  * another page of the same file. Nothing is drawn into the page content, and
@@ -2004,6 +2082,8 @@ function updateLink(doc, options) {
   const entry = entries[index - 1];
   const dict = doc.context.lookup(entry.ref, PDFDict);
   if (!dict) return { ok: false, reason: "link", message: "That link could not be read back from this PDF." };
+  const pages = doc.getPages();
+  const previous = linkAction(dict, pages, doc.context);
   const fromPage = entry.pageIndex + 1;
   const relocate = opts.page !== undefined && opts.page !== null && str(opts.page) !== "";
   let pageNumber = fromPage;
@@ -2108,6 +2188,15 @@ function updateLink(doc, options) {
   }
   const retarget = opts.target !== undefined || opts.url !== undefined || opts.to !== undefined;
   if (!rect && !retarget && !style) return { ok: false, reason: "empty", message: "Give the link a new area, a new address or a new style." };
+  if (retarget && previous.kind === "other") {
+    return {
+      ok: false,
+      reason: "kind",
+      message: previous.name
+        ? `This link runs a /${previous.name} action this editor does not rewrite; remove it and add a new link instead.`
+        : "This link runs an action this editor does not rewrite; remove it and add a new link instead.",
+    };
+  }
   const target = str(opts.target) === "page" ? "page" : "url";
   const url = winAnsiText(opts.url).trim();
   const to = Math.round(Number(opts.to));
@@ -2172,6 +2261,7 @@ function updateLink(doc, options) {
     styled: Boolean(style),
     style: style || null,
     target: retarget ? target : "",
+    fromKind: retarget ? previous.kind : "",
     url: retarget && target === "url" ? url : "",
     to: retarget && target === "page" ? to : 0,
   };
@@ -2198,22 +2288,17 @@ function readLinks(doc) {
       if (pdfNameValue(dict.lookup(PDFName.of("Subtype"))) !== "Link") continue;
       total += 1;
       if (links.length >= MAX_LINKS) continue;
-      const row = {
+      const action = linkAction(dict, pages, doc.context);
+      links.push({
         page: index + 1,
-        target: "url",
-        url: "",
-        to: 0,
+        target: action.kind,
+        url: action.url,
+        to: action.to,
+        file: action.file,
+        name: action.name,
         area: displayArea(dict.lookupMaybe(PDFName.of("Rect"), PDFArray), size, rotation),
         style: linkStyle(dict),
-      };
-      const action = dict.lookupMaybe(PDFName.of("A"), PDFDict);
-      if (action) {
-        row.url = pdfText(action.lookup(PDFName.of("URI")));
-        if (!row.url) row.to = destinationPage(action.get(PDFName.of("D")), pages, doc.context);
-      }
-      if (!row.url && !row.to) row.to = destinationPage(dict.get(PDFName.of("Dest")), pages, doc.context);
-      row.target = row.url ? "url" : "page";
-      links.push(row);
+      });
     }
   });
   return { ok: true, links, total };

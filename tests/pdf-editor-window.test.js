@@ -16,7 +16,7 @@ const { load } = require("./helpers/load");
 const { T, Plugin: QT, obsidian } = load();
 const { makeApp, makeDom } = require("./helpers/fake");
 const zlib = require("node:zlib");
-const { PDFDocument, PDFName, StandardFonts } = require("../vendor/pdf-lib.js");
+const { PDFDocument, PDFName, PDFString, StandardFonts } = require("../vendor/pdf-lib.js");
 const vendorCheck = require("../scripts/check-vendor");
 
 const editor = T.pdfEditor;
@@ -1142,5 +1142,75 @@ test("pdf editor window: the style row restyles a link and keeps its box, page a
   const rows = editor.readLinks(reopened.doc);
   assert.equal(rows.total, 1);
   assert.deepEqual(rows.links[0].style, { width: 3, dash: "dashed", highlight: "invert" });
+  modal.close();
+});
+
+/** The ordinary fixture plus a launch link and a script link on page 1. */
+async function linkedFixture() {
+  const doc = await PDFDocument.load(await fixture());
+  const add = (rect, action) => {
+    const annot = doc.context.obj({ Type: "Annot", Subtype: "Link", Rect: rect, Border: [0, 0, 0], F: 4 });
+    annot.set(PDFName.of("A"), action);
+    doc.getPage(0).node.addAnnot(doc.context.register(annot));
+  };
+  const launch = doc.context.obj({ Type: "Action", S: "Launch" });
+  launch.set(PDFName.of("F"), PDFString.of("chapter1.pdf"));
+  add([40, 400, 120, 450], launch);
+  const script = doc.context.obj({ Type: "Action", S: "JavaScript" });
+  script.set(PDFName.of("JS"), PDFString.of("app.alert(1)"));
+  add([40, 350, 120, 380], script);
+  return doc.save();
+}
+
+test("pdf editor window: the change row retargets a launch link and refuses a script action", async () => {
+  const app = makeApp([
+    { path: "Papers/Exam.pdf", noFm: true, text: "" },
+    { path: "Papers/Exam.annotations.md", noFm: true, text: SIDECAR },
+    { path: "Notes/Lecture.md", noFm: true, text: "# Lecture\n" },
+  ]);
+  const sourceBytes = await linkedFixture();
+  app.files.find((file) => file.path === "Papers/Exam.pdf").buffer = sourceBytes;
+  const plugin = new QT(app);
+  await plugin.onload();
+  const modal = openEditor(app, plugin, "Papers/Exam.pdf");
+  await modal.loading;
+
+  const rows = editor.readLinks(modal.doc);
+  assert.deepEqual(rows.links.map((row) => row.target), ["launch", "other"], "both links are read with their kind");
+  assert.match(modal.linksSummary(), /launch chapter1\.pdf/);
+  assert.match(modal.linksSummary(), /\/JavaScript action/);
+  const hint = modal.dom.all.find((entry) => entry.meta && entry.meta.tag === "span" && /launch action for chapter1\.pdf/.test(entry.meta.text || ""));
+  assert.ok(hint, "the change row names what the selected link opens");
+
+  modal.content.linkEdit = "1";
+  modal.content.linkTarget = "url";
+  modal.content.linkUrl = "https://example.com/converted";
+  await clickButton(modal.dom, "Change link");
+  assert.match(statusText(modal), /now opens https:\/\/example\.com\/converted instead of a launch action/);
+  const changed = editor.readLinks(modal.doc);
+  assert.deepEqual([changed.total, changed.links[0].target, changed.links[0].url], [2, "url", "https://example.com/converted"], "the launch link becomes the address");
+  assert.equal(changed.links[0].file, "", "the launch file goes with its action");
+  assert.equal(modal.history.states[modal.history.cursor].label, "change a link", "the conversion is one undo step");
+
+  await clickMatching(modal.dom, /^Undo change a link$/);
+  const undone = editor.readLinks(modal.doc).links[0];
+  assert.deepEqual([undone.target, undone.file], ["launch", "chapter1.pdf"], "one undo brings the launch link back");
+  await clickMatching(modal.dom, /^Redo change a link$/);
+
+  // a script action is refused with a message and no change
+  modal.content.linkEdit = "2";
+  await clickButton(modal.dom, "Change link");
+  assert.match(statusText(modal), /does not rewrite/);
+  const refused = editor.readLinks(modal.doc);
+  assert.deepEqual([refused.total, refused.links[1].target, refused.links[1].name], [2, "other", "JavaScript"], "the script action is left alone");
+
+  const sourceBefore = Uint8Array.from(app.files.find((file) => file.path === "Papers/Exam.pdf").buffer);
+  await modal.saveCopy();
+  assert.deepEqual(app.files.find((file) => file.path === "Papers/Exam.pdf").buffer, sourceBefore, "the source PDF is byte-for-byte unchanged");
+  const written = app.createdBinary[0];
+  assert.ok(written, "a copy was written");
+  const reopened = await editor.loadEditorDocument(written.buffer);
+  assert.equal(reopened.ok, true, "the saved copy opens again");
+  assert.deepEqual(editor.readLinks(reopened.doc).links.map((row) => row.target), ["url", "other"], "the copy carries the converted link and the untouched script");
   modal.close();
 });

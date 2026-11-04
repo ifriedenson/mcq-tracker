@@ -987,6 +987,7 @@ class PdfEditorModal extends Modal {
     });
     const changeButton = changeRow.createEl("button", { text: "Change link", cls: "qt-grow" });
     changeButton.addEventListener("click", () => this.changeLinkContent());
+    changeRow.createSpan({ cls: "qt-hint", text: this.linkKindHint() });
     changeRow.createSpan({ cls: "qt-hint", text: "Keeps the area; uses the kind, address and jump above." });
 
     const linkAreaRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
@@ -1510,9 +1511,10 @@ class PdfEditorModal extends Modal {
       to: Number(this.content.linkTo),
     }), (result) => {
       this.renderContent();
+      const instead = result.fromKind && result.fromKind !== result.target ? ` instead of ${this.linkKindWords(result.fromKind)}` : "";
       this.setStatus(result.target === "url"
-        ? `Link ${result.index} on page ${result.page} now opens ${result.url}. Nothing is written until you save a copy.`
-        : `Link ${result.index} on page ${result.page} now jumps to page ${result.to}. Nothing is written until you save a copy.`);
+        ? `Link ${result.index} on page ${result.page} now opens ${result.url}${instead}. Nothing is written until you save a copy.`
+        : `Link ${result.index} on page ${result.page} now jumps to page ${result.to}${instead}. Nothing is written until you save a copy.`);
     });
   }
 
@@ -1529,8 +1531,47 @@ class PdfEditorModal extends Modal {
     if (!this.doc) return "No links yet.";
     const found = readLinks(this.doc);
     if (!found.ok || !found.total) return "No links yet.";
-    const shown = found.links.slice(0, 3).map((row) => (row.target === "url" ? `p${row.page} → ${row.url}` : `p${row.page} → page ${row.to}`));
+    const shown = found.links.slice(0, 3).map((row) => this.linkTargetLine(row));
     return `${found.total} link${found.total === 1 ? "" : "s"}: ${shown.join(", ")}${found.total > 3 ? " …" : ""}`;
+  }
+
+  /** What one link opens, as a short line in the Links summary. */
+  linkTargetLine(row) {
+    if (row.target === "url") return `p${row.page} → ${row.url}`;
+    if (row.target === "page") return `p${row.page} → page ${row.to}`;
+    if (row.target === "launch") return `p${row.page} → launch ${row.file || "a file"}`;
+    if (row.target === "remote") return `p${row.page} → remote ${row.file || "a file"}${row.to ? ` page ${row.to}` : ""}${row.name ? ` ${row.name}` : ""}`;
+    if (row.target === "named") return `p${row.page} → destination ${row.name || "?"}`;
+    if (row.target === "other") return `p${row.page} → ${row.name ? `/${row.name} action` : "an action"}`;
+    return `p${row.page} → no action`;
+  }
+
+  /** How a link action reads in the middle of a sentence. */
+  linkKindWords(kind) {
+    if (kind === "url") return "an address";
+    if (kind === "page") return "a page jump";
+    if (kind === "launch") return "a launch action";
+    if (kind === "remote") return "a remote go-to";
+    if (kind === "named") return "a named destination";
+    if (kind === "other") return "another action";
+    return "no action";
+  }
+
+  /** What the link at the Change number opens, read back from the file. */
+  linkKindHint() {
+    if (!this.doc) return "What the link at Change opens.";
+    const found = readLinks(this.doc);
+    if (!found.ok || !found.total) return "No links yet.";
+    const index = Math.round(Number(this.content.linkEdit));
+    if (!Number.isFinite(index) || index < 1 || index > found.links.length) return `${found.total} link${found.total === 1 ? "" : "s"}; pick one by number.`;
+    const row = found.links[index - 1];
+    if (row.target === "url") return `Link ${index} opens ${row.url}.`;
+    if (row.target === "page") return `Link ${index} jumps to page ${row.to}.`;
+    if (row.target === "launch") return `Link ${index} is a launch action for ${row.file || "a file"}; a change replaces it with the address or jump you choose.`;
+    if (row.target === "remote") return `Link ${index} is a remote go-to in ${row.file || "another file"}${row.to ? `, page ${row.to}` : ""}; a change replaces it.`;
+    if (row.target === "named") return `Link ${index} is a named destination${row.name ? ` ${row.name}` : ""}; a change replaces it.`;
+    if (row.target === "other") return `Link ${index} runs ${row.name ? `a /${row.name}` : "an"} action, which this editor does not rewrite.`;
+    return `Link ${index} has no action yet.`;
   }
 
   /** The annotation tool as an ordinary edit: draw the sidecar marks now, undoably. */
