@@ -1885,3 +1885,75 @@ test("refuses an unusable border style or dash pattern and changes nothing", asy
   assert.equal(String(linkAnnotation(unknownSaved, 0).lookup(PDFName.of("BS"), PDFDict).lookup(PDFName.of("S"))), "/X", "the unknown style survives a width change");
   assert.deepEqual([rows[0].style.border, rows[0].style.width, rows[0].style.dash, rows[0].style.pattern], ["beveled", 2, "solid", []], "every refusal leaves the border alone");
 });
+
+/** The /Link annotations of one page, in annotation order. */
+function linksOn(doc, pageIndex) {
+  return doc.getPage(pageIndex).node.Annots().asArray()
+    .map((ref) => doc.context.lookup(ref, PDFDict))
+    .filter((dict) => dict && String(dict.get(PDFName.of("Subtype"))) === "/Link");
+}
+
+/** A /BS /D array of `[phase [lengths]]` or plain lengths. */
+function dashArray(doc, phase, lengths) {
+  const plain = doc.context.obj(lengths.map((value) => PDFNumber.of(value)));
+  return phase === null ? plain : doc.context.obj([PDFNumber.of(phase), plain]);
+}
+
+test("reads a custom dash phase and leaves a plain dash without one", async () => {
+  const raw = await borderFixture();
+  const phased = linksOn(raw, 0)[3];
+  phased.set(PDFName.of("BS"), raw.context.obj({ W: 1, S: PDFName.of("D"), D: dashArray(raw, 2, [5, 3]) }));
+  const opened = await editor.loadEditorDocument(await raw.save());
+  const rows = editor.readLinks(opened.doc).links;
+  assert.deepEqual([rows[3].style.border, rows[3].style.dash, rows[3].style.pattern, rows[3].style.phase], ["dashed", "custom", [5, 3], 2], "the phase and lengths are read together");
+  assert.equal("phase" in rows[0].style, false, "a link without a phase has no phase key");
+});
+
+test("writes, keeps and clears a custom dash phase through every link edit", async () => {
+  const opened = await editor.loadEditorDocument(await (await borderFixture()).save());
+  const set = editor.updateLink(opened.doc, { index: 4, style: { dash: "custom", pattern: [5, 2], phase: 2 } });
+  assert.deepEqual([set.ok, set.style.border, set.style.dash, set.style.pattern, set.style.phase], [true, "dashed", "custom", [5, 2], 2]);
+
+  const wider = editor.updateLink(opened.doc, { index: 4, style: { width: 3 } });
+  assert.deepEqual([wider.style.width, wider.style.pattern, wider.style.phase], [3, [5, 2], 2], "a width change keeps the phase");
+  assert.equal(editor.updateLink(opened.doc, { index: 4, area: { x: 0.5, y: 0.5, width: 0.2, height: 0.1 } }).ok, true);
+  assert.equal(editor.updateLink(opened.doc, { index: 4, target: "url", url: "https://example.com/phase" }).ok, true);
+  assert.equal(editor.updateLink(opened.doc, { index: 4, target: "page", to: 3 }).ok, true);
+
+  const saved = await editor.savePdf(opened.doc);
+  const savedRaw = await PDFDocument.load(saved.bytes);
+  const annot = linksOn(savedRaw, 0)[3];
+  const bs = annot.lookup(PDFName.of("BS"), PDFDict);
+  const dash = bs.lookup(PDFName.of("D"));
+  assert.equal(dash.get(0).asNumber(), 2, "/BS /D carries the phase first");
+  assert.deepEqual(dash.get(1).asArray().map((value) => value.asNumber()), [5, 2], "/BS /D carries the lengths second");
+  assert.equal(bs.lookup(PDFName.of("W")).asNumber(), 3);
+  const border = annot.lookup(PDFName.of("Border"));
+  assert.deepEqual(border.asArray().slice(0, 3).map((value) => value.asNumber()), [0, 0, 3]);
+  assert.equal(border.get(3).asNumber(), 2, "/Border carries the same phase");
+  assert.deepEqual(border.get(4).asArray().map((value) => value.asNumber()), [5, 2]);
+  const rows = editor.readLinks((await editor.loadEditorDocument(saved.bytes)).doc).links;
+  assert.deepEqual([rows[3].target, rows[3].style.pattern, rows[3].style.phase], ["page", [5, 2], 2], "the phase survives the move and both retargets");
+
+  const cleared = editor.updateLink(opened.doc, { index: 4, style: { phase: null } });
+  assert.deepEqual([cleared.ok, cleared.style.dash, cleared.style.pattern], [true, "custom", [5, 2]]);
+  assert.equal("phase" in cleared.style, false, "clearing the phase removes the key");
+  const clearedRaw = await PDFDocument.load((await editor.savePdf(opened.doc)).bytes);
+  const clearedDash = linksOn(clearedRaw, 0)[3].lookup(PDFName.of("BS"), PDFDict).lookup(PDFName.of("D"));
+  assert.deepEqual(clearedDash.asArray().map((value) => value.asNumber()), [5, 2], "a cleared phase writes plain lengths again");
+});
+
+test("refuses an unusable dash phase and changes nothing", async () => {
+  const opened = await editor.loadEditorDocument(await (await borderFixture()).save());
+  assert.equal(editor.updateLink(opened.doc, { index: 4, style: { phase: "two" } }).reason, "style");
+  assert.equal(editor.updateLink(opened.doc, { index: 4, style: { phase: "1 2" } }).reason, "style");
+  assert.equal(editor.updateLink(opened.doc, { index: 4, style: { phase: -1 } }).reason, "style");
+  assert.equal(editor.updateLink(opened.doc, { index: 4, style: { phase: 2000 } }).reason, "style");
+  assert.match(editor.updateLink(opened.doc, { index: 4, style: { phase: 2000 } }).message, /phase/);
+  assert.equal(editor.updateLink(opened.doc, { index: 1, style: { phase: 2 } }).reason, "style", "a solid border has no custom dash to phase");
+  assert.equal(editor.updateLink(opened.doc, { index: 3, style: { dash: "custom", phase: 2 } }).reason, "style", "a custom dash still needs its lengths");
+  const unchanged = editor.readLinks(opened.doc).links;
+  assert.deepEqual([unchanged[3].style.pattern, "phase" in unchanged[3].style], [[5, 2], false], "every refusal leaves the dash alone");
+  const phased = editor.updateLink(opened.doc, { index: 4, style: { phase: 3 } });
+  assert.deepEqual([phased.ok, phased.style.phase, phased.style.pattern], [true, 3, [5, 2]], "a phase-only change is a real edit");
+});

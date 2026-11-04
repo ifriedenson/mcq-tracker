@@ -16,7 +16,7 @@ const { load } = require("./helpers/load");
 const { T, Plugin: QT, obsidian } = load();
 const { makeApp, makeDom } = require("./helpers/fake");
 const zlib = require("node:zlib");
-const { PDFDocument, PDFName, PDFString, StandardFonts } = require("../vendor/pdf-lib.js");
+const { PDFDocument, PDFName, PDFNumber, PDFString, StandardFonts } = require("../vendor/pdf-lib.js");
 const vendorCheck = require("../scripts/check-vendor");
 
 const editor = T.pdfEditor;
@@ -1307,5 +1307,81 @@ test("pdf editor window: a beveled link is restyled, retargeted and removed with
   assert.equal(reopened.ok, true);
   const saved = editor.readLinks(reopened.doc).links;
   assert.deepEqual([saved.length, saved[0].style.border, saved[0].style.width, saved[0].target], [1, "beveled", 3, "url"], "the copy keeps the beveled border after the retarget");
+  modal.close();
+});
+
+/** The fixture plus a link whose custom dash already carries a phase offset. */
+async function phasedFixture() {
+  const doc = await PDFDocument.load(await fixture());
+  const annot = doc.context.obj({ Type: "Annot", Subtype: "Link", Rect: [40, 400, 120, 450], Border: [0, 0, 1], F: 4 });
+  const lengths = doc.context.obj([PDFNumber.of(5), PDFNumber.of(3)]);
+  annot.set(PDFName.of("BS"), doc.context.obj({ W: 1, S: PDFName.of("D"), D: doc.context.obj([PDFNumber.of(2), lengths]) }));
+  const action = doc.context.obj({ Type: "Action", S: "URI" });
+  action.set(PDFName.of("URI"), PDFString.of("https://example.com/phased"));
+  annot.set(PDFName.of("A"), action);
+  doc.getPage(0).node.addAnnot(doc.context.register(annot));
+  return doc.save();
+}
+
+test("pdf editor window: the phase input sets, keeps and clears a custom dash phase", async () => {
+  const app = makeApp([
+    { path: "Papers/Exam.pdf", noFm: true, text: "" },
+    { path: "Papers/Exam.annotations.md", noFm: true, text: SIDECAR },
+    { path: "Notes/Lecture.md", noFm: true, text: "# Lecture\n" },
+  ]);
+  app.files.find((file) => file.path === "Papers/Exam.pdf").buffer = await phasedFixture();
+  const plugin = new QT(app);
+  await plugin.onload();
+  const modal = openEditor(app, plugin, "Papers/Exam.pdf");
+  await modal.loading;
+
+  const before = editor.readLinks(modal.doc).links[0].style;
+  assert.deepEqual([before.dash, before.pattern, before.phase], ["custom", [5, 3], 2], "the phase is read with the lengths");
+  const hint = modal.dom.all.find((entry) => entry.meta && entry.meta.tag === "span" && /phase 2/.test(entry.meta.text || ""));
+  assert.ok(hint, "the style hint names the phase");
+
+  // the phase can be changed and kept through a width change
+  modal.content.linkEdit = "1";
+  const phase = fieldFor(modal, "Link dash phase");
+  assert.ok(phase, "the phase input is rendered");
+  phase.value = "4";
+  await fireOwn(phase, "change");
+  await clickButton(modal.dom, "Style link");
+  assert.match(statusText(modal), /phase 4/);
+  assert.equal(editor.readLinks(modal.doc).links[0].style.phase, 4);
+  assert.equal(modal.history.states[modal.history.cursor].label, "style a link", "the phase change is one undo step");
+
+  const width = fieldFor(modal, "Link border width");
+  width.value = "2";
+  await fireOwn(width, "change");
+  const phaseKept = fieldFor(modal, "Link dash phase");
+  phaseKept.value = "4";
+  await fireOwn(phaseKept, "change");
+  await clickButton(modal.dom, "Style link");
+  assert.deepEqual([editor.readLinks(modal.doc).links[0].style.width, editor.readLinks(modal.doc).links[0].style.phase], [2, 4], "a width change keeps the phase");
+
+  // and the link still retargets with the phase intact
+  modal.content.linkTarget = "url";
+  modal.content.linkUrl = "https://example.com/phase-kept";
+  await clickButton(modal.dom, "Change link");
+  const retargeted = editor.readLinks(modal.doc).links[0];
+  assert.deepEqual([retargeted.target, retargeted.style.pattern, retargeted.style.phase], ["url", [5, 3], 4]);
+
+  // "none" clears the phase and keeps the lengths
+  const phaseField = fieldFor(modal, "Link dash phase");
+  phaseField.value = "none";
+  await fireOwn(phaseField, "change");
+  await clickButton(modal.dom, "Style link");
+  const cleared = editor.readLinks(modal.doc).links[0].style;
+  assert.deepEqual([cleared.dash, cleared.pattern], ["custom", [5, 3]]);
+  assert.equal("phase" in cleared, false, "clearing removes the phase");
+
+  const sourceBefore = Uint8Array.from(app.files.find((file) => file.path === "Papers/Exam.pdf").buffer);
+  await modal.saveCopy();
+  assert.deepEqual(app.files.find((file) => file.path === "Papers/Exam.pdf").buffer, sourceBefore, "the source PDF is byte-for-byte unchanged");
+  const reopened = await editor.loadEditorDocument(app.createdBinary[0].buffer);
+  const saved = editor.readLinks(reopened.doc).links[0].style;
+  assert.deepEqual([saved.dash, saved.pattern, saved.width], ["custom", [5, 3], 2], "the copy keeps the lengths without a phase");
+  assert.equal("phase" in saved, false);
   modal.close();
 });

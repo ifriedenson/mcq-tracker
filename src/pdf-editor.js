@@ -45,6 +45,7 @@ const LINK_HIGHLIGHTS = { none: "N", invert: "I", outline: "O", push: "P" };
 const LINK_BORDERS = { solid: "S", dashed: "D", beveled: "B", inset: "I", underline: "U" };
 const MAX_LINK_DASH = 8;
 const MAX_LINK_DASH_VALUE = 100;
+const MAX_LINK_DASH_PHASE = 1000;
 const MAX_OUTLINE = 200;
 const MAX_OUTLINE_TITLE = 120;
 const MAX_OUTLINE_DEPTH = 3;
@@ -2031,17 +2032,27 @@ function linkStyle(dict) {
   }
   let dash = "solid";
   let pattern = [];
+  let phase = null;
   if (bs) {
     const raw = bs.get(PDFName.of("D"));
     if (raw && typeof raw.asArray === "function") {
-      pattern = raw.asArray().map((entry) => (entry && typeof entry.asNumber === "function" ? entry.asNumber() : 0));
+      /* the editor writes a phase as [phase [lengths]]; plain lengths stay plain */
+      const entries = raw.asArray();
+      const nested = entries.length === 2 && entries[1] && typeof entries[1].asArray === "function";
+      if (nested) {
+        const measured = entries[0] && typeof entries[0].asNumber === "function" ? entries[0].asNumber() : NaN;
+        if (Number.isFinite(measured) && measured >= 0) phase = measured;
+      }
+      pattern = (nested ? entries[1].asArray() : entries).map((entry) => (entry && typeof entry.asNumber === "function" ? entry.asNumber() : 0));
       dash = linkDashName(pattern);
     }
   }
   const borderName = borderStyleName(linkBorderName(dict));
   const name = pdfNameValue(dict.get(PDFName.of("H")));
   const highlight = name === "I" ? "invert" : name === "O" ? "outline" : name === "P" ? "push" : name === "" || name === "N" ? "none" : "other";
-  return { width, border: borderName, dash, highlight, pattern };
+  const style = { width, border: borderName, dash, highlight, pattern };
+  if (phase !== null) style.phase = phase;
+  return style;
 }
 
 /**
@@ -2157,6 +2168,7 @@ function updateLink(doc, options) {
   let style = null;
   let styleGiven = null;
   let stylePattern = [];
+  let stylePhase = null;
   let styleName = "";
   if (wantsStyle) {
     const source = opts.style && typeof opts.style === "object" ? opts.style : null;
@@ -2196,6 +2208,19 @@ function updateLink(doc, options) {
       }
       given.pattern = values;
     }
+    if (source.phase !== undefined) {
+      if (source.phase === null || (typeof source.phase !== "number" && str(source.phase) === "")) {
+        given.phase = null;
+      } else if (typeof source.phase !== "number" && typeof source.phase !== "string") {
+        return { ok: false, reason: "style", message: `A dash phase has to be a single number from 0 to ${MAX_LINK_DASH_PHASE}.` };
+      } else {
+        const phase = Number(str(source.phase));
+        if (!Number.isFinite(phase) || phase < 0 || phase > MAX_LINK_DASH_PHASE) {
+          return { ok: false, reason: "style", message: `A dash phase has to be a single number from 0 to ${MAX_LINK_DASH_PHASE}.` };
+        }
+        given.phase = phase;
+      }
+    }
     if (source.highlight !== undefined && source.highlight !== null) {
       const highlight = str(source.highlight);
       if (!Object.prototype.hasOwnProperty.call(LINK_HIGHLIGHTS, highlight)) {
@@ -2221,11 +2246,24 @@ function updateLink(doc, options) {
     if (wantedDash === "custom" && !pattern.length) {
       return { ok: false, reason: "style", message: `A custom dash needs a pattern of 1 to ${MAX_LINK_DASH} lengths above 0.` };
     }
+    let phase = current.phase !== undefined ? current.phase : null;
+    if (given.phase !== undefined) phase = given.phase;
+    if (given.phase !== undefined && given.phase !== null) {
+      if (wantedDash && wantedDash !== "custom") {
+        return { ok: false, reason: "style", message: "A dash phase only applies to a custom dash." };
+      }
+      if (!pattern.length || linkDashName(pattern) !== "custom") {
+        return { ok: false, reason: "style", message: "A dash phase needs a custom dash with its lengths." };
+      }
+    }
+    /* a dash that is no longer custom has no lengths left to phase */
+    if (!pattern.length || linkDashName(pattern) !== "custom") phase = null;
     let writeName;
     if (wantedBorder) writeName = LINK_BORDERS[wantedBorder];
     else if (wantedDash) writeName = wantedDash === "dashed" ? "D" : wantedDash === "custom" ? currentName || "S" : "S";
     else writeName = currentName || (pattern.length ? "D" : "S");
     stylePattern = pattern;
+    stylePhase = phase;
     styleName = writeName;
     styleGiven = given;
     style = {
@@ -2235,6 +2273,7 @@ function updateLink(doc, options) {
       highlight: given.highlight !== undefined ? given.highlight : current.highlight,
       pattern,
     };
+    if (phase !== null) style.phase = phase;
   }
   const retarget = opts.target !== undefined || opts.url !== undefined || opts.to !== undefined;
   if (!rect && !retarget && !style) return { ok: false, reason: "empty", message: "Give the link a new area, a new address or a new style." };
@@ -2279,11 +2318,13 @@ function updateLink(doc, options) {
       dict.set(replacement.key, replacement.value);
     }
     if (styleGiven) {
-      if (styleGiven.width !== undefined || styleGiven.dash !== undefined || styleGiven.border !== undefined || styleGiven.pattern !== undefined) {
+      if (styleGiven.width !== undefined || styleGiven.dash !== undefined || styleGiven.border !== undefined || styleGiven.pattern !== undefined || styleGiven.phase !== undefined) {
         const dashArray = stylePattern;
-        dict.set(PDFName.of("Border"), doc.context.obj([0, 0, style.width].concat(dashArray)));
+        /* a phase is written as [phase [lengths]]; plain lengths stay a flat array */
+        const dashPart = dashArray.length && stylePhase !== null ? [stylePhase, dashArray] : dashArray;
+        dict.set(PDFName.of("Border"), doc.context.obj([0, 0, style.width].concat(dashPart)));
         const border = { W: style.width, S: PDFName.of(styleName || (dashArray.length ? "D" : "S")) };
-        if (dashArray.length) border.D = dashArray;
+        if (dashArray.length) border.D = dashPart;
         dict.set(PDFName.of("BS"), doc.context.obj(border));
       }
       if (styleGiven.highlight !== undefined) dict.set(PDFName.of("H"), PDFName.of(LINK_HIGHLIGHTS[style.highlight]));

@@ -210,6 +210,7 @@ class PdfEditorModal extends Modal {
       linkStyleBorder: "keep",
       linkStyleDash: "keep",
       linkStylePattern: "",
+      linkStylePhase: "",
       linkStyleHighlight: "keep",
       bookmarks: null,
       bookmarkZoom: "",
@@ -1023,6 +1024,9 @@ class PdfEditorModal extends Modal {
     this.contentInput(styleRow, "Dash lengths", "text", "Link dash pattern", this.content.linkStylePattern, (value) => {
       this.content.linkStylePattern = value;
     });
+    this.contentInput(styleRow, "Dash phase", "text", "Link dash phase", this.content.linkStylePhase, (value) => {
+      this.content.linkStylePhase = value;
+    });
     this.contentSelect(styleRow, "Highlight", "Link highlight", ["keep", "none", "invert", "outline", "push"], this.content.linkStyleHighlight, (value) => {
       this.content.linkStyleHighlight = value;
     });
@@ -1467,10 +1471,13 @@ class PdfEditorModal extends Modal {
     if (this.content.linkStyleDash !== "keep" && this.content.linkStyleDash !== "") style.dash = String(this.content.linkStyleDash);
     const patternText = String(this.content.linkStylePattern ?? "").trim();
     if (patternText !== "") style.pattern = patternText;
+    const phaseText = String(this.content.linkStylePhase ?? "").trim();
+    if (phaseText !== "") style.phase = /^(none|clear|off)$/i.test(phaseText) ? null : Number(phaseText);
     if (this.content.linkStyleHighlight !== "keep" && this.content.linkStyleHighlight !== "") style.highlight = String(this.content.linkStyleHighlight);
     return this.runMutation("style a link", () => updateLink(this.doc, { index: Number(this.content.linkEdit), style }), (result) => {
       this.renderContent();
-      const dash = result.style.dash === "solid" || result.style.dash === result.style.border ? "" : result.style.dash === "custom" ? ` with a custom dash (${result.style.pattern.join(" ")})` : ` with a ${result.style.dash} dash`;
+      const phase = result.style.phase !== undefined ? `, phase ${result.style.phase}` : "";
+      const dash = result.style.dash === "solid" || result.style.dash === result.style.border ? "" : result.style.dash === "custom" ? ` with a custom dash (${result.style.pattern.join(" ")}${phase})` : ` with a ${result.style.dash} dash`;
       const border = result.style.width > 0 ? `a ${result.style.width}-point ${result.style.border} border${dash}` : "no border";
       const highlight = result.style.highlight === "none" ? "no highlight" : `the ${result.style.highlight} highlight`;
       this.setStatus(`Link ${result.index} on page ${result.page} now has ${border} and ${highlight}. Nothing is written until you save a copy.`);
@@ -1486,9 +1493,10 @@ class PdfEditorModal extends Modal {
     if (!Number.isFinite(index) || index < 1 || index > found.links.length) return `${found.total} link${found.total === 1 ? "" : "s"}; pick one by number.`;
     const style = found.links[index - 1].style;
     const border = style.width > 0 ? `${style.width}pt ${style.border} border` : "no border";
-    const dash = style.dash === "solid" || style.dash === style.border ? "" : style.dash === "custom" ? `, custom dash ${style.pattern.join(" ")}` : `, ${style.dash} dash`;
+    const phase = style.phase !== undefined ? ` phase ${style.phase}` : "";
+    const dash = style.dash === "solid" || style.dash === style.border ? "" : style.dash === "custom" ? `, custom dash ${style.pattern.join(" ")}${phase}` : `, ${style.dash} dash`;
     const highlight = style.highlight === "none" ? "no highlight" : `${style.highlight} highlight`;
-    return `Link ${index}: ${border}${dash}, ${highlight}. Keep leaves a choice as it is.`;
+    return `Link ${index}: ${border}${dash}, ${highlight}. Keep leaves a choice as it is; Dash phase takes a number or none.`;
   }
 
   /** Moves the same annotation to another page, with an optional new box there. */
