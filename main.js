@@ -48448,6 +48448,15 @@ function checkIndex(doc, index) {
   return { ok: true, index: n };
 }
 
+/** Number of AcroForm fields, or 0 when the document has no readable form. */
+function formFieldCount(doc) {
+  try {
+    return doc.getForm().getFields().length;
+  } catch (error) {
+    return 0;
+  }
+}
+
 /* -------------------------------------------------------------- page edits */
 
 function rotatePage(doc, index, by) {
@@ -48497,16 +48506,22 @@ function deletePage(doc, index) {
   return { ok: true, pageCount: doc.getPageCount() };
 }
 
-/** Moves one page to a new position in the final order. */
+/**
+ * Moves one page to a new position in the final order. The page object is
+ * moved, not copied: its form widgets and values stay live and the form's page
+ * references follow the page. Copying a page here would create orphan widgets,
+ * so the result states explicitly that no flattening happened.
+ */
 function movePage(doc, from, to) {
   const check = checkIndex(doc, from);
   if (!check.ok) return check;
   const total = doc.getPageCount();
+  const liveForm = formFieldCount(doc) > 0;
   const target = Number(to);
   if (!Number.isInteger(target) || target < 0 || target >= total) {
     return { ok: false, reason: "index", message: `Position ${str(to) || "?"} is not in this PDF (1 to ${total}).` };
   }
-  if (target === check.index) return { ok: true, moved: false, pageCount: total };
+  if (target === check.index) return { ok: true, moved: false, pageCount: total, flattened: false, liveForm };
   try {
     const page = doc.getPage(check.index);
     doc.removePage(check.index);
@@ -48515,25 +48530,29 @@ function movePage(doc, from, to) {
   } catch (error) {
     return { ok: false, reason: "move", message: `That page could not be moved: ${pdfError(error)}` };
   }
-  return { ok: true, moved: true, pageCount: doc.getPageCount() };
+  return { ok: true, moved: true, pageCount: doc.getPageCount(), flattened: false, liveForm };
 }
 
-function duplicatePage(doc, index) {
+/**
+ * Duplicates one page without carrying its widget into the copied page. When
+ * the document has an AcroForm, prepare a flattened serialised copy and copy
+ * the page from it, so the duplicate keeps the visible values and the original
+ * document keeps its live, fillable form.
+ */
+async function duplicatePage(doc, index) {
   const check = checkIndex(doc, index);
-  if (!check.ok) return Promise.resolve(check);
-  if (doc.getPageCount() >= MAX_PAGES) return Promise.resolve({ ok: false, reason: "pages", message: `A document cannot exceed ${MAX_PAGES} pages here.` });
-  return duplicatePageAsync(doc, check.index);
-}
-
-async function duplicatePageAsync(doc, index) {
+  if (!check.ok) return check;
+  if (doc.getPageCount() >= MAX_PAGES) return { ok: false, reason: "pages", message: `A document cannot exceed ${MAX_PAGES} pages here.` };
+  const prepared = await prepareForPageCopy(doc, "duplicate");
+  if (!prepared.ok) return prepared;
   try {
-    const [copy] = await doc.copyPages(doc, [index]);
-    doc.insertPage(index + 1, copy);
+    const [copy] = await doc.copyPages(prepared.source, [check.index]);
+    doc.insertPage(check.index + 1, copy);
     forgetPageCache(doc);
   } catch (error) {
     return { ok: false, reason: "duplicate", message: `That page could not be duplicated: ${pdfError(error)}` };
   }
-  return { ok: true, pageCount: doc.getPageCount() };
+  return { ok: true, pageCount: doc.getPageCount(), flattened: prepared.flattened, liveForm: formFieldCount(doc) > 0 };
 }
 
 function addBlankPage(doc, index, size) {
@@ -49670,13 +49689,7 @@ function editedPathFor(originalPath, exists, label) {
  * the document being edited keeps its live form.
  */
 async function prepareForPageCopy(doc, action) {
-  let fieldCount = 0;
-  try {
-    fieldCount = doc.getForm().getFields().length;
-  } catch (error) {
-    fieldCount = 0;
-  }
-  if (!fieldCount) return { ok: true, source: doc, flattened: false };
+  if (!formFieldCount(doc)) return { ok: true, source: doc, flattened: false };
   try {
     const serialized = await doc.save({ useObjectStreams: true, addDefaultPage: false });
     const copy = await PDFDocument.load(serialized);
@@ -50550,11 +50563,12 @@ class PdfEditorModal extends Modal {
         this.selection = new Set();
       }
       return result;
-    }, () => {
+    }, (result) => {
       this.syncFields();
       this.renderPages();
       this.renderFooter();
-      this.setStatus(`Moved page ${from + 1} to position ${to + 1}. Nothing is written until you save a copy.`);
+      const formNote = result.liveForm ? " The live form stays fillable and its values move with the page." : "";
+      this.setStatus(`Moved page ${from + 1} to position ${to + 1}.${formNote} Nothing is written until you save a copy.`);
     });
   }
 
@@ -50566,11 +50580,12 @@ class PdfEditorModal extends Modal {
         this.selection = new Set();
       }
       return result;
-    }, () => {
+    }, (result) => {
       this.syncFields();
       this.renderPages();
       this.renderFooter();
-      this.setStatus(`Page ${index + 1} was duplicated. Nothing is written until you save a copy.`);
+      const formNote = result.flattened ? " Form values were baked into the duplicate; the original form stays fillable." : "";
+      this.setStatus(`Page ${index + 1} was duplicated.${formNote} Nothing is written until you save a copy.`);
     });
   }
 

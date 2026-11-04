@@ -602,11 +602,12 @@ class PdfEditorModal extends Modal {
         this.selection = new Set();
       }
       return result;
-    }, () => {
+    }, (result) => {
       this.syncFields();
       this.renderPages();
       this.renderFooter();
-      this.setStatus(`Moved page ${from + 1} to position ${to + 1}. Nothing is written until you save a copy.`);
+      const formNote = result.liveForm ? " The live form stays fillable and its values move with the page." : "";
+      this.setStatus(`Moved page ${from + 1} to position ${to + 1}.${formNote} Nothing is written until you save a copy.`);
     });
   }
 
@@ -618,11 +619,12 @@ class PdfEditorModal extends Modal {
         this.selection = new Set();
       }
       return result;
-    }, () => {
+    }, (result) => {
       this.syncFields();
       this.renderPages();
       this.renderFooter();
-      this.setStatus(`Page ${index + 1} was duplicated. Nothing is written until you save a copy.`);
+      const formNote = result.flattened ? " Form values were baked into the duplicate; the original form stays fillable." : "";
+      this.setStatus(`Page ${index + 1} was duplicated.${formNote} Nothing is written until you save a copy.`);
     });
   }
 

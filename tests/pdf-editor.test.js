@@ -336,6 +336,69 @@ test("extracting pages from a form bakes the values in instead of dropping the f
   assert.equal(editor.formFields(doc).fields.length, 1, "the edited document keeps its live form");
 });
 
+test("duplicating a form page bakes its values in and leaves no orphan widget", async () => {
+  const doc = await authorFixture();
+  const duplicated = await editor.duplicatePage(doc, 0);
+  assert.equal(duplicated.ok, true, duplicated.message);
+  assert.equal(duplicated.flattened, true, "the duplicate is prepared from a flattened copy");
+  assert.equal(duplicated.pageCount, 4);
+  assert.equal(editor.formFields(doc).fields.length, 1, "the edited document keeps one live field");
+  assert.equal(editor.formFields(doc).fields[0].page, 0, "the original field stays on the original page");
+
+  const saved = await editor.savePdf(doc);
+  const reopened = await PDFDocument.load(saved.bytes);
+  assert.equal(reopened.getPageCount(), 4);
+  const fields = reopened.getForm().getFields();
+  assert.equal(fields.length, 1, "the duplicate adds no form field");
+  assert.equal(reopened.getForm().getTextField("student").getText(), "keep me", "the live value is intact");
+  assert.equal(fields[0].acroField.getWidgets().length, 1, "only the original page owns a widget");
+  const annotations = reopened.getPages().map((page) => {
+    const annots = page.node.Annots();
+    return annots ? annots.size() : 0;
+  });
+  assert.deepEqual(annotations, [1, 0, 0, 0], "the duplicate carries no dead widget annotation");
+  assert.match(await pageContent(saved.bytes, 1), /FlatWidget/, "the duplicate bakes the field appearance into its page content");
+  assert.doesNotMatch(await pageContent(saved.bytes, 0), /FlatWidget/, "the live original stays an interactive widget");
+});
+
+test("duplicating a form page refuses with a form-specific message when flattening is impossible", async () => {
+  const doc = await authorFixture();
+  const button = doc.getForm().createButton("submit");
+  button.addToPage("Submit", doc.getPage(0), { x: 240, y: 400, width: 80, height: 22 });
+  const refused = await editor.duplicatePage(doc, 0);
+  assert.equal(refused.ok, false);
+  assert.equal(refused.reason, "form");
+  assert.match(refused.message, /could not be flattened for the duplicate/i);
+  assert.equal(doc.getPageCount(), 3, "a refused duplicate leaves the page count alone");
+  assert.equal(editor.formFields(doc).fields.find((field) => field.name === "student").value, "keep me");
+});
+
+test("reordering a form page keeps its live form and moves its widget without copying", async () => {
+  const doc = await authorFixture();
+  const moved = editor.movePage(doc, 0, 2);
+  assert.equal(moved.ok, true, moved.message);
+  assert.equal(moved.flattened, false, "a move does not flatten the live form");
+  assert.equal(moved.liveForm, true, "the form stays live after the move");
+  assert.equal(editor.formFields(doc).fields.length, 1);
+  assert.equal(editor.formFields(doc).fields[0].page, 2, "the live field follows its page");
+  assert.equal(editor.formFields(doc).fields[0].value, "keep me");
+
+  const saved = await editor.savePdf(doc);
+  const reopened = await PDFDocument.load(saved.bytes);
+  assert.equal(reopened.getForm().getFields().length, 1, "the form survives a save");
+  assert.equal(reopened.getForm().getTextField("student").getText(), "keep me", "the value survives a save");
+  const pages = reopened.getPages();
+  const widgets = reopened.getForm().getTextField("student").acroField.getWidgets();
+  assert.equal(widgets.length, 1, "the field still has exactly one widget");
+  assert.equal(pages.findIndex((page) => page.ref === widgets[0].P()), 2, "the widget moved with its page");
+  const annots = pages.map((page) => {
+    const entries = page.node.Annots();
+    return entries ? entries.size() : 0;
+  });
+  assert.deepEqual(annots, [0, 0, 1], "only the moved page carries the live widget");
+  assert.doesNotMatch(await pageContent(saved.bytes, 2), /FlatWidget/, "a move keeps the field interactive rather than baking it");
+});
+
 test("text is converted to characters a standard PDF font can draw", () => {
   assert.equal(editor.winAnsiText("café — “quoted”…"), 'café - "quoted"...');
   assert.equal(editor.winAnsiText("漢字"), "??");
@@ -790,9 +853,9 @@ test("moves a page to a new position and refuses a target outside the file", asy
   const doc = await PDFDocument.create();
   for (const size of [[400, 500], [410, 510], [420, 520]]) doc.addPage(size);
   const widths = () => doc.getPages().map((page) => Math.round(page.getSize().width));
-  assert.deepEqual(editor.movePage(doc, 0, 2), { ok: true, moved: true, pageCount: 3 });
+  assert.deepEqual(editor.movePage(doc, 0, 2), { ok: true, moved: true, pageCount: 3, flattened: false, liveForm: false });
   assert.deepEqual(widths(), [410, 420, 400], "the page really moved to the end");
-  assert.deepEqual(editor.movePage(doc, 1, 1), { ok: true, moved: false, pageCount: 3 });
+  assert.deepEqual(editor.movePage(doc, 1, 1), { ok: true, moved: false, pageCount: 3, flattened: false, liveForm: false });
   assert.deepEqual(widths(), [410, 420, 400], "moving onto itself changes nothing");
   for (const target of [3, -1, 9]) {
     const refused = editor.movePage(doc, 0, target);

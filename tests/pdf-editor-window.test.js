@@ -245,6 +245,27 @@ test("pdf editor window: opens a real PDF from the mocked vault and builds its c
   }
 });
 
+test("pdf editor window: duplicate and reorder report how form pages stay safe", async () => {
+  const { app, plugin } = await vault();
+  const modal = openEditor(app, plugin, "Papers/Exam.pdf");
+  await modal.loading;
+  assert.equal(modal.fields.length, 3, "the fixture opens with three live fields");
+
+  await clickLabeled(modal.dom, "Duplicate page 1");
+  assert.match(statusText(modal), /Page 1 was duplicated\. Form values were baked into the duplicate; the original form stays fillable\./);
+  assert.equal(modal.doc.getPageCount(), 5);
+  assert.equal(modal.fields.length, 3, "the duplicate adds no field and the original form stays live");
+  assert.equal(modal.fields.find((field) => field.name === "student").page, 0);
+  assert.equal(modal.fields.find((field) => field.name === "grade").page, 2);
+
+  await clickLabeled(modal.dom, "Move page 2 later");
+  assert.match(statusText(modal), /Moved page 2 to position 3\. The live form stays fillable and its values move with the page\./);
+  assert.equal(modal.fields.find((field) => field.name === "grade").page, 1, "the live field follows its moved page");
+  assert.equal(modal.doc.getForm().getFields().length, 3, "reordering did not flatten or copy the form");
+  assert.deepEqual(app.createdBinary || [], [], "neither operation writes before Save");
+  modal.close();
+});
+
 test("pdf editor window: rotate, move, fill and burn, then save a valid copy and never overwrite", async () => {
   const { app, plugin, bytes } = await vault();
   const pdfFile = app.files.find((file) => file.path === "Papers/Exam.pdf");

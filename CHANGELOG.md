@@ -1,3 +1,11 @@
+## 1.229.0 - 2026-11-04
+
+- **Duplicate-page and reorder form safety**: duplicating a page from a fillable PDF now copies it from a flattened
+  serialised form copy, so values stay visible and the duplicate carries no orphan widget while the original form
+  stays live. Moving a page now reports its live-form contract (`flattened: false`, `liveForm`), keeps the widget and
+  value with the page, and names that behavior in the editor status. Unsupported forms refuse duplication with a clear
+  form-specific message. Covered by new engine, refusal and real-window tests.
+
 ## 1.228.0 - 2026-11-04
 
 - **Merging preserves form values**: adding pages from a fillable PDF now flattens a serialised copy before copying its
