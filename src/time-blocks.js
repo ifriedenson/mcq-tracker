@@ -19,6 +19,9 @@ const TIME_BLOCK_VIEWS = ["day", "week", "grid", "backlog", "routines", "project
 const PROJECT_KINDS = ["project", "domain"];
 const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const PROJECT_COLORS = ["#6f8ff5", "#d97757", "#5cae8a", "#c084d6", "#d5a84f", "#5ba8c9"];
+const SUBJECT_COLOR_LIMIT = 40;
+const MAX_TAGS = 6;
+const MAX_TAG_LENGTH = 40;
 
 function objectValue(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -149,6 +152,80 @@ function projectColor(value, id) {
   return PROJECT_COLORS[Math.abs(Number.parseInt(hashString(id || "project"), 36)) % PROJECT_COLORS.length];
 }
 
+/** A `#rrggbb` colour, or an empty string when the value is not usable. */
+function normalizeColor(value) {
+  const color = str(value).trim().toLowerCase();
+  return /^#[0-9a-f]{6}$/.test(color) ? color : "";
+}
+
+function subjectColorKey(value) {
+  return str(value).trim().toLowerCase().slice(0, MAX_TITLE);
+}
+
+/** Explicit subject/course colours, bounded and keyed case-insensitively. */
+function normalizeSubjectColors(value) {
+  const source = objectValue(value);
+  const colors = {};
+  let count = 0;
+  for (const [rawKey, rawColor] of Object.entries(source)) {
+    const key = subjectColorKey(rawKey);
+    const color = normalizeColor(rawColor);
+    if (!key || !color || key in colors) continue;
+    colors[key] = color;
+    count += 1;
+    if (count >= SUBJECT_COLOR_LIMIT) break;
+  }
+  return colors;
+}
+
+/** A block's own course colour wins, then its project's colour, then nothing. */
+function subjectColorFor(block, subjectColors, projects) {
+  const colors = objectValue(subjectColors);
+  const key = subjectColorKey(block && block.course);
+  if (key && colors[key]) return colors[key];
+  const projectId = str(block && block.projectId).trim();
+  if (projectId) {
+    for (const project of Array.isArray(projects) ? projects : []) {
+      if (project && project.id === projectId && project.color) return project.color;
+    }
+  }
+  return "";
+}
+
+/** Every course a block names, with its colour, block count and planned minutes. */
+function subjectColorRows(blocks, subjectColors, projects) {
+  const colors = objectValue(subjectColors);
+  const rows = new Map();
+  for (const block of Array.isArray(blocks) ? blocks : []) {
+    const course = textValue(block && block.course, MAX_TITLE);
+    if (!course) continue;
+    const key = subjectColorKey(course);
+    const row = rows.get(key) || { course, color: colors[key] || "", blocks: 0, minutes: 0 };
+    row.blocks += 1;
+    row.minutes += durationMinutes(block);
+    rows.set(key, row);
+  }
+  return [...rows.values()].sort((a, b) => a.course.localeCompare(b.course));
+}
+
+function normalizeTag(value) {
+  const tag = str(value).trim().replace(/^#+/, "").toLowerCase().slice(0, MAX_TAG_LENGTH);
+  return /^[a-z0-9][a-z0-9/_-]*$/.test(tag) ? tag : "";
+}
+
+/** Up to six hash-free tags from an array or a comma/space separated string. */
+function normalizeBlockTags(value) {
+  const list = Array.isArray(value) ? value : str(value).split(/[,\s]+/);
+  const tags = [];
+  for (const item of list) {
+    const tag = normalizeTag(item);
+    if (!tag || tags.includes(tag)) continue;
+    tags.push(tag);
+    if (tags.length >= MAX_TAGS) break;
+  }
+  return tags;
+}
+
 function normalizeBlockTask(value, createdAt) {
   const source = objectValue(value);
   const title = textValue(source.title, MAX_TITLE);
@@ -190,6 +267,7 @@ function normalizeTimeBlock(value) {
     type: normalizeType(source.type),
     projectId,
     course: textValue(source.course, MAX_TITLE),
+    tags: normalizeBlockTags(source.tags),
     notes: textValue(source.notes, MAX_TEXT),
     tasks,
     routineId,
@@ -244,6 +322,7 @@ function normalizeTimeBlocks(value) {
     dayEnd: normalizeTime(source.dayEnd) || "22:00",
     notesFolder: textValue(source.notesFolder, 200) || "Time blocks",
     dailyNoteFolder: textValue(source.dailyNoteFolder, 200),
+    subjectColors: normalizeSubjectColors(source.subjectColors),
     view: normalizeView(source.view),
     blocks,
     projects,
@@ -349,6 +428,27 @@ function blocksForDate(blocks, date) {
   return (Array.isArray(blocks) ? blocks : [])
     .filter((block) => block && block.date === key)
     .sort((a, b) => a.start.localeCompare(b.start) || a.createdAt - b.createdAt);
+}
+
+/** Blocks carrying one tag; no tag means every block is returned unchanged. */
+function blocksForTag(blocks, tag) {
+  const wanted = normalizeTag(tag);
+  const list = Array.isArray(blocks) ? blocks : [];
+  if (!wanted) return list;
+  return list.filter((block) => block && Array.isArray(block.tags) && block.tags.includes(wanted));
+}
+
+function tagSummary(blocks) {
+  const rows = new Map();
+  for (const block of Array.isArray(blocks) ? blocks : []) {
+    for (const tag of Array.isArray(block && block.tags) ? block.tags : []) {
+      const row = rows.get(tag) || { tag, blocks: 0, minutes: 0 };
+      row.blocks += 1;
+      row.minutes += durationMinutes(block);
+      rows.set(tag, row);
+    }
+  }
+  return [...rows.values()].sort((a, b) => b.blocks - a.blocks || a.tag.localeCompare(b.tag));
 }
 
 function blocksInRange(blocks, start, end) {
@@ -543,7 +643,8 @@ function blocksToMarkdown(date, blocks, projects) {
   for (const block of blocksForDate(blocks, date)) {
     const project = map.get(block.projectId);
     const tag = project ? ` [${project.kind === "domain" ? "D" : "P"}:${project.name}]` : "";
-    lines.push(`- ${block.start} - ${block.end} ${block.title}${tag}`);
+    const tags = block.tags.map((value) => ` #${value}`).join("");
+    lines.push(`- ${block.start} - ${block.end} ${block.title}${tag}${tags}`);
     for (const task of block.tasks) lines.push(`  - [${task.done ? "x" : " "}] ${task.title}`);
     for (const noteLine of str(block.notes).split("\n").filter(Boolean)) lines.push(`  - ${noteLine}`);
     lines.push("");
@@ -638,9 +739,12 @@ module.exports = {
   MAX_BLOCKS,
   MAX_PROJECTS,
   MAX_ROUTINES,
+  MAX_TAGS,
+  MAX_TAG_LENGTH,
   MAX_TASKS_PER_BLOCK,
   PROJECT_COLORS,
   PROJECT_KINDS,
+  SUBJECT_COLOR_LIMIT,
   TIME_BLOCK_TYPES,
   TIME_BLOCK_VIEWS,
   WEEKDAY_NAMES,
@@ -648,6 +752,7 @@ module.exports = {
   applyRoutines,
   blockSummary,
   blocksForDate,
+  blocksForTag,
   blocksInRange,
   blocksToMarkdown,
   calendarDaySummary,
@@ -661,6 +766,10 @@ module.exports = {
   durationLabel,
   durationMinutes,
   normalizeBacklogItem,
+  normalizeBlockTags,
+  normalizeColor,
+  normalizeSubjectColors,
+  normalizeTag,
   normalizeTime,
   normalizeTimeBlock,
   normalizeTimeBlocks,
@@ -671,6 +780,9 @@ module.exports = {
   projectMinutes,
   projectTimeline,
   startOfWeek,
+  subjectColorFor,
+  subjectColorRows,
+  tagSummary,
   timeFromMinutes,
   todayValue,
   unscheduledStudyTasks,

@@ -1985,6 +1985,7 @@ class StudyWorkspaceView extends ItemView {
       cls: "qt-study-row-meta",
       text: summary.blocks + " block" + (summary.blocks === 1 ? "" : "s") + " · " + timeBlocks.durationLabel(summary.minutes) + " planned · " + summary.open + " open task" + (summary.open === 1 ? "" : "s") + " on this day",
     });
+    this.renderTimeBlockSubjectColors(root, data);
     if (this.timeBlockView === "day") this.renderTimeBlockDay(root, data);
     else if (this.timeBlockView === "week") this.renderTimeBlockWeek(root, data);
     else if (this.timeBlockView === "grid") this.renderTimeBlockGrid(root, data);
@@ -1992,6 +1993,34 @@ class StudyWorkspaceView extends ItemView {
     else if (this.timeBlockView === "routines") this.renderTimeBlockRoutines(root, data);
     else if (this.timeBlockView === "projects") this.renderTimeBlockProjects(root, data);
     else if (this.timeBlockView === "timeline") this.renderTimeBlockTimeline(root, data);
+  }
+
+  renderTimeBlockSubjectColors(root, data) {
+    const rows = timeBlocks.subjectColorRows(data.blocks, data.subjectColors, data.projects);
+    if (!rows.length) return;
+    const card = root.createEl("details", { cls: "qt-study-card qt-workspace-disclosure" });
+    card.createEl("summary", { cls: "qt-workspace-disclosure-title", text: "Subject colours" });
+    card.createDiv({ cls: "qt-hint", text: "Give a course its own colour. A course colour tints that course's blocks in Day and Week; a block without one keeps its project colour. Colours are local to the planner and write no note." });
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const row of rows) {
+      const item = list.createDiv({ cls: "qt-study-row qt-time-block-color-row" });
+      const main = item.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: row.course });
+      main.createDiv({ cls: "qt-study-row-meta", text: row.blocks + " block" + (row.blocks === 1 ? "" : "s") + " · " + timeBlocks.durationLabel(row.minutes) + " planned" });
+      const field = item.createDiv({ cls: "qt-row qt-time-block-color-input" });
+      const input = field.createEl("input", { type: "color", attr: { "aria-label": "Colour for " + row.course } });
+      input.value = row.color || "#6f8ff5";
+      input.addEventListener("change", async () => {
+        await this.plugin.setTimeBlockSubjectColor(row.course, input.value);
+        this.saveMessage("Colour saved for " + row.course + ".");
+        this.render();
+      });
+      field.createEl("button", { text: "Clear" }).addEventListener("click", async () => {
+        await this.plugin.setTimeBlockSubjectColor(row.course, "");
+        this.saveMessage("Colour cleared for " + row.course + ".");
+        this.render();
+      });
+    }
   }
 
   renderTimeBlockDay(root, data) {
@@ -2027,6 +2056,7 @@ class StudyWorkspaceView extends ItemView {
     const type = this.renderSelect(form, "Type", timeBlocks.TIME_BLOCK_TYPES.map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) })), "study");
     const project = this.renderSelect(form, "Project or domain", projectOptions, "");
     const course = this.renderField(form, "Course (optional)", "text", "Biology");
+    const tags = this.renderField(form, "Tags (optional)", "text", "focus, exam");
     const notes = this.renderTextarea(form, "Notes (optional)", "What is this block for?", "", 2);
     const actions = add.createDiv({ cls: "qt-row qt-study-actions" });
     actions.createEl("button", { text: "Add block", cls: "mod-cta" }).addEventListener("click", async () => {
@@ -2038,6 +2068,7 @@ class StudyWorkspaceView extends ItemView {
         type: type.value,
         projectId: project.value,
         course: course.value,
+        tags: tags.value,
         notes: notes.value,
       });
       if (!block) {
@@ -2048,9 +2079,19 @@ class StudyWorkspaceView extends ItemView {
       this.saveMessage("Block added.");
       this.render();
     });
-    const blocks = timeBlocks.blocksForDate(data.blocks, this.timeBlockDate);
+    let blocks = timeBlocks.blocksForDate(data.blocks, this.timeBlockDate);
+    const filterRow = root.createDiv({ cls: "qt-row qt-time-block-tag-filter" });
+    const filter = filterRow.createEl("input", { cls: "qt-input", type: "text", attr: { placeholder: "Filter by tag" } });
+    filter.value = this.timeBlockTagFilter || "";
+    filter.addEventListener("change", () => {
+      this.timeBlockTagFilter = str(filter.value).trim();
+      this.render();
+    });
+    if (this.timeBlockTagFilter) blocks = timeBlocks.blocksForTag(blocks, this.timeBlockTagFilter);
     if (!blocks.length) {
-      this.renderTabsEmpty(root, "No blocks on this day. Add one above, then put the work inside it.");
+      this.renderTabsEmpty(root, this.timeBlockTagFilter
+        ? "No block on this day carries #" + timeBlocks.normalizeTag(this.timeBlockTagFilter) + ". Clear the filter to see them all."
+        : "No blocks on this day. Add one above, then put the work inside it.");
       return;
     }
     const list = root.createDiv({ cls: "qt-study-list qt-time-blocks-day-list" });
@@ -2097,12 +2138,21 @@ class StudyWorkspaceView extends ItemView {
   renderTimeBlockCard(list, block, data) {
     const card = list.createDiv({ cls: "qt-time-block qt-study-card" });
     if (block.type) card.addClass("is-" + block.type);
+    const color = timeBlocks.subjectColorFor(block, data.subjectColors, data.projects);
+    if (color) {
+      card.setAttr("data-block-color", color);
+      if (card.style) card.style.borderLeftColor = color;
+    }
     const head = card.createDiv({ cls: "qt-workspace-head" });
     const main = head.createDiv({ cls: "qt-time-block-main" });
     main.createDiv({ cls: "qt-time-block-time", text: block.start + " – " + block.end + " · " + timeBlocks.durationLabel(timeBlocks.durationMinutes(block)) });
     main.createDiv({ cls: "qt-time-block-title", text: block.title });
     const meta = [block.type, this.timeBlockProjectName(data, block.projectId), block.course].filter(Boolean).join(" · ");
     if (meta) main.createDiv({ cls: "qt-study-row-meta", text: meta });
+    if (block.tags.length) {
+      const tags = main.createDiv({ cls: "qt-time-block-tags" });
+      for (const tag of block.tags) tags.createSpan({ cls: "qt-time-block-tag", text: "#" + tag });
+    }
     const actions = head.createDiv({ cls: "qt-row qt-study-row-actions" });
     if (block.type === "review" || block.type === "practice") {
       actions.createEl("button", { text: block.type === "review" ? "Start cards" : "Start practice", cls: "mod-cta" }).addEventListener("click", () => {
@@ -2128,6 +2178,7 @@ class StudyWorkspaceView extends ItemView {
       const type = this.renderSelect(form, "Type", timeBlocks.TIME_BLOCK_TYPES.map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) })), block.type);
       const project = this.renderSelect(form, "Project or domain", this.timeBlockProjectOptions(data), block.projectId);
       const course = this.renderField(form, "Course (optional)", "text", "", block.course);
+      const tags = this.renderField(form, "Tags (optional)", "text", "", block.tags.join(", "));
       const notes = this.renderTextarea(form, "Notes (optional)", "", block.notes, 2);
       form.createEl("button", { text: "Save block", cls: "mod-cta" }).addEventListener("click", async () => {
         const updated = await this.plugin.updateTimeBlock(block.id, {
@@ -2137,6 +2188,7 @@ class StudyWorkspaceView extends ItemView {
           type: type.value,
           projectId: project.value,
           course: course.value,
+          tags: tags.value,
           notes: notes.value,
         });
         if (!updated) {
@@ -2213,6 +2265,11 @@ class StudyWorkspaceView extends ItemView {
       if (!blocks.length) column.createDiv({ cls: "qt-hint", text: "No blocks" });
       for (const block of blocks) {
         const row = column.createDiv({ cls: "qt-time-blocks-week-block" + (conflictBlockIds.has(block.id) ? " is-conflict" : "") });
+        const color = timeBlocks.subjectColorFor(block, data.subjectColors, data.projects);
+        if (color) {
+          row.setAttr("data-block-color", color);
+          if (row.style) row.style.borderLeftColor = color;
+        }
         row.createDiv({ cls: "qt-time-blocks-week-block-time", text: block.start + "–" + block.end });
         row.createDiv({ cls: "qt-time-blocks-week-block-title", text: block.title });
         if (block.projectId) row.createDiv({ cls: "qt-study-row-meta", text: this.timeBlockProjectName(data, block.projectId) });

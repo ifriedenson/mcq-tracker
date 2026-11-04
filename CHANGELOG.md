@@ -1,3 +1,19 @@
+## 1.240.0 - 2026-11-04
+
+- **Time-block tags (optional, off by default)**: a time block keeps up to six local tags, entered in the new **Tags (optional)** field and shown as chips on its card. A **Filter by tag** field in the Day view narrows that day's blocks and names the active tag when nothing matches, and **Write day note** now writes the tags after the title. Tags are lowercase, limited to letters, digits, `/`, `_` and `-`, deduplicated and never created in the vault. No note is written by tagging, and no dependency or network request was added.
+
+## 1.239.0 - 2026-11-04
+
+- **Time-block subject colours (optional, off by default)**: a **Subject colours** disclosure lists every course a block names with its block count and planned minutes, a colour picker and **Clear**. A course colour tints that course's blocks in Day and Week; a block without one keeps its project colour, and a block with neither keeps its type colour. Only `#rrggbb` values are stored, keyed case-insensitively and capped at 40 courses. Colours live in `settings.timeBlocks.subjectColors`, write no note, and add no dependency, provider or network request.
+
+## 1.238.0 - 2026-11-04
+
+- **Advanced Tables body-row sorting (optional, off by default)**: focus a cell in the column to sort and press **↑** or **↓**. The header stays in row 0; only body rows move. Numeric-looking cells compare numerically, other cells as text case-insensitively, blank cells stay last in both directions, and equal values keep their source order. A table with no body rows, an all-blank selected column, a missing column or an invalid direction is refused with a message and no write. Sorting shares the existing `updateTableBlock` live-editor/`vault.modify` queue, preserves padding, alignment and CRLF, and leaves TBLFM comments attached; formulas are not recalculated. Merged cells remain rejected.
+
+## 1.237.0 - 2026-11-04
+
+- **Advanced Tables formulas and CSV export (optional, off by default)**: a pure local evaluator handles `TBLFM` comments immediately after a table, including absolute, first/last/body and relative `@`/`$` references, ranges, `sum`/`mean`/`count`/`min`/`max`, arithmetic, comparisons, `if`, `round`, `abs`, `sqrt`, constants, chained formulas and `;%.2f`/`;%d` formatting. **Σ** commits the active cell and rewrites the table through the normal editor/vault queue; malformed or out-of-range formulas, relative destinations, unsupported formats and date/time formats are refused before writing. **CSV** copies the header and body to the clipboard with RFC-style quoting, escaped-pipe restoration and spreadsheet-formula protection, without changing the note. `;dt`/`;hm`, sorting and merged cells remain deferred.
+
 ## 1.236.0 - 2026-11-04
 
 - **Advanced Tables cell formatting and column alignment (optional, off by default)**: the rendered-table toolbar now toggles **Bold**, *Italic*, `Inline code` and ~~Strikethrough~~ on the selected cell's Markdown source, and sets the selected column to left, center, right or default alignment. Toggling the same format twice restores the original text. Formatting an empty cell or a cell with unmatched markers, selecting a missing column or passing an invalid alignment is refused with a message instead of changing the note. Every action first commits an in-progress cell edit and then uses the same live-editor/`vault.modify` queue as cell edits and row/column structure, preserving padded columns, the delimiter row, escaped pipes and CRLF. Sorting, formulas, merged cells and CSV export remain deferred.

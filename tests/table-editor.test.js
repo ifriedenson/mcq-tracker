@@ -455,7 +455,7 @@ test("the table toolbar commits the active cell before applying a structure acti
   assert.equal(tableEl.inserted.position, "afterend");
   assert.equal(decorated.toolbar.attrs.role, "toolbar");
   assert.equal(decorated.toolbar.attrs["aria-label"], "Table controls");
-  assert.equal(decorated.toolbar.children.length, editor.TABLE_STRUCTURE_ACTIONS.length + editor.TABLE_FORMAT_ACTIONS.length);
+  assert.equal(decorated.toolbar.children.length, editor.TABLE_TOOLBAR_ACTIONS.length);
   assert.equal(decorated.toolbar.children[0].attrs["data-qt-table-action"], "row-insert-below");
   assert.equal(decorated.toolbar.children[0].attrs["aria-label"], "Insert row below");
 
@@ -622,4 +622,269 @@ test("formatting and alignment go through the note write path", async () => {
   assert.equal(updated.rows[1][0], "***ATP***");
   const delimiter = editor.splitTableRow(saved.split("\n")[3]);
   assert.match(delimiter.cells[1], /^:-{3,}:$/);
+});
+
+
+test("TBLFM formulas calculate totals, shares and chained values", () => {
+  const source = [
+    "| Item | Grams | Share |",
+    "| --- | --- | --- |",
+    "| Whole Wheat Flour | 110 | |",
+    "| Bread Flour | 748 | |",
+    "| Warm Water | 691 | |",
+    "| Salt | 18 | |",
+    "| Starter | 40 | |",
+    "| **Total Grams** | | |",
+    "<!-- TBLFM: @>$2=sum(@I..@-1) -->",
+    "<!-- TBLFM: @2..@>$3=($2/@>$2);%.2f -->",
+  ].join("\n");
+  const table = editor.parseTables(source)[0];
+  const result = editor.updateTableFormulas(source, 0, table);
+  assert.equal(result.ok, true);
+  assert.equal(result.changed, true);
+  assert.ok(result.text.includes("<!-- TBLFM: @>$2=sum(@I..@-1) -->"), "formula comments are preserved");
+  assert.ok(result.text.includes("<!-- TBLFM: @2..@>$3=($2/@>$2);%.2f -->"), "chained comments are preserved");
+  const updated = editor.parseTables(result.text)[0];
+  assert.deepEqual(updated.rows[1], ["Whole Wheat Flour", "110", "0.07"]);
+  assert.deepEqual(updated.rows[6], ["**Total Grams**", "1607", "1.00"]);
+  assert.equal(updated.rows.every((row) => row.length === 3), true);
+});
+
+test("TBLFM mean, relative references and CRLF survive evaluation", () => {
+  const source = [
+    "| Item | Value | Double |",
+    "| --- | --- | --- |",
+    "| A | 2 | |",
+    "| B | 4 | |",
+    "| Mean | | |",
+    "<!-- TBLFM: @>$2=mean(@I$2..@-1$2) -->",
+    "<!-- TBLFM: @2..@3$3=($2*2) -->",
+  ].join("\r\n");
+  const table = editor.parseTables(source)[0];
+  const result = editor.updateTableFormulas(source, 0, table);
+  assert.equal(result.ok, true);
+  assert.ok(result.text.includes("\r\n"), "CRLF is preserved");
+  const updated = editor.parseTables(result.text)[0];
+  assert.deepEqual(updated.rows[1], ["A", "2", "4"]);
+  assert.deepEqual(updated.rows[2], ["B", "4", "8"]);
+  assert.deepEqual(updated.rows[3], ["Mean", "3", ""]);
+});
+
+test("TBLFM refuses missing, malformed and out-of-range formulas", () => {
+  const plain = "| A |\n| --- |\n| 1 |\n";
+  const plainResult = editor.updateTableFormulas(plain, 0, editor.parseTables(plain)[0]);
+  assert.equal(plainResult.ok, false);
+  assert.equal(plainResult.reason, "no-formulas");
+
+  const badSource = "| A |\n| --- |\n| 1 |\n<!-- TBLFM: @9$1=1 -->\n";
+  const bad = editor.updateTableFormulas(badSource, 0, editor.parseTables(badSource)[0]);
+  assert.equal(bad.ok, false);
+  assert.equal(bad.reason, "formula");
+  assert.match(bad.message, /outside the table/i);
+
+  const malformedSource = "| A |\n| --- |\n| 1 |\n<!-- TBLFM: 1+1 -->\n";
+  const malformed = editor.updateTableFormulas(malformedSource, 0, editor.parseTables(malformedSource)[0]);
+  assert.equal(malformed.ok, false);
+  assert.equal(malformed.reason, "formula");
+});
+
+test("table CSV quotes safely, unescapes pipes and protects spreadsheet formulas", () => {
+  const source = [
+    "| Name | Note |",
+    "| --- | --- |",
+    "| =SUM(A1:A2) | x, y |",
+    "| quote | say \"hi\" |",
+    "| x \\| y | z |",
+  ].join("\n");
+  const result = editor.tableCsvAt(source, 0, editor.parseTables(source)[0]);
+  assert.equal(result.ok, true);
+  assert.equal(
+    result.csv,
+    "Name,Note\n'=SUM(A1:A2),\"x, y\"\nquote,\"say \"\"hi\"\"\"\nx | y,z\n"
+  );
+});
+
+test("TBLFM updates use the note write path", async () => {
+  const note = "Before\n\n| Item | Grams |\n| --- | --- |\n| A | 2 |\n| B | 3 |\n| Total | |\n<!-- TBLFM: @>$2=sum(@I..@-1) -->\n\nAfter";
+  const app = makeApp([{ path: "note.md", text: note }]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.tableEditor = { enabled: true };
+  const table = editor.parseTables(note)[0];
+  const result = await plugin.updateTableFormulas("note.md", 0, table);
+  assert.equal(result.ok, true);
+  assert.equal(app.modified && app.modified.length, 1);
+  const saved = app.modified[0].text;
+  assert.ok(saved.includes("<!-- TBLFM: @>$2=sum(@I..@-1) -->"));
+  assert.deepEqual(editor.parseTables(saved)[0].rows[3], ["Total", "5"]);
+});
+
+test("CSV export copies the table without changing the note", async () => {
+  const note = "| Name | Value |\n| --- | --- |\n| A | 1 |\n";
+  const app = makeApp([{ path: "note.md", text: note }]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.tableEditor = { enabled: true };
+  const table = editor.parseTables(note)[0];
+  let copied = "";
+  const hadNavigator = Object.prototype.hasOwnProperty.call(globalThis, "navigator");
+  const previous = globalThis.navigator;
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { clipboard: { writeText: async (value) => { copied = value; } } },
+  });
+  try {
+    const result = await plugin.exportTableCsv("note.md", 0, table);
+    assert.equal(result.ok, true);
+    assert.equal(copied, "Name,Value\nA,1\n");
+    assert.equal(app.modified, undefined, "export never writes the note");
+  } finally {
+    if (hadNavigator) Object.defineProperty(globalThis, "navigator", { configurable: true, value: previous });
+    else delete globalThis.navigator;
+  }
+});
+
+test("the table toolbar exposes formula and CSV actions and commits before each", async () => {
+  const source = "| Term | Meaning |\n| --- | --- |\n| ATP | Energy |\n";
+  const table = editor.parseTables(source)[0];
+  const tableEl = fakeTable(["Term", "Meaning"], [["ATP", "Energy"]]);
+  tableEl.ownerDocument = fakeToolbarDoc();
+  const calls = [];
+  const decorated = editor.decorateTable(tableEl, {
+    table,
+    commit: () => { calls.push("commit"); return { ok: true }; },
+    formula: () => { calls.push("formula"); return { ok: true }; },
+    exportCsv: () => { calls.push("csv"); return { ok: true }; },
+  });
+  const button = (id) => decorated.toolbar.children.find((child) => child.attrs["data-qt-table-action"] === id);
+  assert.ok(button("table-formulas"));
+  assert.ok(button("table-csv"));
+  const cell = tableEl.rows[1].cells[0];
+  fire(cell, "focus");
+  cell.textContent = "Adenosine triphosphate";
+  fire(button("table-formulas"), "click", { preventDefault() {} });
+  await flush();
+  await flush();
+  fire(button("table-csv"), "click", { preventDefault() {} });
+  await flush();
+  await flush();
+  assert.deepEqual(calls, ["commit", "formula", "csv"]);
+});
+
+
+test("table sorting orders numeric body rows ascending and descending", () => {
+  const source = "| Name | Score |\n| --- | --- |\n| B | 10 |\n| A | 2 |\n| C | 1 |\n";
+  const table = editor.parseTables(source)[0];
+  const ascending = editor.updateTableSort(source, 0, table, 1, "asc");
+  assert.equal(ascending.ok, true);
+  assert.equal(ascending.changed, true);
+  let updated = editor.parseTables(ascending.text)[0];
+  assert.deepEqual(updated.header, ["Name", "Score"]);
+  assert.deepEqual(updated.rows.slice(1), [["C", "1"], ["A", "2"], ["B", "10"]]);
+
+  const descending = editor.updateTableSort(ascending.text, 0, updated, 1, "desc");
+  assert.equal(descending.ok, true);
+  updated = editor.parseTables(descending.text)[0];
+  assert.deepEqual(updated.rows.slice(1), [["B", "10"], ["A", "2"], ["C", "1"]]);
+});
+
+test("table sorting orders text case-insensitively and keeps ties stable", () => {
+  const textSource = "| Name | Fruit |\n| --- | --- |\n| 1 | banana |\n| 2 | Apple |\n| 3 | cherry |\n";
+  const textTable = editor.parseTables(textSource)[0];
+  const textAsc = editor.updateTableSort(textSource, 0, textTable, 1, "asc");
+  assert.deepEqual(editor.parseTables(textAsc.text)[0].rows.slice(1).map((row) => row[1]), ["Apple", "banana", "cherry"]);
+  const textDesc = editor.updateTableSort(textAsc.text, 0, editor.parseTables(textAsc.text)[0], 1, "desc");
+  assert.deepEqual(editor.parseTables(textDesc.text)[0].rows.slice(1).map((row) => row[1]), ["cherry", "banana", "Apple"]);
+
+  const tieSource = "| Name | Score |\n| --- | --- |\n| A | 2 |\n| B | 1 |\n| C | 2 |\n| D | 1 |\n| E | |\n";
+  const tieTable = editor.parseTables(tieSource)[0];
+  const tieAsc = editor.updateTableSort(tieSource, 0, tieTable, 1, "asc");
+  assert.deepEqual(editor.parseTables(tieAsc.text)[0].rows.slice(1).map((row) => row[0]), ["B", "D", "A", "C", "E"]);
+  const tieDesc = editor.updateTableSort(tieSource, 0, tieTable, 1, "desc");
+  assert.deepEqual(editor.parseTables(tieDesc.text)[0].rows.slice(1).map((row) => row[0]), ["A", "C", "B", "D", "E"]);
+});
+
+test("sorting preserves CRLF and TBLFM comments immediately after the table", () => {
+  const source = [
+    "| Name | Score |",
+    "| --- | --- |",
+    "| B | 10 |",
+    "| A | 2 |",
+    "<!-- TBLFM: @>$2=sum(@I..@-1) -->",
+  ].join("\r\n");
+  const table = editor.parseTables(source)[0];
+  const result = editor.updateTableSort(source, 0, table, 1, "asc");
+  assert.equal(result.ok, true);
+  assert.ok(result.text.includes("\r\n"), "CRLF is preserved");
+  assert.equal(result.text.includes("\n\n"), false);
+  const updated = editor.parseTables(result.text)[0];
+  const lines = result.text.split("\r\n");
+  assert.equal(lines[updated.end + 1], "<!-- TBLFM: @>$2=sum(@I..@-1) -->", "the formula stays attached");
+  assert.deepEqual(updated.rows.slice(1), [["A", "2"], ["B", "10"]]);
+});
+
+test("sorting refuses a header-only table, an empty column and bad requests", () => {
+  const headerOnly = "| Name | Score |\n| --- | --- |\n";
+  const headerTable = editor.parseTables(headerOnly)[0];
+  assert.equal(editor.sortTable(headerTable, 1, "asc").reason, "no-rows");
+  assert.equal(editor.updateTableSort(headerOnly, 0, headerTable, 1, "asc").reason, "no-rows");
+
+  const emptyColumn = "| Name | Score |\n| --- | --- |\n| A | |\n| B | |\n";
+  const emptyTable = editor.parseTables(emptyColumn)[0];
+  assert.equal(editor.sortTable(emptyTable, 1, "asc").reason, "empty");
+  assert.equal(editor.sortTable(emptyTable, 9, "asc").reason, "column");
+  assert.equal(editor.sortTable(emptyTable, 1, "sideways").reason, "direction");
+  assert.equal(editor.sortTable(null, 1, "asc").reason, "table");
+});
+
+test("table sorting writes the sorted content through the note path", async () => {
+  const note = "Before\n\n| Name | Score |\n| --- | --- |\n| A | 2 |\n| B | 10 |\n<!-- TBLFM: @>$2=sum(@I..@-1) -->\n\nAfter";
+  const app = makeApp([{ path: "note.md", text: note }]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.tableEditor = { enabled: true };
+  const table = editor.parseTables(note)[0];
+  const result = await plugin.updateTableSort("note.md", 0, table, "desc", 1);
+  assert.equal(result.ok, true);
+  assert.equal(app.modified && app.modified.length, 1);
+  const saved = app.modified[0].text;
+  assert.match(saved, /\| B\s+\| 10\s+\|/);
+  assert.ok(saved.includes("<!-- TBLFM: @>$2=sum(@I..@-1) -->"));
+  assert.deepEqual(editor.parseTables(saved)[0].rows.slice(1), [["B", "10"], ["A", "2"]]);
+});
+
+test("the table toolbar sorts the active column and refuses without a selected cell", async () => {
+  const source = "| Term | Score |\n| --- | --- |\n| ATP | 2 |\n| DNA | 10 |\n";
+  const table = editor.parseTables(source)[0];
+  const tableEl = fakeTable(["Term", "Score"], [["ATP", "2"], ["DNA", "10"]]);
+  tableEl.ownerDocument = fakeToolbarDoc();
+  const calls = [];
+  const decorated = editor.decorateTable(tableEl, {
+    table,
+    commit: () => { calls.push("commit"); return { ok: true }; },
+    sort: (direction, column) => { calls.push(`sort:${direction}:${column}`); return { ok: true }; },
+  });
+  const button = (id) => decorated.toolbar.children.find((child) => child.attrs["data-qt-table-action"] === id);
+  assert.ok(button("table-sort-asc"));
+  assert.ok(button("table-sort-desc"));
+  const cell = tableEl.rows[1].cells[1];
+  fire(cell, "focus");
+  cell.textContent = "3";
+  fire(button("table-sort-desc"), "click", { preventDefault() {} });
+  await flush();
+  await flush();
+  assert.deepEqual(calls, ["commit", "sort:desc:1"]);
+
+  const errors = [];
+  const secondTable = fakeTable(["Term", "Score"], [["ATP", "2"], ["DNA", "10"]]);
+  secondTable.ownerDocument = fakeToolbarDoc();
+  const second = editor.decorateTable(secondTable, {
+    table,
+    sort: () => { throw new Error("should not run"); },
+    onError: (message) => errors.push(message),
+  });
+  const sortButton = second.toolbar.children.find((child) => child.attrs["data-qt-table-action"] === "table-sort-asc");
+  fire(sortButton, "click", { preventDefault() {} });
+  await flush();
+  assert.match(errors[0] || "", /Select a table cell/);
 });

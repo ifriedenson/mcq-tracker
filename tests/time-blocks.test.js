@@ -236,3 +236,69 @@ test("time blocks: the Study Workspace renders the planner views and empty state
   await dom.click("Timeline");
   assert.ok(dom.texts().some((text) => text.includes("No project time yet")));
 });
+
+
+test("time blocks: subject colours are bounded, local and beat the project colour", async () => {
+  const project = B.createTimeProject({ name: "Biology", color: "#123456" }, 1);
+  const colored = B.createTimeBlock({ date: "2026-11-03", start: "09:00", end: "10:00", title: "Cells", course: "Biology", projectId: project.id }, 2);
+  const plain = B.createTimeBlock({ date: "2026-11-03", start: "11:00", end: "12:00", title: "Reading" }, 3);
+  const settings = B.normalizeTimeBlocks({ subjectColors: { " Biology ": "#AABBCC", Bad: "nope" }, enabled: true });
+  assert.deepEqual(settings.subjectColors, { biology: "#aabbcc" });
+  assert.equal(B.normalizeColor("#AABBCC"), "#aabbcc");
+  assert.equal(B.normalizeColor("red"), "");
+  assert.equal(B.subjectColorFor(colored, settings.subjectColors, [project]), "#aabbcc");
+  assert.equal(B.subjectColorFor({ ...colored, course: "" }, settings.subjectColors, [project]), "#123456");
+  assert.equal(B.subjectColorFor(plain, settings.subjectColors, [project]), "");
+  const rows = B.subjectColorRows([colored, plain], settings.subjectColors, [project]);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].course, "Biology");
+  assert.equal(rows[0].color, "#aabbcc");
+  assert.equal(rows[0].blocks, 1);
+  assert.equal(rows[0].minutes, 60);
+
+  const plugin = await setup();
+  await plugin.addTimeBlock({ date: "2026-11-03", start: "09:00", end: "10:00", title: "Cells", course: "Biology" });
+  assert.equal(await plugin.setTimeBlockSubjectColor("Biology", "#00ff00"), "#00ff00");
+  assert.equal(plugin.timeBlocksSettings().subjectColors.biology, "#00ff00");
+  assert.equal(await plugin.setTimeBlockSubjectColor("Biology", "not-a-colour"), "");
+  assert.equal(plugin.timeBlocksSettings().subjectColors.biology, undefined);
+  assert.equal(await plugin.setTimeBlockSubjectColor("   ", "#00ff00"), "");
+});
+
+test("time blocks: block tags are hash-free, capped, filtered and exported", async () => {
+  assert.deepEqual(B.normalizeBlockTags("Focus, #exam  focus"), ["focus", "exam"]);
+  assert.deepEqual(B.normalizeBlockTags(["a", "b", "c", "d", "e", "f", "g"]), ["a", "b", "c", "d", "e", "f"]);
+  assert.deepEqual(B.normalizeBlockTags("ok_tag, deep/work, !!!"), ["ok_tag", "deep/work"]);
+  const focus = B.createTimeBlock({ date: "2026-11-03", start: "09:00", end: "10:00", title: "Cells", tags: "focus, exam" }, 1);
+  const other = B.createTimeBlock({ date: "2026-11-03", start: "11:00", end: "12:00", title: "Reading", tags: ["reading"] }, 2);
+  assert.deepEqual(focus.tags, ["focus", "exam"]);
+  assert.deepEqual(B.blocksForTag([focus, other], "#focus"), [focus]);
+  assert.equal(B.blocksForTag([focus, other], "").length, 2);
+  assert.deepEqual(B.tagSummary([focus, other]).map((row) => row.tag), ["exam", "focus", "reading"]);
+  assert.match(B.blocksToMarkdown("2026-11-03", [focus], []), /09:00 - 10:00 Cells #focus #exam/);
+
+  const plugin = await setup();
+  const block = await plugin.addTimeBlock({ date: "2026-11-03", start: "09:00", end: "10:00", title: "Cells", tags: "Focus, exam" });
+  assert.deepEqual(block.tags, ["focus", "exam"]);
+  const updated = await plugin.updateTimeBlock(block.id, { tags: "reading" });
+  assert.deepEqual(updated.tags, ["reading"]);
+});
+
+test("time blocks: the workspace shows subject colours and tag chips", async () => {
+  const plugin = await setup();
+  const block = await plugin.addTimeBlock({ date: "2026-11-03", start: "09:00", end: "10:00", title: "Cells", course: "Biology", tags: "focus" });
+  await plugin.setTimeBlockSubjectColor("Biology", "#00aa55");
+  const view = new T.StudyWorkspaceView({ app: plugin.app }, plugin);
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "timeBlocks";
+  view.timeBlockDate = "2026-11-03";
+  view.render();
+  assert.ok(dom.texts().includes("Subject colours"));
+  assert.ok(dom.texts().includes("#focus"));
+  assert.ok(dom.texts().some((text) => text.includes("Biology")));
+  assert.equal(plugin.timeBlocksSettings().subjectColors.biology, "#00aa55");
+  await dom.click("Clear");
+  assert.equal(plugin.timeBlocksSettings().subjectColors.biology, undefined, "Clear removes only the colour");
+  assert.equal(plugin.timeBlocksSettings().blocks.find((row) => row.id === block.id).tags[0], "focus");
+});

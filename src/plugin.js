@@ -9421,6 +9421,9 @@ ${body}
         structure: (action, row, column) => this.updateTableStructure(sourcePath, lineStart, table, action, row, column),
         format: (value, row, column) => this.updateTableCellFormat(sourcePath, lineStart, table, value, row, column),
         align: (value, column) => this.updateTableAlignment(sourcePath, lineStart, table, value, column),
+        sort: (direction, column) => this.updateTableSort(sourcePath, lineStart, table, direction, column),
+        formula: () => this.updateTableFormulas(sourcePath, lineStart, table),
+        exportCsv: () => this.exportTableCsv(sourcePath, lineStart, table),
         onError: (message) => {
           if (message) new Notice(message);
         },
@@ -9454,6 +9457,75 @@ ${body}
     return this.updateTableBlock(sourcePath, sectionStart, table, (current, startLine, expected) =>
       tableEditor.updateTableAlignment(current, startLine, expected, column, alignment)
     );
+  }
+
+  /** Sorts body rows through the same queue and write path as every table edit. */
+  async updateTableSort(sourcePath, sectionStart, table, direction, column) {
+    const result = await this.updateTableBlock(sourcePath, sectionStart, table, (current, startLine, expected) =>
+      tableEditor.updateTableSort(current, startLine, expected, column, direction)
+    );
+    if (result && result.ok) {
+      const label = table && Array.isArray(table.header) && table.header[column] !== undefined
+        ? String(table.header[column]).trim() || `column ${column + 1}`
+        : `column ${column + 1}`;
+      new Notice(result.changed ? `Sorted by ${label} ${direction === "asc" ? "ascending" : "descending"}.` : "The table is already sorted.");
+    }
+    return result;
+  }
+
+  /** Recalculates TBLFM formulas through the same queue and write path. */
+  async updateTableFormulas(sourcePath, sectionStart, table) {
+    const result = await this.updateTableBlock(sourcePath, sectionStart, table, (current, startLine, expected) =>
+      tableEditor.updateTableFormulas(current, startLine, expected)
+    );
+    if (result && result.ok) {
+      new Notice(result.changed ? "Table formulas evaluated." : "Table formulas are already up to date.");
+    }
+    return result;
+  }
+
+  /** Copies the current table as CSV without changing the note. */
+  async exportTableCsv(sourcePath, sectionStart, table) {
+    const path = str(sourcePath).trim();
+    if (!path) return { ok: false, reason: "path", message: "The note path is unavailable." };
+    if (!table || !Array.isArray(table.rows)) return { ok: false, reason: "table", message: "The table is no longer available." };
+    const task = async () => {
+      const file = this.app.vault.getAbstractFileByPath ? this.app.vault.getAbstractFileByPath(path) : null;
+      if (!file) return { ok: false, reason: "file", message: `Could not find ${path}.` };
+      const active = this.app.workspace && this.app.workspace.activeEditor;
+      const editor = active && active.file && active.file.path === path && active.editor ? active.editor : null;
+      let current = "";
+      if (editor && typeof editor.getValue === "function") current = str(editor.getValue());
+      else {
+        try {
+          current = await this.app.vault.read(file);
+        } catch (e) {
+          return { ok: false, reason: "read", message: `Could not read ${path}: ${str(e && e.message ? e.message : e)}` };
+        }
+      }
+      const startLine = Number.isFinite(Number(sectionStart)) ? Math.max(0, Math.round(Number(sectionStart))) : table.start;
+      let result;
+      try {
+        result = tableEditor.tableCsvAt(current, startLine, table);
+      } catch (e) {
+        return { ok: false, reason: "export", message: `Could not export ${path}: ${str(e && e.message ? e.message : e)}` };
+      }
+      if (!result || !result.ok) return result || { ok: false, reason: "export", message: "The table could not be exported." };
+      const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : null;
+      if (!clipboard || typeof clipboard.writeText !== "function") {
+        return { ok: false, reason: "clipboard", message: "Clipboard access is unavailable." };
+      }
+      try {
+        await clipboard.writeText(result.csv);
+      } catch (e) {
+        return { ok: false, reason: "clipboard", message: `Could not copy the table as CSV: ${str(e && e.message ? e.message : e)}` };
+      }
+      new Notice("Table copied as CSV.");
+      return { ok: true, csv: result.csv };
+    };
+    const next = this._tableEditQueue.then(task, task);
+    this._tableEditQueue = next.catch(() => {});
+    return next;
   }
 
   async updateTableBlock(sourcePath, sectionStart, table, update) {
@@ -10209,6 +10281,25 @@ ${body}
     await this.save();
     this.refreshViews();
     return updated;
+  }
+
+  /** Store or clear one course colour used by the Time blocks planner. */
+  async setTimeBlockSubjectColor(course, color) {
+    const name = str(course).trim();
+    if (!name) return "";
+    const current = this.timeBlocksSettings();
+    const subjectColors = { ...current.subjectColors };
+    const key = name.toLowerCase();
+    const next = timeBlocks.normalizeColor(color);
+    if (next) subjectColors[key] = next;
+    else delete subjectColors[key];
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      subjectColors,
+    });
+    await this.save();
+    this.refreshViews();
+    return next;
   }
 
   async removeTimeBlock(id) {

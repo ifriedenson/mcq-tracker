@@ -444,13 +444,13 @@ const PAGES = {
   "advanced-tables": {
     title: "Advanced Tables",
     description:
-      "Edit rendered Markdown table cells in place, move between them with Tab, Shift+Tab, Enter, Shift+Enter or Alt+Arrow, format the selected cell and set its column alignment, and use the toolbar to insert, delete or move rows and columns. Every commit rewrites the source table with padded columns, escaped pipes and a valid delimiter row; sorting, formulas, merged cells and CSV export stay out of this slice.",
+      "Edit rendered Markdown table cells in place, move between them with Tab, Shift+Tab, Enter, Shift+Enter or Alt+Arrow, format the selected cell and set its column alignment, evaluate TBLFM formulas, copy the table as CSV, sort body rows by a column, and use the toolbar to insert, delete or move rows and columns. Every table change rewrites the source table with padded columns, escaped pipes and a valid delimiter row; merged cells stay out of this slice.",
     enabledGetter: "tableEditorEnabled",
     enable: (plugin, v) => update(plugin, "tableEditor", tableEditor.normalizeTableEditorSettings, { enabled: v }),
     afterToggle: "onTableEditorToggled",
-    toggleDesc: "Adds in-place cell editing, keyboard navigation, formatting, column alignment and row/column controls to rendered Markdown tables. Off by default; no note changes happen until you edit a cell or use the toolbar.",
+    toggleDesc: "Adds in-place cell editing, keyboard navigation, formatting, column alignment, body-row sorting, local TBLFM formulas, CSV copy and row/column controls to rendered Markdown tables. Off by default; no note changes happen until you edit a cell or use the toolbar.",
     status: (plugin) => plugin.tableEditorEnabled()
-      ? "Editable cells, formatting, alignment and row/column controls in reading view; the note keeps padded, valid Markdown table rows."
+      ? "Editable cells, formatting, alignment, body-row sorting, formula evaluation, CSV copy and row/column controls in reading view; the note keeps padded, valid Markdown table rows."
       : "Off: rendered tables keep Obsidian's normal read-only behaviour.",
   },
   citations: {

@@ -62962,6 +62962,9 @@ ${body}
         structure: (action, row, column) => this.updateTableStructure(sourcePath, lineStart, table, action, row, column),
         format: (value, row, column) => this.updateTableCellFormat(sourcePath, lineStart, table, value, row, column),
         align: (value, column) => this.updateTableAlignment(sourcePath, lineStart, table, value, column),
+        sort: (direction, column) => this.updateTableSort(sourcePath, lineStart, table, direction, column),
+        formula: () => this.updateTableFormulas(sourcePath, lineStart, table),
+        exportCsv: () => this.exportTableCsv(sourcePath, lineStart, table),
         onError: (message) => {
           if (message) new Notice(message);
         },
@@ -62995,6 +62998,75 @@ ${body}
     return this.updateTableBlock(sourcePath, sectionStart, table, (current, startLine, expected) =>
       tableEditor.updateTableAlignment(current, startLine, expected, column, alignment)
     );
+  }
+
+  /** Sorts body rows through the same queue and write path as every table edit. */
+  async updateTableSort(sourcePath, sectionStart, table, direction, column) {
+    const result = await this.updateTableBlock(sourcePath, sectionStart, table, (current, startLine, expected) =>
+      tableEditor.updateTableSort(current, startLine, expected, column, direction)
+    );
+    if (result && result.ok) {
+      const label = table && Array.isArray(table.header) && table.header[column] !== undefined
+        ? String(table.header[column]).trim() || `column ${column + 1}`
+        : `column ${column + 1}`;
+      new Notice(result.changed ? `Sorted by ${label} ${direction === "asc" ? "ascending" : "descending"}.` : "The table is already sorted.");
+    }
+    return result;
+  }
+
+  /** Recalculates TBLFM formulas through the same queue and write path. */
+  async updateTableFormulas(sourcePath, sectionStart, table) {
+    const result = await this.updateTableBlock(sourcePath, sectionStart, table, (current, startLine, expected) =>
+      tableEditor.updateTableFormulas(current, startLine, expected)
+    );
+    if (result && result.ok) {
+      new Notice(result.changed ? "Table formulas evaluated." : "Table formulas are already up to date.");
+    }
+    return result;
+  }
+
+  /** Copies the current table as CSV without changing the note. */
+  async exportTableCsv(sourcePath, sectionStart, table) {
+    const path = str(sourcePath).trim();
+    if (!path) return { ok: false, reason: "path", message: "The note path is unavailable." };
+    if (!table || !Array.isArray(table.rows)) return { ok: false, reason: "table", message: "The table is no longer available." };
+    const task = async () => {
+      const file = this.app.vault.getAbstractFileByPath ? this.app.vault.getAbstractFileByPath(path) : null;
+      if (!file) return { ok: false, reason: "file", message: `Could not find ${path}.` };
+      const active = this.app.workspace && this.app.workspace.activeEditor;
+      const editor = active && active.file && active.file.path === path && active.editor ? active.editor : null;
+      let current = "";
+      if (editor && typeof editor.getValue === "function") current = str(editor.getValue());
+      else {
+        try {
+          current = await this.app.vault.read(file);
+        } catch (e) {
+          return { ok: false, reason: "read", message: `Could not read ${path}: ${str(e && e.message ? e.message : e)}` };
+        }
+      }
+      const startLine = Number.isFinite(Number(sectionStart)) ? Math.max(0, Math.round(Number(sectionStart))) : table.start;
+      let result;
+      try {
+        result = tableEditor.tableCsvAt(current, startLine, table);
+      } catch (e) {
+        return { ok: false, reason: "export", message: `Could not export ${path}: ${str(e && e.message ? e.message : e)}` };
+      }
+      if (!result || !result.ok) return result || { ok: false, reason: "export", message: "The table could not be exported." };
+      const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : null;
+      if (!clipboard || typeof clipboard.writeText !== "function") {
+        return { ok: false, reason: "clipboard", message: "Clipboard access is unavailable." };
+      }
+      try {
+        await clipboard.writeText(result.csv);
+      } catch (e) {
+        return { ok: false, reason: "clipboard", message: `Could not copy the table as CSV: ${str(e && e.message ? e.message : e)}` };
+      }
+      new Notice("Table copied as CSV.");
+      return { ok: true, csv: result.csv };
+    };
+    const next = this._tableEditQueue.then(task, task);
+    this._tableEditQueue = next.catch(() => {});
+    return next;
   }
 
   async updateTableBlock(sourcePath, sectionStart, table, update) {
@@ -63750,6 +63822,25 @@ ${body}
     await this.save();
     this.refreshViews();
     return updated;
+  }
+
+  /** Store or clear one course colour used by the Time blocks planner. */
+  async setTimeBlockSubjectColor(course, color) {
+    const name = str(course).trim();
+    if (!name) return "";
+    const current = this.timeBlocksSettings();
+    const subjectColors = { ...current.subjectColors };
+    const key = name.toLowerCase();
+    const next = timeBlocks.normalizeColor(color);
+    if (next) subjectColors[key] = next;
+    else delete subjectColors[key];
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      subjectColors,
+    });
+    await this.save();
+    this.refreshViews();
+    return next;
   }
 
   async removeTimeBlock(id) {
@@ -89780,13 +89871,13 @@ const PAGES = {
   "advanced-tables": {
     title: "Advanced Tables",
     description:
-      "Edit rendered Markdown table cells in place, move between them with Tab, Shift+Tab, Enter, Shift+Enter or Alt+Arrow, format the selected cell and set its column alignment, and use the toolbar to insert, delete or move rows and columns. Every commit rewrites the source table with padded columns, escaped pipes and a valid delimiter row; sorting, formulas, merged cells and CSV export stay out of this slice.",
+      "Edit rendered Markdown table cells in place, move between them with Tab, Shift+Tab, Enter, Shift+Enter or Alt+Arrow, format the selected cell and set its column alignment, evaluate TBLFM formulas, copy the table as CSV, sort body rows by a column, and use the toolbar to insert, delete or move rows and columns. Every table change rewrites the source table with padded columns, escaped pipes and a valid delimiter row; merged cells stay out of this slice.",
     enabledGetter: "tableEditorEnabled",
     enable: (plugin, v) => update(plugin, "tableEditor", tableEditor.normalizeTableEditorSettings, { enabled: v }),
     afterToggle: "onTableEditorToggled",
-    toggleDesc: "Adds in-place cell editing, keyboard navigation, formatting, column alignment and row/column controls to rendered Markdown tables. Off by default; no note changes happen until you edit a cell or use the toolbar.",
+    toggleDesc: "Adds in-place cell editing, keyboard navigation, formatting, column alignment, body-row sorting, local TBLFM formulas, CSV copy and row/column controls to rendered Markdown tables. Off by default; no note changes happen until you edit a cell or use the toolbar.",
     status: (plugin) => plugin.tableEditorEnabled()
-      ? "Editable cells, formatting, alignment and row/column controls in reading view; the note keeps padded, valid Markdown table rows."
+      ? "Editable cells, formatting, alignment, body-row sorting, formula evaluation, CSV copy and row/column controls in reading view; the note keeps padded, valid Markdown table rows."
       : "Off: rendered tables keep Obsidian's normal read-only behaviour.",
   },
   citations: {
@@ -94428,6 +94519,7 @@ class StudyWorkspaceView extends ItemView {
       cls: "qt-study-row-meta",
       text: summary.blocks + " block" + (summary.blocks === 1 ? "" : "s") + " · " + timeBlocks.durationLabel(summary.minutes) + " planned · " + summary.open + " open task" + (summary.open === 1 ? "" : "s") + " on this day",
     });
+    this.renderTimeBlockSubjectColors(root, data);
     if (this.timeBlockView === "day") this.renderTimeBlockDay(root, data);
     else if (this.timeBlockView === "week") this.renderTimeBlockWeek(root, data);
     else if (this.timeBlockView === "grid") this.renderTimeBlockGrid(root, data);
@@ -94435,6 +94527,34 @@ class StudyWorkspaceView extends ItemView {
     else if (this.timeBlockView === "routines") this.renderTimeBlockRoutines(root, data);
     else if (this.timeBlockView === "projects") this.renderTimeBlockProjects(root, data);
     else if (this.timeBlockView === "timeline") this.renderTimeBlockTimeline(root, data);
+  }
+
+  renderTimeBlockSubjectColors(root, data) {
+    const rows = timeBlocks.subjectColorRows(data.blocks, data.subjectColors, data.projects);
+    if (!rows.length) return;
+    const card = root.createEl("details", { cls: "qt-study-card qt-workspace-disclosure" });
+    card.createEl("summary", { cls: "qt-workspace-disclosure-title", text: "Subject colours" });
+    card.createDiv({ cls: "qt-hint", text: "Give a course its own colour. A course colour tints that course's blocks in Day and Week; a block without one keeps its project colour. Colours are local to the planner and write no note." });
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const row of rows) {
+      const item = list.createDiv({ cls: "qt-study-row qt-time-block-color-row" });
+      const main = item.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: row.course });
+      main.createDiv({ cls: "qt-study-row-meta", text: row.blocks + " block" + (row.blocks === 1 ? "" : "s") + " · " + timeBlocks.durationLabel(row.minutes) + " planned" });
+      const field = item.createDiv({ cls: "qt-row qt-time-block-color-input" });
+      const input = field.createEl("input", { type: "color", attr: { "aria-label": "Colour for " + row.course } });
+      input.value = row.color || "#6f8ff5";
+      input.addEventListener("change", async () => {
+        await this.plugin.setTimeBlockSubjectColor(row.course, input.value);
+        this.saveMessage("Colour saved for " + row.course + ".");
+        this.render();
+      });
+      field.createEl("button", { text: "Clear" }).addEventListener("click", async () => {
+        await this.plugin.setTimeBlockSubjectColor(row.course, "");
+        this.saveMessage("Colour cleared for " + row.course + ".");
+        this.render();
+      });
+    }
   }
 
   renderTimeBlockDay(root, data) {
@@ -94470,6 +94590,7 @@ class StudyWorkspaceView extends ItemView {
     const type = this.renderSelect(form, "Type", timeBlocks.TIME_BLOCK_TYPES.map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) })), "study");
     const project = this.renderSelect(form, "Project or domain", projectOptions, "");
     const course = this.renderField(form, "Course (optional)", "text", "Biology");
+    const tags = this.renderField(form, "Tags (optional)", "text", "focus, exam");
     const notes = this.renderTextarea(form, "Notes (optional)", "What is this block for?", "", 2);
     const actions = add.createDiv({ cls: "qt-row qt-study-actions" });
     actions.createEl("button", { text: "Add block", cls: "mod-cta" }).addEventListener("click", async () => {
@@ -94481,6 +94602,7 @@ class StudyWorkspaceView extends ItemView {
         type: type.value,
         projectId: project.value,
         course: course.value,
+        tags: tags.value,
         notes: notes.value,
       });
       if (!block) {
@@ -94491,9 +94613,19 @@ class StudyWorkspaceView extends ItemView {
       this.saveMessage("Block added.");
       this.render();
     });
-    const blocks = timeBlocks.blocksForDate(data.blocks, this.timeBlockDate);
+    let blocks = timeBlocks.blocksForDate(data.blocks, this.timeBlockDate);
+    const filterRow = root.createDiv({ cls: "qt-row qt-time-block-tag-filter" });
+    const filter = filterRow.createEl("input", { cls: "qt-input", type: "text", attr: { placeholder: "Filter by tag" } });
+    filter.value = this.timeBlockTagFilter || "";
+    filter.addEventListener("change", () => {
+      this.timeBlockTagFilter = str(filter.value).trim();
+      this.render();
+    });
+    if (this.timeBlockTagFilter) blocks = timeBlocks.blocksForTag(blocks, this.timeBlockTagFilter);
     if (!blocks.length) {
-      this.renderTabsEmpty(root, "No blocks on this day. Add one above, then put the work inside it.");
+      this.renderTabsEmpty(root, this.timeBlockTagFilter
+        ? "No block on this day carries #" + timeBlocks.normalizeTag(this.timeBlockTagFilter) + ". Clear the filter to see them all."
+        : "No blocks on this day. Add one above, then put the work inside it.");
       return;
     }
     const list = root.createDiv({ cls: "qt-study-list qt-time-blocks-day-list" });
@@ -94540,12 +94672,21 @@ class StudyWorkspaceView extends ItemView {
   renderTimeBlockCard(list, block, data) {
     const card = list.createDiv({ cls: "qt-time-block qt-study-card" });
     if (block.type) card.addClass("is-" + block.type);
+    const color = timeBlocks.subjectColorFor(block, data.subjectColors, data.projects);
+    if (color) {
+      card.setAttr("data-block-color", color);
+      if (card.style) card.style.borderLeftColor = color;
+    }
     const head = card.createDiv({ cls: "qt-workspace-head" });
     const main = head.createDiv({ cls: "qt-time-block-main" });
     main.createDiv({ cls: "qt-time-block-time", text: block.start + " – " + block.end + " · " + timeBlocks.durationLabel(timeBlocks.durationMinutes(block)) });
     main.createDiv({ cls: "qt-time-block-title", text: block.title });
     const meta = [block.type, this.timeBlockProjectName(data, block.projectId), block.course].filter(Boolean).join(" · ");
     if (meta) main.createDiv({ cls: "qt-study-row-meta", text: meta });
+    if (block.tags.length) {
+      const tags = main.createDiv({ cls: "qt-time-block-tags" });
+      for (const tag of block.tags) tags.createSpan({ cls: "qt-time-block-tag", text: "#" + tag });
+    }
     const actions = head.createDiv({ cls: "qt-row qt-study-row-actions" });
     if (block.type === "review" || block.type === "practice") {
       actions.createEl("button", { text: block.type === "review" ? "Start cards" : "Start practice", cls: "mod-cta" }).addEventListener("click", () => {
@@ -94571,6 +94712,7 @@ class StudyWorkspaceView extends ItemView {
       const type = this.renderSelect(form, "Type", timeBlocks.TIME_BLOCK_TYPES.map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) })), block.type);
       const project = this.renderSelect(form, "Project or domain", this.timeBlockProjectOptions(data), block.projectId);
       const course = this.renderField(form, "Course (optional)", "text", "", block.course);
+      const tags = this.renderField(form, "Tags (optional)", "text", "", block.tags.join(", "));
       const notes = this.renderTextarea(form, "Notes (optional)", "", block.notes, 2);
       form.createEl("button", { text: "Save block", cls: "mod-cta" }).addEventListener("click", async () => {
         const updated = await this.plugin.updateTimeBlock(block.id, {
@@ -94580,6 +94722,7 @@ class StudyWorkspaceView extends ItemView {
           type: type.value,
           projectId: project.value,
           course: course.value,
+          tags: tags.value,
           notes: notes.value,
         });
         if (!updated) {
@@ -94656,6 +94799,11 @@ class StudyWorkspaceView extends ItemView {
       if (!blocks.length) column.createDiv({ cls: "qt-hint", text: "No blocks" });
       for (const block of blocks) {
         const row = column.createDiv({ cls: "qt-time-blocks-week-block" + (conflictBlockIds.has(block.id) ? " is-conflict" : "") });
+        const color = timeBlocks.subjectColorFor(block, data.subjectColors, data.projects);
+        if (color) {
+          row.setAttr("data-block-color", color);
+          if (row.style) row.style.borderLeftColor = color;
+        }
         row.createDiv({ cls: "qt-time-blocks-week-block-time", text: block.start + "–" + block.end });
         row.createDiv({ cls: "qt-time-blocks-week-block-title", text: block.title });
         if (block.projectId) row.createDiv({ cls: "qt-study-row-meta", text: this.timeBlockProjectName(data, block.projectId) });
@@ -95844,6 +95992,8 @@ __defs["table-editor"] = function (module, exports, require) {
  * and a valid delimiter row, so pipes and column widths never drift.
  */
 
+const tableFormulas = require("./table-formulas");
+
 const MAX_TABLE_ROWS = 500;
 const MAX_TABLE_COLUMNS = 40;
 const MIN_COLUMN_WIDTH = 3;
@@ -95873,7 +96023,17 @@ const TABLE_FORMAT_ACTIONS = [
   { id: "column-align-default", kind: "align", align: "none", short: "Def", label: "Default column alignment" },
 ];
 
-const TABLE_TOOLBAR_ACTIONS = TABLE_STRUCTURE_ACTIONS.concat(TABLE_FORMAT_ACTIONS);
+const TABLE_SORT_ACTIONS = [
+  { id: "table-sort-asc", kind: "sort", direction: "asc", short: "↑", label: "Sort rows ascending by this column" },
+  { id: "table-sort-desc", kind: "sort", direction: "desc", short: "↓", label: "Sort rows descending by this column" },
+];
+
+const TABLE_FORMULA_ACTIONS = [
+  { id: "table-formulas", kind: "formula", short: "Σ", label: "Evaluate table formulas" },
+  { id: "table-csv", kind: "export", short: "CSV", label: "Copy table as CSV" },
+];
+
+const TABLE_TOOLBAR_ACTIONS = TABLE_STRUCTURE_ACTIONS.concat(TABLE_FORMAT_ACTIONS, TABLE_SORT_ACTIONS, TABLE_FORMULA_ACTIONS);
 
 function text(value) {
   return value === null || value === undefined ? "" : String(value);
@@ -96274,6 +96434,57 @@ function alignTableColumn(table, column, alignment) {
   return { ok: true, changed, table: { ...table, align } };
 }
 
+function sortableNumber(value) {
+  const raw = text(value).trim();
+  if (!raw) return null;
+  const commaGrouped = /^[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d*)?(?:[eE][+-]?\d+)?$/.test(raw);
+  const plain = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(raw);
+  if (!commaGrouped && !plain) return null;
+  const number = Number(raw.replace(/,/g, ""));
+  return Number.isFinite(number) ? number : null;
+}
+
+/**
+ * Stable body-row sort. The header stays at row 0; numeric-looking cells compare
+ * by value, other cells as text, blanks stay last, and ties keep source order.
+ */
+function sortTable(table, column, direction) {
+  if (!table || !Array.isArray(table.rows) || !Array.isArray(table.align)) {
+    return { ok: false, reason: "table", message: "The table is no longer available." };
+  }
+  if (!["asc", "desc"].includes(direction)) {
+    return { ok: false, reason: "direction", message: "Choose ascending or descending sort order." };
+  }
+  if (!hasColumn(table, column)) {
+    return { ok: false, reason: "column", message: "That table column is no longer available." };
+  }
+  if (table.rows.length < 2) {
+    return { ok: false, reason: "no-rows", message: "A table needs at least one body row to sort." };
+  }
+  const body = table.rows.slice(1).map((cells, index) => ({ cells, index, value: cells[column] || "" }));
+  if (!body.some((entry) => text(entry.value).trim() !== "")) {
+    return { ok: false, reason: "empty", message: "This column has no values to sort." };
+  }
+  body.sort((a, b) => {
+    const aBlank = text(a.value).trim() === "";
+    const bBlank = text(b.value).trim() === "";
+    if (aBlank !== bBlank) return aBlank ? 1 : -1;
+    if (aBlank) return a.index - b.index;
+    const aNumber = sortableNumber(a.value);
+    const bNumber = sortableNumber(b.value);
+    let result = 0;
+    if (aNumber !== null && bNumber !== null) result = aNumber - bNumber;
+    else if (aNumber !== null) result = -1;
+    else if (bNumber !== null) result = 1;
+    else result = text(a.value).trim().localeCompare(text(b.value).trim(), undefined, { sensitivity: "base" });
+    if (result !== 0) result = direction === "asc" ? result : -result;
+    return result !== 0 ? result : a.index - b.index;
+  });
+  const rows = [table.rows[0].slice(), ...body.map((entry) => entry.cells.slice())];
+  const changed = rows.some((row, rowIndex) => row.some((value, columnIndex) => value !== table.rows[rowIndex][columnIndex]));
+  return { ok: true, changed, table: { ...table, rows, header: rows[0].slice() } };
+}
+
 /** Escapes a committed cell so a typed pipe becomes data, not a new column. */
 function escapeCell(value) {
   let cell = text(value).replace(/\r\n?/g, "\n").replace(/\n+/g, " ").trim().slice(0, MAX_CELL_LENGTH);
@@ -96426,6 +96637,39 @@ function updateTableAlignment(markdown, startLine, expected, column, alignment) 
   return { ...tableBlockUpdate(source, table, change.table), changed: change.changed };
 }
 
+/** Sorts body rows by one column while leaving the header and following text alone. */
+function updateTableSort(markdown, startLine, expected, column, direction) {
+  const source = text(markdown);
+  const lines = source.split(/\r?\n/);
+  const table = tableForUpdate(lines, Number.isInteger(startLine) ? startLine : -1, expected);
+  if (!table) return { ok: false, reason: "not-found", message: "This table could not be matched to the note." };
+  const change = sortTable(table, column, direction);
+  if (!change.ok) return change;
+  return { ...tableBlockUpdate(source, table, change.table), changed: change.changed };
+}
+
+/** Evaluates the contiguous TBLFM comments that immediately follow one table. */
+function updateTableFormulas(markdown, startLine, expected) {
+  const source = text(markdown);
+  const lines = source.split(/\r?\n/);
+  const table = tableForUpdate(lines, Number.isInteger(startLine) ? startLine : -1, expected);
+  if (!table) return { ok: false, reason: "not-found", message: "This table could not be matched to the note." };
+  const parsed = tableFormulas.parseTableFormulas(lines, table);
+  if (!parsed.ok) return parsed;
+  const applied = tableFormulas.applyTableFormulas(table, parsed.formulas, escapeCell);
+  if (!applied.ok) return applied;
+  return { ...tableBlockUpdate(source, table, applied.table), changed: applied.changed };
+}
+
+/** Serializes the current source table, without its TBLFM comments, as CSV. */
+function tableCsvAt(markdown, startLine, expected) {
+  const source = text(markdown);
+  const lines = source.split(/\r?\n/);
+  const table = tableForUpdate(lines, Number.isInteger(startLine) ? startLine : -1, expected);
+  if (!table) return { ok: false, reason: "not-found", message: "This table could not be matched to the note." };
+  return { ok: true, csv: tableFormulas.tableToCsv(table), table };
+}
+
 /**
  * Where a key should move inside the table. Tab/Shift+Tab and Enter/Shift+Enter
  * stay inside the table; Alt+Arrow keys move one cell. A boundary is reported
@@ -96519,6 +96763,9 @@ function decorateTable(tableEl, options) {
   const structure = typeof opts.structure === "function" ? opts.structure : null;
   const format = typeof opts.format === "function" ? opts.format : null;
   const align = typeof opts.align === "function" ? opts.align : null;
+  const sort = typeof opts.sort === "function" ? opts.sort : null;
+  const formula = typeof opts.formula === "function" ? opts.formula : null;
+  const exportCsv = typeof opts.exportCsv === "function" ? opts.exportCsv : null;
   const onError = typeof opts.onError === "function" ? opts.onError : null;
   const rows = tableRows(tableEl);
   if (!rows.length || rows.length !== table.rows.length) return null;
@@ -96615,11 +96862,58 @@ function decorateTable(tableEl, options) {
       .catch((error) => fail(error && error.message ? error.message : "The column alignment could not be changed."));
   };
 
+  const runSort = (direction) => {
+    if (!sort) return;
+    if (!active) {
+      fail("Select a table cell in the column you want to sort.");
+      return Promise.resolve();
+    }
+    const at = active;
+    return Promise.resolve(commitActive())
+      .then((saved) => {
+        if (saved && saved.ok === false) return null;
+        return sort(direction, at.column);
+      })
+      .then((result) => {
+        if (result && result.ok === false) fail(result.message || "The table could not be sorted.");
+      })
+      .catch((error) => fail(error && error.message ? error.message : "The table could not be sorted."));
+  };
+
+  const runFormula = () => {
+    if (!formula) return;
+    return Promise.resolve(commitActive())
+      .then((saved) => {
+        if (saved && saved.ok === false) return null;
+        return formula();
+      })
+      .then((result) => {
+        if (result && result.ok === false) fail(result.message || "The table formulas could not be evaluated.");
+      })
+      .catch((error) => fail(error && error.message ? error.message : "The table formulas could not be evaluated."));
+  };
+
+  const runExport = () => {
+    if (!exportCsv) return;
+    return Promise.resolve(commitActive())
+      .then((saved) => {
+        if (saved && saved.ok === false) return null;
+        return exportCsv();
+      })
+      .then((result) => {
+        if (result && result.ok === false) fail(result.message || "The table could not be copied as CSV.");
+      })
+      .catch((error) => fail(error && error.message ? error.message : "The table could not be copied as CSV."));
+  };
+
   const runAction = (action) => {
     if (!action) return;
     if (action.kind === "structure") return runStructure(action.id);
     if (action.kind === "format") return runFormat(action.format);
     if (action.kind === "align") return runAlign(action.align);
+    if (action.kind === "sort") return runSort(action.direction);
+    if (action.kind === "formula") return runFormula();
+    if (action.kind === "export") return runExport();
   };
 
   const focusCell = (row, column) => {
@@ -96686,7 +96980,7 @@ function decorateTable(tableEl, options) {
   });
 
   decorating = false;
-  const toolbar = structure || format || align ? createTableToolbar(tableEl, runAction) : null;
+  const toolbar = structure || format || align || sort || formula || exportCsv ? createTableToolbar(tableEl, runAction) : null;
   return { cells, rows: table.rows.length, columns: table.columns, focusCell, toolbar };
 }
 
@@ -96695,6 +96989,8 @@ module.exports = {
   MAX_TABLE_COLUMNS,
   MAX_TABLE_ROWS,
   TABLE_FORMAT_ACTIONS,
+  TABLE_FORMULA_ACTIONS,
+  TABLE_SORT_ACTIONS,
   TABLE_STRUCTURE_ACTIONS,
   TABLE_TOOLBAR_ACTIONS,
   alignTableColumn,
@@ -96709,12 +97005,619 @@ module.exports = {
   renderedHeader,
   formatTableCell,
   splitTableRow,
+  sortTable,
   structureTable,
   toggleCellFormat,
   updateTableAlignment,
   updateTableFormat,
+  updateTableFormulas,
+  updateTableSort,
   updateTableStructure,
+  tableCsvAt,
   updateTableText,
+};
+};
+
+/* ---- src/table-formulas.js ---- */
+__defs["table-formulas"] = function (module, exports, require) {
+/*
+ * TBLFM formulas and CSV output for Markdown tables.
+ *
+ * Formulas use the org-mode style documented by Advanced Tables:
+ *   <!-- TBLFM: @>$2=sum(@I..@-1) -->
+ * References, ranges, arithmetic, sum/mean/count/min/max, conditionals,
+ * chained formulas and numeric formatting are parsed locally. Nothing here
+ * uses eval, Function, a DOM or an Obsidian API.
+ */
+
+const FORMULA_COMMENT = /^\s*<!--\s*TBLFM:\s*(.*?)\s*-->\s*$/i;
+const MAX_FORMULA_LENGTH = 4000;
+const MAX_FORMULAS = 100;
+const MAX_RANGE_CELLS = 100000;
+const MAX_FORMULA_ARGUMENTS = 64;
+
+function text(value) {
+  return value === null || value === undefined ? "" : String(value);
+}
+
+function fail(message, reason) {
+  return { ok: false, reason: reason || "formula", message };
+}
+
+function sameNumber(left, right) {
+  return Number.isFinite(left) && Number.isFinite(right) && left === right;
+}
+
+function cell(table, row, column) {
+  if (!table || !Array.isArray(table.rows) || !table.rows[row]) {
+    throw new Error(`Row ${row + 1} is outside the table.`);
+  }
+  const value = table.rows[row][column];
+  if (value === undefined) throw new Error(`Column ${column + 1} is outside the table.`);
+  return value;
+}
+
+function unescapePipes(value) {
+  return text(value).replace(/\\\|/g, "|");
+}
+
+function numeric(value) {
+  const raw = unescapePipes(value).trim();
+  if (!raw) return 0;
+  const number = Number(raw);
+  return Number.isFinite(number) ? number : NaN;
+}
+
+function formatNumber(value) {
+  if (!Number.isFinite(value)) throw new Error("The result is not a finite number.");
+  const normal = Object.is(value, -0) ? 0 : value;
+  return String(Number(normal.toPrecision(12)));
+}
+
+function escapeCell(value) {
+  let cellText = text(value).replace(/\r\n?/g, "\n").replace(/\n+/g, " ").trim();
+  let escaped = "";
+  for (let i = 0; i < cellText.length; i += 1) {
+    if (cellText[i] === "|" && !isEscaped(cellText, i)) escaped += "\\";
+    escaped += cellText[i];
+  }
+  return escaped;
+}
+
+function isEscaped(value, index) {
+  let slashes = 0;
+  for (let i = index - 1; i >= 0 && value[i] === "\\"; i -= 1) slashes += 1;
+  return slashes % 2 === 1;
+}
+
+function splitFormulas(value) {
+  const source = text(value);
+  const parts = [];
+  let current = "";
+  let depth = 0;
+  for (let i = 0; i < source.length; i += 1) {
+    if (source[i] === "(") depth += 1;
+    else if (source[i] === ")") depth = Math.max(0, depth - 1);
+    if (depth === 0 && source.slice(i, i + 2) === "::") {
+      if (!current.trim()) throw new Error("An empty formula was found.");
+      parts.push(current.trim());
+      current = "";
+      i += 1;
+      continue;
+    }
+    current += source[i];
+  }
+  if (!current.trim()) throw new Error("An empty formula was found.");
+  parts.push(current.trim());
+  if (parts.length > MAX_FORMULAS) throw new Error(`A table can have at most ${MAX_FORMULAS} formulas.`);
+  return parts;
+}
+
+/** Extract contiguous TBLFM comments immediately after a parsed table. */
+function parseTableFormulas(lines, table) {
+  if (!Array.isArray(lines) || !table) return fail("The table is no longer available.", "table");
+  let index = table.end + 1;
+  const formulas = [];
+  while (index < lines.length) {
+    const match = FORMULA_COMMENT.exec(lines[index]);
+    if (!match) break;
+    const body = text(match[1]).trim();
+    if (body.length > MAX_FORMULA_LENGTH) return fail(`A formula is longer than ${MAX_FORMULA_LENGTH} characters.`);
+    try {
+      formulas.push(...splitFormulas(body));
+    } catch (error) {
+      return fail(error && error.message ? error.message : "That formula could not be read.");
+    }
+    if (formulas.length > MAX_FORMULAS) return fail(`A table can have at most ${MAX_FORMULAS} formulas.`);
+    index += 1;
+  }
+  return { ok: true, formulas };
+}
+
+function readRowToken(source, position) {
+  if (source[position] !== "@") return null;
+  let index = position + 1;
+  if (source[index] === "<") return { token: { kind: "first" }, next: index + 1 };
+  if (source[index] === ">") return { token: { kind: "last" }, next: index + 1 };
+  if (source[index] === "I" || source[index] === "i") return { token: { kind: "body" }, next: index + 1 };
+  const match = /^([+-]?)(\d+)/.exec(source.slice(index));
+  if (!match) throw new Error("Expected a row after @ (use @1, @<, @>, @I, @-1 or @+1).");
+  const value = Number(match[2]);
+  if (!Number.isInteger(value) || value < 0) throw new Error("That row number is invalid.");
+  if (!match[1] && value < 1) throw new Error("Table rows are numbered from 1.");
+  return { token: match[1] ? { kind: "relative", value: match[1] === "-" ? -value : value } : { kind: "absolute", value }, next: index + match[0].length };
+}
+
+function readColumnToken(source, position) {
+  if (source[position] !== "$") return null;
+  let index = position + 1;
+  if (source[index] === "<") return { token: { kind: "first" }, next: index + 1 };
+  if (source[index] === ">") return { token: { kind: "last" }, next: index + 1 };
+  const match = /^([+-]?)(\d+)/.exec(source.slice(index));
+  if (!match) throw new Error("Expected a column after $ (use $1, $<, $>, $-1 or $+1).");
+  const value = Number(match[2]);
+  if (!Number.isInteger(value) || value < 0) throw new Error("That column number is invalid.");
+  if (!match[1] && value < 1) throw new Error("Table columns are numbered from 1.");
+  return { token: match[1] ? { kind: "relative", value: match[1] === "-" ? -value : value } : { kind: "absolute", value }, next: index + match[0].length };
+}
+
+function readEndpoint(source, position) {
+  let index = position;
+  let row = null;
+  let column = null;
+  const rowPart = readRowToken(source, index);
+  if (rowPart) {
+    row = rowPart.token;
+    index = rowPart.next;
+  }
+  const columnPart = readColumnToken(source, index);
+  if (columnPart) {
+    column = columnPart.token;
+    index = columnPart.next;
+  }
+  if (!row && !column) return null;
+  return {
+    endpoint: { row, column, rowOnly: Boolean(row && !column), columnOnly: Boolean(column && !row) },
+    next: index,
+  };
+}
+
+function readReference(source, position) {
+  const first = readEndpoint(source, position);
+  if (!first) throw new Error("Expected a cell reference such as @2$3, @< or $>.");
+  let index = first.next;
+  let second = null;
+  if (source.slice(index, index + 2) === "..") {
+    index += 2;
+    const part = readEndpoint(source, index);
+    if (!part) throw new Error("Expected a reference after the range dots.");
+    second = part.endpoint;
+    index = part.next;
+  }
+  return { reference: { first: first.endpoint, second }, next: index };
+}
+
+function resolveRow(token, destinationRow, table) {
+  if (token.kind === "absolute") return token.value - 1;
+  if (token.kind === "first") return 0;
+  if (token.kind === "last") return table.rows.length - 1;
+  if (token.kind === "body") return Math.min(table.rows.length - 1, Math.max(0, table.headerCount || 1));
+  return destinationRow + token.value;
+}
+
+function resolveColumn(token, destinationColumn, table) {
+  if (token.kind === "absolute") return token.value - 1;
+  if (token.kind === "first") return 0;
+  if (token.kind === "last") return table.columns - 1;
+  return destinationColumn + token.value;
+}
+
+function ensureRow(table, row) {
+  if (!Number.isInteger(row) || row < 0 || row >= table.rows.length) throw new Error("A formula reference points outside the table.");
+  return row;
+}
+
+function ensureColumn(table, column) {
+  if (!Number.isInteger(column) || column < 0 || column >= table.columns) throw new Error("A formula reference points outside the table.");
+  return column;
+}
+
+function cellList(table, rowStart, rowEnd, columnStart, columnEnd) {
+  const firstRow = ensureRow(table, Math.min(rowStart, rowEnd));
+  const lastRow = ensureRow(table, Math.max(rowStart, rowEnd));
+  const firstColumn = ensureColumn(table, Math.min(columnStart, columnEnd));
+  const lastColumn = ensureColumn(table, Math.max(columnStart, columnEnd));
+  if ((lastRow - firstRow + 1) * (lastColumn - firstColumn + 1) > MAX_RANGE_CELLS) {
+    throw new Error(`A range cannot contain more than ${MAX_RANGE_CELLS} cells.`);
+  }
+  const cells = [];
+  for (let row = firstRow; row <= lastRow; row += 1) {
+    for (let column = firstColumn; column <= lastColumn; column += 1) cells.push({ row, column });
+  }
+  return cells;
+}
+
+function expressionCell(table, reference, destinationRow, destinationColumn) {
+  const first = reference.first;
+  const row = first.row ? resolveRow(first.row, destinationRow, table) : destinationRow;
+  const column = first.column ? resolveColumn(first.column, destinationColumn, table) : destinationColumn;
+  return { row: ensureRow(table, row), column: ensureColumn(table, column) };
+}
+
+function expressionRange(table, reference, destinationRow, destinationColumn) {
+  const first = reference.first;
+  const second = reference.second;
+  const firstRow = first.row ? resolveRow(first.row, destinationRow, table) : null;
+  const secondRow = second.row ? resolveRow(second.row, destinationRow, table) : null;
+  const firstColumn = first.column ? resolveColumn(first.column, destinationColumn, table) : null;
+  const secondColumn = second.column ? resolveColumn(second.column, destinationColumn, table) : null;
+  const rowStart = firstRow === null ? (secondRow === null ? destinationRow : secondRow) : firstRow;
+  const rowEnd = secondRow === null ? rowStart : secondRow;
+  const columnStart = firstColumn === null ? (secondColumn === null ? destinationColumn : secondColumn) : firstColumn;
+  const columnEnd = secondColumn === null ? columnStart : secondColumn;
+  return cellList(table, rowStart, rowEnd, columnStart, columnEnd);
+}
+
+function destinationCells(table, reference) {
+  const first = reference.first;
+  const second = reference.second;
+  const relative = (endpoint) => (endpoint.row && endpoint.row.kind === "relative") || (endpoint.column && endpoint.column.kind === "relative");
+  if (relative(first) || (second && relative(second))) {
+    throw new Error("The destination cannot use a relative reference.");
+  }
+  const firstRow = first.row ? resolveRow(first.row, 0, table) : null;
+  const secondRow = second ? (second.row ? resolveRow(second.row, 0, table) : null) : null;
+  const firstColumn = first.column ? resolveColumn(first.column, 0, table) : null;
+  const secondColumn = second ? (second.column ? resolveColumn(second.column, 0, table) : null) : null;
+
+  if (!second) {
+    if (firstRow !== null && firstColumn !== null) return [expressionCell(table, reference, 0, 0)];
+    if (firstRow !== null) return cellList(table, firstRow, firstRow, 0, table.columns - 1);
+    return cellList(table, Math.max(0, table.headerCount || 1), table.rows.length - 1, firstColumn, firstColumn);
+  }
+
+  if (firstRow !== null || secondRow !== null) {
+    const rowStart = firstRow === null ? secondRow : firstRow;
+    const rowEnd = secondRow === null ? rowStart : secondRow;
+    if (firstColumn === null && secondColumn === null) return cellList(table, rowStart, rowEnd, 0, table.columns - 1);
+    const columnStart = firstColumn === null ? secondColumn : firstColumn;
+    const columnEnd = secondColumn === null ? columnStart : secondColumn;
+    return cellList(table, rowStart, rowEnd, columnStart, columnEnd);
+  }
+
+  const columnStart = firstColumn === null ? secondColumn : firstColumn;
+  const columnEnd = secondColumn === null ? columnStart : secondColumn;
+  return cellList(table, Math.max(0, table.headerCount || 1), table.rows.length - 1, columnStart, columnEnd);
+}
+
+function parseDirective(value) {
+  const directive = text(value).trim();
+  if (!directive) return { ok: true, directive: null };
+  const fixed = /^%\.(\d+)f$/.exec(directive);
+  if (fixed) {
+    const digits = Number(fixed[1]);
+    if (!Number.isInteger(digits) || digits < 0 || digits > 20) return fail("Choose a decimal precision from 0 to 20.");
+    return { ok: true, directive: { kind: "fixed", digits } };
+  }
+  if (directive === "%d") return { ok: true, directive: { kind: "integer" } };
+  return fail(`Unsupported TBLFM format "${directive}". Use ;%.2f or ;%d.`);
+}
+
+function parseFormulaPart(value) {
+  const part = text(value).trim();
+  const equals = part.indexOf("=");
+  if (equals <= 0 || equals >= part.length - 1) throw new Error('A formula must look like "DEST=SOURCE".');
+  const destination = part.slice(0, equals).trim();
+  let expression = part.slice(equals + 1).trim();
+  let directive = null;
+  const formatMatch = /;([^;]+)$/.exec(expression);
+  if (formatMatch) {
+    expression = expression.slice(0, formatMatch.index).trim();
+    const parsed = parseDirective(formatMatch[1]);
+    if (!parsed.ok) throw new Error(parsed.message);
+    directive = parsed.directive;
+  }
+  if (!expression) throw new Error("A formula needs a source expression.");
+  return { part, destination, expression, directive };
+}
+
+function comparison(left, right, operator) {
+  const leftNumber = Number(left);
+  const rightNumber = Number(right);
+  const numeric = Number.isFinite(leftNumber) && Number.isFinite(rightNumber);
+  if (operator === "==") return numeric ? leftNumber === rightNumber : text(left) === text(right);
+  if (operator === "!=") return numeric ? leftNumber !== rightNumber : text(left) !== text(right);
+  const a = numeric ? leftNumber : text(left);
+  const b = numeric ? rightNumber : text(right);
+  if (operator === "<") return a < b;
+  if (operator === ">") return a > b;
+  if (operator === "<=") return a <= b;
+  return a >= b;
+}
+
+function evaluateExpression(source, table, destinationRow, destinationColumn) {
+  let position = 0;
+  const skip = () => {
+    while (position < source.length && /\s/.test(source[position])) position += 1;
+  };
+  const error = (message) => {
+    throw new Error(`${message} (at character ${position + 1}).`);
+  };
+  const scalar = (value) => {
+    if (!value || value.kind !== "scalar") error("A range needs sum(), mean(), count(), min() or max().");
+    return value.value;
+  };
+  const number = (value) => {
+    const raw = scalar(value);
+    const parsed = numeric(raw);
+    if (!Number.isFinite(parsed)) error(`"${text(raw)}" is not a number.`);
+    return parsed;
+  };
+
+  const parseArguments = () => {
+    const args = [];
+    skip();
+    if (source[position] === ")") {
+      position += 1;
+      return args;
+    }
+    while (position < source.length) {
+      args.push(parseExpression());
+      if (args.length > MAX_FORMULA_ARGUMENTS) error(`A function can take at most ${MAX_FORMULA_ARGUMENTS} arguments.`);
+      skip();
+      if (source[position] === ",") {
+        position += 1;
+        continue;
+      }
+      if (source[position] === ")") {
+        position += 1;
+        break;
+      }
+      error("Expected a comma or closing parenthesis.");
+    }
+    return args;
+  };
+
+  const aggregateValues = (args) => {
+    const values = [];
+    const add = (raw) => {
+      const value = text(raw).trim() === "" ? null : numeric(raw);
+      values.push(value);
+    };
+    for (const arg of args) {
+      if (arg.kind === "range") {
+        for (const ref of arg.cells) add(cell(table, ref.row, ref.column));
+      } else {
+        add(arg.value);
+      }
+    }
+    return values;
+  };
+
+  const aggregateRawValues = (args) => {
+    const values = [];
+    for (const arg of args) {
+      if (arg.kind === "range") {
+        for (const ref of arg.cells) values.push(cell(table, ref.row, ref.column));
+      } else {
+        values.push(arg.value);
+      }
+    }
+    return values;
+  };
+
+  const parsePrimary = () => {
+    skip();
+    if (position >= source.length) error("Expected a number, cell reference or function.");
+    if (source[position] === "(") {
+      position += 1;
+      const inner = parseExpression();
+      skip();
+      if (source[position] !== ")") error("Expected a closing parenthesis.");
+      position += 1;
+      return inner;
+    }
+    if (/[0-9.]/.test(source[position])) {
+      const match = /^\d*\.?\d+(?:[eE][+-]?\d+)?/.exec(source.slice(position));
+      if (!match) error("Bad number.");
+      position += match[0].length;
+      const value = Number(match[0]);
+      if (!Number.isFinite(value)) error("Bad number.");
+      return { kind: "scalar", value };
+    }
+    if (source[position] === "@" || source[position] === "$") {
+      const parsed = readReference(source, position);
+      position = parsed.next;
+      if (parsed.reference.second) {
+        return { kind: "range", cells: expressionRange(table, parsed.reference, destinationRow, destinationColumn) };
+      }
+      const ref = expressionCell(table, parsed.reference, destinationRow, destinationColumn);
+      return { kind: "scalar", value: cell(table, ref.row, ref.column) };
+    }
+    if (/[A-Za-z_]/.test(source[position])) {
+      const match = /^[A-Za-z_][A-Za-z0-9_]*/.exec(source.slice(position));
+      const name = match[0].toLowerCase();
+      position += match[0].length;
+      skip();
+      if (source[position] === "(") {
+        position += 1;
+        const args = parseArguments();
+        if (name === "sum") return { kind: "scalar", value: aggregateValues(args).filter(Number.isFinite).reduce((a, b) => a + b, 0) };
+        if (name === "mean") {
+          const values = aggregateValues(args).filter(Number.isFinite);
+          return { kind: "scalar", value: values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0 };
+        }
+        if (name === "count") return { kind: "scalar", value: aggregateRawValues(args).filter((v) => text(v).trim() !== "").length };
+        if (name === "min" || name === "max") {
+          const values = aggregateValues(args).filter(Number.isFinite);
+          return { kind: "scalar", value: values.length ? (name === "min" ? Math.min(...values) : Math.max(...values)) : 0 };
+        }
+        if (name === "if") {
+          if (args.length !== 3) error("if() needs a condition, a true value and a false value.");
+          const condition = scalar(args[0]);
+          const conditionText = text(condition).trim();
+          const conditionNumber = Number(conditionText);
+          const truthy = conditionText !== "" && (Number.isFinite(conditionNumber) ? conditionNumber !== 0 : true);
+          return truthy ? args[1] : args[2];
+        }
+        if (name === "round") {
+          if (args.length < 1 || args.length > 2) error("round() needs a value and an optional digit count.");
+          const digits = args.length === 2 ? Math.max(0, Math.min(20, Math.round(number(args[1])))) : 0;
+          return { kind: "scalar", value: Number(number(args[0]).toFixed(digits)) };
+        }
+        if (name === "abs") return { kind: "scalar", value: Math.abs(number(args[0] || { kind: "scalar", value: "" })) };
+        if (name === "sqrt") return { kind: "scalar", value: Math.sqrt(number(args[0] || { kind: "scalar", value: "" })) };
+        error(`Unknown function "${name}".`);
+      }
+      if (name === "pi") return { kind: "scalar", value: Math.PI };
+      if (name === "e") return { kind: "scalar", value: Math.E };
+      if (name === "tau") return { kind: "scalar", value: Math.PI * 2 };
+      error(`Unknown function "${name}".`);
+    }
+    error("Expected a number, cell reference or function.");
+    return { kind: "scalar", value: "" };
+  };
+
+  const parsePower = () => {
+    let value = parsePrimary();
+    skip();
+    if (source[position] === "^") {
+      position += 1;
+      const exponent = parseUnary();
+      value = { kind: "scalar", value: Math.pow(number(value), number(exponent)) };
+      skip();
+    }
+    return value;
+  };
+
+  const parseUnary = () => {
+    skip();
+    if (source[position] === "+") {
+      position += 1;
+      return parseUnary();
+    }
+    if (source[position] === "-") {
+      position += 1;
+      return { kind: "scalar", value: -number(parseUnary()) };
+    }
+    return parsePower();
+  };
+
+  const parseTerm = () => {
+    let left = parseUnary();
+    skip();
+    while (source[position] === "*" || source[position] === "/") {
+      const operator = source[position];
+      position += 1;
+      const right = parseUnary();
+      left = { kind: "scalar", value: operator === "*" ? number(left) * number(right) : number(left) / number(right) };
+      skip();
+    }
+    return left;
+  };
+
+  const parseAdditive = () => {
+    let left = parseTerm();
+    skip();
+    while (source[position] === "+" || source[position] === "-") {
+      const operator = source[position];
+      position += 1;
+      const right = parseTerm();
+      left = { kind: "scalar", value: operator === "+" ? number(left) + number(right) : number(left) - number(right) };
+      skip();
+    }
+    return left;
+  };
+
+  const parseComparison = () => {
+    const left = parseAdditive();
+    skip();
+    const operators = ["<=", ">=", "==", "!=", "<", ">"];
+    const operator = operators.find((entry) => source.slice(position, position + entry.length) === entry);
+    if (!operator) return left;
+    position += operator.length;
+    const right = parseAdditive();
+    return { kind: "scalar", value: comparison(scalar(left), scalar(right), operator) ? 1 : 0 };
+  };
+
+  const parseExpression = () => parseComparison();
+  const value = parseExpression();
+  skip();
+  if (position < source.length) error("Unexpected input.");
+  return value;
+}
+
+function formatValue(value, directive) {
+  if (!value || value.kind !== "scalar") throw new Error("A formula must produce one value.");
+  const raw = value.value;
+  if (directive) {
+    const number = numeric(raw);
+    if (!Number.isFinite(number)) throw new Error(`"${text(raw)}" cannot be formatted as a number.`);
+    if (directive.kind === "integer") return String(Math.round(number));
+    return number.toFixed(directive.digits);
+  }
+  if (typeof raw === "number") return formatNumber(raw);
+  return text(raw);
+}
+
+/** Apply parsed TBLFM formulas to a table, returning a detached new table. */
+function applyTableFormulas(table, formulas, escape) {
+  if (!table || !Array.isArray(table.rows)) return fail("The table is no longer available.", "table");
+  const list = Array.isArray(formulas) ? formulas : [];
+  if (!list.length) return fail("No TBLFM formula follows this table.", "no-formulas");
+  const rows = table.rows.map((row) => row.slice());
+  const working = { ...table, rows, header: rows[0].slice() };
+  let changed = false;
+  for (const part of list) {
+    let parsed;
+    let destinations;
+    try {
+      parsed = parseFormulaPart(part);
+      const reference = readReference(parsed.destination, 0);
+      if (text(parsed.destination).slice(reference.next).trim()) throw new Error("The destination has trailing text.");
+      destinations = destinationCells(working, reference.reference);
+      if (!destinations.length) throw new Error("The destination selects no cells.");
+    } catch (error) {
+      return fail(`Formula "${part}": ${error && error.message ? error.message : "could not be read."}`);
+    }
+    for (const destination of destinations) {
+      try {
+        const result = evaluateExpression(parsed.expression, working, destination.row, destination.column);
+        const next = (typeof escape === "function" ? escape : escapeCell)(formatValue(result, parsed.directive));
+        if (rows[destination.row][destination.column] !== next) {
+          rows[destination.row][destination.column] = next;
+          working.header = rows[0].slice();
+          changed = true;
+        }
+      } catch (error) {
+        return fail(`Formula "${part}": ${error && error.message ? error.message : "could not be evaluated."}`);
+      }
+    }
+  }
+  return { ok: true, table: working, changed };
+}
+
+/** CSV for the table's source rows, with RFC-style quoting and formula-injection protection. */
+function csvCell(value) {
+  let result = unescapePipes(value);
+  if (/^[=+@\t\r]/.test(result)) result = `'${result}`;
+  if (/[",\r\n]/.test(result)) result = `"${result.replace(/"/g, '""')}"`;
+  return result;
+}
+
+function tableToCsv(table) {
+  if (!table || !Array.isArray(table.rows) || !table.rows.length) return "";
+  return table.rows.map((row) => row.map(csvCell).join(",")).join("\n") + "\n";
+}
+
+module.exports = {
+  MAX_FORMULA_LENGTH,
+  MAX_FORMULAS,
+  applyTableFormulas,
+  csvCell,
+  formatNumber,
+  parseTableFormulas,
+  tableToCsv,
 };
 };
 
@@ -98571,6 +99474,9 @@ const TIME_BLOCK_VIEWS = ["day", "week", "grid", "backlog", "routines", "project
 const PROJECT_KINDS = ["project", "domain"];
 const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const PROJECT_COLORS = ["#6f8ff5", "#d97757", "#5cae8a", "#c084d6", "#d5a84f", "#5ba8c9"];
+const SUBJECT_COLOR_LIMIT = 40;
+const MAX_TAGS = 6;
+const MAX_TAG_LENGTH = 40;
 
 function objectValue(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -98701,6 +99607,80 @@ function projectColor(value, id) {
   return PROJECT_COLORS[Math.abs(Number.parseInt(hashString(id || "project"), 36)) % PROJECT_COLORS.length];
 }
 
+/** A `#rrggbb` colour, or an empty string when the value is not usable. */
+function normalizeColor(value) {
+  const color = str(value).trim().toLowerCase();
+  return /^#[0-9a-f]{6}$/.test(color) ? color : "";
+}
+
+function subjectColorKey(value) {
+  return str(value).trim().toLowerCase().slice(0, MAX_TITLE);
+}
+
+/** Explicit subject/course colours, bounded and keyed case-insensitively. */
+function normalizeSubjectColors(value) {
+  const source = objectValue(value);
+  const colors = {};
+  let count = 0;
+  for (const [rawKey, rawColor] of Object.entries(source)) {
+    const key = subjectColorKey(rawKey);
+    const color = normalizeColor(rawColor);
+    if (!key || !color || key in colors) continue;
+    colors[key] = color;
+    count += 1;
+    if (count >= SUBJECT_COLOR_LIMIT) break;
+  }
+  return colors;
+}
+
+/** A block's own course colour wins, then its project's colour, then nothing. */
+function subjectColorFor(block, subjectColors, projects) {
+  const colors = objectValue(subjectColors);
+  const key = subjectColorKey(block && block.course);
+  if (key && colors[key]) return colors[key];
+  const projectId = str(block && block.projectId).trim();
+  if (projectId) {
+    for (const project of Array.isArray(projects) ? projects : []) {
+      if (project && project.id === projectId && project.color) return project.color;
+    }
+  }
+  return "";
+}
+
+/** Every course a block names, with its colour, block count and planned minutes. */
+function subjectColorRows(blocks, subjectColors, projects) {
+  const colors = objectValue(subjectColors);
+  const rows = new Map();
+  for (const block of Array.isArray(blocks) ? blocks : []) {
+    const course = textValue(block && block.course, MAX_TITLE);
+    if (!course) continue;
+    const key = subjectColorKey(course);
+    const row = rows.get(key) || { course, color: colors[key] || "", blocks: 0, minutes: 0 };
+    row.blocks += 1;
+    row.minutes += durationMinutes(block);
+    rows.set(key, row);
+  }
+  return [...rows.values()].sort((a, b) => a.course.localeCompare(b.course));
+}
+
+function normalizeTag(value) {
+  const tag = str(value).trim().replace(/^#+/, "").toLowerCase().slice(0, MAX_TAG_LENGTH);
+  return /^[a-z0-9][a-z0-9/_-]*$/.test(tag) ? tag : "";
+}
+
+/** Up to six hash-free tags from an array or a comma/space separated string. */
+function normalizeBlockTags(value) {
+  const list = Array.isArray(value) ? value : str(value).split(/[,\s]+/);
+  const tags = [];
+  for (const item of list) {
+    const tag = normalizeTag(item);
+    if (!tag || tags.includes(tag)) continue;
+    tags.push(tag);
+    if (tags.length >= MAX_TAGS) break;
+  }
+  return tags;
+}
+
 function normalizeBlockTask(value, createdAt) {
   const source = objectValue(value);
   const title = textValue(source.title, MAX_TITLE);
@@ -98742,6 +99722,7 @@ function normalizeTimeBlock(value) {
     type: normalizeType(source.type),
     projectId,
     course: textValue(source.course, MAX_TITLE),
+    tags: normalizeBlockTags(source.tags),
     notes: textValue(source.notes, MAX_TEXT),
     tasks,
     routineId,
@@ -98796,6 +99777,7 @@ function normalizeTimeBlocks(value) {
     dayEnd: normalizeTime(source.dayEnd) || "22:00",
     notesFolder: textValue(source.notesFolder, 200) || "Time blocks",
     dailyNoteFolder: textValue(source.dailyNoteFolder, 200),
+    subjectColors: normalizeSubjectColors(source.subjectColors),
     view: normalizeView(source.view),
     blocks,
     projects,
@@ -98901,6 +99883,27 @@ function blocksForDate(blocks, date) {
   return (Array.isArray(blocks) ? blocks : [])
     .filter((block) => block && block.date === key)
     .sort((a, b) => a.start.localeCompare(b.start) || a.createdAt - b.createdAt);
+}
+
+/** Blocks carrying one tag; no tag means every block is returned unchanged. */
+function blocksForTag(blocks, tag) {
+  const wanted = normalizeTag(tag);
+  const list = Array.isArray(blocks) ? blocks : [];
+  if (!wanted) return list;
+  return list.filter((block) => block && Array.isArray(block.tags) && block.tags.includes(wanted));
+}
+
+function tagSummary(blocks) {
+  const rows = new Map();
+  for (const block of Array.isArray(blocks) ? blocks : []) {
+    for (const tag of Array.isArray(block && block.tags) ? block.tags : []) {
+      const row = rows.get(tag) || { tag, blocks: 0, minutes: 0 };
+      row.blocks += 1;
+      row.minutes += durationMinutes(block);
+      rows.set(tag, row);
+    }
+  }
+  return [...rows.values()].sort((a, b) => b.blocks - a.blocks || a.tag.localeCompare(b.tag));
 }
 
 function blocksInRange(blocks, start, end) {
@@ -99095,7 +100098,8 @@ function blocksToMarkdown(date, blocks, projects) {
   for (const block of blocksForDate(blocks, date)) {
     const project = map.get(block.projectId);
     const tag = project ? ` [${project.kind === "domain" ? "D" : "P"}:${project.name}]` : "";
-    lines.push(`- ${block.start} - ${block.end} ${block.title}${tag}`);
+    const tags = block.tags.map((value) => ` #${value}`).join("");
+    lines.push(`- ${block.start} - ${block.end} ${block.title}${tag}${tags}`);
     for (const task of block.tasks) lines.push(`  - [${task.done ? "x" : " "}] ${task.title}`);
     for (const noteLine of str(block.notes).split("\n").filter(Boolean)) lines.push(`  - ${noteLine}`);
     lines.push("");
@@ -99190,9 +100194,12 @@ module.exports = {
   MAX_BLOCKS,
   MAX_PROJECTS,
   MAX_ROUTINES,
+  MAX_TAGS,
+  MAX_TAG_LENGTH,
   MAX_TASKS_PER_BLOCK,
   PROJECT_COLORS,
   PROJECT_KINDS,
+  SUBJECT_COLOR_LIMIT,
   TIME_BLOCK_TYPES,
   TIME_BLOCK_VIEWS,
   WEEKDAY_NAMES,
@@ -99200,6 +100207,7 @@ module.exports = {
   applyRoutines,
   blockSummary,
   blocksForDate,
+  blocksForTag,
   blocksInRange,
   blocksToMarkdown,
   calendarDaySummary,
@@ -99213,6 +100221,10 @@ module.exports = {
   durationLabel,
   durationMinutes,
   normalizeBacklogItem,
+  normalizeBlockTags,
+  normalizeColor,
+  normalizeSubjectColors,
+  normalizeTag,
   normalizeTime,
   normalizeTimeBlock,
   normalizeTimeBlocks,
@@ -99223,6 +100235,9 @@ module.exports = {
   projectMinutes,
   projectTimeline,
   startOfWeek,
+  subjectColorFor,
+  subjectColorRows,
+  tagSummary,
   timeFromMinutes,
   todayValue,
   unscheduledStudyTasks,

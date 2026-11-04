@@ -7962,6 +7962,18 @@ body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tra
 .qt-time-block.is-review,
 .qt-time-block.is-practice { border-left-color: var(--color-purple); }
 .qt-time-block.is-other { border-left-color: var(--text-muted); }
+.qt-time-block-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.qt-time-block-tag {
+  background: var(--background-modifier-border);
+  border-radius: 10px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  padding: 1px 8px;
+}
+.qt-time-block-color-row { align-items: center; gap: 8px; }
+.qt-time-block-color-input { align-items: center; gap: 8px; }
+.qt-time-block-tag-filter { align-items: center; margin: 4px 0 8px; }
+.qt-time-block-tag-filter .qt-input { flex: 1 1 auto; }
 .qt-time-block-main { min-width: 0; }
 .qt-time-block-time {
   color: var(--text-muted);

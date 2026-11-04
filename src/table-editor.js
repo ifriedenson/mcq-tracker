@@ -7,6 +7,8 @@
  * and a valid delimiter row, so pipes and column widths never drift.
  */
 
+const tableFormulas = require("./table-formulas");
+
 const MAX_TABLE_ROWS = 500;
 const MAX_TABLE_COLUMNS = 40;
 const MIN_COLUMN_WIDTH = 3;
@@ -36,7 +38,17 @@ const TABLE_FORMAT_ACTIONS = [
   { id: "column-align-default", kind: "align", align: "none", short: "Def", label: "Default column alignment" },
 ];
 
-const TABLE_TOOLBAR_ACTIONS = TABLE_STRUCTURE_ACTIONS.concat(TABLE_FORMAT_ACTIONS);
+const TABLE_SORT_ACTIONS = [
+  { id: "table-sort-asc", kind: "sort", direction: "asc", short: "↑", label: "Sort rows ascending by this column" },
+  { id: "table-sort-desc", kind: "sort", direction: "desc", short: "↓", label: "Sort rows descending by this column" },
+];
+
+const TABLE_FORMULA_ACTIONS = [
+  { id: "table-formulas", kind: "formula", short: "Σ", label: "Evaluate table formulas" },
+  { id: "table-csv", kind: "export", short: "CSV", label: "Copy table as CSV" },
+];
+
+const TABLE_TOOLBAR_ACTIONS = TABLE_STRUCTURE_ACTIONS.concat(TABLE_FORMAT_ACTIONS, TABLE_SORT_ACTIONS, TABLE_FORMULA_ACTIONS);
 
 function text(value) {
   return value === null || value === undefined ? "" : String(value);
@@ -437,6 +449,57 @@ function alignTableColumn(table, column, alignment) {
   return { ok: true, changed, table: { ...table, align } };
 }
 
+function sortableNumber(value) {
+  const raw = text(value).trim();
+  if (!raw) return null;
+  const commaGrouped = /^[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d*)?(?:[eE][+-]?\d+)?$/.test(raw);
+  const plain = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(raw);
+  if (!commaGrouped && !plain) return null;
+  const number = Number(raw.replace(/,/g, ""));
+  return Number.isFinite(number) ? number : null;
+}
+
+/**
+ * Stable body-row sort. The header stays at row 0; numeric-looking cells compare
+ * by value, other cells as text, blanks stay last, and ties keep source order.
+ */
+function sortTable(table, column, direction) {
+  if (!table || !Array.isArray(table.rows) || !Array.isArray(table.align)) {
+    return { ok: false, reason: "table", message: "The table is no longer available." };
+  }
+  if (!["asc", "desc"].includes(direction)) {
+    return { ok: false, reason: "direction", message: "Choose ascending or descending sort order." };
+  }
+  if (!hasColumn(table, column)) {
+    return { ok: false, reason: "column", message: "That table column is no longer available." };
+  }
+  if (table.rows.length < 2) {
+    return { ok: false, reason: "no-rows", message: "A table needs at least one body row to sort." };
+  }
+  const body = table.rows.slice(1).map((cells, index) => ({ cells, index, value: cells[column] || "" }));
+  if (!body.some((entry) => text(entry.value).trim() !== "")) {
+    return { ok: false, reason: "empty", message: "This column has no values to sort." };
+  }
+  body.sort((a, b) => {
+    const aBlank = text(a.value).trim() === "";
+    const bBlank = text(b.value).trim() === "";
+    if (aBlank !== bBlank) return aBlank ? 1 : -1;
+    if (aBlank) return a.index - b.index;
+    const aNumber = sortableNumber(a.value);
+    const bNumber = sortableNumber(b.value);
+    let result = 0;
+    if (aNumber !== null && bNumber !== null) result = aNumber - bNumber;
+    else if (aNumber !== null) result = -1;
+    else if (bNumber !== null) result = 1;
+    else result = text(a.value).trim().localeCompare(text(b.value).trim(), undefined, { sensitivity: "base" });
+    if (result !== 0) result = direction === "asc" ? result : -result;
+    return result !== 0 ? result : a.index - b.index;
+  });
+  const rows = [table.rows[0].slice(), ...body.map((entry) => entry.cells.slice())];
+  const changed = rows.some((row, rowIndex) => row.some((value, columnIndex) => value !== table.rows[rowIndex][columnIndex]));
+  return { ok: true, changed, table: { ...table, rows, header: rows[0].slice() } };
+}
+
 /** Escapes a committed cell so a typed pipe becomes data, not a new column. */
 function escapeCell(value) {
   let cell = text(value).replace(/\r\n?/g, "\n").replace(/\n+/g, " ").trim().slice(0, MAX_CELL_LENGTH);
@@ -589,6 +652,39 @@ function updateTableAlignment(markdown, startLine, expected, column, alignment) 
   return { ...tableBlockUpdate(source, table, change.table), changed: change.changed };
 }
 
+/** Sorts body rows by one column while leaving the header and following text alone. */
+function updateTableSort(markdown, startLine, expected, column, direction) {
+  const source = text(markdown);
+  const lines = source.split(/\r?\n/);
+  const table = tableForUpdate(lines, Number.isInteger(startLine) ? startLine : -1, expected);
+  if (!table) return { ok: false, reason: "not-found", message: "This table could not be matched to the note." };
+  const change = sortTable(table, column, direction);
+  if (!change.ok) return change;
+  return { ...tableBlockUpdate(source, table, change.table), changed: change.changed };
+}
+
+/** Evaluates the contiguous TBLFM comments that immediately follow one table. */
+function updateTableFormulas(markdown, startLine, expected) {
+  const source = text(markdown);
+  const lines = source.split(/\r?\n/);
+  const table = tableForUpdate(lines, Number.isInteger(startLine) ? startLine : -1, expected);
+  if (!table) return { ok: false, reason: "not-found", message: "This table could not be matched to the note." };
+  const parsed = tableFormulas.parseTableFormulas(lines, table);
+  if (!parsed.ok) return parsed;
+  const applied = tableFormulas.applyTableFormulas(table, parsed.formulas, escapeCell);
+  if (!applied.ok) return applied;
+  return { ...tableBlockUpdate(source, table, applied.table), changed: applied.changed };
+}
+
+/** Serializes the current source table, without its TBLFM comments, as CSV. */
+function tableCsvAt(markdown, startLine, expected) {
+  const source = text(markdown);
+  const lines = source.split(/\r?\n/);
+  const table = tableForUpdate(lines, Number.isInteger(startLine) ? startLine : -1, expected);
+  if (!table) return { ok: false, reason: "not-found", message: "This table could not be matched to the note." };
+  return { ok: true, csv: tableFormulas.tableToCsv(table), table };
+}
+
 /**
  * Where a key should move inside the table. Tab/Shift+Tab and Enter/Shift+Enter
  * stay inside the table; Alt+Arrow keys move one cell. A boundary is reported
@@ -682,6 +778,9 @@ function decorateTable(tableEl, options) {
   const structure = typeof opts.structure === "function" ? opts.structure : null;
   const format = typeof opts.format === "function" ? opts.format : null;
   const align = typeof opts.align === "function" ? opts.align : null;
+  const sort = typeof opts.sort === "function" ? opts.sort : null;
+  const formula = typeof opts.formula === "function" ? opts.formula : null;
+  const exportCsv = typeof opts.exportCsv === "function" ? opts.exportCsv : null;
   const onError = typeof opts.onError === "function" ? opts.onError : null;
   const rows = tableRows(tableEl);
   if (!rows.length || rows.length !== table.rows.length) return null;
@@ -778,11 +877,58 @@ function decorateTable(tableEl, options) {
       .catch((error) => fail(error && error.message ? error.message : "The column alignment could not be changed."));
   };
 
+  const runSort = (direction) => {
+    if (!sort) return;
+    if (!active) {
+      fail("Select a table cell in the column you want to sort.");
+      return Promise.resolve();
+    }
+    const at = active;
+    return Promise.resolve(commitActive())
+      .then((saved) => {
+        if (saved && saved.ok === false) return null;
+        return sort(direction, at.column);
+      })
+      .then((result) => {
+        if (result && result.ok === false) fail(result.message || "The table could not be sorted.");
+      })
+      .catch((error) => fail(error && error.message ? error.message : "The table could not be sorted."));
+  };
+
+  const runFormula = () => {
+    if (!formula) return;
+    return Promise.resolve(commitActive())
+      .then((saved) => {
+        if (saved && saved.ok === false) return null;
+        return formula();
+      })
+      .then((result) => {
+        if (result && result.ok === false) fail(result.message || "The table formulas could not be evaluated.");
+      })
+      .catch((error) => fail(error && error.message ? error.message : "The table formulas could not be evaluated."));
+  };
+
+  const runExport = () => {
+    if (!exportCsv) return;
+    return Promise.resolve(commitActive())
+      .then((saved) => {
+        if (saved && saved.ok === false) return null;
+        return exportCsv();
+      })
+      .then((result) => {
+        if (result && result.ok === false) fail(result.message || "The table could not be copied as CSV.");
+      })
+      .catch((error) => fail(error && error.message ? error.message : "The table could not be copied as CSV."));
+  };
+
   const runAction = (action) => {
     if (!action) return;
     if (action.kind === "structure") return runStructure(action.id);
     if (action.kind === "format") return runFormat(action.format);
     if (action.kind === "align") return runAlign(action.align);
+    if (action.kind === "sort") return runSort(action.direction);
+    if (action.kind === "formula") return runFormula();
+    if (action.kind === "export") return runExport();
   };
 
   const focusCell = (row, column) => {
@@ -849,7 +995,7 @@ function decorateTable(tableEl, options) {
   });
 
   decorating = false;
-  const toolbar = structure || format || align ? createTableToolbar(tableEl, runAction) : null;
+  const toolbar = structure || format || align || sort || formula || exportCsv ? createTableToolbar(tableEl, runAction) : null;
   return { cells, rows: table.rows.length, columns: table.columns, focusCell, toolbar };
 }
 
@@ -858,6 +1004,8 @@ module.exports = {
   MAX_TABLE_COLUMNS,
   MAX_TABLE_ROWS,
   TABLE_FORMAT_ACTIONS,
+  TABLE_FORMULA_ACTIONS,
+  TABLE_SORT_ACTIONS,
   TABLE_STRUCTURE_ACTIONS,
   TABLE_TOOLBAR_ACTIONS,
   alignTableColumn,
@@ -872,10 +1020,14 @@ module.exports = {
   renderedHeader,
   formatTableCell,
   splitTableRow,
+  sortTable,
   structureTable,
   toggleCellFormat,
   updateTableAlignment,
   updateTableFormat,
+  updateTableFormulas,
+  updateTableSort,
   updateTableStructure,
+  tableCsvAt,
   updateTableText,
 };

@@ -62,14 +62,14 @@ consistent with a personal or unlisted plugin; no public listing was found.
 
 ## Feature matrix
 
-Status meanings: **Added** means shipped by MCQ Tracker in the current release (1.236.0); **Planned** means the owner approved a later slice; **Covered**
+Status meanings: **Added** means shipped by MCQ Tracker in the current release (1.240.0); **Planned** means the owner approved a later slice; **Covered**
 means an existing local module already performs the study-facing job; **Partial**
 means a real but deliberately narrower path exists; **Boundary** means the plan
 or a licence/security rule deliberately excludes it.
 
 | Plugin | Status | What exists / what is missing |
 |---|---|---|
-| **Advanced Tables** | Partial | **1.234.0 adds in-place cell editing and keyboard navigation; 1.235.0 adds row/column insertion, deletion and move; 1.236.0 adds cell formatting and column alignment** through a per-table toolbar, including header protection, edge refusals, repeated-toggle restoration and clear refusals for empty cells, missing columns and invalid values. The source block is re-rendered to padded, aligned columns with escaped pipes through the same editor/vault write path. Sorting, formulas, merged cells and CSV export are still missing. |
+| **Advanced Tables** | Partial | **1.234.0 adds in-place cell editing and keyboard navigation; 1.235.0 adds row/column insertion, deletion and move; 1.236.0 adds cell formatting and column alignment; 1.237.0 adds TBLFM formulas and CSV copy; 1.238.0 adds stable body-row sorting** through a per-table toolbar, including header protection, edge refusals, repeated-toggle restoration, formula refusals for malformed or out-of-range references, numeric formatting, CSV quoting and explicit ascending/descending sorts that keep the header. The source block is re-rendered to padded, aligned columns with escaped pipes through the same editor/vault write path; formula evaluation and sorting use that path and CSV copy is read-only. Merged cells are still missing. |
 | **Annotator** | Partial | PDF annotation index, PDF reader, ink, text marks, tags, annotation sidecar and the PDF editor cover PDF study. EPUB annotation is not an MCQ feature. |
 | **Code Runner** | Boundary | The plan's §11 security gate prohibits in-plugin code execution; no sandbox or language allow-list has been approved. No runner, Pyodide, shell or language runtime was added. |
 | **Copilot** | Boundary / Covered workflow | Copilot is AGPL-3.0, so its code cannot be copied into this MIT plugin. The original Study agent already provides note-grounded chat, local retrieval, provider selection, write review and undo. |
@@ -82,7 +82,7 @@ or a licence/security rule deliberately excludes it.
 | **Importer** | Partial | Local PDF, PowerPoint, Word, text, CSV, Anki/Quizlet/QuizPort and card-archive imports exist. Airtable, Notion, Evernote, Apple Notes, OneNote, Google Keep, Bear, Roam and similar service importers are not bundled. |
 | **Kairos** | Covered idea | Local Time blocks (Day, Week, Grid, Backlog, Routines, Projects, Timeline) shipped in 1.210.1–1.210.2. Kairos is 0BSD; no Kairos code, styles or copy was reused. |
 | **Markmind** | Partial | `study-map` builds a local outline and key-term map. It is not a full mind-map/outline editor and has no Markmind file compatibility. |
-| **MCQ Tracker** | This plugin | Current release is 1.236.0. |
+| **MCQ Tracker** | This plugin | Current release is 1.240.0. |
 | **Minimal Theme Settings** | Boundary | Changing a theme's colours, fonts and feature switches is theme integration, not study state. The plan keeps it as reference only. |
 | **Notebook Navigator** | Boundary | Replacing Obsidian's file explorer with a two-pane folder/tag navigator is a navigation product. The plan records it as a UI surface not to adopt. |
 | **Omnisearch** | Covered | The local `vault-search` block searches note text and cites path/line. It is intentionally not an OCR or fuzzy full-text index. |
@@ -109,4 +109,4 @@ or a licence/security rule deliberately excludes it.
    decision, not a small block addition. WordNet is now handled by a local
    full-data import instead of a bundled database.
 
-No plugin source, styles or data were copied for 1.236.0.
+No plugin source, styles or data were copied for 1.239.0 or 1.240.0.
