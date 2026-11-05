@@ -2023,6 +2023,99 @@ class StudyWorkspaceView extends ItemView {
     }
   }
 
+  /** A pointer-driven day rail: draw, move and resize blocks with mouse or touch. */
+  renderTimeBlockCanvas(root, data) {
+    const dayStart = timeBlocks.minutesOf(data.dayStart) >= 0 ? timeBlocks.minutesOf(data.dayStart) : 420;
+    const dayEnd = timeBlocks.minutesOf(data.dayEnd) > dayStart + 60 ? timeBlocks.minutesOf(data.dayEnd) : 1320;
+    const pxPerMinute = 1.1;
+    const card = root.createDiv({ cls: "qt-study-card qt-time-blocks-canvas-card" });
+    const head = card.createDiv({ cls: "qt-workspace-head" });
+    head.createEl("h3", { text: "Day timeline" });
+    head.createSpan({ cls: "qt-study-row-meta", text: "Drag empty time to create · drag a block to move · drag its bottom edge to resize" });
+    const canvas = card.createDiv({ cls: "qt-time-blocks-canvas", attr: { "aria-label": "Day timeline; drag to create, move or resize blocks" } });
+    canvas.style.height = Math.round((dayEnd - dayStart) * pxPerMinute) + "px";
+    for (let minute = dayStart; minute <= dayEnd; minute += 60) {
+      const line = canvas.createDiv({ cls: "qt-time-blocks-canvas-hour" });
+      line.style.top = Math.round((minute - dayStart) * pxPerMinute) + "px";
+      line.createSpan({ cls: "qt-time-blocks-canvas-hour-label", text: timeBlocks.timeFromMinutes(minute) });
+    }
+    const blocks = timeBlocks.blocksForDate(data.blocks, this.timeBlockDate).filter((block) => !block.untimed);
+    for (const block of blocks) {
+      const start = timeBlocks.minutesOf(block.start);
+      const end = timeBlocks.minutesOf(block.end);
+      if (start < dayStart - 60 || end > dayEnd + 60) continue;
+      const bar = canvas.createDiv({ cls: "qt-time-block-bar qt-time-block-bar-" + block.type });
+      const color = timeBlocks.subjectColorFor(block, data.subjectColors, data.projects);
+      if (color) bar.style.borderLeftColor = color;
+      bar.style.top = Math.round((start - dayStart) * pxPerMinute) + "px";
+      bar.style.height = Math.max(18, Math.round((end - start) * pxPerMinute)) + "px";
+      bar.setAttr("data-block-id", block.id);
+      bar.createDiv({ cls: "qt-time-block-bar-time", text: block.start + "–" + block.end });
+      bar.createDiv({ cls: "qt-time-block-bar-title", text: block.title });
+      const resize = bar.createDiv({ cls: "qt-time-block-bar-resize", attr: { "aria-label": "Resize " + block.title } });
+      bar.addEventListener("pointerdown", (event) => {
+        if (event.target === resize) return;
+        this.beginTimeBlockCanvasDrag(event, canvas, bar, block, "move", pxPerMinute, dayStart);
+      });
+      resize.addEventListener("pointerdown", (event) => {
+        this.beginTimeBlockCanvasDrag(event, canvas, bar, block, "resize", pxPerMinute, dayStart);
+      });
+    }
+    canvas.addEventListener("pointerdown", (event) => {
+      if (event.target !== canvas) return;
+      this.beginTimeBlockCanvasDrag(event, canvas, null, null, "create", pxPerMinute, dayStart, data);
+    });
+  }
+
+  /** Shared create/move/resize gesture, snapped to 15 minutes and safe on touch. */
+  beginTimeBlockCanvasDrag(event, canvas, bar, block, mode, pxPerMinute, dayStart, data) {
+    if (!event || (event.button !== undefined && event.button !== 0)) return;
+    if (event.preventDefault) event.preventDefault();
+    if (typeof window === "undefined" || typeof canvas.getBoundingClientRect !== "function") return;
+    const rect = canvas.getBoundingClientRect();
+    if (!rect) return;
+    const originY = Number(event.clientY) || 0;
+    const sourceStart = block ? timeBlocks.minutesOf(block.start) : dayStart + Math.max(0, Math.round((originY - Number(rect.top || 0)) / pxPerMinute));
+    const sourceEnd = block ? timeBlocks.minutesOf(block.end) : sourceStart + 60;
+    let ghost = bar;
+    if (!ghost) {
+      ghost = canvas.createDiv({ cls: "qt-time-block-bar is-draft" });
+      ghost.style.top = Math.round((sourceStart - dayStart) * pxPerMinute) + "px";
+      ghost.style.height = Math.round(60 * pxPerMinute) + "px";
+      ghost.createDiv({ cls: "qt-time-block-bar-title", text: (data && data.dropBlockTitle) || "New block" });
+    }
+    let range = { start: timeBlocks.timeFromMinutes(sourceStart), end: timeBlocks.timeFromMinutes(sourceEnd) };
+    let moved = false;
+    const paint = (next) => {
+      const start = timeBlocks.minutesOf(next.start);
+      const end = timeBlocks.minutesOf(next.end);
+      ghost.style.top = Math.round((start - dayStart) * pxPerMinute) + "px";
+      ghost.style.height = Math.max(18, Math.round((end - start) * pxPerMinute)) + "px";
+    };
+    const onMove = (moveEvent) => {
+      const delta = timeBlocks.snapMinutes((Number(moveEvent.clientY) - originY) / pxPerMinute, 15);
+      const source = { start: timeBlocks.timeFromMinutes(sourceStart), end: timeBlocks.timeFromMinutes(sourceEnd) };
+      if (mode === "resize") range = timeBlocks.resizeBlockTimes(source, "end", delta);
+      else if (mode === "move") range = timeBlocks.shiftBlockTimes(source, delta);
+      else range = timeBlocks.timeRangeFromDrag(sourceStart, sourceStart + delta);
+      moved = moved || Math.abs(delta) >= 15;
+      if (range) paint(range);
+    };
+    const onUp = async () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      if (!range || !moved) {
+        if (!block && ghost && typeof ghost.remove === "function") ghost.remove();
+        return;
+      }
+      if (block) await this.plugin.updateTimeBlock(block.id, range);
+      else await this.plugin.addTimeBlock({ date: this.timeBlockDate, start: range.start, end: range.end, title: (data && data.dropBlockTitle) || "New block" });
+      this.render();
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
+
   renderTimeBlockDay(root, data) {
     const dayControls = root.createDiv({ cls: "qt-study-card" });
     const head = dayControls.createDiv({ cls: "qt-workspace-head" });
@@ -2030,6 +2123,7 @@ class StudyWorkspaceView extends ItemView {
     this.timeBlockDateControls(head);
     dayControls.createDiv({ cls: "qt-hint", text: "Blocks own the time; tasks live inside them. Add an existing study task from the Backlog, or write a small task directly here." });
     this.renderTimeBlockCalendar(root, data, this.timeBlockDate, this.timeBlockCalendar());
+    this.renderTimeBlockCanvas(root, data);
     const write = dayControls.createDiv({ cls: "qt-row qt-study-actions" });
     write.createEl("button", { text: "Write day note" }).addEventListener("click", async () => {
       try {
@@ -2046,6 +2140,10 @@ class StudyWorkspaceView extends ItemView {
       this.render();
     });
     if (this.timeBlockDailyPreview && this.timeBlockDailyPreview.date === this.timeBlockDate) this.renderTimeBlockDailyNote(root);
+    write.createEl("button", { text: "Guided tour" }).addEventListener("click", () => {
+      this.plugin.openTimeBlocksTour();
+      this.saveMessage("Use Back and Next in the tour, then Open Day view.");
+    });
     const projectOptions = this.timeBlockProjectOptions(data);
     const add = root.createEl("details", { cls: "qt-study-card qt-workspace-disclosure" });
     add.createEl("summary", { cls: "qt-workspace-disclosure-title", text: "Add a time block" });
@@ -2145,7 +2243,7 @@ class StudyWorkspaceView extends ItemView {
     }
     const head = card.createDiv({ cls: "qt-workspace-head" });
     const main = head.createDiv({ cls: "qt-time-block-main" });
-    main.createDiv({ cls: "qt-time-block-time", text: block.start + " – " + block.end + " · " + timeBlocks.durationLabel(timeBlocks.durationMinutes(block)) });
+    main.createDiv({ cls: "qt-time-block-time", text: block.untimed ? "Unscheduled · " + block.tasks.length + " task" + (block.tasks.length === 1 ? "" : "s") : block.start + " – " + block.end + " · " + timeBlocks.durationLabel(timeBlocks.durationMinutes(block)) });
     main.createDiv({ cls: "qt-time-block-title", text: block.title });
     const meta = [block.type, this.timeBlockProjectName(data, block.projectId), block.course].filter(Boolean).join(" · ");
     if (meta) main.createDiv({ cls: "qt-study-row-meta", text: meta });
@@ -2207,13 +2305,50 @@ class StudyWorkspaceView extends ItemView {
     const tasks = card.createDiv({ cls: "qt-time-block-tasks" });
     for (const task of block.tasks) {
       const row = tasks.createDiv({ cls: "qt-time-block-task" });
-      const check = row.createEl("input", { type: "checkbox", attr: { "aria-label": "Done: " + task.title } });
-      check.checked = task.done;
-      check.addEventListener("change", async () => {
-        await this.plugin.toggleTimeBlockTask(block.id, task.id, check.checked);
+      row.setAttr("draggable", "true");
+      row.addEventListener("dragstart", (event) => {
+        if (event.dataTransfer) event.dataTransfer.setData("text/plain", JSON.stringify({ blockId: block.id, taskId: task.id }));
+      });
+      const check = row.createEl("button", {
+        cls: "qt-time-block-status is-" + task.status,
+        text: "[" + timeBlocks.statusChar(task.status) + "]",
+        attr: { "aria-label": "Status of " + task.title + ": " + task.status + ". Click to advance; right-click to cancel." },
+      });
+      let held = false;
+      let holdTimer = null;
+      check.addEventListener("pointerdown", () => {
+        held = false;
+        holdTimer = setTimeout(async () => {
+          holdTimer = null;
+          held = true;
+          await this.plugin.cancelTimeBlockTask(block.id, task.id);
+          this.render();
+        }, 550);
+      });
+      const releaseHold = () => {
+        if (holdTimer) {
+          clearTimeout(holdTimer);
+          holdTimer = null;
+        }
+      };
+      check.addEventListener("pointerup", releaseHold);
+      check.addEventListener("pointerleave", releaseHold);
+      check.addEventListener("click", async () => {
+        if (held) {
+          held = false;
+          return;
+        }
+        await this.plugin.cycleTimeBlockTask(block.id, task.id);
+        this.render();
+      });
+      check.addEventListener("contextmenu", async (event) => {
+        if (event.preventDefault) event.preventDefault();
+        await this.plugin.cancelTimeBlockTask(block.id, task.id);
         this.render();
       });
       const label = row.createDiv({ cls: "qt-time-block-task-title" + (task.done ? " is-done" : ""), text: task.title });
+      if (task.status === "half") label.createSpan({ cls: "qt-study-row-meta", text: " half-done" });
+      else if (task.status === "cancelled") label.createSpan({ cls: "qt-study-row-meta", text: " cancelled" });
       if (task.studyTaskId) label.createSpan({ cls: "qt-study-row-meta", text: " linked task" });
       row.createEl("button", { text: "Remove", cls: "qt-link qt-danger" }).addEventListener("click", async () => {
         await this.plugin.removeTimeBlockTask(block.id, task.id);
@@ -2249,6 +2384,24 @@ class StudyWorkspaceView extends ItemView {
       const calDay = calWeek ? calWeek.days.find((entry) => entry.date === day.date) : null;
       const conflictBlockIds = new Set(calDay ? calDay.rows.flatMap((event) => event.overlaps.map((block) => block.id)) : []);
       const column = grid.createDiv({ cls: "qt-time-blocks-week-day" + (day.date === this.timeBlockDate ? " is-selected" : "") });
+      column.addEventListener("dragover", (event) => {
+        if (event.preventDefault) event.preventDefault();
+      });
+      column.addEventListener("drop", async (event) => {
+        if (event.preventDefault) event.preventDefault();
+        if (!event.dataTransfer) return;
+        let payload = null;
+        try {
+          payload = JSON.parse(event.dataTransfer.getData("text/plain") || "{}");
+        } catch (e) {
+          payload = null;
+        }
+        if (!payload) return;
+        if (payload.taskId) await this.plugin.moveTimeBlockTask(payload.blockId, payload.taskId, day.date);
+        else if (payload.blockId) await this.plugin.updateTimeBlock(payload.blockId, { date: day.date });
+        this.render();
+      });
+
       const title = column.createDiv({ cls: "qt-time-blocks-week-title" });
       title.createSpan({ text: timeBlocks.WEEKDAY_NAMES[timeBlocks.weekdayOf(day.date)] + " " + day.date.slice(5) });
       title.createSpan({ cls: "qt-study-row-meta", text: timeBlocks.durationLabel(day.minutes) });
@@ -2270,9 +2423,13 @@ class StudyWorkspaceView extends ItemView {
           row.setAttr("data-block-color", color);
           if (row.style) row.style.borderLeftColor = color;
         }
-        row.createDiv({ cls: "qt-time-blocks-week-block-time", text: block.start + "–" + block.end });
+        row.createDiv({ cls: "qt-time-blocks-week-block-time", text: block.untimed ? "Unscheduled" : block.start + "–" + block.end });
         row.createDiv({ cls: "qt-time-blocks-week-block-title", text: block.title });
         if (block.projectId) row.createDiv({ cls: "qt-study-row-meta", text: this.timeBlockProjectName(data, block.projectId) });
+        row.setAttr("draggable", "true");
+        row.addEventListener("dragstart", (event) => {
+          if (event.dataTransfer) event.dataTransfer.setData("text/plain", JSON.stringify({ blockId: block.id }));
+        });
         row.addEventListener("click", () => {
           this.timeBlockDate = day.date;
           this.timeBlockView = "day";
@@ -2343,6 +2500,11 @@ class StudyWorkspaceView extends ItemView {
       this.saveMessage("Backlog intention added.");
       this.render();
     });
+    addActions.createEl("button", { text: "Write Backlog.md" }).addEventListener("click", async () => {
+      const result = await this.plugin.writeTimeBlockBacklogFile();
+      this.saveMessage(result.ok ? "Wrote " + result.items + " item(s) to " + result.path + "." : result.message);
+      this.render();
+    });
     const schedule = root.createDiv({ cls: "qt-study-card" });
     schedule.createEl("h3", { text: "Place work" });
     schedule.createDiv({ cls: "qt-hint", text: "Choose where a backlog item should land, then schedule it." });
@@ -2395,6 +2557,11 @@ class StudyWorkspaceView extends ItemView {
     actions.createEl("button", { text: "Add this day's routines", cls: "mod-cta" }).addEventListener("click", async () => {
       const created = await this.plugin.applyTimeBlockRoutines(this.timeBlockDate);
       this.saveMessage(created.length ? "Added " + created.length + " routine block" + (created.length === 1 ? "" : "s") + "." : "This day already has every matching routine.");
+      this.render();
+    });
+    actions.createEl("button", { text: "Write Routines.md" }).addEventListener("click", async () => {
+      const result = await this.plugin.writeTimeBlockRoutinesFile();
+      this.saveMessage(result.ok ? "Wrote " + result.routines + " routine(s) to " + result.path + "." : result.message);
       this.render();
     });
     const form = card.createDiv({ cls: "qt-study-form" });
@@ -2475,7 +2642,22 @@ class StudyWorkspaceView extends ItemView {
       const dot = heading.createSpan({ cls: "qt-workspace-subject-dot" });
       dot.style.background = project.color;
       heading.createSpan({ text: project.name });
-      main.createDiv({ cls: "qt-study-row-meta", text: project.kind + (project.course ? " · " + project.course : "") + " · " + timeBlocks.durationLabel(totals[project.id] || 0) + " planned" });
+      const record = timeBlocks.effectiveProjectRecord(project.statusHistory, this.timeBlockDate);
+      main.createDiv({ cls: "qt-study-row-meta", text: project.kind + (project.course ? " · " + project.course : "") + " · " + timeBlocks.durationLabel(totals[project.id] || 0) + " planned · " + record.status + (record.intensity !== undefined && record.status === "active" ? " · intensity " + record.intensity + "/5" : "") });
+      const history = row.createDiv({ cls: "qt-row qt-time-block-project-status" });
+      const state = history.createEl("select", { cls: "dropdown", attr: { "aria-label": "Status for " + project.name } });
+      for (const status of timeBlocks.PROJECT_STATUSES) {
+        const option = state.createEl("option", { text: status[0].toUpperCase() + status.slice(1) });
+        option.value = status;
+        if (status === record.status) option.selected = true;
+      }
+      const intensity = history.createEl("input", { cls: "qt-input", type: "number", attr: { min: "0", max: "5", step: "1", placeholder: "Intensity 0–5", "aria-label": "Intensity for " + project.name } });
+      if (record.intensity !== undefined) intensity.value = String(record.intensity);
+      history.createEl("button", { text: "Set status" }).addEventListener("click", async () => {
+        await this.plugin.setTimeBlockProjectStatus(project.id, state.value, intensity.value === "" ? undefined : intensity.value, "", this.timeBlockDate);
+        this.saveMessage("Recorded " + state.value + " for " + project.name + " on " + this.timeBlockDate + ".");
+        this.render();
+      });
       row.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
         await this.plugin.removeTimeBlockProject(project.id);
         this.render();
@@ -2490,6 +2672,13 @@ class StudyWorkspaceView extends ItemView {
     card.createEl("h3", { text: "Timeline" });
     card.createDiv({ cls: "qt-hint", text: "The last 14 days of block time, grouped by project or domain. It is history, not a second calendar." });
     card.createDiv({ cls: "qt-study-row-meta", text: totals.blocks + " blocks · " + timeBlocks.durationLabel(totals.totalMinutes) + " total · " + totals.tasks + " tasks" });
+    const intensity = timeBlocks.intensityByDay(data.blocks, timeline.dates);
+    const strip = card.createDiv({ cls: "qt-time-blocks-intensity", attr: { "aria-label": "Planned intensity over the last 14 days" } });
+    for (const entry of intensity) {
+      const bar = strip.createDiv({ cls: "qt-time-blocks-intensity-bar level-" + entry.level });
+      bar.style.height = Math.max(6, Math.round((entry.level / 5) * 100)) + "%";
+      bar.setAttr("title", entry.date + ": " + timeBlocks.durationLabel(entry.minutes) + " planned");
+    }
     if (!timeline.rows.length) {
       this.renderTabsEmpty(root, "No project time yet. Add a block and a project to build the timeline.");
       return;
@@ -2505,7 +2694,7 @@ class StudyWorkspaceView extends ItemView {
       heading.createSpan({ text: row.name });
       const bar = main.createDiv({ cls: "qt-study-bar" });
       bar.createDiv({ cls: "qt-study-bar-fill" }).style.width = Math.round((row.minutes / max) * 100) + "%";
-      main.createDiv({ cls: "qt-study-row-meta", text: row.kind + " · " + timeBlocks.durationLabel(row.minutes) });
+      main.createDiv({ cls: "qt-study-row-meta", text: row.kind + " · " + timeBlocks.durationLabel(row.minutes) + (row.status ? " · " + row.status : "") + (row.intensity !== null && row.intensity !== undefined ? " · intensity " + row.intensity + "/5" : "") });
     }
   }
 

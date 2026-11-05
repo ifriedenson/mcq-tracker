@@ -57538,7 +57538,7 @@ module.exports = {
 /* ---- src/plugin.js ---- */
 __defs["plugin"] = function (module, exports, require) {
 const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
-const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
+const { Modal, Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
 const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST, VIEW_TYPE_WEB_BROWSER, VIEW_TYPE_AGENT } = require("./constants");
 const { PracticeView } = require("./practice-view");
@@ -57594,6 +57594,35 @@ const tableEditor = require("./table-editor");
 const { TableControlsView } = require("./table-controls-view");
 const { TableCsvModal } = require("./table-csv-modal");
 const { VIEW_TYPE_TABLE_CONTROLS } = require("./constants");
+
+class TimeBlocksTourModal extends Modal {
+  constructor(app, steps, onOpenDay) {
+    super(app);
+    this.steps = steps;
+    this.onOpenDay = onOpenDay;
+    this.index = 0;
+  }
+
+  onOpen() {
+    this.renderStep();
+  }
+
+  renderStep() {
+    const step = this.steps[this.index];
+    const el = this.contentEl;
+    el.textContent = "";
+    el.createEl("h2", { text: step.title });
+    el.createEl("p", { text: step.body });
+    el.createEl("div", { cls: "qt-hint", text: "Step " + (this.index + 1) + " of " + this.steps.length });
+    const row = el.createDiv({ cls: "qt-row qt-study-actions" });
+    if (this.index > 0) row.createEl("button", { text: "Back" }).addEventListener("click", () => { this.index -= 1; this.renderStep(); });
+    if (this.index < this.steps.length - 1) {
+      row.createEl("button", { text: "Next", cls: "mod-cta" }).addEventListener("click", () => { this.index += 1; this.renderStep(); });
+    } else {
+      row.createEl("button", { text: "Open Day view", cls: "mod-cta" }).addEventListener("click", () => { this.close(); if (this.onOpenDay) this.onOpenDay(); });
+    }
+  }
+}
 
 /** Command-palette entries mirroring the Advanced Tables plugin. */
 const TABLE_COMMANDS = [
@@ -58005,6 +58034,24 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "new-cornell-note", name: "Cornell notes: create a note", callback: () => this.activateStudyTools("cornell") });
     this.addCommand({ id: "open-study-workspace", name: "Open Study Workspace", callback: () => this.activateStudyWorkspace() });
     this.addCommand({ id: "open-time-blocks", name: "Time blocks: open the planner", callback: () => this.activateStudyWorkspace("timeBlocks") });
+    this.addCommand({ id: "open-time-blocks-day", name: "Time blocks: open the day view", callback: () => this.activateTimeBlocksView("day") });
+    this.addCommand({ id: "open-time-blocks-week", name: "Time blocks: open the week view", callback: () => this.activateTimeBlocksView("week") });
+    this.addCommand({ id: "open-time-blocks-grid", name: "Time blocks: open the grid view", callback: () => this.activateTimeBlocksView("grid") });
+    this.addCommand({ id: "open-time-blocks-backlog", name: "Time blocks: open the backlog view", callback: () => this.activateTimeBlocksView("backlog") });
+    this.addCommand({ id: "open-time-blocks-routines", name: "Time blocks: open the routines view", callback: () => this.activateTimeBlocksView("routines") });
+    this.addCommand({ id: "open-time-blocks-projects", name: "Time blocks: open the projects and domains view", callback: () => this.activateTimeBlocksView("projects") });
+    this.addCommand({ id: "open-time-blocks-timeline", name: "Time blocks: open the timeline view", callback: () => this.activateTimeBlocksView("timeline") });
+    this.addCommand({ id: "time-blocks-carry-leftovers", name: "Time blocks: carry unfinished tasks to today", callback: () => this.carryTimeBlockLeftovers() });
+    this.addCommand({ id: "time-blocks-regenerate-routines", name: "Time blocks: regenerate today's routines", callback: () => this.regenerateTimeBlockRoutines() });
+    this.addCommand({ id: "time-blocks-sync-daily-note", name: "Time blocks: sync today's Schedule section with the daily note", callback: () => this.syncTimeBlockDailyNote() });
+    this.addCommand({ id: "time-blocks-import-routines", name: "Time blocks: import routines from Routines.md", callback: () => this.importTimeBlockRoutinesFile() });
+    this.addCommand({ id: "time-blocks-import-backlog", name: "Time blocks: import Backlog.md", callback: () => this.importTimeBlockBacklogFile() });
+    this.addCommand({ id: "time-blocks-tour", name: "Time blocks: open the guided tour", callback: () => this.openTimeBlocksTour() });
+    this.addCommand({ id: "time-blocks-write-routines", name: "Time blocks: write routines to Routines.md", callback: () => this.writeTimeBlockRoutinesFile() });
+    this.addCommand({ id: "time-blocks-write-backlog", name: "Time blocks: write the backlog to Backlog.md", callback: () => this.writeTimeBlockBacklogFile() });
+    this.addCommand({ id: "time-blocks-write-projects", name: "Time blocks: write project and domain files", callback: () => this.writeTimeBlockProjectFiles() });
+    this.addCommand({ id: "time-blocks-import-projects", name: "Time blocks: import project and domain files", callback: () => this.importTimeBlockProjectFiles() });
+    this.addCommand({ id: "time-blocks-import-kairos", name: "Time blocks: import Kairos settings", callback: () => this.importKairosSettings() });
     this.addCommand({ id: "open-web-browser", name: "Web browser: open", callback: () => this.openWebBrowser() });
     this.addCommand({ id: "canvas-to-outline", name: "Canvas: export the active canvas to a Markdown outline", callback: () => this.exportCanvasToMarkdown() });
     this.addCommand({ id: "canvas-from-outline", name: "Canvas: build a board from the active note outline", callback: () => this.boardFromActiveNote() });
@@ -60399,6 +60446,17 @@ class QuestionTrackerPlugin extends Plugin {
     if (leaf.view && leaf.view.setTab && tab) leaf.view.setTab(tab);
     else if (leaf.view && leaf.view.render) leaf.view.render();
     return leaf.view;
+  }
+
+
+  /** Open the planner on a named view; the workspace keeps the last view otherwise. */
+  async activateTimeBlocksView(view) {
+    const leafView = await this.activateStudyWorkspace("timeBlocks");
+    if (leafView && leafView.timeBlockView !== undefined) {
+      leafView.timeBlockView = timeBlocks.normalizeView(view);
+      if (leafView.render) leafView.render();
+    }
+    return leafView;
   }
 
   /** The compact task list lives in the right sidebar; phones fall back to a tab. */
@@ -68697,7 +68755,7 @@ ${body}
     if (!block) return null;
     const target = block.tasks.find((task) => task.id === taskId);
     if (!target) return null;
-    const tasks = block.tasks.map((task) => (task.id === taskId ? { ...task, done: done === true } : task));
+    const tasks = block.tasks.map((task) => (task.id === taskId ? { ...task, done: done === true, status: done === true ? "done" : "open" } : task));
     const updated = timeBlocks.normalizeTimeBlock({ ...block, tasks });
     this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
       ...current,
@@ -68778,6 +68836,374 @@ ${body}
     await this.save();
     this.refreshViews();
     return result.created;
+  }
+
+  /** Open and half-done tasks from the most recent earlier day that today lacks. */
+  timeBlockLeftovers(date) {
+    const current = this.timeBlocksSettings();
+    const key = timeBlocks.dayValue(date) || timeBlocks.todayValue();
+    const todayBlocks = timeBlocks.blocksForDate(current.blocks, key);
+    for (let offset = 1; offset <= 30; offset += 1) {
+      const day = timeBlocks.addDays(key, -offset);
+      const blocks = timeBlocks.blocksForDate(current.blocks, day);
+      if (!blocks.length) continue;
+      const rows = timeBlocks.blockLeftovers(blocks, todayBlocks);
+      if (!rows.length) continue;
+      return { date: day, rows, blocks };
+    }
+    return { date: "", rows: [], blocks: [] };
+  }
+
+  /** Move the chosen unfinished tasks into today's Unscheduled block. */
+  async carryTimeBlockLeftovers(date, picks) {
+    const current = this.timeBlocksSettings();
+    const key = timeBlocks.dayValue(date) || timeBlocks.todayValue();
+    const found = this.timeBlockLeftovers(key);
+    if (!found.rows.length) return { moved: 0, from: "", to: key };
+    const chosen = Array.isArray(picks) && picks.length ? picks : found.rows.map((row) => ({ blockId: row.blockId, taskId: row.taskId }));
+    const todayBlocks = timeBlocks.blocksForDate(current.blocks, key);
+    const result = timeBlocks.carryOverTasks(found.blocks, todayBlocks, chosen, key, Date.now());
+    const fromById = new Map(result.from.map((block) => [block.id, block]));
+    const todayIds = new Set(todayBlocks.map((block) => block.id));
+    const untouched = current.blocks.filter((block) => !fromById.has(block.id) && !todayIds.has(block.id));
+    const blocks = untouched.concat([...fromById.values()], result.to).slice(-timeBlocks.MAX_BLOCKS);
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({ ...current, blocks });
+    await this.save();
+    this.refreshViews();
+    return { moved: result.moved, from: found.date, to: key };
+  }
+
+  /** Remove the day's routine blocks, then offer the routines again. */
+  async regenerateTimeBlockRoutines(date) {
+    const current = this.timeBlocksSettings();
+    const key = timeBlocks.dayValue(date) || timeBlocks.todayValue();
+    const result = timeBlocks.regenerateRoutines(current.routines, current.blocks, key, Date.now());
+    if (!result.removed && !result.created.length) return { created: [], removed: 0 };
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({ ...current, blocks: result.blocks });
+    await this.save();
+    this.refreshViews();
+    return { created: result.created, removed: result.removed };
+  }
+
+  /** Import timed block routines (and their tasks) from Routines.md. */
+  async importTimeBlockRoutinesFile(path) {
+    const current = this.timeBlocksSettings();
+    const clean = str(path || current.routinesPath).trim().replace(/^\/+|\/+$/g, "");
+    if (!clean) return { ok: false, reason: "path", message: "Set a routines file path first." };
+    const file = this.app.vault.getAbstractFileByPath(clean);
+    if (!file) return { ok: false, reason: "missing", path: clean, message: "No " + clean + " in this vault." };
+    let markdown = "";
+    try {
+      markdown = await this.app.vault.read(file);
+    } catch (e) {
+      return { ok: false, reason: "read", message: String((e && e.message) || "Could not read the routines file.") };
+    }
+    const parsed = timeBlocks.parseRoutinesMarkdown(markdown, { projects: current.projects });
+    const keyOf = (routine) => [routine.title.toLowerCase(), routine.start, routine.end, routine.days.join(""), routine.monthlyDay].join("|");
+    const seen = new Set(current.routines.map(keyOf));
+    const added = [];
+    for (const routine of parsed.routines) {
+      const key = keyOf(routine);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      added.push(routine);
+      if (current.routines.length + added.length >= timeBlocks.MAX_ROUTINES) break;
+    }
+    if (added.length) {
+      this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({ ...current, routines: current.routines.concat(added) });
+      await this.save();
+      this.refreshViews();
+    }
+    return { ok: true, path: clean, added: added.length, skipped: parsed.routines.length - added.length, unread: parsed.unread };
+  }
+
+  /** Import backlog items, their associations and resurface dates from Backlog.md. */
+  async importTimeBlockBacklogFile(path) {
+    const current = this.timeBlocksSettings();
+    const clean = str(path || current.backlogPath).trim().replace(/^\/+|\/+$/g, "");
+    if (!clean) return { ok: false, reason: "path", message: "Set a backlog file path first." };
+    const file = this.app.vault.getAbstractFileByPath(clean);
+    if (!file) return { ok: false, reason: "missing", path: clean, message: "No " + clean + " in this vault." };
+    let markdown = "";
+    try {
+      markdown = await this.app.vault.read(file);
+    } catch (e) {
+      return { ok: false, reason: "read", message: String((e && e.message) || "Could not read the backlog file.") };
+    }
+    const parsed = timeBlocks.parseBacklogMarkdown(markdown, { projects: current.projects });
+    const keyOf = (item) => [item.title.toLowerCase(), item.projectId].join("|");
+    const seen = new Set(current.backlog.map(keyOf));
+    const added = [];
+    for (const item of parsed) {
+      const key = keyOf(item);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      added.push(item);
+      if (current.backlog.length + added.length >= timeBlocks.MAX_BACKLOG) break;
+    }
+    if (added.length) {
+      this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({ ...current, backlog: current.backlog.concat(added) });
+      await this.save();
+      this.refreshViews();
+    }
+    return { ok: true, path: clean, added: added.length, skipped: parsed.length - added.length };
+  }
+
+  /** Two-way sync of one day with the Schedule section of its daily note. */
+  async syncTimeBlockDailyNote(date) {
+    const current = this.timeBlocksSettings();
+    const key = timeBlocks.dayValue(date) || timeBlocks.todayValue();
+    const path = timeBlocks.dailyNotePath(key, current.dailyNoteFolder);
+    if (!path) return { ok: false, reason: "folder", message: "Set a Daily-note folder in Settings, Time blocks first." };
+    const folder = path.split("/").slice(0, -1).join("/");
+    const file = this.app.vault.getAbstractFileByPath(path);
+    let markdown = "";
+    if (file) {
+      try {
+        markdown = await this.app.vault.read(file);
+      } catch (e) {
+        return { ok: false, reason: "read", message: String((e && e.message) || "Could not read the daily note.") };
+      }
+    }
+    const heading = current.scheduleHeading;
+    const drafts = timeBlocks.parseScheduleMarkdown(markdown, { projects: current.projects, heading });
+    const parsed = timeBlocks.timeBlocksFromSchedule(drafts, key, current.projects, Date.now());
+    let blocks = current.blocks;
+    let projects = current.projects;
+    if (drafts.length) {
+      const parsedIds = new Set(parsed.blocks.map((block) => block.id));
+      blocks = current.blocks.filter((block) => !(block.date === key && !parsedIds.has(block.id))).concat(parsed.blocks);
+      projects = parsed.projects;
+    }
+    const sectionBlocks = drafts.length ? parsed.blocks : timeBlocks.blocksForDate(blocks, key);
+    const section = timeBlocks.scheduleMarkdown(sectionBlocks, { projects, heading });
+    const nextMarkdown = timeBlocks.replaceScheduleSection(markdown, section, heading);
+    if (folder && !this.app.vault.getAbstractFileByPath(folder)) {
+      try {
+        await this.app.vault.createFolder(folder);
+      } catch (e) {
+        /* the folder may already exist after a sync */
+      }
+    }
+    if (file) await this.app.vault.modify(file, nextMarkdown);
+    else await this.app.vault.create(path, nextMarkdown);
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({ ...current, blocks, projects });
+    await this.save();
+    this.refreshViews();
+    return { ok: true, path, imported: drafts.length, blocks: sectionBlocks.length, projects: projects.length };
+  }
+
+  /** Open the seven-step tour; the last step opens Day. */
+  openTimeBlocksTour() {
+    const modal = new TimeBlocksTourModal(this.app, timeBlocks.TIME_BLOCK_TOUR, () => this.activateTimeBlocksView("day"));
+    modal.open();
+    return modal;
+  }
+
+  /** Write text at a vault path, creating one missing folder and never overwriting unexpectedly. */
+  async writeTimeBlockTextFile(path, markdown) {
+    const clean = str(path).trim().replace(/^\/+|\/+$/g, "");
+    if (!clean) return "";
+    const folder = clean.split("/").slice(0, -1).join("/");
+    if (folder && !this.app.vault.getAbstractFileByPath(folder) && typeof this.app.vault.createFolder === "function") {
+      try {
+        await this.app.vault.createFolder(folder);
+      } catch (e) {
+        /* the folder appeared between the check and the write */
+      }
+    }
+    const file = this.app.vault.getAbstractFileByPath(clean);
+    if (file) await this.app.vault.modify(file, markdown);
+    else await this.app.vault.create(clean, markdown);
+    return clean;
+  }
+
+  async writeTimeBlockRoutinesFile(path) {
+    const current = this.timeBlocksSettings();
+    const written = await this.writeTimeBlockTextFile(path || current.routinesPath, timeBlocks.routinesMarkdown(current.routines, { projects: current.projects }));
+    return written
+      ? { ok: true, path: written, routines: current.routines.length }
+      : { ok: false, reason: "path", message: "Set a routines file path first." };
+  }
+
+  async writeTimeBlockBacklogFile(path) {
+    const current = this.timeBlocksSettings();
+    const written = await this.writeTimeBlockTextFile(path || current.backlogPath, timeBlocks.backlogMarkdown(current.backlog, { projects: current.projects }));
+    return written
+      ? { ok: true, path: written, items: current.backlog.length }
+      : { ok: false, reason: "path", message: "Set a backlog file path first." };
+  }
+
+  /** Write one Markdown file per project/domain, keeping the user's body. */
+  async writeTimeBlockProjectFiles() {
+    const current = this.timeBlocksSettings();
+    const paths = [];
+    for (const project of current.projects) {
+      const path = timeBlocks.projectFilePath(project, current);
+      if (!path) continue;
+      const file = this.app.vault.getAbstractFileByPath(path);
+      let body = "";
+      if (file) {
+        try {
+          body = timeBlocks.stripFrontmatter(await this.app.vault.read(file));
+        } catch (e) {
+          continue;
+        }
+      }
+      await this.writeTimeBlockTextFile(path, timeBlocks.projectMarkdown(project, { body }));
+      paths.push(path);
+    }
+    return { ok: true, written: paths.length, paths };
+  }
+
+  /** Read project/domain files back, merging status history and colours by name. */
+  async importTimeBlockProjectFiles() {
+    const current = this.timeBlocksSettings();
+    const files = typeof this.app.vault.getMarkdownFiles === "function" ? this.app.vault.getMarkdownFiles() : [];
+    const folders = [current.projectsFolder, current.domainsFolder]
+      .filter(Boolean)
+      .map((folder) => str(folder).replace(/^\/+|\/+$/g, "") + "/");
+    const projects = current.projects.slice();
+    let imported = 0;
+    for (const file of files) {
+      const path = str(file && file.path);
+      if (!folders.some((folder) => path.startsWith(folder))) continue;
+      let markdown = "";
+      try {
+        markdown = await this.app.vault.read(file);
+      } catch (e) {
+        continue;
+      }
+      const parsed = timeBlocks.parseProjectMarkdown(markdown, path);
+      if (!parsed) continue;
+      const at = projects.findIndex((project) => project.name.toLowerCase() === parsed.name.toLowerCase());
+      if (at >= 0) {
+        projects[at] = timeBlocks.normalizeTimeProject({
+          ...projects[at],
+          kind: parsed.kind,
+          color: parsed.color || projects[at].color,
+          course: parsed.course || projects[at].course,
+          statusHistory: parsed.statusHistory.length ? parsed.statusHistory : projects[at].statusHistory,
+        });
+      } else {
+        const created = timeBlocks.createTimeProject(parsed, Date.now() + imported);
+        if (created) projects.push(created);
+      }
+      imported += 1;
+    }
+    if (imported) {
+      this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({ ...current, projects });
+      await this.save();
+      this.refreshViews();
+    }
+    return { ok: true, imported, projects: projects.length };
+  }
+
+  /** Copy the settings Kairos stores in its own data.json, without reading its code. */
+  async importKairosSettings() {
+    const path = ".obsidian/plugins/kairos/data.json";
+    const adapter = this.app.vault.adapter;
+    if (!adapter || typeof adapter.read !== "function") {
+      return { ok: false, reason: "adapter", message: "This vault cannot read plugin settings directly." };
+    }
+    let raw = "";
+    try {
+      raw = await adapter.read(path);
+    } catch (e) {
+      return { ok: false, reason: "missing", message: "No Kairos settings found at " + path + "." };
+    }
+    const patch = timeBlocks.kairosSettingsPatch(raw);
+    const applied = Object.keys(patch);
+    if (!applied.length) return { ok: false, reason: "empty", message: "No Kairos settings this planner can reuse." };
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({ ...this.timeBlocksSettings(), ...patch });
+    await this.save();
+    this.refreshViews();
+    return { ok: true, path, applied };
+  }
+
+  /** Set a task's four-state status; a linked study task follows done only. */
+  async setTimeBlockTaskStatus(blockId, taskId, status) {
+    const current = this.timeBlocksSettings();
+    const block = current.blocks.find((row) => row.id === blockId);
+    const target = block && block.tasks.find((task) => task.id === taskId);
+    if (!target) return null;
+    const next = timeBlocks.normalizeTaskStatus(status, false);
+    const tasks = block.tasks.map((task) => (task.id === taskId ? { ...task, done: next === "done", status: next } : task));
+    const updated = timeBlocks.normalizeTimeBlock({ ...block, tasks });
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      blocks: current.blocks.map((row) => (row.id === blockId ? updated : row)),
+    });
+    if (target.studyTaskId) {
+      const taskState = this.studyWorkspaceSettings().studyTasks;
+      this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({
+        ...taskState,
+        tasks: taskState.tasks.map((task) => (task.id === target.studyTaskId ? { ...task, done: next === "done" } : task)),
+      });
+    }
+    await this.save();
+    this.refreshViews();
+    return updated;
+  }
+
+  async cycleTimeBlockTask(blockId, taskId) {
+    const current = this.timeBlocksSettings();
+    const block = current.blocks.find((row) => row.id === blockId);
+    const task = block && block.tasks.find((row) => row.id === taskId);
+    if (!task) return null;
+    return this.setTimeBlockTaskStatus(blockId, taskId, timeBlocks.nextTaskStatus(task.status));
+  }
+
+  async cancelTimeBlockTask(blockId, taskId) {
+    return this.setTimeBlockTaskStatus(blockId, taskId, "cancelled");
+  }
+
+  /** Move one task to a day's Unscheduled block, creating it when needed. */
+  async moveTimeBlockTask(blockId, taskId, date) {
+    const current = this.timeBlocksSettings();
+    const key = timeBlocks.dayValue(date);
+    const source = current.blocks.find((row) => row.id === blockId);
+    const task = source && source.tasks.find((row) => row.id === taskId);
+    if (!key || !task || source.date === key) return null;
+    const moved = { ...task, projectId: task.projectId || source.projectId };
+    const blocks = current.blocks
+      .map((row) => (row.id === blockId ? timeBlocks.normalizeTimeBlock({ ...row, tasks: row.tasks.filter((item) => item.id !== taskId) }) : row))
+      .filter(Boolean);
+    let target = blocks.find((row) => row.date === key && row.untimed);
+    if (!target) {
+      target = timeBlocks.createTimeBlock({ date: key, title: timeBlocks.UNSCHEDULED_TITLE, untimed: true, tasks: [moved] }, Date.now());
+      if (!target) return null;
+      blocks.push(target);
+    } else {
+      const at = blocks.indexOf(target);
+      blocks[at] = timeBlocks.normalizeTimeBlock({ ...target, tasks: target.tasks.concat(moved) });
+      target = blocks[at];
+    }
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({ ...current, blocks });
+    await this.save();
+    this.refreshViews();
+    return { date: key, blockId: target.id, title: task.title };
+  }
+
+  /** Record one project/domain lifecycle state for a date. */
+  async setTimeBlockProjectStatus(projectId, status, intensity, note, date) {
+    const current = this.timeBlocksSettings();
+    const project = current.projects.find((row) => row.id === projectId);
+    if (!project || !timeBlocks.normalizeProjectStatus(status)) return null;
+    const statusHistory = timeBlocks.appendProjectStatus(project.statusHistory, {
+      date: date || timeBlocks.todayValue(),
+      status,
+      intensity,
+      note,
+    });
+    const updated = timeBlocks.normalizeTimeProject({ ...project, statusHistory });
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      projects: current.projects.map((row) => (row.id === projectId ? updated : row)),
+    });
+    await this.save();
+    this.refreshViews();
+    return updated;
   }
 
   async addTimeBlockBacklog(input) {
@@ -94621,6 +95047,68 @@ const PAGES = {
       },
       {
         type: "text",
+        name: "Schedule heading",
+        desc: "The heading the planner reads and writes in a daily note. Canonical form is ## Schedule.",
+        placeholder: "## Schedule",
+        get: (plugin) => timeBlocks.normalizeTimeBlocks(plugin.settings.timeBlocks).scheduleHeading,
+        set: async (plugin, v) => update(plugin, "timeBlocks", timeBlocks.normalizeTimeBlocks, { scheduleHeading: v }),
+      },
+      {
+        type: "text",
+        name: "Projects folder",
+        desc: "Where project and domain Markdown files are written and imported from.",
+        placeholder: "Projects",
+        get: (plugin) => timeBlocks.normalizeTimeBlocks(plugin.settings.timeBlocks).projectsFolder,
+        set: async (plugin, v) => update(plugin, "timeBlocks", timeBlocks.normalizeTimeBlocks, { projectsFolder: v }),
+      },
+      {
+        type: "text",
+        name: "Domains folder",
+        desc: "Where domain files are written and imported from.",
+        placeholder: "Domains",
+        get: (plugin) => timeBlocks.normalizeTimeBlocks(plugin.settings.timeBlocks).domainsFolder,
+        set: async (plugin, v) => update(plugin, "timeBlocks", timeBlocks.normalizeTimeBlocks, { domainsFolder: v }),
+      },
+      {
+        type: "text",
+        name: "Backlog file",
+        desc: "The Markdown file the backlog imports from and writes to.",
+        placeholder: "Backlog.md",
+        get: (plugin) => timeBlocks.normalizeTimeBlocks(plugin.settings.timeBlocks).backlogPath,
+        set: async (plugin, v) => update(plugin, "timeBlocks", timeBlocks.normalizeTimeBlocks, { backlogPath: v }),
+      },
+      {
+        type: "text",
+        name: "Routines file",
+        desc: "The Markdown file routines import from and write to.",
+        placeholder: "Routines.md",
+        get: (plugin) => timeBlocks.normalizeTimeBlocks(plugin.settings.timeBlocks).routinesPath,
+        set: async (plugin, v) => update(plugin, "timeBlocks", timeBlocks.normalizeTimeBlocks, { routinesPath: v }),
+      },
+      {
+        type: "text",
+        name: "Name for blocks made by a drag",
+        desc: "The title a new block starts with when you draw it on the Day timeline.",
+        placeholder: "New block",
+        get: (plugin) => timeBlocks.normalizeTimeBlocks(plugin.settings.timeBlocks).dropBlockTitle,
+        set: async (plugin, v) => update(plugin, "timeBlocks", timeBlocks.normalizeTimeBlocks, { dropBlockTitle: v }),
+      },
+      {
+        type: "toggle",
+        name: "Ask for a project when creating a block",
+        desc: "The add form can ask for an association instead of leaving it optional. The block is never blocked on an answer.",
+        get: (plugin) => timeBlocks.normalizeTimeBlocks(plugin.settings.timeBlocks).askAssocOnBlockCreate,
+        set: async (plugin, v) => update(plugin, "timeBlocks", timeBlocks.normalizeTimeBlocks, { askAssocOnBlockCreate: v }),
+      },
+      {
+        type: "toggle",
+        name: "Add routines to a new daily note",
+        desc: "Offer matching routines when a daily note is created by the sync command. Nothing is added silently.",
+        get: (plugin) => timeBlocks.normalizeTimeBlocks(plugin.settings.timeBlocks).autoApplyRoutines,
+        set: async (plugin, v) => update(plugin, "timeBlocks", timeBlocks.normalizeTimeBlocks, { autoApplyRoutines: v }),
+      },
+      {
+        type: "text",
         name: "Day-note folder",
         desc: "A day can be written as readable Markdown with a Schedule section. The planner itself stays local.",
         placeholder: "Time blocks",
@@ -99429,6 +99917,99 @@ class StudyWorkspaceView extends ItemView {
     }
   }
 
+  /** A pointer-driven day rail: draw, move and resize blocks with mouse or touch. */
+  renderTimeBlockCanvas(root, data) {
+    const dayStart = timeBlocks.minutesOf(data.dayStart) >= 0 ? timeBlocks.minutesOf(data.dayStart) : 420;
+    const dayEnd = timeBlocks.minutesOf(data.dayEnd) > dayStart + 60 ? timeBlocks.minutesOf(data.dayEnd) : 1320;
+    const pxPerMinute = 1.1;
+    const card = root.createDiv({ cls: "qt-study-card qt-time-blocks-canvas-card" });
+    const head = card.createDiv({ cls: "qt-workspace-head" });
+    head.createEl("h3", { text: "Day timeline" });
+    head.createSpan({ cls: "qt-study-row-meta", text: "Drag empty time to create · drag a block to move · drag its bottom edge to resize" });
+    const canvas = card.createDiv({ cls: "qt-time-blocks-canvas", attr: { "aria-label": "Day timeline; drag to create, move or resize blocks" } });
+    canvas.style.height = Math.round((dayEnd - dayStart) * pxPerMinute) + "px";
+    for (let minute = dayStart; minute <= dayEnd; minute += 60) {
+      const line = canvas.createDiv({ cls: "qt-time-blocks-canvas-hour" });
+      line.style.top = Math.round((minute - dayStart) * pxPerMinute) + "px";
+      line.createSpan({ cls: "qt-time-blocks-canvas-hour-label", text: timeBlocks.timeFromMinutes(minute) });
+    }
+    const blocks = timeBlocks.blocksForDate(data.blocks, this.timeBlockDate).filter((block) => !block.untimed);
+    for (const block of blocks) {
+      const start = timeBlocks.minutesOf(block.start);
+      const end = timeBlocks.minutesOf(block.end);
+      if (start < dayStart - 60 || end > dayEnd + 60) continue;
+      const bar = canvas.createDiv({ cls: "qt-time-block-bar qt-time-block-bar-" + block.type });
+      const color = timeBlocks.subjectColorFor(block, data.subjectColors, data.projects);
+      if (color) bar.style.borderLeftColor = color;
+      bar.style.top = Math.round((start - dayStart) * pxPerMinute) + "px";
+      bar.style.height = Math.max(18, Math.round((end - start) * pxPerMinute)) + "px";
+      bar.setAttr("data-block-id", block.id);
+      bar.createDiv({ cls: "qt-time-block-bar-time", text: block.start + "–" + block.end });
+      bar.createDiv({ cls: "qt-time-block-bar-title", text: block.title });
+      const resize = bar.createDiv({ cls: "qt-time-block-bar-resize", attr: { "aria-label": "Resize " + block.title } });
+      bar.addEventListener("pointerdown", (event) => {
+        if (event.target === resize) return;
+        this.beginTimeBlockCanvasDrag(event, canvas, bar, block, "move", pxPerMinute, dayStart);
+      });
+      resize.addEventListener("pointerdown", (event) => {
+        this.beginTimeBlockCanvasDrag(event, canvas, bar, block, "resize", pxPerMinute, dayStart);
+      });
+    }
+    canvas.addEventListener("pointerdown", (event) => {
+      if (event.target !== canvas) return;
+      this.beginTimeBlockCanvasDrag(event, canvas, null, null, "create", pxPerMinute, dayStart, data);
+    });
+  }
+
+  /** Shared create/move/resize gesture, snapped to 15 minutes and safe on touch. */
+  beginTimeBlockCanvasDrag(event, canvas, bar, block, mode, pxPerMinute, dayStart, data) {
+    if (!event || (event.button !== undefined && event.button !== 0)) return;
+    if (event.preventDefault) event.preventDefault();
+    if (typeof window === "undefined" || typeof canvas.getBoundingClientRect !== "function") return;
+    const rect = canvas.getBoundingClientRect();
+    if (!rect) return;
+    const originY = Number(event.clientY) || 0;
+    const sourceStart = block ? timeBlocks.minutesOf(block.start) : dayStart + Math.max(0, Math.round((originY - Number(rect.top || 0)) / pxPerMinute));
+    const sourceEnd = block ? timeBlocks.minutesOf(block.end) : sourceStart + 60;
+    let ghost = bar;
+    if (!ghost) {
+      ghost = canvas.createDiv({ cls: "qt-time-block-bar is-draft" });
+      ghost.style.top = Math.round((sourceStart - dayStart) * pxPerMinute) + "px";
+      ghost.style.height = Math.round(60 * pxPerMinute) + "px";
+      ghost.createDiv({ cls: "qt-time-block-bar-title", text: (data && data.dropBlockTitle) || "New block" });
+    }
+    let range = { start: timeBlocks.timeFromMinutes(sourceStart), end: timeBlocks.timeFromMinutes(sourceEnd) };
+    let moved = false;
+    const paint = (next) => {
+      const start = timeBlocks.minutesOf(next.start);
+      const end = timeBlocks.minutesOf(next.end);
+      ghost.style.top = Math.round((start - dayStart) * pxPerMinute) + "px";
+      ghost.style.height = Math.max(18, Math.round((end - start) * pxPerMinute)) + "px";
+    };
+    const onMove = (moveEvent) => {
+      const delta = timeBlocks.snapMinutes((Number(moveEvent.clientY) - originY) / pxPerMinute, 15);
+      const source = { start: timeBlocks.timeFromMinutes(sourceStart), end: timeBlocks.timeFromMinutes(sourceEnd) };
+      if (mode === "resize") range = timeBlocks.resizeBlockTimes(source, "end", delta);
+      else if (mode === "move") range = timeBlocks.shiftBlockTimes(source, delta);
+      else range = timeBlocks.timeRangeFromDrag(sourceStart, sourceStart + delta);
+      moved = moved || Math.abs(delta) >= 15;
+      if (range) paint(range);
+    };
+    const onUp = async () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      if (!range || !moved) {
+        if (!block && ghost && typeof ghost.remove === "function") ghost.remove();
+        return;
+      }
+      if (block) await this.plugin.updateTimeBlock(block.id, range);
+      else await this.plugin.addTimeBlock({ date: this.timeBlockDate, start: range.start, end: range.end, title: (data && data.dropBlockTitle) || "New block" });
+      this.render();
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
+
   renderTimeBlockDay(root, data) {
     const dayControls = root.createDiv({ cls: "qt-study-card" });
     const head = dayControls.createDiv({ cls: "qt-workspace-head" });
@@ -99436,6 +100017,7 @@ class StudyWorkspaceView extends ItemView {
     this.timeBlockDateControls(head);
     dayControls.createDiv({ cls: "qt-hint", text: "Blocks own the time; tasks live inside them. Add an existing study task from the Backlog, or write a small task directly here." });
     this.renderTimeBlockCalendar(root, data, this.timeBlockDate, this.timeBlockCalendar());
+    this.renderTimeBlockCanvas(root, data);
     const write = dayControls.createDiv({ cls: "qt-row qt-study-actions" });
     write.createEl("button", { text: "Write day note" }).addEventListener("click", async () => {
       try {
@@ -99452,6 +100034,10 @@ class StudyWorkspaceView extends ItemView {
       this.render();
     });
     if (this.timeBlockDailyPreview && this.timeBlockDailyPreview.date === this.timeBlockDate) this.renderTimeBlockDailyNote(root);
+    write.createEl("button", { text: "Guided tour" }).addEventListener("click", () => {
+      this.plugin.openTimeBlocksTour();
+      this.saveMessage("Use Back and Next in the tour, then Open Day view.");
+    });
     const projectOptions = this.timeBlockProjectOptions(data);
     const add = root.createEl("details", { cls: "qt-study-card qt-workspace-disclosure" });
     add.createEl("summary", { cls: "qt-workspace-disclosure-title", text: "Add a time block" });
@@ -99551,7 +100137,7 @@ class StudyWorkspaceView extends ItemView {
     }
     const head = card.createDiv({ cls: "qt-workspace-head" });
     const main = head.createDiv({ cls: "qt-time-block-main" });
-    main.createDiv({ cls: "qt-time-block-time", text: block.start + " – " + block.end + " · " + timeBlocks.durationLabel(timeBlocks.durationMinutes(block)) });
+    main.createDiv({ cls: "qt-time-block-time", text: block.untimed ? "Unscheduled · " + block.tasks.length + " task" + (block.tasks.length === 1 ? "" : "s") : block.start + " – " + block.end + " · " + timeBlocks.durationLabel(timeBlocks.durationMinutes(block)) });
     main.createDiv({ cls: "qt-time-block-title", text: block.title });
     const meta = [block.type, this.timeBlockProjectName(data, block.projectId), block.course].filter(Boolean).join(" · ");
     if (meta) main.createDiv({ cls: "qt-study-row-meta", text: meta });
@@ -99613,13 +100199,50 @@ class StudyWorkspaceView extends ItemView {
     const tasks = card.createDiv({ cls: "qt-time-block-tasks" });
     for (const task of block.tasks) {
       const row = tasks.createDiv({ cls: "qt-time-block-task" });
-      const check = row.createEl("input", { type: "checkbox", attr: { "aria-label": "Done: " + task.title } });
-      check.checked = task.done;
-      check.addEventListener("change", async () => {
-        await this.plugin.toggleTimeBlockTask(block.id, task.id, check.checked);
+      row.setAttr("draggable", "true");
+      row.addEventListener("dragstart", (event) => {
+        if (event.dataTransfer) event.dataTransfer.setData("text/plain", JSON.stringify({ blockId: block.id, taskId: task.id }));
+      });
+      const check = row.createEl("button", {
+        cls: "qt-time-block-status is-" + task.status,
+        text: "[" + timeBlocks.statusChar(task.status) + "]",
+        attr: { "aria-label": "Status of " + task.title + ": " + task.status + ". Click to advance; right-click to cancel." },
+      });
+      let held = false;
+      let holdTimer = null;
+      check.addEventListener("pointerdown", () => {
+        held = false;
+        holdTimer = setTimeout(async () => {
+          holdTimer = null;
+          held = true;
+          await this.plugin.cancelTimeBlockTask(block.id, task.id);
+          this.render();
+        }, 550);
+      });
+      const releaseHold = () => {
+        if (holdTimer) {
+          clearTimeout(holdTimer);
+          holdTimer = null;
+        }
+      };
+      check.addEventListener("pointerup", releaseHold);
+      check.addEventListener("pointerleave", releaseHold);
+      check.addEventListener("click", async () => {
+        if (held) {
+          held = false;
+          return;
+        }
+        await this.plugin.cycleTimeBlockTask(block.id, task.id);
+        this.render();
+      });
+      check.addEventListener("contextmenu", async (event) => {
+        if (event.preventDefault) event.preventDefault();
+        await this.plugin.cancelTimeBlockTask(block.id, task.id);
         this.render();
       });
       const label = row.createDiv({ cls: "qt-time-block-task-title" + (task.done ? " is-done" : ""), text: task.title });
+      if (task.status === "half") label.createSpan({ cls: "qt-study-row-meta", text: " half-done" });
+      else if (task.status === "cancelled") label.createSpan({ cls: "qt-study-row-meta", text: " cancelled" });
       if (task.studyTaskId) label.createSpan({ cls: "qt-study-row-meta", text: " linked task" });
       row.createEl("button", { text: "Remove", cls: "qt-link qt-danger" }).addEventListener("click", async () => {
         await this.plugin.removeTimeBlockTask(block.id, task.id);
@@ -99655,6 +100278,24 @@ class StudyWorkspaceView extends ItemView {
       const calDay = calWeek ? calWeek.days.find((entry) => entry.date === day.date) : null;
       const conflictBlockIds = new Set(calDay ? calDay.rows.flatMap((event) => event.overlaps.map((block) => block.id)) : []);
       const column = grid.createDiv({ cls: "qt-time-blocks-week-day" + (day.date === this.timeBlockDate ? " is-selected" : "") });
+      column.addEventListener("dragover", (event) => {
+        if (event.preventDefault) event.preventDefault();
+      });
+      column.addEventListener("drop", async (event) => {
+        if (event.preventDefault) event.preventDefault();
+        if (!event.dataTransfer) return;
+        let payload = null;
+        try {
+          payload = JSON.parse(event.dataTransfer.getData("text/plain") || "{}");
+        } catch (e) {
+          payload = null;
+        }
+        if (!payload) return;
+        if (payload.taskId) await this.plugin.moveTimeBlockTask(payload.blockId, payload.taskId, day.date);
+        else if (payload.blockId) await this.plugin.updateTimeBlock(payload.blockId, { date: day.date });
+        this.render();
+      });
+
       const title = column.createDiv({ cls: "qt-time-blocks-week-title" });
       title.createSpan({ text: timeBlocks.WEEKDAY_NAMES[timeBlocks.weekdayOf(day.date)] + " " + day.date.slice(5) });
       title.createSpan({ cls: "qt-study-row-meta", text: timeBlocks.durationLabel(day.minutes) });
@@ -99676,9 +100317,13 @@ class StudyWorkspaceView extends ItemView {
           row.setAttr("data-block-color", color);
           if (row.style) row.style.borderLeftColor = color;
         }
-        row.createDiv({ cls: "qt-time-blocks-week-block-time", text: block.start + "–" + block.end });
+        row.createDiv({ cls: "qt-time-blocks-week-block-time", text: block.untimed ? "Unscheduled" : block.start + "–" + block.end });
         row.createDiv({ cls: "qt-time-blocks-week-block-title", text: block.title });
         if (block.projectId) row.createDiv({ cls: "qt-study-row-meta", text: this.timeBlockProjectName(data, block.projectId) });
+        row.setAttr("draggable", "true");
+        row.addEventListener("dragstart", (event) => {
+          if (event.dataTransfer) event.dataTransfer.setData("text/plain", JSON.stringify({ blockId: block.id }));
+        });
         row.addEventListener("click", () => {
           this.timeBlockDate = day.date;
           this.timeBlockView = "day";
@@ -99749,6 +100394,11 @@ class StudyWorkspaceView extends ItemView {
       this.saveMessage("Backlog intention added.");
       this.render();
     });
+    addActions.createEl("button", { text: "Write Backlog.md" }).addEventListener("click", async () => {
+      const result = await this.plugin.writeTimeBlockBacklogFile();
+      this.saveMessage(result.ok ? "Wrote " + result.items + " item(s) to " + result.path + "." : result.message);
+      this.render();
+    });
     const schedule = root.createDiv({ cls: "qt-study-card" });
     schedule.createEl("h3", { text: "Place work" });
     schedule.createDiv({ cls: "qt-hint", text: "Choose where a backlog item should land, then schedule it." });
@@ -99801,6 +100451,11 @@ class StudyWorkspaceView extends ItemView {
     actions.createEl("button", { text: "Add this day's routines", cls: "mod-cta" }).addEventListener("click", async () => {
       const created = await this.plugin.applyTimeBlockRoutines(this.timeBlockDate);
       this.saveMessage(created.length ? "Added " + created.length + " routine block" + (created.length === 1 ? "" : "s") + "." : "This day already has every matching routine.");
+      this.render();
+    });
+    actions.createEl("button", { text: "Write Routines.md" }).addEventListener("click", async () => {
+      const result = await this.plugin.writeTimeBlockRoutinesFile();
+      this.saveMessage(result.ok ? "Wrote " + result.routines + " routine(s) to " + result.path + "." : result.message);
       this.render();
     });
     const form = card.createDiv({ cls: "qt-study-form" });
@@ -99881,7 +100536,22 @@ class StudyWorkspaceView extends ItemView {
       const dot = heading.createSpan({ cls: "qt-workspace-subject-dot" });
       dot.style.background = project.color;
       heading.createSpan({ text: project.name });
-      main.createDiv({ cls: "qt-study-row-meta", text: project.kind + (project.course ? " · " + project.course : "") + " · " + timeBlocks.durationLabel(totals[project.id] || 0) + " planned" });
+      const record = timeBlocks.effectiveProjectRecord(project.statusHistory, this.timeBlockDate);
+      main.createDiv({ cls: "qt-study-row-meta", text: project.kind + (project.course ? " · " + project.course : "") + " · " + timeBlocks.durationLabel(totals[project.id] || 0) + " planned · " + record.status + (record.intensity !== undefined && record.status === "active" ? " · intensity " + record.intensity + "/5" : "") });
+      const history = row.createDiv({ cls: "qt-row qt-time-block-project-status" });
+      const state = history.createEl("select", { cls: "dropdown", attr: { "aria-label": "Status for " + project.name } });
+      for (const status of timeBlocks.PROJECT_STATUSES) {
+        const option = state.createEl("option", { text: status[0].toUpperCase() + status.slice(1) });
+        option.value = status;
+        if (status === record.status) option.selected = true;
+      }
+      const intensity = history.createEl("input", { cls: "qt-input", type: "number", attr: { min: "0", max: "5", step: "1", placeholder: "Intensity 0–5", "aria-label": "Intensity for " + project.name } });
+      if (record.intensity !== undefined) intensity.value = String(record.intensity);
+      history.createEl("button", { text: "Set status" }).addEventListener("click", async () => {
+        await this.plugin.setTimeBlockProjectStatus(project.id, state.value, intensity.value === "" ? undefined : intensity.value, "", this.timeBlockDate);
+        this.saveMessage("Recorded " + state.value + " for " + project.name + " on " + this.timeBlockDate + ".");
+        this.render();
+      });
       row.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
         await this.plugin.removeTimeBlockProject(project.id);
         this.render();
@@ -99896,6 +100566,13 @@ class StudyWorkspaceView extends ItemView {
     card.createEl("h3", { text: "Timeline" });
     card.createDiv({ cls: "qt-hint", text: "The last 14 days of block time, grouped by project or domain. It is history, not a second calendar." });
     card.createDiv({ cls: "qt-study-row-meta", text: totals.blocks + " blocks · " + timeBlocks.durationLabel(totals.totalMinutes) + " total · " + totals.tasks + " tasks" });
+    const intensity = timeBlocks.intensityByDay(data.blocks, timeline.dates);
+    const strip = card.createDiv({ cls: "qt-time-blocks-intensity", attr: { "aria-label": "Planned intensity over the last 14 days" } });
+    for (const entry of intensity) {
+      const bar = strip.createDiv({ cls: "qt-time-blocks-intensity-bar level-" + entry.level });
+      bar.style.height = Math.max(6, Math.round((entry.level / 5) * 100)) + "%";
+      bar.setAttr("title", entry.date + ": " + timeBlocks.durationLabel(entry.minutes) + " planned");
+    }
     if (!timeline.rows.length) {
       this.renderTabsEmpty(root, "No project time yet. Add a block and a project to build the timeline.");
       return;
@@ -99911,7 +100588,7 @@ class StudyWorkspaceView extends ItemView {
       heading.createSpan({ text: row.name });
       const bar = main.createDiv({ cls: "qt-study-bar" });
       bar.createDiv({ cls: "qt-study-bar-fill" }).style.width = Math.round((row.minutes / max) * 100) + "%";
-      main.createDiv({ cls: "qt-study-row-meta", text: row.kind + " · " + timeBlocks.durationLabel(row.minutes) });
+      main.createDiv({ cls: "qt-study-row-meta", text: row.kind + " · " + timeBlocks.durationLabel(row.minutes) + (row.status ? " · " + row.status : "") + (row.intensity !== null && row.intensity !== undefined ? " · intensity " + row.intensity + "/5" : "") });
     }
   }
 
@@ -105456,6 +106133,26 @@ const PROJECT_COLORS = ["#6f8ff5", "#d97757", "#5cae8a", "#c084d6", "#d5a84f", "
 const SUBJECT_COLOR_LIMIT = 40;
 const MAX_TAGS = 6;
 const MAX_TAG_LENGTH = 40;
+const TASK_STATUSES = ["open", "half", "done", "cancelled"];
+const UNSCHEDULED_TITLE = "Unscheduled";
+const DEFAULT_SCHEDULE_HEADING = "## Schedule";
+const PROJECT_STATUSES = ["active", "inactive", "archived"];
+const INTENSITY_MAX = 5;
+const MAX_PROJECT_HISTORY = 200;
+const DEFAULT_PROJECTS_FOLDER = "Projects";
+const DEFAULT_DOMAINS_FOLDER = "Domains";
+const DEFAULT_DROP_TITLE = "New block";
+
+/** The guided tour's copy. Original text: no Kairos prose is reused. */
+const TIME_BLOCK_TOUR = [
+  { title: "Start in Day", body: "Time blocks opens on Day. A block owns a span of time and the work you put inside it lives as tasks." },
+  { title: "Draw a block", body: "Press empty timeline space and drag down, with a mouse or a finger. Times snap to 15 minutes; release to create the block." },
+  { title: "Move and resize", body: "Drag a block to shift it, or drag its bottom edge to make it longer or shorter. In Week, drag a block onto another day to move it there." },
+  { title: "Cycle a task", body: "Click a task box to move it through open, half-done and done. Right-click, or long-press on touch, to cancel it instead." },
+  { title: "Let routines help", body: "A routine is an offer, not an automatic write. Add the day's missing routines, and regenerate the day when its plan changes." },
+  { title: "Park work in the Backlog", body: "Put an intention in the Backlog, then place it on a date. Open study tasks you already have appear there too." },
+  { title: "Keep it as Markdown", body: "Write the day's Schedule, Routines.md, Backlog.md or project files. They stay plain Markdown and YAML that you can edit by hand." },
+];
 
 function objectValue(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -105660,14 +106357,39 @@ function normalizeBlockTags(value) {
   return tags;
 }
 
+function normalizeTaskStatus(value, done) {
+  const status = str(value).trim().toLowerCase();
+  if (TASK_STATUSES.includes(status)) return status;
+  return done === true ? "done" : "open";
+}
+
+function statusChar(status) {
+  if (status === "done") return "x";
+  if (status === "half") return "/";
+  if (status === "cancelled") return "-";
+  return " ";
+}
+
+function statusFromChar(value) {
+  const char = str(value);
+  if (char === "x" || char === "X") return "done";
+  if (char === "/") return "half";
+  if (char === "-") return "cancelled";
+  return "open";
+}
+
 function normalizeBlockTask(value, createdAt) {
   const source = objectValue(value);
   const title = textValue(source.title, MAX_TITLE);
   if (!title) return null;
+  const status = normalizeTaskStatus(source.status, source.done);
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("tbt", [title, source.studyTaskId || "", createdAt || 0]),
     title,
-    done: source.done === true,
+    done: status === "done",
+    status,
+    projectId: textValue(source.projectId, 160),
+    tag: textValue(source.tag, MAX_TITLE),
     studyTaskId: textValue(source.studyTaskId, 160),
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, createdAt || 0))),
   };
@@ -105677,9 +106399,11 @@ function normalizeTimeBlock(value) {
   const source = objectValue(value);
   const title = textValue(source.title, MAX_TITLE);
   const date = dayValue(source.date);
-  const start = normalizeTime(source.start);
-  const end = normalizeTime(source.end);
-  if (!title || !date || !start || !end || minutesOf(end) <= minutesOf(start)) return null;
+  const untimed = source.untimed === true;
+  const start = untimed ? "" : normalizeTime(source.start);
+  const end = untimed ? "" : normalizeTime(source.end);
+  if (!title || !date) return null;
+  if (!untimed && (!start || !end || minutesOf(end) <= minutesOf(start))) return null;
   const createdAt = Math.max(0, Math.round(numberValue(source.createdAt, 0)));
   const tasks = [];
   const seen = new Set();
@@ -105697,6 +106421,7 @@ function normalizeTimeBlock(value) {
     date,
     start,
     end,
+    untimed,
     title,
     type: normalizeType(source.type),
     projectId,
@@ -105756,6 +106481,14 @@ function normalizeTimeBlocks(value) {
     dayEnd: normalizeTime(source.dayEnd) || "22:00",
     notesFolder: textValue(source.notesFolder, 200) || "Time blocks",
     dailyNoteFolder: textValue(source.dailyNoteFolder, 200),
+    scheduleHeading: normalizeScheduleHeading(source.scheduleHeading),
+    backlogPath: textValue(source.backlogPath, 200) || "Backlog.md",
+    routinesPath: textValue(source.routinesPath, 200) || "Routines.md",
+    projectsFolder: textValue(source.projectsFolder, 200) || DEFAULT_PROJECTS_FOLDER,
+    domainsFolder: textValue(source.domainsFolder, 200) || DEFAULT_DOMAINS_FOLDER,
+    autoApplyRoutines: source.autoApplyRoutines === true,
+    askAssocOnBlockCreate: source.askAssocOnBlockCreate === true,
+    dropBlockTitle: textValue(source.dropBlockTitle, MAX_TITLE) || DEFAULT_DROP_TITLE,
     subjectColors: normalizeSubjectColors(source.subjectColors),
     view: normalizeView(source.view),
     blocks,
@@ -105787,6 +106520,7 @@ function normalizeTimeProject(value) {
     kind: normalizeProjectKind(source.kind),
     color: projectColor(source.color, id),
     course: textValue(source.course, MAX_TITLE),
+    statusHistory: normalizeProjectHistory(source.statusHistory),
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
   };
 }
@@ -105817,18 +106551,37 @@ function normalizeTimeRoutine(value) {
   const start = normalizeTime(source.start);
   const end = normalizeTime(source.end);
   const days = normalizeRoutineDays(source.days);
-  if (!title || !start || !end || minutesOf(end) <= minutesOf(start) || !days.length) return null;
+  const monthlyDay = Math.min(31, Math.max(0, Math.round(numberValue(source.monthlyDay, 0))));
+  if (!title || !start || !end || minutesOf(end) <= minutesOf(start)) return null;
+  if (!days.length && !monthlyDay) return null;
+  const createdAt = Math.max(0, Math.round(numberValue(source.createdAt, 0)));
+  const tasks = [];
+  for (const raw of Array.isArray(source.tasks) ? source.tasks : []) {
+    const task = normalizeBlockTask(raw, createdAt);
+    if (task) tasks.push(task);
+    if (tasks.length >= MAX_TASKS_PER_BLOCK) break;
+  }
   return {
-    id: str(source.id).trim().slice(0, 160) || idFor("tbr", [title, start, end, days.join(""), source.createdAt || 0]),
+    id: str(source.id).trim().slice(0, 160) || idFor("tbr", [title, start, end, days.join(""), monthlyDay, source.createdAt || 0]),
     title,
     days,
+    monthlyDay,
     start,
     end,
     type: normalizeType(source.type),
     projectId: textValue(source.projectId, 160),
     course: textValue(source.course, MAX_TITLE),
-    createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
+    tasks,
+    createdAt,
   };
+}
+
+/** Whether a routine is offered on a date: a weekday rule or a day of the month. */
+function routineOccursOn(routine, date) {
+  const key = dayValue(date);
+  if (!routine || !key) return false;
+  if (routine.monthlyDay) return Number(key.slice(8, 10)) === routine.monthlyDay;
+  return Array.isArray(routine.days) && routine.days.includes(weekdayOf(key));
 }
 
 function createTimeRoutine(input, now) {
@@ -105861,7 +106614,7 @@ function blocksForDate(blocks, date) {
   const key = dayValue(date);
   return (Array.isArray(blocks) ? blocks : [])
     .filter((block) => block && block.date === key)
-    .sort((a, b) => a.start.localeCompare(b.start) || a.createdAt - b.createdAt);
+    .sort((a, b) => (a.untimed ? 1 : 0) - (b.untimed ? 1 : 0) || a.start.localeCompare(b.start) || a.createdAt - b.createdAt);
 }
 
 /** Blocks carrying one tag; no tag means every block is returned unchanged. */
@@ -106091,7 +106844,6 @@ function blocksToMarkdown(date, blocks, projects) {
 function applyRoutines(routines, blocks, date, now) {
   const key = dayValue(date);
   if (!key) return { blocks: Array.isArray(blocks) ? blocks : [], created: [] };
-  const day = weekdayOf(key);
   const existing = new Set(
     (Array.isArray(blocks) ? blocks : [])
       .filter((block) => block && block.date === key && block.routineId)
@@ -106099,7 +106851,7 @@ function applyRoutines(routines, blocks, date, now) {
   );
   const created = [];
   for (const routine of Array.isArray(routines) ? routines : []) {
-    if (!routine || !routine.days.includes(day) || existing.has(routine.id)) continue;
+    if (!routine || !routineOccursOn(routine, key) || existing.has(routine.id)) continue;
     const block = createTimeBlock(
       {
         date: key,
@@ -106110,6 +106862,7 @@ function applyRoutines(routines, blocks, date, now) {
         projectId: routine.projectId,
         course: routine.course,
         routineId: routine.id,
+        tasks: routine.tasks,
       },
       Math.max(0, Math.round(numberValue(now, Date.now()))) + created.length
     );
@@ -106137,8 +106890,20 @@ function projectTimeline(blocks, projects, days, endDate) {
   const dates = Array.from({ length: count }, (_, index) => addDays(start, index));
   const map = projectMap(projects);
   const rows = [];
-  for (const project of Array.isArray(projects) ? projects : []) rows.push({ id: project.id, name: project.name, kind: project.kind, color: project.color, minutes: 0, byDay: {} });
-  rows.push({ id: "", name: "Unassigned", kind: "domain", color: "#8a8a8a", minutes: 0, byDay: {} });
+  for (const project of Array.isArray(projects) ? projects : []) {
+    const record = effectiveProjectRecord(project.statusHistory, end);
+    rows.push({
+      id: project.id,
+      name: project.name,
+      kind: project.kind,
+      color: project.color,
+      status: record.status,
+      intensity: record.status === "active" ? record.intensity : null,
+      minutes: 0,
+      byDay: {},
+    });
+  }
+  rows.push({ id: "", name: "Unassigned", kind: "domain", color: "#8a8a8a", status: "", intensity: null, minutes: 0, byDay: {} });
   const index = new Map(rows.map((row) => [row.id, row]));
   for (const block of blocksInRange(blocks, start, end)) {
     const row = index.get(block.projectId) || index.get("");
@@ -106156,6 +106921,527 @@ function projectTimeline(blocks, projects, days, endDate) {
   };
 }
 
+// ── Kairos-compatible markdown, carry-over and routine rules ────────────────
+// Original implementation of the behaviours Kairos documents: a "## Schedule"
+// section, Backlog.md and Routines.md, task statuses, routine rules and
+// carry-over of unfinished tasks. No Kairos code, styles or copy is used.
+
+function stripFrontmatter(markdown) {
+  return str(markdown).replace(/^---\s*\n[\s\S]*?\n---\s*\n?/, "");
+}
+
+/** Lines under a markdown heading, stopping at the next heading of the same level. */
+function sectionLines(markdown, heading) {
+  const wanted = str(heading).trim() || DEFAULT_SCHEDULE_HEADING;
+  const wantedText = wanted.replace(/^#+\s*/, "").toLowerCase();
+  const lines = stripFrontmatter(markdown).split(/\r?\n/);
+  let start = -1;
+  let level = 0;
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = /^(#{1,6})\s+(.*)$/.exec(lines[index].trim());
+    if (!match) continue;
+    if (match[2].trim().toLowerCase() === wantedText) {
+      start = index;
+      level = match[1].length;
+      break;
+    }
+  }
+  if (start < 0) return [];
+  const out = [];
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const match = /^(#{1,6})\s+/.exec(lines[index].trim());
+    if (match && match[1].length <= level) break;
+    out.push(lines[index]);
+  }
+  return out;
+}
+
+function parseClock(value, allowMidnight) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(str(value).trim());
+  if (!match) return "";
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (minute > 59) return "";
+  if (hour === 24 && minute === 0 && allowMidnight) return "24:00";
+  if (hour > 23) return "";
+  return `${pad(hour)}:${pad(minute)}`;
+}
+
+function findProjectByName(projects, name, kind) {
+  const wanted = str(name).trim().toLowerCase();
+  if (!wanted) return null;
+  const list = Array.isArray(projects) ? projects : [];
+  return list.find((project) => project && project.kind === kind && str(project.name).toLowerCase() === wanted)
+    || list.find((project) => project && str(project.name).toLowerCase() === wanted)
+    || null;
+}
+
+function parseAssocTag(token, projects) {
+  const text = str(token).trim();
+  if (!text) return null;
+  const domain = /^d\s*:\s*(.+)$/i.exec(text);
+  const name = (domain ? domain[1] : text).trim();
+  if (!name) return null;
+  const kind = domain ? "domain" : "project";
+  const project = findProjectByName(projects, name, kind);
+  return { kind, name, projectId: project ? project.id : "" };
+}
+
+/** Strip a trailing `(tag)`, then any trailing `[Project]` / `[D:Domain]` tags. */
+function splitTrailingMetadata(body) {
+  let title = str(body).trim();
+  let tag = "";
+  const assocs = [];
+  const paren = /\s*\(([^()]{0,80})\)\s*$/.exec(title);
+  if (paren) {
+    tag = paren[1].trim();
+    title = title.slice(0, paren.index).trim();
+  }
+  for (;;) {
+    const match = /\s*\[([^\]]+)\]\s*$/.exec(title);
+    if (!match) break;
+    const inner = match[1].trim();
+    if (!inner) break;
+    assocs.unshift(inner);
+    title = title.slice(0, match.index).trim();
+  }
+  const assoc = assocs.length ? assocs[assocs.length - 1] : "";
+  return { title, tag, assoc };
+}
+
+/**
+ * Parse the `## Schedule` section of a daily note into block drafts.
+ * Supports Block/Task/Note lines, `- Unscheduled`, statuses, associations and
+ * the legacy single-line checkbox forms.
+ */
+function parseScheduleMarkdown(markdown, options) {
+  const opts = objectValue(options);
+  const projects = Array.isArray(opts.projects) ? opts.projects : [];
+  const drafts = [];
+  let current = null;
+  for (const raw of sectionLines(markdown, opts.heading)) {
+    const line = raw.replace(/\t/g, "  ");
+    if (!line.trim()) continue;
+    const item = /^(\s*)[-*+]\s+(?:\[(.)\]\s+)?(.*)$/.exec(line);
+    if (!item) continue;
+    const indent = item[1].length;
+    const status = item[2] ? statusFromChar(item[2]) : "";
+    const meta = splitTrailingMetadata(item[3]);
+    const assoc = meta.assoc ? parseAssocTag(meta.assoc, projects) : null;
+    if (indent > 0 && current) {
+      if (item[2]) current.tasks.push({ title: meta.title, status, tag: meta.tag, assoc });
+      else if (meta.title) current.notes.push(meta.tag ? `${meta.title} (${meta.tag})` : meta.title);
+      continue;
+    }
+    const range = /^(\d{1,2}:\d{2})\s*[-–—]\s*(\d{1,2}:\d{2})\s+(.*)$/.exec(meta.title);
+    if (!item[2] && /^unscheduled$/i.test(meta.title)) {
+      current = { title: UNSCHEDULED_TITLE, start: "", end: "", untimed: true, assoc: null, tag: "", tasks: [], notes: [] };
+      drafts.push(current);
+      continue;
+    }
+    if (item[2] && !range) {
+      if (!current || !current.untimed) {
+        current = { title: UNSCHEDULED_TITLE, start: "", end: "", untimed: true, assoc: null, tag: "", tasks: [], notes: [] };
+        drafts.push(current);
+      }
+      current.tasks.push({ title: meta.title, status, tag: meta.tag, assoc });
+      continue;
+    }
+    if (range) {
+      const start = parseClock(range[1]);
+      const end = parseClock(range[2], true);
+      if (!range[3] || !start || !end) continue;
+      current = {
+        title: range[3],
+        start,
+        end,
+        untimed: false,
+        assoc: meta.assoc ? parseAssocTag(meta.assoc, projects) : null,
+        tag: meta.tag,
+        tasks: [],
+        notes: [],
+      };
+      drafts.push(current);
+      if (item[2]) current.tasks.push({ title: range[3], status, tag: "", assoc: null });
+      continue;
+    }
+    if (!meta.title) continue;
+    current = { title: meta.title, start: "", end: "", untimed: true, assoc, tag: meta.tag, tasks: [], notes: [] };
+    drafts.push(current);
+  }
+  return drafts;
+}
+
+function associationTag(projectId, projects) {
+  const project = (Array.isArray(projects) ? projects : []).find((row) => row && row.id === projectId);
+  if (!project) return "";
+  return project.kind === "domain" ? `[D:${project.name}]` : `[${project.name}]`;
+}
+
+function taskLine(task) {
+  let line = `\t- [${statusChar(normalizeTaskStatus(task.status, task.done))}] ${task.title}`;
+  if (task.projectId) {
+    const tag = associationTag(task.projectId, task.projects);
+    if (tag && task.projectId !== task.blockProjectId) line += ` ${tag}`;
+  }
+  if (task.tag) line += ` (${task.tag})`;
+  return line;
+}
+
+/** Serialize blocks into a complete Schedule section, heading included. */
+function scheduleMarkdown(blocks, options) {
+  const opts = objectValue(options);
+  const projects = Array.isArray(opts.projects) ? opts.projects : [];
+  const heading = str(opts.heading).trim() || DEFAULT_SCHEDULE_HEADING;
+  const lines = [heading, ""];
+  for (const block of Array.isArray(blocks) ? blocks : []) {
+    if (!block || !block.title) continue;
+    let line = "- ";
+    if (!block.untimed && block.start && block.end) line += `${block.start} - ${block.end === "23:59" ? "24:00" : block.end} `;
+    line += block.title;
+    const tag = associationTag(block.projectId, projects);
+    if (tag) line += ` ${tag}`;
+    if (Array.isArray(block.tags) && block.tags.length) line += ` (${block.tags[0]})`;
+    lines.push(line);
+    for (const task of Array.isArray(block.tasks) ? block.tasks : []) {
+      lines.push(taskLine({ ...task, projects, blockProjectId: block.projectId }));
+    }
+    for (const note of str(block.notes).split("\n").map((row) => row.trim()).filter(Boolean)) {
+      lines.push(`\t- ${note}`);
+    }
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+/** Resolve parsed drafts into stored blocks, creating missing projects/domains. */
+function timeBlocksFromSchedule(drafts, date, projects, now) {
+  const key = dayValue(date);
+  const pool = (Array.isArray(projects) ? projects : []).slice();
+  const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
+  const resolve = (assoc) => {
+    if (!assoc || !assoc.name) return "";
+    let project = findProjectByName(pool, assoc.name, assoc.kind);
+    if (!project) {
+      project = createTimeProject({ name: assoc.name, kind: assoc.kind }, stamp + pool.length);
+      if (project) pool.push(project);
+    }
+    return project ? project.id : "";
+  };
+  const blocks = [];
+  for (const draft of Array.isArray(drafts) ? drafts : []) {
+    const tasks = (Array.isArray(draft.tasks) ? draft.tasks : []).map((task, index) => ({
+      title: task.title,
+      status: task.status,
+      tag: task.tag,
+      projectId: resolve(task.assoc),
+      createdAt: stamp + index,
+    }));
+    const block = createTimeBlock({
+      date: key,
+      start: draft.untimed ? "" : draft.start === "24:00" ? "23:59" : draft.start,
+      end: draft.untimed ? "" : draft.end === "24:00" ? "23:59" : draft.end,
+      untimed: draft.untimed === true,
+      title: draft.title,
+      projectId: resolve(draft.assoc),
+      tags: draft.tag ? [draft.tag] : [],
+      tasks,
+    }, stamp + blocks.length);
+    if (block) blocks.push(block);
+  }
+  return { blocks, projects: pool };
+}
+
+function parseBacklogMarkdown(markdown, options) {
+  const opts = objectValue(options);
+  const projects = Array.isArray(opts.projects) ? opts.projects : [];
+  const items = [];
+  for (const line of stripFrontmatter(markdown).split(/\r?\n/)) {
+    const item = /^\s*[-*+]\s+(.*)$/.exec(line);
+    if (!item) continue;
+    let body = item[1].trim();
+    let resurface = "";
+    const due = /📅\s*(\d{4}-\d{2}-\d{2})\s*$/.exec(body);
+    if (due) {
+      resurface = dayValue(due[1]);
+      body = body.slice(0, due.index).trim();
+    }
+    const meta = splitTrailingMetadata(body);
+    const assoc = meta.assoc ? parseAssocTag(meta.assoc, projects) : null;
+    const entry = createBacklogItem({ title: meta.title, resurface, projectId: assoc ? resolveProjectId(assoc, projects) : "" });
+    if (entry) items.push(entry);
+  }
+  return items;
+}
+
+function resolveProjectId(assoc, projects) {
+  if (!assoc) return "";
+  const project = findProjectByName(projects, assoc.name, assoc.kind);
+  return project ? project.id : "";
+}
+
+function backlogMarkdown(items, options) {
+  const opts = objectValue(options);
+  const projects = Array.isArray(opts.projects) ? opts.projects : [];
+  const lines = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    if (!item || !item.title) continue;
+    let line = `- ${item.title}`;
+    const tag = associationTag(item.projectId, projects);
+    if (tag) line += ` ${tag}`;
+    if (item.resurface) line += ` 📅 ${item.resurface}`;
+    lines.push(line);
+  }
+  return lines.length ? `${lines.join("\n")}\n` : "";
+}
+
+/** Backlog items whose resurface day has arrived, oldest first. */
+function resurfacedBacklog(backlog, date) {
+  const key = dayValue(date);
+  if (!key) return [];
+  return (Array.isArray(backlog) ? backlog : [])
+    .filter((item) => item && item.resurface && item.resurface <= key)
+    .sort((a, b) => a.resurface.localeCompare(b.resurface) || a.createdAt - b.createdAt);
+}
+
+/** A repeat rule from Routines.md: weekdays, or a day of the month. */
+function parseRoutineRule(value) {
+  const raw = str(value).toLowerCase().replace(/^every\s+/, "").replace(/[.!]+$/, "").trim();
+  if (!raw) return null;
+  const all = [0, 1, 2, 3, 4, 5, 6];
+  if (/^(daily|day|each day)$/.test(raw)) return { days: all, monthlyDay: 0, label: "Daily" };
+  if (/^weekdays?$/.test(raw) || /^monday\s*(?:to|[-–—])\s*friday$/.test(raw)) return { days: [1, 2, 3, 4, 5], monthlyDay: 0, label: "Weekdays" };
+  if (/^weekends?$/.test(raw)) return { days: [0, 6], monthlyDay: 0, label: "Weekends" };
+  const monthly = /^(?:monthly|month|every month)\s+on\s+(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?$/.exec(raw);
+  if (monthly) {
+    const day = Number(monthly[1]);
+    if (day >= 1 && day <= 31) return { days: [], monthlyDay: day, label: `Monthly on ${day}` };
+    return null;
+  }
+  const parts = raw.replace(/\band\b/g, ",").split(/[,/&]+/).map((part) => part.trim()).filter(Boolean);
+  const days = [];
+  for (const part of parts) {
+    const name = part.replace(/s$/, "");
+    const index = WEEKDAY_NAMES.findIndex((weekday) => weekday.toLowerCase() === name.slice(0, 3));
+    if (index < 0) return null;
+    if (!days.includes(index)) days.push(index);
+  }
+  if (!days.length) return null;
+  days.sort((a, b) => a - b);
+  return { days, monthlyDay: 0, label: days.map((day) => WEEKDAY_NAMES[day]).join(", ") };
+}
+
+function routineRuleLabel(routine) {
+  if (routine.monthlyDay) return `Monthly on ${routine.monthlyDay}`;
+  const days = Array.isArray(routine.days) ? routine.days : [];
+  if (days.length === 7) return "Daily";
+  if (days.length === 5 && days.every((day) => day >= 1 && day <= 5)) return "Weekdays";
+  if (days.length === 2 && days.includes(0) && days.includes(6)) return "Weekends";
+  return days.map((day) => WEEKDAY_NAMES[day]).join(", ");
+}
+
+/** Parse Routines.md into timed block routines with their nested tasks. */
+function parseRoutinesMarkdown(markdown, options) {
+  const opts = objectValue(options);
+  const projects = Array.isArray(opts.projects) ? opts.projects : [];
+  const routines = [];
+  const unread = [];
+  let headingRule = null;
+  let current = null;
+  const flush = () => {
+    if (!current) return;
+    if (!current.start || !current.end || !current.rule) {
+      unread.push(current.title);
+    } else {
+      const routine = createTimeRoutine({
+        title: current.title,
+        start: current.start,
+        end: current.end,
+        days: current.rule.days,
+        monthlyDay: current.rule.monthlyDay,
+        projectId: resolveProjectId(current.assoc, projects),
+        tasks: current.tasks,
+      });
+      if (routine) routines.push(routine);
+      else unread.push(current.title);
+    }
+    current = null;
+  };
+  for (const raw of stripFrontmatter(markdown).split(/\r?\n/)) {
+    const line = raw.replace(/\t/g, "  ");
+    const heading = /^(#{1,6})\s+(.*)$/.exec(line.trim());
+    if (heading) {
+      flush();
+      headingRule = parseRoutineRule(heading[2]);
+      continue;
+    }
+    const item = /^(\s*)[-*+]\s+(?:\[(.)\]\s+)?(.*)$/.exec(line);
+    if (!item) continue;
+    if (item[1].length > 0 && current) {
+      if (item[2]) current.tasks.push({ title: splitTrailingMetadata(item[3]).title, status: statusFromChar(item[2]) });
+      continue;
+    }
+    if (item[1].length > 0) continue;
+    flush();
+    let body = item[3].trim();
+    let rule = headingRule;
+    const repeat = /\s*🔁\s*(.+)$/.exec(body);
+    if (repeat) {
+      rule = parseRoutineRule(repeat[1]) || rule;
+      body = body.slice(0, repeat.index).trim();
+    }
+    const range = /^(\d{1,2}:\d{2})\s*[-–—]\s*(\d{1,2}:\d{2})\s+(.*)$/.exec(body);
+    if (!range) continue;
+    const meta = splitTrailingMetadata(range[3]);
+    current = {
+      title: meta.title,
+      start: parseClock(range[1]),
+      end: parseClock(range[2], true),
+      assoc: meta.assoc ? parseAssocTag(meta.assoc, projects) : null,
+      rule,
+      tasks: [],
+    };
+  }
+  flush();
+  return { routines, unread };
+}
+
+function routinesMarkdown(routines, options) {
+  const opts = objectValue(options);
+  const projects = Array.isArray(opts.projects) ? opts.projects : [];
+  const groups = new Map();
+  for (const routine of Array.isArray(routines) ? routines : []) {
+    if (!routine || !routine.title) continue;
+    const label = routineRuleLabel(routine);
+    if (!label) continue;
+    const rows = groups.get(label) || [];
+    rows.push(routine);
+    groups.set(label, rows);
+  }
+  const lines = [];
+  for (const [label, rows] of groups) {
+    lines.push(`## ${label}`, "");
+    for (const routine of rows) {
+      let line = `- ${routine.start} - ${routine.end} ${routine.title}`;
+      const tag = associationTag(routine.projectId, projects);
+      if (tag) line += ` ${tag}`;
+      lines.push(line);
+      for (const task of Array.isArray(routine.tasks) ? routine.tasks : []) {
+        lines.push(`\t- [${statusChar(normalizeTaskStatus(task.status, task.done))}] ${task.title}`);
+      }
+    }
+    lines.push("");
+  }
+  return lines.join("\n").replace(/\n+$/, "\n");
+}
+
+/** Open and half-done tasks from earlier blocks that a day does not already have. */
+function blockLeftovers(fromBlocks, toBlocks) {
+  const present = new Set();
+  for (const block of Array.isArray(toBlocks) ? toBlocks : []) {
+    for (const task of block.tasks || []) present.add(`${task.title.toLowerCase()}|${task.projectId || block.projectId}`);
+  }
+  const rows = [];
+  for (const block of Array.isArray(fromBlocks) ? fromBlocks : []) {
+    for (const task of block.tasks || []) {
+      const status = normalizeTaskStatus(task.status, task.done);
+      if (status !== "open" && status !== "half") continue;
+      const projectId = task.projectId || block.projectId;
+      if (present.has(`${task.title.toLowerCase()}|${projectId}`)) continue;
+      rows.push({ blockId: block.id, taskId: task.id, title: task.title, status, projectId, tag: task.tag || "" });
+    }
+  }
+  return rows;
+}
+
+/**
+ * Move chosen open/half tasks out of one day's blocks into the target day's
+ * Unscheduled block. Association is written onto the task as it moves, so a
+ * task that inherited its block's project keeps it.
+ */
+function carryOverTasks(fromBlocks, toBlocks, picks, date, now) {
+  const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
+  const wanted = new Set(
+    (Array.isArray(picks) ? picks : blockLeftovers(fromBlocks, toBlocks)).map((pick) => `${pick.blockId}|${pick.taskId}`)
+  );
+  const to = (Array.isArray(toBlocks) ? toBlocks : []).slice();
+  let target = to.find((block) => block && block.untimed);
+  if (!target) {
+    target = createTimeBlock({ date: dayValue(date), untimed: true, title: UNSCHEDULED_TITLE }, stamp);
+    if (target) to.push(target);
+  }
+  if (!target) return { from: Array.isArray(fromBlocks) ? fromBlocks : [], to, moved: 0 };
+  const from = [];
+  const moved = [];
+  for (const block of Array.isArray(fromBlocks) ? fromBlocks : []) {
+    const tasks = [];
+    for (const task of block.tasks || []) {
+      const status = normalizeTaskStatus(task.status, task.done);
+      const key = `${block.id}|${task.id}`;
+      const carries = (status === "open" || status === "half") && wanted.has(key);
+      if (!carries) {
+        tasks.push(task);
+        continue;
+      }
+      const projectId = task.projectId || block.projectId;
+      const copy = normalizeBlockTask({ ...task, status, projectId }, stamp + moved.length);
+      if (!copy || target.tasks.length >= MAX_TASKS_PER_BLOCK) {
+        tasks.push(task);
+        continue;
+      }
+      target.tasks.push({ ...copy, id: idFor("tbt", [copy.title, projectId, stamp, moved.length]) });
+      moved.push(copy);
+    }
+    from.push({ ...block, tasks });
+  }
+  return { from, to, moved: moved.length };
+}
+
+/** Remove a day's routine blocks, then offer the routines again. */
+function regenerateRoutines(routines, blocks, date, now) {
+  const key = dayValue(date);
+  if (!key) return { blocks: Array.isArray(blocks) ? blocks : [], created: [], removed: 0 };
+  const kept = (Array.isArray(blocks) ? blocks : []).filter((block) => !(block && block.date === key && block.routineId));
+  const applied = applyRoutines(routines, kept, key, now);
+  return { blocks: applied.blocks, created: applied.created, removed: (Array.isArray(blocks) ? blocks.length : 0) - kept.length };
+}
+
+/**
+ * Replace (or append) the Schedule section in a daily note, leaving every line
+ * outside it untouched. `section` is a complete section, heading included.
+ */
+function replaceScheduleSection(markdown, section, heading) {
+  const text = str(markdown);
+  const wanted = str(heading).trim() || DEFAULT_SCHEDULE_HEADING;
+  const wantedText = wanted.replace(/^#+\s*/, "").toLowerCase();
+  const block = str(section).replace(/\s+$/, "") + "\n";
+  const lines = text.split(/\r?\n/);
+  let start = -1;
+  let level = 0;
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = /^(#{1,6})\s+(.*)$/.exec(lines[index].trim());
+    if (!match || match[2].trim().toLowerCase() !== wantedText) continue;
+    start = index;
+    level = match[1].length;
+    break;
+  }
+  if (start < 0) {
+    const before = text.replace(/\s+$/, "");
+    return (before ? before + "\n\n" : "") + block;
+  }
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const match = /^(#{1,6})\s+/.exec(lines[index].trim());
+    if (match && match[1].length <= level) {
+      end = index;
+      break;
+    }
+  }
+  const before = lines.slice(0, start).join("\n");
+  const after = lines.slice(end).join("\n");
+  const body = (before ? before + "\n" : "") + block;
+  return (after ? body + "\n" + after : body).replace(/\s+$/, "\n");
+}
+
 function normalizeTimeline(value) {
   const blocks = Array.isArray(value) ? value : [];
   const future = blocks.filter((block) => block.date > todayValue());
@@ -106168,6 +107454,355 @@ function normalizeTimeline(value) {
   };
 }
 
+
+// ── Project status, project files, intensity, drag geometry and migration ────
+
+/** A schedule heading in canonical "## Name" form. */
+function normalizeScheduleHeading(value) {
+  const name = str(value).trim().replace(/^#+\s*/, "").slice(0, 60);
+  return name ? "## " + name : DEFAULT_SCHEDULE_HEADING;
+}
+
+function normalizeProjectStatus(value) {
+  const status = str(value).trim().toLowerCase();
+  return PROJECT_STATUSES.includes(status) ? status : "";
+}
+
+/** A whole number from 0 to 5, or undefined when the value is not a number. */
+function coerceIntensity(value) {
+  const number = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+  if (typeof number !== "number" || !Number.isFinite(number)) return undefined;
+  return Math.min(INTENSITY_MAX, Math.max(0, Math.round(number)));
+}
+
+function normalizeProjectStatusRecord(value) {
+  const source = objectValue(value);
+  const date = dayValue(source.date);
+  const status = normalizeProjectStatus(source.status);
+  if (!date || !status) return null;
+  const intensity = coerceIntensity(source.intensity);
+  return {
+    date,
+    status,
+    ...(intensity !== undefined ? { intensity } : {}),
+    note: textValue(source.note, 500),
+  };
+}
+
+/** Status records sorted by date, one per date, oldest first, bounded. */
+function normalizeProjectHistory(value) {
+  const rows = [];
+  if (Array.isArray(value)) {
+    for (const raw of value) {
+      const row = normalizeProjectStatusRecord(raw);
+      if (row) rows.push(row);
+    }
+  } else if (value && typeof value === "object") {
+    for (const [key, raw] of Object.entries(value)) {
+      const padded = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(str(key).trim());
+      const date = padded ? padded[1] + "-" + pad(padded[2]) + "-" + pad(padded[3]) : dayValue(key);
+      if (!date) continue;
+      const source = objectValue(raw);
+      const row = normalizeProjectStatusRecord({
+        date,
+        status: typeof raw === "string" ? raw : source.status,
+        intensity: typeof raw === "string" ? undefined : source.intensity,
+        note: typeof raw === "string" ? "" : source.note,
+      });
+      if (row) rows.push(row);
+    }
+  }
+  rows.sort((a, b) => a.date.localeCompare(b.date));
+  const unique = [];
+  for (const row of rows) {
+    const at = unique.findIndex((item) => item.date === row.date);
+    if (at >= 0) unique[at] = row;
+    else unique.push(row);
+  }
+  return unique.slice(-MAX_PROJECT_HISTORY);
+}
+
+/** The record in effect on a date: the last one dated on or before it. */
+function effectiveProjectRecord(history, date) {
+  const key = dayValue(date) || todayValue();
+  let found = null;
+  for (const row of normalizeProjectHistory(history)) {
+    if (row.date <= key) found = row;
+  }
+  return found || { date: "", status: "active", note: "" };
+}
+
+/** The 0-5 intensity of an active project on a date, or null. */
+function projectIntensity(project, date) {
+  const record = effectiveProjectRecord(project && project.statusHistory, date);
+  return record.status === "active" && record.intensity !== undefined ? record.intensity : null;
+}
+
+/** Add or replace the record for one date. */
+function appendProjectStatus(history, record) {
+  const row = normalizeProjectStatusRecord(record);
+  if (!row) return normalizeProjectHistory(history);
+  return normalizeProjectHistory(normalizeProjectHistory(history).filter((item) => item.date !== row.date).concat([row]));
+}
+
+/** A whole day's block minutes as a 0-5 intensity level. */
+function intensityLevel(minutes) {
+  const value = Math.max(0, Math.round(Number(minutes) || 0));
+  if (!value) return 0;
+  if (value < 60) return 1;
+  if (value < 120) return 2;
+  if (value < 180) return 3;
+  if (value < 240) return 4;
+  return 5;
+}
+
+/** One {date, minutes, level} row per date, in the order given. */
+function intensityByDay(blocks, dates) {
+  return (Array.isArray(dates) ? dates : []).map((date) => {
+    const key = dayValue(date);
+    const minutes = key ? blocksForDate(blocks, key).reduce((sum, block) => sum + durationMinutes(block), 0) : 0;
+    return { date: key, minutes, level: intensityLevel(minutes) };
+  });
+}
+
+/** Project markdown: frontmatter beside the user's untouched body. */
+function projectMarkdown(project, options) {
+  const value = normalizeTimeProject(project);
+  if (!value) return "";
+  const settings = objectValue(options);
+  const lines = ["---", "tags:", "  - " + (value.kind === "domain" ? "mcq/domain" : "mcq/project"), "id: " + value.id, "color: " + value.color];
+  if (value.course) lines.push("course: " + value.course);
+  if (value.statusHistory.length) {
+    lines.push("status:");
+    for (const row of value.statusHistory) {
+      const fields = [row.status];
+      if (row.intensity !== undefined) fields.push("intensity: " + row.intensity);
+      if (row.note) fields.push('note: "' + row.note.replace(/"/g, '\\"') + '"');
+      lines.push("  " + row.date + ": " + (fields.length > 1 ? "{ " + fields.join(", ") + " }" : row.status));
+    }
+  }
+  lines.push("---", "");
+  const body = textValue(settings.body, MAX_TEXT);
+  return lines.join("\n") + (body ? body + "\n" : "# " + value.name + "\n");
+}
+
+/** Read a project/domain file's frontmatter; null when it is not one. */
+function parseProjectMarkdown(markdown, path) {
+  const value = str(markdown);
+  const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(value);
+  if (!match) return null;
+  const lines = match[1].split(/\r?\n/);
+  const tags = [];
+  let id = "";
+  let color = "";
+  let course = "";
+  let statusMode = false;
+  let tagsMode = false;
+  const history = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    if (/^tags\s*:/.test(trimmed)) {
+      const inline = trimmed.replace(/^tags\s*:/, "").trim().replace(/^\[|\]$/g, "");
+      for (const raw of inline.split(/[,\s]+/)) {
+        const tag = raw.replace(/^["']|["']$/g, "").trim();
+        if (tag) tags.push(tag);
+      }
+      tagsMode = !inline;
+      statusMode = false;
+      continue;
+    }
+    if (tagsMode && /^\s+-\s+/.test(line)) {
+      const tag = trimmed.replace(/^-\s+/, "").trim();
+      if (tag) tags.push(tag);
+      continue;
+    }
+    if (tagsMode && !/^\s/.test(line)) tagsMode = false;
+    if (/^id\s*:/.test(trimmed)) {
+      id = trimmed.replace(/^id\s*:/, "").trim();
+      statusMode = false;
+      tagsMode = false;
+      continue;
+    }
+    if (/^color\s*:/.test(trimmed)) {
+      color = normalizeColor(trimmed.replace(/^color\s*:/, "").trim());
+      statusMode = false;
+      tagsMode = false;
+      continue;
+    }
+    if (/^course\s*:/.test(trimmed)) {
+      course = textValue(trimmed.replace(/^course\s*:/, ""), MAX_TITLE);
+      statusMode = false;
+      tagsMode = false;
+      continue;
+    }
+    if (/^status\s*:/.test(trimmed)) {
+      statusMode = true;
+      tagsMode = false;
+      continue;
+    }
+    if (!statusMode) continue;
+    const entry = /^\s+(\d{4}-\d{1,2}-\d{1,2})\s*:\s*(.+)$/.exec(line);
+    if (!entry) {
+      if (!/^\s/.test(line)) statusMode = false;
+      continue;
+    }
+    const padded = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(entry[1]);
+    const raw = entry[2].trim();
+    const object = /^\{(.*)\}$/.exec(raw);
+    let status = raw;
+    let intensity;
+    let note = "";
+    if (object) {
+      status = "";
+      for (const part of object[1].split(",")) {
+        const colon = part.indexOf(":");
+        if (colon < 0) {
+          if (!status) status = part.trim();
+          continue;
+        }
+        const field = part.slice(0, colon).trim().toLowerCase();
+        const fieldValue = part.slice(colon + 1).trim().replace(/^["']|["']$/g, "");
+        if (field === "status") status = fieldValue;
+        else if (field === "intensity") intensity = fieldValue;
+        else if (field === "note") note = fieldValue;
+      }
+    }
+    const row = normalizeProjectStatusRecord({
+      date: padded ? padded[1] + "-" + pad(padded[2]) + "-" + pad(padded[3]) : entry[1],
+      status,
+      intensity,
+      note,
+    });
+    if (row) history.push(row);
+  }
+  const tagged = tags.some((tag) => tag === "mcq/project" || tag === "mcq/domain" || tag === "kairos/project" || tag === "kairos/domain");
+  if (!tagged) return null;
+  const base = str(path).replace(/\\/g, "/").split("/").pop().replace(/\.md$/i, "");
+  const heading = /^#\s+(.+)$/m.exec(stripFrontmatter(value));
+  return {
+    name: textValue(heading ? heading[1] : base, MAX_TITLE),
+    kind: tags.some((tag) => tag === "mcq/domain" || tag === "kairos/domain") ? "domain" : "project",
+    id,
+    color,
+    course,
+    statusHistory: normalizeProjectHistory(history),
+  };
+}
+
+/** Replace only a file's frontmatter fence, keeping its body byte for byte. */
+function replaceProjectFrontmatter(markdown, fence) {
+  const value = str(markdown);
+  const block = str(fence).replace(/\s+$/, "") + "\n";
+  const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/.exec(value);
+  if (!match) return block + (value.startsWith("\n") ? "" : "\n") + value;
+  return block + "\n" + value.slice(match[0].length).replace(/^\r?\n/, "");
+}
+
+/** Vault path for a project or domain file, sanitised for a vault path. */
+function projectFilePath(project, settings) {
+  const value = normalizeTimeProject(project);
+  if (!value) return "";
+  const source = objectValue(settings);
+  const folder = value.kind === "domain" ? textValue(source.domainsFolder, 200) || DEFAULT_DOMAINS_FOLDER : textValue(source.projectsFolder, 200) || DEFAULT_PROJECTS_FOLDER;
+  const name = value.name.replace(/[\\/:*?"<>|#^[\]]/g, "-").replace(/\s+/g, " ").trim() || "Project";
+  return folder ? folder + "/" + name + ".md" : name + ".md";
+}
+
+/** Round to a step and keep the value inside one day. */
+function snapMinutes(value, step) {
+  const size = Math.max(1, Math.round(Number(step) || 15));
+  const minutes = Math.max(0, Math.min(1440, Math.round(Number(value) || 0)));
+  return Math.min(1440, Math.round(minutes / size) * size);
+}
+
+/** Shift a timed block by whole minutes without changing its length. */
+function shiftBlockTimes(block, deltaMinutes) {
+  const start = minutesOf(block && block.start);
+  const end = minutesOf(block && block.end);
+  const span = end - start;
+  if (start < 0 || span <= 0 || span >= 1440) return null;
+  const next = Math.max(0, Math.min(1440 - span, start + Math.round(Number(deltaMinutes) || 0)));
+  return { start: timeFromMinutes(next), end: timeFromMinutes(next + span) };
+}
+
+/** Move one edge of a timed block, keeping at least 15 minutes. */
+function resizeBlockTimes(block, edge, deltaMinutes) {
+  const start = minutesOf(block && block.start);
+  const end = minutesOf(block && block.end);
+  if (start < 0 || end <= start) return null;
+  const delta = Math.round(Number(deltaMinutes) || 0);
+  if (edge === "start") {
+    const next = Math.max(0, Math.min(end - 15, start + delta));
+    return { start: timeFromMinutes(next), end: timeFromMinutes(end) };
+  }
+  const next = Math.max(start + 15, Math.min(1440, end + delta));
+  return { start: timeFromMinutes(start), end: timeFromMinutes(next) };
+}
+
+/** A dragged range: ordered, snapped and at least 15 minutes long. */
+function timeRangeFromDrag(a, b, step) {
+  const size = Math.max(1, Math.round(Number(step) || 15));
+  let start = snapMinutes(Math.min(Number(a) || 0, Number(b) || 0), size);
+  let end = snapMinutes(Math.max(Number(a) || 0, Number(b) || 0), size);
+  if (start >= 1440) start = 1440 - size;
+  if (end - start < size) end = Math.min(1440, start + size);
+  return { start: timeFromMinutes(start), end: timeFromMinutes(Math.min(1439, end)) };
+}
+
+/** open → half-done → done → open. Cancelling is a separate action. */
+function nextTaskStatus(value) {
+  const status = normalizeTaskStatus(value, false);
+  if (status === "open") return "half";
+  if (status === "half") return "done";
+  return "open";
+}
+
+/**
+ * Map a Kairos data.json to the fields this planner shares. Unknown keys are
+ * ignored and nothing is written; the caller normalises the merged object.
+ */
+function kairosSettingsPatch(value) {
+  let raw = value;
+  if (typeof raw === "string") {
+    try {
+      raw = JSON.parse(raw);
+    } catch (e) {
+      return {};
+    }
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const patch = {};
+  const hour = (number) => {
+    const value = Math.round(Number(number));
+    return Number.isFinite(value) ? pad(Math.max(0, Math.min(23, value))) + ":00" : "";
+  };
+  const start = hour(raw.timelineStartHour);
+  const end = hour(raw.timelineEndHour);
+  if (start) patch.dayStart = start;
+  if (end) patch.dayEnd = end;
+  if (patch.dayStart && patch.dayEnd && minutesOf(patch.dayEnd) <= minutesOf(patch.dayStart)) {
+    patch.dayEnd = timeFromMinutes(Math.min(1439, minutesOf(patch.dayStart) + 60));
+  }
+  if (raw.scheduleHeading) patch.scheduleHeading = normalizeScheduleHeading(raw.scheduleHeading);
+  for (const [from, to] of [
+    ["backlogPath", "backlogPath"],
+    ["routinesPath", "routinesPath"],
+    ["projectsFolder", "projectsFolder"],
+    ["domainsFolder", "domainsFolder"],
+    ["dailyNoteFolder", "dailyNoteFolder"],
+    ["dailyNotesFolder", "dailyNoteFolder"],
+    ["notesFolder", "notesFolder"],
+    ["dropBlockTitle", "dropBlockTitle"],
+  ]) {
+    const text = textValue(raw[from], 200);
+    if (text) patch[to] = text;
+  }
+  if (typeof raw.autoApplyRoutines === "boolean") patch.autoApplyRoutines = raw.autoApplyRoutines;
+  if (typeof raw.askAssocOnBlockCreate === "boolean") patch.askAssocOnBlockCreate = raw.askAssocOnBlockCreate;
+  return patch;
+}
+
 module.exports = {
   MAX_BACKLOG,
   MAX_BLOCKS,
@@ -106176,6 +107811,9 @@ module.exports = {
   MAX_TAGS,
   MAX_TAG_LENGTH,
   MAX_TASKS_PER_BLOCK,
+  TASK_STATUSES,
+  UNSCHEDULED_TITLE,
+  DEFAULT_SCHEDULE_HEADING,
   PROJECT_COLORS,
   PROJECT_KINDS,
   SUBJECT_COLOR_LIMIT,
@@ -106183,7 +107821,38 @@ module.exports = {
   TIME_BLOCK_VIEWS,
   WEEKDAY_NAMES,
   addDays,
+  appendProjectStatus,
+  INTENSITY_MAX,
+  MAX_PROJECT_HISTORY,
+  PROJECT_STATUSES,
+  DEFAULT_PROJECTS_FOLDER,
+  DEFAULT_DOMAINS_FOLDER,
+  DEFAULT_DROP_TITLE,
+  TIME_BLOCK_TOUR,
+  coerceIntensity,
+  effectiveProjectRecord,
+  intensityByDay,
+  intensityLevel,
+  kairosSettingsPatch,
+  nextTaskStatus,
+  minutesOf,
+  normalizeProjectHistory,
+  normalizeProjectStatus,
+  normalizeProjectStatusRecord,
+  normalizeTaskStatus,
+  normalizeScheduleHeading,
+  parseProjectMarkdown,
+  projectFilePath,
+  projectIntensity,
+  projectMarkdown,
+  replaceProjectFrontmatter,
+  resizeBlockTimes,
+  shiftBlockTimes,
+  snapMinutes,
+  timeRangeFromDrag,
   applyRoutines,
+  backlogMarkdown,
+  blockLeftovers,
   blockSummary,
   blocksForDate,
   blocksForTag,
@@ -106191,6 +107860,7 @@ module.exports = {
   blocksToMarkdown,
   calendarDaySummary,
   calendarWeekSummary,
+  carryOverTasks,
   createBacklogItem,
   dailyNotePath,
   createTimeBlock,
@@ -106210,13 +107880,26 @@ module.exports = {
   normalizeTimeProject,
   normalizeTimeRoutine,
   normalizeTimeline,
+  normalizeView,
+  parseBacklogMarkdown,
   parseDailyNoteLines,
+  parseRoutineRule,
+  parseRoutinesMarkdown,
+  parseScheduleMarkdown,
   projectMinutes,
   projectTimeline,
+  regenerateRoutines,
+  replaceScheduleSection,
+  resurfacedBacklog,
+  routineOccursOn,
+  routinesMarkdown,
+  scheduleMarkdown,
   startOfWeek,
+  stripFrontmatter,
   subjectColorFor,
   subjectColorRows,
   tagSummary,
+  timeBlocksFromSchedule,
   timeFromMinutes,
   todayValue,
   unscheduledStudyTasks,

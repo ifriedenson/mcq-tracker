@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 390 groups, 2558 exports. **Commands:** 176. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 390 groups, 2606 exports. **Commands:** 194. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -371,7 +371,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `svgSafety` | 1 | `tests/security-hardening.test.js`, `tests/security-inventory.test.js` |
 | `tableControls` | 2 | `tests/table-commands.test.js` |
 | `tableCsvModal` | 1 | `tests/table-commands.test.js` |
-| `tableEditor` | 59 | `tests/advanced-tables-upstream.test.js`, `tests/table-commands.test.js`, `tests/table-editor.test.js` |
+| `tableEditor` | 59 | `tests/advanced-tables-executable-parity.test.js`, `tests/advanced-tables-upstream.test.js`, `tests/table-commands.test.js`, `tests/table-editor.test.js` |
 | `tagTimer` | 26 | `tests/tag-timer.test.js` |
 | `tally` | 15 | `tests/tally.test.js` |
 | `taskTags` | 5 | `tests/task-tags.test.js` |
@@ -379,7 +379,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `text2anki` | 7 | `tests/text2anki-openai.test.js` |
 | `textTimer` | 12 | `tests/text-timer.test.js` |
 | `thinkFirst` | 6 | `tests/think-first.test.js` |
-| `timeBlocks` | 54 | `tests/time-blocks.test.js` |
+| `timeBlocks` | 102 | `tests/time-blocks-kairos.test.js`, `tests/time-blocks-parity.test.js`, `tests/time-blocks.test.js` |
 | `transcript` | 10 | `tests/adaptive-parity.test.js`, `tests/ai-write-guard.test.js`, `tests/transcript.test.js` |
 | `trendBy` | 0 | `tests/stats.test.js` |
 | `trendDelta` | 0 | `tests/stats.test.js` |
@@ -465,6 +465,24 @@ the table and fails if a group, export count, command or citing test drifts.
 | `new-cornell-note` | Cornell notes: create a note | `activateStudyTools` | `tests/plugin.test.js` |
 | `open-study-workspace` | Open Study Workspace | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js` |
 | `open-time-blocks` | Time blocks: open the planner | `activateStudyWorkspace` | `tests/command-effects.test.js` |
+| `open-time-blocks-day` | Time blocks: open the day view | `activateTimeBlocksView` | `tests/time-blocks-kairos.test.js` |
+| `open-time-blocks-week` | Time blocks: open the week view | `activateTimeBlocksView` | `tests/time-blocks-kairos.test.js` |
+| `open-time-blocks-grid` | Time blocks: open the grid view | `activateTimeBlocksView` | `tests/time-blocks-kairos.test.js` |
+| `open-time-blocks-backlog` | Time blocks: open the backlog view | `activateTimeBlocksView` | `tests/time-blocks-kairos.test.js` |
+| `open-time-blocks-routines` | Time blocks: open the routines view | `activateTimeBlocksView` | `tests/time-blocks-kairos.test.js` |
+| `open-time-blocks-projects` | Time blocks: open the projects and domains view | `activateTimeBlocksView` | `tests/time-blocks-kairos.test.js` |
+| `open-time-blocks-timeline` | Time blocks: open the timeline view | `activateTimeBlocksView` | `tests/time-blocks-kairos.test.js` |
+| `time-blocks-carry-leftovers` | Time blocks: carry unfinished tasks to today | `carryTimeBlockLeftovers` | `tests/time-blocks-kairos.test.js` |
+| `time-blocks-regenerate-routines` | Time blocks: regenerate today's routines | `regenerateTimeBlockRoutines` | `tests/time-blocks-kairos.test.js` |
+| `time-blocks-sync-daily-note` | Time blocks: sync today's Schedule section with the daily note | `syncTimeBlockDailyNote` | `tests/time-blocks-kairos.test.js` |
+| `time-blocks-import-routines` | Time blocks: import routines from Routines.md | `importTimeBlockRoutinesFile` | `tests/time-blocks-kairos.test.js` |
+| `time-blocks-import-backlog` | Time blocks: import Backlog.md | `importTimeBlockBacklogFile` | `tests/time-blocks-kairos.test.js` |
+| `time-blocks-tour` | Time blocks: open the guided tour | `openTimeBlocksTour` | `tests/time-blocks-parity.test.js` |
+| `time-blocks-write-routines` | Time blocks: write routines to Routines.md | `writeTimeBlockRoutinesFile` | `tests/time-blocks-parity.test.js` |
+| `time-blocks-write-backlog` | Time blocks: write the backlog to Backlog.md | `writeTimeBlockBacklogFile` | `tests/time-blocks-parity.test.js` |
+| `time-blocks-write-projects` | Time blocks: write project and domain files | `writeTimeBlockProjectFiles` | `tests/time-blocks-parity.test.js` |
+| `time-blocks-import-projects` | Time blocks: import project and domain files | `importTimeBlockProjectFiles` | `tests/time-blocks-parity.test.js` |
+| `time-blocks-import-kairos` | Time blocks: import Kairos settings | `importKairosSettings` | `tests/time-blocks-parity.test.js` |
 | `open-web-browser` | Web browser: open | `openWebBrowser` | `tests/plugin.test.js`, `tests/web-browser-view.test.js`, `tests/web-browser.test.js` |
 | `canvas-to-outline` | Canvas: export the active canvas to a Markdown outline | `exportCanvasToMarkdown` | `tests/canvas-markdown.test.js` |
 | `canvas-from-outline` | Canvas: build a board from the active note outline | `boardFromActiveNote` | `tests/canvas-markdown.test.js` |

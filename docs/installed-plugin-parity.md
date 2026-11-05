@@ -80,9 +80,9 @@ or a licence/security rule deliberately excludes it.
 | **Folder Sty1es** | Boundary | Per-folder icons, colours and text styles are navigation/theme presentation. The plan keeps this as reference only. |
 | **Hider** | Boundary | Hiding Obsidian chrome is a host UI preference. The plugin already has a distraction-free practice mode but does not hide arbitrary UI elements. |
 | **Importer** | Partial | Local PDF, PowerPoint, Word, text, CSV, Anki/Quizlet/QuizPort and card-archive imports exist. Airtable, Notion, Evernote, Apple Notes, OneNote, Google Keep, Bear, Roam and similar service importers are not bundled. |
-| **Kairos** | Covered idea | Local Time blocks (Day, Week, Grid, Backlog, Routines, Projects, Timeline) shipped in 1.210.1–1.210.2. Kairos is 0BSD; no Kairos code, styles or copy was reused. |
+| **Kairos** | Covered | Local Time blocks (Day, Week, Grid, Backlog, Routines, Projects, Timeline) shipped in 1.210.1–1.210.2; 1.265.0 added the document model (`## Schedule`, Backlog.md, Routines.md, statuses, routine rules, carry-over, regeneration, two-way daily-note sync); 1.267.0 adds direct manipulation (pointer create/move/resize, task cycling with right-click/long-press cancel, Week block and task drops), Timeline intensity, project/domain files with lifecycle history and intensity, file write-back, the guided tour and a Kairos settings import. Remaining differences are cosmetic grid/timeline switches. Kairos is 0BSD; no Kairos code, styles or copy was reused. |
 | **Markmind** | Partial | `study-map` builds a local outline and key-term map. It is not a full mind-map/outline editor and has no Markmind file compatibility. |
-| **MCQ Tracker** | This plugin | Current release is 1.240.0. |
+| **MCQ Tracker** | This plugin | Current release is 1.267.0. |
 | **Minimal Theme Settings** | Boundary | Changing a theme's colours, fonts and feature switches is theme integration, not study state. The plan keeps it as reference only. |
 | **Notebook Navigator** | Boundary | Replacing Obsidian's file explorer with a two-pane folder/tag navigator is a navigation product. The plan records it as a UI surface not to adopt. |
 | **Omnisearch** | Covered | The local `vault-search` block searches note text and cites path/line. It is intentionally not an OCR or fuzzy full-text index. |
@@ -247,6 +247,7 @@ The module also has an `enabled` switch upstream lacks, because this table edito
 | **Next row and previous cell keep the column** | `lib/table-editor.js` `nextRow` `previousCell` | `src/plugin.js` `moveTableCell` | `tests/table-commands.test.js` *Shift+Tab moves to the previous cell and Enter to the next row* |
 | **A bare pipe completes into a draft table** | `lib/formatter.js` `completeTable` | `src/table-editor.js` `startTable` | `tests/table-commands.test.js` *a pipe line with no delimiter is a draft that Tab completes* |
 | **Double-binding notices, suppressed on mobile** | `src/main.ts` `next-cell`/`previous-cell`/`next-row` handlers, `isMobile` | `src/plugin.js` `noticeDoubleBinding` | `tests/advanced-tables-upstream.test.js` *the double-binding notices use upstream's exact wording and stay off on mobile* |
+| **Keyboard ownership: one press, one edit** | `src/main.ts` `makeEditorExtension` keymap (`preventDefault: true`), `registerEditorExtension` | `src/plugin.js` `onTableEditorKeydown`, registered as `registerDomEvent(activeDocument, "keydown", …, true)` and calling `preventDefault` + `stopPropagation` when it acts | `tests/advanced-tables-executable-parity.test.js` *upstream's keymap cannot fire in addition because the keypress is consumed first* |
 | **A table under `-tx-` is not edited** | `src/obsidian-text-editor.ts` `acceptsTableEdit` (issue #133) | `src/table-editor.js` `tableEditBlocked` | `tests/advanced-tables-upstream.test.js` *a table under a -tx- marker is not edited, as upstream's acceptsTableEdit does* |
 | **Docked controls panel and ribbon button** | `src/table-controls-view.ts` `TableControlsView` | `src/table-controls-view.js` | `tests/table-commands.test.js` *the docked panel draws every group and its buttons act on the table* |
 | **The four settings and their defaults** | `src/settings.ts` `defaultSettings` | `src/table-editor.js` `normalizeTableEditorSettings` | `tests/advanced-tables-upstream.test.js` *the four upstream settings default exactly as settings.ts does* |
@@ -259,7 +260,26 @@ The module also has an `enabled` switch upstream lacks, because this table edito
 - **Command icons and toolbar artwork:** `src/main.ts` passes `icon:` ids and `src/icons.ts` supplies GPL-3.0 SVG artwork. Copying that artwork into this bundle is an asset-licence decision the owner has not made; the commands and the panel use text labels and Obsidian's own icons instead. Owner decision.
 - **Edge-move refusals:** upstream clamps `moveRow`/`moveColumn` to the body and silently re-formats (library `moveRow`, `moveColumn`); this plugin refuses the move and explains why. The table ends in the same state, so only the informational Notice differs. Owner decision.
 - **CSV dialog's default delimiter:** upstream has no CSV command: `CSVModal` only exports tab-joined text. This plugin's dialog defaults to commas and offers upstream's tab form through **Separate with tabs**, whose output is byte-identical to `exportCSV`. Keeping the existing comma contract is an Owner decision.
+- **Command ids differ from upstream:** upstream registers `next-cell`, `insert-row`, `format-table` and the rest without a namespace (`src/main.ts`), while this plugin registers the same actions as `tables-next-cell`, `tables-insert-row-below` and so on. Existing QuickAdd, Templater or Commander automation that calls upstream's ids will not reach these commands; renaming ours would break the palette entries and every test that names them, so keeping the namespaced ids is an Owner decision.
 - **Publishing 1.264.0:** Committing and pushing are requested; a tag, GitHub release and directory submission are not. Publishing stays the owner's decision. Owner decision.
+
+### Using both plugins
+
+The parity above is executable, not editorial: `tests/advanced-tables-executable-parity.test.js`
+runs all 22 upstream commands through this plugin's registered command callbacks
+and asserts the table text or cursor each one produces, drives the four settings
+through their real effects, and reproduces the named behaviours (sort intent and
+case, raw tab CSV, the `-tx-` guard, header insert, `TBLFM` evaluation,
+alignment, moves, deletes, transpose, weak formatting and the notice wording).
+Its keyboard test wraps the real `registerDomEvent` call, proves the listener is
+registered in the capture phase, and shows one Tab or Enter press writing exactly
+once; when that listener acts it calls `stopPropagation`, so upstream's keymap
+(inside CodeMirror, below the document) never receives the same keypress. With
+this module off, or a binding off, this listener returns without consuming, so
+upstream would handle the key instead — one handler in either direction, not two.
+Nothing here depends on the upstream plugin being installed: the only thing both
+installed would add is duplicate commands, ribbon buttons and table toolbars over
+the same table.
 
 No other item is outstanding: every upstream command, setting and behaviour above is
 implemented here and covered by a test that drives the plugin's own code.

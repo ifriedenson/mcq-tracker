@@ -1,6 +1,6 @@
 "use strict";
 const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
-const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
+const { Modal, Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
 const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST, VIEW_TYPE_WEB_BROWSER, VIEW_TYPE_AGENT } = require("./constants");
 const { PracticeView } = require("./practice-view");
@@ -56,6 +56,35 @@ const tableEditor = require("./table-editor");
 const { TableControlsView } = require("./table-controls-view");
 const { TableCsvModal } = require("./table-csv-modal");
 const { VIEW_TYPE_TABLE_CONTROLS } = require("./constants");
+
+class TimeBlocksTourModal extends Modal {
+  constructor(app, steps, onOpenDay) {
+    super(app);
+    this.steps = steps;
+    this.onOpenDay = onOpenDay;
+    this.index = 0;
+  }
+
+  onOpen() {
+    this.renderStep();
+  }
+
+  renderStep() {
+    const step = this.steps[this.index];
+    const el = this.contentEl;
+    el.textContent = "";
+    el.createEl("h2", { text: step.title });
+    el.createEl("p", { text: step.body });
+    el.createEl("div", { cls: "qt-hint", text: "Step " + (this.index + 1) + " of " + this.steps.length });
+    const row = el.createDiv({ cls: "qt-row qt-study-actions" });
+    if (this.index > 0) row.createEl("button", { text: "Back" }).addEventListener("click", () => { this.index -= 1; this.renderStep(); });
+    if (this.index < this.steps.length - 1) {
+      row.createEl("button", { text: "Next", cls: "mod-cta" }).addEventListener("click", () => { this.index += 1; this.renderStep(); });
+    } else {
+      row.createEl("button", { text: "Open Day view", cls: "mod-cta" }).addEventListener("click", () => { this.close(); if (this.onOpenDay) this.onOpenDay(); });
+    }
+  }
+}
 
 /** Command-palette entries mirroring the Advanced Tables plugin. */
 const TABLE_COMMANDS = [
@@ -467,6 +496,24 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "new-cornell-note", name: "Cornell notes: create a note", callback: () => this.activateStudyTools("cornell") });
     this.addCommand({ id: "open-study-workspace", name: "Open Study Workspace", callback: () => this.activateStudyWorkspace() });
     this.addCommand({ id: "open-time-blocks", name: "Time blocks: open the planner", callback: () => this.activateStudyWorkspace("timeBlocks") });
+    this.addCommand({ id: "open-time-blocks-day", name: "Time blocks: open the day view", callback: () => this.activateTimeBlocksView("day") });
+    this.addCommand({ id: "open-time-blocks-week", name: "Time blocks: open the week view", callback: () => this.activateTimeBlocksView("week") });
+    this.addCommand({ id: "open-time-blocks-grid", name: "Time blocks: open the grid view", callback: () => this.activateTimeBlocksView("grid") });
+    this.addCommand({ id: "open-time-blocks-backlog", name: "Time blocks: open the backlog view", callback: () => this.activateTimeBlocksView("backlog") });
+    this.addCommand({ id: "open-time-blocks-routines", name: "Time blocks: open the routines view", callback: () => this.activateTimeBlocksView("routines") });
+    this.addCommand({ id: "open-time-blocks-projects", name: "Time blocks: open the projects and domains view", callback: () => this.activateTimeBlocksView("projects") });
+    this.addCommand({ id: "open-time-blocks-timeline", name: "Time blocks: open the timeline view", callback: () => this.activateTimeBlocksView("timeline") });
+    this.addCommand({ id: "time-blocks-carry-leftovers", name: "Time blocks: carry unfinished tasks to today", callback: () => this.carryTimeBlockLeftovers() });
+    this.addCommand({ id: "time-blocks-regenerate-routines", name: "Time blocks: regenerate today's routines", callback: () => this.regenerateTimeBlockRoutines() });
+    this.addCommand({ id: "time-blocks-sync-daily-note", name: "Time blocks: sync today's Schedule section with the daily note", callback: () => this.syncTimeBlockDailyNote() });
+    this.addCommand({ id: "time-blocks-import-routines", name: "Time blocks: import routines from Routines.md", callback: () => this.importTimeBlockRoutinesFile() });
+    this.addCommand({ id: "time-blocks-import-backlog", name: "Time blocks: import Backlog.md", callback: () => this.importTimeBlockBacklogFile() });
+    this.addCommand({ id: "time-blocks-tour", name: "Time blocks: open the guided tour", callback: () => this.openTimeBlocksTour() });
+    this.addCommand({ id: "time-blocks-write-routines", name: "Time blocks: write routines to Routines.md", callback: () => this.writeTimeBlockRoutinesFile() });
+    this.addCommand({ id: "time-blocks-write-backlog", name: "Time blocks: write the backlog to Backlog.md", callback: () => this.writeTimeBlockBacklogFile() });
+    this.addCommand({ id: "time-blocks-write-projects", name: "Time blocks: write project and domain files", callback: () => this.writeTimeBlockProjectFiles() });
+    this.addCommand({ id: "time-blocks-import-projects", name: "Time blocks: import project and domain files", callback: () => this.importTimeBlockProjectFiles() });
+    this.addCommand({ id: "time-blocks-import-kairos", name: "Time blocks: import Kairos settings", callback: () => this.importKairosSettings() });
     this.addCommand({ id: "open-web-browser", name: "Web browser: open", callback: () => this.openWebBrowser() });
     this.addCommand({ id: "canvas-to-outline", name: "Canvas: export the active canvas to a Markdown outline", callback: () => this.exportCanvasToMarkdown() });
     this.addCommand({ id: "canvas-from-outline", name: "Canvas: build a board from the active note outline", callback: () => this.boardFromActiveNote() });
@@ -2861,6 +2908,17 @@ class QuestionTrackerPlugin extends Plugin {
     if (leaf.view && leaf.view.setTab && tab) leaf.view.setTab(tab);
     else if (leaf.view && leaf.view.render) leaf.view.render();
     return leaf.view;
+  }
+
+
+  /** Open the planner on a named view; the workspace keeps the last view otherwise. */
+  async activateTimeBlocksView(view) {
+    const leafView = await this.activateStudyWorkspace("timeBlocks");
+    if (leafView && leafView.timeBlockView !== undefined) {
+      leafView.timeBlockView = timeBlocks.normalizeView(view);
+      if (leafView.render) leafView.render();
+    }
+    return leafView;
   }
 
   /** The compact task list lives in the right sidebar; phones fall back to a tab. */
@@ -11159,7 +11217,7 @@ ${body}
     if (!block) return null;
     const target = block.tasks.find((task) => task.id === taskId);
     if (!target) return null;
-    const tasks = block.tasks.map((task) => (task.id === taskId ? { ...task, done: done === true } : task));
+    const tasks = block.tasks.map((task) => (task.id === taskId ? { ...task, done: done === true, status: done === true ? "done" : "open" } : task));
     const updated = timeBlocks.normalizeTimeBlock({ ...block, tasks });
     this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
       ...current,
@@ -11240,6 +11298,374 @@ ${body}
     await this.save();
     this.refreshViews();
     return result.created;
+  }
+
+  /** Open and half-done tasks from the most recent earlier day that today lacks. */
+  timeBlockLeftovers(date) {
+    const current = this.timeBlocksSettings();
+    const key = timeBlocks.dayValue(date) || timeBlocks.todayValue();
+    const todayBlocks = timeBlocks.blocksForDate(current.blocks, key);
+    for (let offset = 1; offset <= 30; offset += 1) {
+      const day = timeBlocks.addDays(key, -offset);
+      const blocks = timeBlocks.blocksForDate(current.blocks, day);
+      if (!blocks.length) continue;
+      const rows = timeBlocks.blockLeftovers(blocks, todayBlocks);
+      if (!rows.length) continue;
+      return { date: day, rows, blocks };
+    }
+    return { date: "", rows: [], blocks: [] };
+  }
+
+  /** Move the chosen unfinished tasks into today's Unscheduled block. */
+  async carryTimeBlockLeftovers(date, picks) {
+    const current = this.timeBlocksSettings();
+    const key = timeBlocks.dayValue(date) || timeBlocks.todayValue();
+    const found = this.timeBlockLeftovers(key);
+    if (!found.rows.length) return { moved: 0, from: "", to: key };
+    const chosen = Array.isArray(picks) && picks.length ? picks : found.rows.map((row) => ({ blockId: row.blockId, taskId: row.taskId }));
+    const todayBlocks = timeBlocks.blocksForDate(current.blocks, key);
+    const result = timeBlocks.carryOverTasks(found.blocks, todayBlocks, chosen, key, Date.now());
+    const fromById = new Map(result.from.map((block) => [block.id, block]));
+    const todayIds = new Set(todayBlocks.map((block) => block.id));
+    const untouched = current.blocks.filter((block) => !fromById.has(block.id) && !todayIds.has(block.id));
+    const blocks = untouched.concat([...fromById.values()], result.to).slice(-timeBlocks.MAX_BLOCKS);
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({ ...current, blocks });
+    await this.save();
+    this.refreshViews();
+    return { moved: result.moved, from: found.date, to: key };
+  }
+
+  /** Remove the day's routine blocks, then offer the routines again. */
+  async regenerateTimeBlockRoutines(date) {
+    const current = this.timeBlocksSettings();
+    const key = timeBlocks.dayValue(date) || timeBlocks.todayValue();
+    const result = timeBlocks.regenerateRoutines(current.routines, current.blocks, key, Date.now());
+    if (!result.removed && !result.created.length) return { created: [], removed: 0 };
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({ ...current, blocks: result.blocks });
+    await this.save();
+    this.refreshViews();
+    return { created: result.created, removed: result.removed };
+  }
+
+  /** Import timed block routines (and their tasks) from Routines.md. */
+  async importTimeBlockRoutinesFile(path) {
+    const current = this.timeBlocksSettings();
+    const clean = str(path || current.routinesPath).trim().replace(/^\/+|\/+$/g, "");
+    if (!clean) return { ok: false, reason: "path", message: "Set a routines file path first." };
+    const file = this.app.vault.getAbstractFileByPath(clean);
+    if (!file) return { ok: false, reason: "missing", path: clean, message: "No " + clean + " in this vault." };
+    let markdown = "";
+    try {
+      markdown = await this.app.vault.read(file);
+    } catch (e) {
+      return { ok: false, reason: "read", message: String((e && e.message) || "Could not read the routines file.") };
+    }
+    const parsed = timeBlocks.parseRoutinesMarkdown(markdown, { projects: current.projects });
+    const keyOf = (routine) => [routine.title.toLowerCase(), routine.start, routine.end, routine.days.join(""), routine.monthlyDay].join("|");
+    const seen = new Set(current.routines.map(keyOf));
+    const added = [];
+    for (const routine of parsed.routines) {
+      const key = keyOf(routine);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      added.push(routine);
+      if (current.routines.length + added.length >= timeBlocks.MAX_ROUTINES) break;
+    }
+    if (added.length) {
+      this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({ ...current, routines: current.routines.concat(added) });
+      await this.save();
+      this.refreshViews();
+    }
+    return { ok: true, path: clean, added: added.length, skipped: parsed.routines.length - added.length, unread: parsed.unread };
+  }
+
+  /** Import backlog items, their associations and resurface dates from Backlog.md. */
+  async importTimeBlockBacklogFile(path) {
+    const current = this.timeBlocksSettings();
+    const clean = str(path || current.backlogPath).trim().replace(/^\/+|\/+$/g, "");
+    if (!clean) return { ok: false, reason: "path", message: "Set a backlog file path first." };
+    const file = this.app.vault.getAbstractFileByPath(clean);
+    if (!file) return { ok: false, reason: "missing", path: clean, message: "No " + clean + " in this vault." };
+    let markdown = "";
+    try {
+      markdown = await this.app.vault.read(file);
+    } catch (e) {
+      return { ok: false, reason: "read", message: String((e && e.message) || "Could not read the backlog file.") };
+    }
+    const parsed = timeBlocks.parseBacklogMarkdown(markdown, { projects: current.projects });
+    const keyOf = (item) => [item.title.toLowerCase(), item.projectId].join("|");
+    const seen = new Set(current.backlog.map(keyOf));
+    const added = [];
+    for (const item of parsed) {
+      const key = keyOf(item);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      added.push(item);
+      if (current.backlog.length + added.length >= timeBlocks.MAX_BACKLOG) break;
+    }
+    if (added.length) {
+      this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({ ...current, backlog: current.backlog.concat(added) });
+      await this.save();
+      this.refreshViews();
+    }
+    return { ok: true, path: clean, added: added.length, skipped: parsed.length - added.length };
+  }
+
+  /** Two-way sync of one day with the Schedule section of its daily note. */
+  async syncTimeBlockDailyNote(date) {
+    const current = this.timeBlocksSettings();
+    const key = timeBlocks.dayValue(date) || timeBlocks.todayValue();
+    const path = timeBlocks.dailyNotePath(key, current.dailyNoteFolder);
+    if (!path) return { ok: false, reason: "folder", message: "Set a Daily-note folder in Settings, Time blocks first." };
+    const folder = path.split("/").slice(0, -1).join("/");
+    const file = this.app.vault.getAbstractFileByPath(path);
+    let markdown = "";
+    if (file) {
+      try {
+        markdown = await this.app.vault.read(file);
+      } catch (e) {
+        return { ok: false, reason: "read", message: String((e && e.message) || "Could not read the daily note.") };
+      }
+    }
+    const heading = current.scheduleHeading;
+    const drafts = timeBlocks.parseScheduleMarkdown(markdown, { projects: current.projects, heading });
+    const parsed = timeBlocks.timeBlocksFromSchedule(drafts, key, current.projects, Date.now());
+    let blocks = current.blocks;
+    let projects = current.projects;
+    if (drafts.length) {
+      const parsedIds = new Set(parsed.blocks.map((block) => block.id));
+      blocks = current.blocks.filter((block) => !(block.date === key && !parsedIds.has(block.id))).concat(parsed.blocks);
+      projects = parsed.projects;
+    }
+    const sectionBlocks = drafts.length ? parsed.blocks : timeBlocks.blocksForDate(blocks, key);
+    const section = timeBlocks.scheduleMarkdown(sectionBlocks, { projects, heading });
+    const nextMarkdown = timeBlocks.replaceScheduleSection(markdown, section, heading);
+    if (folder && !this.app.vault.getAbstractFileByPath(folder)) {
+      try {
+        await this.app.vault.createFolder(folder);
+      } catch (e) {
+        /* the folder may already exist after a sync */
+      }
+    }
+    if (file) await this.app.vault.modify(file, nextMarkdown);
+    else await this.app.vault.create(path, nextMarkdown);
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({ ...current, blocks, projects });
+    await this.save();
+    this.refreshViews();
+    return { ok: true, path, imported: drafts.length, blocks: sectionBlocks.length, projects: projects.length };
+  }
+
+  /** Open the seven-step tour; the last step opens Day. */
+  openTimeBlocksTour() {
+    const modal = new TimeBlocksTourModal(this.app, timeBlocks.TIME_BLOCK_TOUR, () => this.activateTimeBlocksView("day"));
+    modal.open();
+    return modal;
+  }
+
+  /** Write text at a vault path, creating one missing folder and never overwriting unexpectedly. */
+  async writeTimeBlockTextFile(path, markdown) {
+    const clean = str(path).trim().replace(/^\/+|\/+$/g, "");
+    if (!clean) return "";
+    const folder = clean.split("/").slice(0, -1).join("/");
+    if (folder && !this.app.vault.getAbstractFileByPath(folder) && typeof this.app.vault.createFolder === "function") {
+      try {
+        await this.app.vault.createFolder(folder);
+      } catch (e) {
+        /* the folder appeared between the check and the write */
+      }
+    }
+    const file = this.app.vault.getAbstractFileByPath(clean);
+    if (file) await this.app.vault.modify(file, markdown);
+    else await this.app.vault.create(clean, markdown);
+    return clean;
+  }
+
+  async writeTimeBlockRoutinesFile(path) {
+    const current = this.timeBlocksSettings();
+    const written = await this.writeTimeBlockTextFile(path || current.routinesPath, timeBlocks.routinesMarkdown(current.routines, { projects: current.projects }));
+    return written
+      ? { ok: true, path: written, routines: current.routines.length }
+      : { ok: false, reason: "path", message: "Set a routines file path first." };
+  }
+
+  async writeTimeBlockBacklogFile(path) {
+    const current = this.timeBlocksSettings();
+    const written = await this.writeTimeBlockTextFile(path || current.backlogPath, timeBlocks.backlogMarkdown(current.backlog, { projects: current.projects }));
+    return written
+      ? { ok: true, path: written, items: current.backlog.length }
+      : { ok: false, reason: "path", message: "Set a backlog file path first." };
+  }
+
+  /** Write one Markdown file per project/domain, keeping the user's body. */
+  async writeTimeBlockProjectFiles() {
+    const current = this.timeBlocksSettings();
+    const paths = [];
+    for (const project of current.projects) {
+      const path = timeBlocks.projectFilePath(project, current);
+      if (!path) continue;
+      const file = this.app.vault.getAbstractFileByPath(path);
+      let body = "";
+      if (file) {
+        try {
+          body = timeBlocks.stripFrontmatter(await this.app.vault.read(file));
+        } catch (e) {
+          continue;
+        }
+      }
+      await this.writeTimeBlockTextFile(path, timeBlocks.projectMarkdown(project, { body }));
+      paths.push(path);
+    }
+    return { ok: true, written: paths.length, paths };
+  }
+
+  /** Read project/domain files back, merging status history and colours by name. */
+  async importTimeBlockProjectFiles() {
+    const current = this.timeBlocksSettings();
+    const files = typeof this.app.vault.getMarkdownFiles === "function" ? this.app.vault.getMarkdownFiles() : [];
+    const folders = [current.projectsFolder, current.domainsFolder]
+      .filter(Boolean)
+      .map((folder) => str(folder).replace(/^\/+|\/+$/g, "") + "/");
+    const projects = current.projects.slice();
+    let imported = 0;
+    for (const file of files) {
+      const path = str(file && file.path);
+      if (!folders.some((folder) => path.startsWith(folder))) continue;
+      let markdown = "";
+      try {
+        markdown = await this.app.vault.read(file);
+      } catch (e) {
+        continue;
+      }
+      const parsed = timeBlocks.parseProjectMarkdown(markdown, path);
+      if (!parsed) continue;
+      const at = projects.findIndex((project) => project.name.toLowerCase() === parsed.name.toLowerCase());
+      if (at >= 0) {
+        projects[at] = timeBlocks.normalizeTimeProject({
+          ...projects[at],
+          kind: parsed.kind,
+          color: parsed.color || projects[at].color,
+          course: parsed.course || projects[at].course,
+          statusHistory: parsed.statusHistory.length ? parsed.statusHistory : projects[at].statusHistory,
+        });
+      } else {
+        const created = timeBlocks.createTimeProject(parsed, Date.now() + imported);
+        if (created) projects.push(created);
+      }
+      imported += 1;
+    }
+    if (imported) {
+      this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({ ...current, projects });
+      await this.save();
+      this.refreshViews();
+    }
+    return { ok: true, imported, projects: projects.length };
+  }
+
+  /** Copy the settings Kairos stores in its own data.json, without reading its code. */
+  async importKairosSettings() {
+    const path = ".obsidian/plugins/kairos/data.json";
+    const adapter = this.app.vault.adapter;
+    if (!adapter || typeof adapter.read !== "function") {
+      return { ok: false, reason: "adapter", message: "This vault cannot read plugin settings directly." };
+    }
+    let raw = "";
+    try {
+      raw = await adapter.read(path);
+    } catch (e) {
+      return { ok: false, reason: "missing", message: "No Kairos settings found at " + path + "." };
+    }
+    const patch = timeBlocks.kairosSettingsPatch(raw);
+    const applied = Object.keys(patch);
+    if (!applied.length) return { ok: false, reason: "empty", message: "No Kairos settings this planner can reuse." };
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({ ...this.timeBlocksSettings(), ...patch });
+    await this.save();
+    this.refreshViews();
+    return { ok: true, path, applied };
+  }
+
+  /** Set a task's four-state status; a linked study task follows done only. */
+  async setTimeBlockTaskStatus(blockId, taskId, status) {
+    const current = this.timeBlocksSettings();
+    const block = current.blocks.find((row) => row.id === blockId);
+    const target = block && block.tasks.find((task) => task.id === taskId);
+    if (!target) return null;
+    const next = timeBlocks.normalizeTaskStatus(status, false);
+    const tasks = block.tasks.map((task) => (task.id === taskId ? { ...task, done: next === "done", status: next } : task));
+    const updated = timeBlocks.normalizeTimeBlock({ ...block, tasks });
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      blocks: current.blocks.map((row) => (row.id === blockId ? updated : row)),
+    });
+    if (target.studyTaskId) {
+      const taskState = this.studyWorkspaceSettings().studyTasks;
+      this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({
+        ...taskState,
+        tasks: taskState.tasks.map((task) => (task.id === target.studyTaskId ? { ...task, done: next === "done" } : task)),
+      });
+    }
+    await this.save();
+    this.refreshViews();
+    return updated;
+  }
+
+  async cycleTimeBlockTask(blockId, taskId) {
+    const current = this.timeBlocksSettings();
+    const block = current.blocks.find((row) => row.id === blockId);
+    const task = block && block.tasks.find((row) => row.id === taskId);
+    if (!task) return null;
+    return this.setTimeBlockTaskStatus(blockId, taskId, timeBlocks.nextTaskStatus(task.status));
+  }
+
+  async cancelTimeBlockTask(blockId, taskId) {
+    return this.setTimeBlockTaskStatus(blockId, taskId, "cancelled");
+  }
+
+  /** Move one task to a day's Unscheduled block, creating it when needed. */
+  async moveTimeBlockTask(blockId, taskId, date) {
+    const current = this.timeBlocksSettings();
+    const key = timeBlocks.dayValue(date);
+    const source = current.blocks.find((row) => row.id === blockId);
+    const task = source && source.tasks.find((row) => row.id === taskId);
+    if (!key || !task || source.date === key) return null;
+    const moved = { ...task, projectId: task.projectId || source.projectId };
+    const blocks = current.blocks
+      .map((row) => (row.id === blockId ? timeBlocks.normalizeTimeBlock({ ...row, tasks: row.tasks.filter((item) => item.id !== taskId) }) : row))
+      .filter(Boolean);
+    let target = blocks.find((row) => row.date === key && row.untimed);
+    if (!target) {
+      target = timeBlocks.createTimeBlock({ date: key, title: timeBlocks.UNSCHEDULED_TITLE, untimed: true, tasks: [moved] }, Date.now());
+      if (!target) return null;
+      blocks.push(target);
+    } else {
+      const at = blocks.indexOf(target);
+      blocks[at] = timeBlocks.normalizeTimeBlock({ ...target, tasks: target.tasks.concat(moved) });
+      target = blocks[at];
+    }
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({ ...current, blocks });
+    await this.save();
+    this.refreshViews();
+    return { date: key, blockId: target.id, title: task.title };
+  }
+
+  /** Record one project/domain lifecycle state for a date. */
+  async setTimeBlockProjectStatus(projectId, status, intensity, note, date) {
+    const current = this.timeBlocksSettings();
+    const project = current.projects.find((row) => row.id === projectId);
+    if (!project || !timeBlocks.normalizeProjectStatus(status)) return null;
+    const statusHistory = timeBlocks.appendProjectStatus(project.statusHistory, {
+      date: date || timeBlocks.todayValue(),
+      status,
+      intensity,
+      note,
+    });
+    const updated = timeBlocks.normalizeTimeProject({ ...project, statusHistory });
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      projects: current.projects.map((row) => (row.id === projectId ? updated : row)),
+    });
+    await this.save();
+    this.refreshViews();
+    return updated;
   }
 
   async addTimeBlockBacklog(input) {
