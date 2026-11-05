@@ -159,6 +159,10 @@ const { AutoAnkiModal } = require("./auto-anki-modal");
 const studyBundle = require("./study-bundle");
 const studyBundleImport = require("./study-bundle-import");
 const zipWrite = require("./zip-write");
+const epub = require("./epub");
+const epubAnnotations = require("./epub-annotations");
+const { EpubReaderModal } = require("./epub-reader-modal");
+const serviceImport = require("./service-import");
 const { MAX_OPENCODE_MAJOR, OpenCodeManager, assertExtractedTree, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, platformTriple } = require("./opencode-manager");
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, sliceQuestionRange, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
 const { InsightsView } = require("./insights-view");
@@ -411,6 +415,10 @@ QuestionTrackerPlugin.__test = {
   studyBundle,
   studyBundleImport,
   zipWrite,
+  epub,
+  epubAnnotations,
+  EpubReaderModal,
+  serviceImport,
   OpenCodeManager,
   MAX_OPENCODE_MAJOR,
   opencodeMajor,

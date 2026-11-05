@@ -5,6 +5,7 @@ const { annotationLink, annotationsMarkdown, hashBytes, parseAnnotationFile, rem
 const { INK_COLORS, INK_COLOR_HEX, INK_TOOLS, MARK_STYLES, MAX_INK_POINTS, areaAt, boxAt, clamp, drawInkSegment, drawInkStrokes, drawMarks, eraseStrokesAt, normalizeHighlightArea, normalizeHighlightAreas, normalizeInkStroke, normalizeInkStrokes, normalizeTextBox, normalizeTextBoxes, textInArea } = require("./pdf-ink");
 const { renderSidebar, rowPage, selectionBounds, sidebarRows, tagInput } = require("./pdf-annotator-sidebar");
 const { pageTextFromItems } = require("./reading-companion");
+const { normalizeRect } = require("./pdf-deep-link");
 const { formFields, loadEditorDocument } = require("./pdf-editor");
 
 const TOOL_LABELS = { pen: "Pen", highlighter: "Highlighter", text: "Text box", highlight: "Highlight", underline: "Underline", strike: "Strike-through", box: "Box", select: "Select text", eraser: "Eraser" };
@@ -159,6 +160,9 @@ class PdfInkModal extends Modal {
     this.plugin = plugin;
     this.pdfPath = (options && options.pdfPath) || "";
     this.page = Math.max(1, Math.round(Number(options && options.page) || 1));
+    // A rectangle deep link rings the selection it was made over, once.
+    this.focusRect = normalizeRect(options && options.rect);
+    this.focusAnnotation = String((options && options.annotation) || "").trim();
     this.total = 0;
     this.tool = "pen";
     this.color = "blue";
@@ -786,6 +790,9 @@ class PdfInkModal extends Modal {
       const bounds = selectionBounds(selected.areas);
       if (bounds) drawSelectionRing(ctx, bounds, width, height);
     }
+    if (this.focusRect && Number(page) === Number(this.page)) {
+      drawSelectionRing(ctx, this.focusRect, width, height);
+    }
   }
 
   redrawAll() {
@@ -907,7 +914,7 @@ class PdfInkModal extends Modal {
       this.pageQuoteIds = this.quotes.map((entry) => entry.id);
       await this.refreshAnnotations();
       const last = this.quotes[this.quotes.length - 1];
-      const link = annotationLink(this.pdfPath, this.page, last ? last.id : "");
+      const link = annotationLink(this.pdfPath, this.page, last ? last.id : "", selectionBounds(last ? last.areas : []));
       this.setStatus(`Saved a quote${input.note ? " with a note" : ""} on page ${this.page}.${link ? ` Link: ${link}` : ""}`);
       this.touch();
       this.redraw();
@@ -919,7 +926,9 @@ class PdfInkModal extends Modal {
   }
 
   async copyPageLink() {
-    const link = annotationLink(this.pdfPath, this.page, "");
+    const selected = this.annotationRows.find((row) => row.id === this.selectedId);
+    const rect = selected && rowPage(selected) === Number(this.page) ? selectionBounds(selected.areas) : this.focusRect;
+    const link = annotationLink(this.pdfPath, this.page, selected ? selected.id : "", rect);
     try {
       if (typeof navigator === "undefined" || !navigator.clipboard) throw new Error("Clipboard unavailable");
       await navigator.clipboard.writeText(link);

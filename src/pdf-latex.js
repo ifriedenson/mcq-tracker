@@ -17,6 +17,31 @@ function latexPrompt(pageNumber) {
   return `Convert page ${Number(pageNumber) || 1} to Markdown with LaTeX maths. Return only the Markdown.`;
 }
 
+const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/** Bare base64 for a PNG, whichever shape the renderer hands back. */
+function pngBase64(png) {
+  if (typeof png === "string") {
+    const text = png.trim();
+    const dataUrl = /^data:[^;]*;base64,([\s\S]*)$/i.exec(text);
+    return (dataUrl ? dataUrl[1] : text).replace(/\s+/g, "");
+  }
+  const bytes =
+    png instanceof Uint8Array ? png : png instanceof ArrayBuffer ? new Uint8Array(png) : Array.isArray(png) ? Uint8Array.from(png) : null;
+  if (!bytes || !bytes.length) return "";
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i];
+    const b = i + 1 < bytes.length ? bytes[i + 1] : 0;
+    const c = i + 2 < bytes.length ? bytes[i + 2] : 0;
+    const n = (a << 16) | (b << 8) | c;
+    out += BASE64[(n >> 18) & 63] + BASE64[(n >> 12) & 63];
+    out += i + 1 < bytes.length ? BASE64[(n >> 6) & 63] : "=";
+    out += i + 2 < bytes.length ? BASE64[n & 63] : "=";
+  }
+  return out;
+}
+
 /** The reply with fences, preambles and stray delimiters removed; "" when empty. */
 function extractLatexMarkdown(reply) {
   let text = str(reply).replace(/\r\n?/g, "\n").trim();
@@ -68,4 +93,4 @@ function buildLatexNote(pages, meta) {
   return { title, text: lines.join("\n"), pages: list.length };
 }
 
-module.exports = { LATEX_SYSTEM, buildLatexNote, extractLatexMarkdown, latexNotePath, latexPrompt };
+module.exports = { LATEX_SYSTEM, buildLatexNote, extractLatexMarkdown, latexNotePath, latexPrompt, pngBase64 };

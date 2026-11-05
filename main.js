@@ -28499,6 +28499,639 @@ function aiReady(plugin) {
 module.exports = { QUICK_START_URL, aiReady, emptyState, hasValidQuestion, scanQuestionNotes };
 };
 
+/* ---- src/epub.js ---- */
+__defs["epub"] = function (module, exports, require) {
+/*
+ * A dependency-free EPUB reader.
+ *
+ * An EPUB is a ZIP with a fixed entry (`META-INF/container.xml`) naming an OPF
+ * package; the OPF lists the manifest and the spine order. This module opens the
+ * container, reads the spine's XHTML chapters in order and returns plain text
+ * (paragraphs separated by blank lines) so the reader and the annotation sidecar
+ * can work with stable character offsets. No HTML is ever handed to the DOM, no
+ * script or style content is kept, and nothing is fetched over the network.
+ */
+const { decodeXml, inflateRaw, zipEntries } = require("./documents");
+const { str } = require("./util");
+
+const MAX_CHAPTERS = 300;
+const MAX_CHAPTER_TEXT = 200000;
+const READABLE = /(xhtml|html|htm|xml)$/i;
+
+function toBytes(input) {
+  if (input instanceof Uint8Array) return input;
+  if (input instanceof ArrayBuffer) return new Uint8Array(input);
+  if (input && input.buffer instanceof ArrayBuffer) return new Uint8Array(input.buffer, input.byteOffset || 0, input.byteLength || 0);
+  return new Uint8Array(0);
+}
+
+function utf8(bytes) {
+  if (typeof TextDecoder === "function") return new TextDecoder("utf-8").decode(bytes);
+  let out = "";
+  for (const byte of bytes) out += String.fromCharCode(byte);
+  return out;
+}
+
+/** Resolves `href` against the folder that holds the OPF file. */
+function joinPath(folder, href) {
+  const clean = str(href).trim().replace(/\\/g, "/").split("#")[0];
+  if (!clean) return "";
+  const parts = (clean.startsWith("/") ? clean.slice(1) : folder + clean).split("/");
+  const out = [];
+  for (const part of parts) {
+    if (!part || part === ".") continue;
+    if (part === "..") out.pop();
+    else out.push(part);
+  }
+  return out.join("/");
+}
+
+function folderOf(path) {
+  const text = str(path);
+  const cut = text.lastIndexOf("/");
+  return cut < 0 ? "" : text.slice(0, cut + 1);
+}
+
+async function readEntry(zip, name) {
+  const entry = zip.get(name);
+  if (!entry) return "";
+  const bytes = entry.method === 0 ? entry.data : await inflateRaw(entry.data);
+  return utf8(toBytes(bytes));
+}
+
+/** Attributes of one tag, lower-cased, with entities decoded. */
+function attributes(tag) {
+  const out = {};
+  for (const match of str(tag).matchAll(/([A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*"([^"]*)"/g)) {
+    out[match[1].toLowerCase()] = decodeXml(match[2]);
+  }
+  for (const match of str(tag).matchAll(/([A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*'([^']*)'/g)) {
+    if (!(match[1].toLowerCase() in out)) out[match[1].toLowerCase()] = decodeXml(match[2]);
+  }
+  return out;
+}
+
+/** Readable text from one XHTML document; scripts, styles and tags are dropped. */
+function xhtmlText(html) {
+  const source = str(html)
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|h[1-6]|li|tr|blockquote|section|article|figcaption)>/gi, "\n\n")
+    .replace(/<[^>]+>/g, " ");
+  return decodeXml(source)
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t\u00a0]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** The first heading in a chapter, or "" when it has none. */
+function chapterHeading(html) {
+  const match = /<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/i.exec(str(html));
+  if (!match) return "";
+  return decodeXml(match[1].replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim().slice(0, 200);
+}
+
+/**
+ * Opens an EPUB from its bytes. Returns
+ * `{ ok, title, chapters: [{ n, title, href, text }], total, truncated }`.
+ * Throws a readable Error when the container, package or spine is unusable.
+ */
+async function readEpub(input) {
+  const bytes = toBytes(input);
+  if (!bytes.length) throw new Error("That EPUB is empty.");
+  let zip;
+  try {
+    zip = zipEntries(bytes);
+  } catch (e) {
+    throw new Error("That file isn't an EPUB: its ZIP container can't be read.");
+  }
+  const container = await readEntry(zip, "META-INF/container.xml");
+  if (!container) throw new Error("That EPUB has no META-INF/container.xml, so its package cannot be found.");
+  const rootfile = /<rootfile\b[^>]*>/i.exec(container);
+  const opfPath = rootfile ? attributes(rootfile[0])["full-path"] : "";
+  if (!opfPath) throw new Error("That EPUB's container does not name a package document.");
+  const opf = await readEntry(zip, str(opfPath).replace(/^\/+/, ""));
+  if (!opf) throw new Error(`That EPUB is missing its package document (${opfPath}).`);
+
+  const titleMatch = /<dc:title[^>]*>([\s\S]*?)<\/dc:title>/i.exec(opf);
+  const title = titleMatch ? decodeXml(titleMatch[1].replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim().slice(0, 300) : "";
+
+  const manifest = new Map();
+  for (const match of opf.matchAll(/<item\b[^>]*>/gi)) {
+    const attrs = attributes(match[0]);
+    if (!attrs.id || !attrs.href) continue;
+    manifest.set(attrs.id, { href: attrs.href, type: str(attrs["media-type"]).toLowerCase() });
+  }
+  const folder = folderOf(opfPath);
+  const spine = [...opf.matchAll(/<itemref\b[^>]*>/gi)].map((match) => attributes(match[0]).idref).filter(Boolean);
+  const order = spine.length ? spine : [...manifest.keys()];
+  const chapters = [];
+  let truncated = false;
+  for (const idref of order) {
+    const item = manifest.get(idref);
+    if (!item) continue;
+    const href = joinPath(folder, item.href);
+    if (!READABLE.test(href) || !/xhtml|html/.test(item.type || "xhtml")) continue;
+    const html = await readEntry(zip, href);
+    if (!html) continue;
+    let text = xhtmlText(html);
+    if (!text) continue;
+    if (text.length > MAX_CHAPTER_TEXT) {
+      text = text.slice(0, MAX_CHAPTER_TEXT);
+      truncated = true;
+    }
+    if (chapters.length >= MAX_CHAPTERS) {
+      truncated = true;
+      break;
+    }
+    chapters.push({
+      n: chapters.length + 1,
+      title: chapterHeading(html) || `Chapter ${chapters.length + 1}`,
+      href,
+      text,
+    });
+  }
+  if (!chapters.length) throw new Error("That EPUB has no readable chapters.");
+  return { ok: true, title: title || "EPUB", chapters, total: chapters.length, truncated };
+}
+
+/**
+ * Paragraphs of one chapter with their exact character range, so a highlight can
+ * be drawn on the paragraph it belongs to without re-searching the text.
+ */
+function paragraphsOf(text) {
+  const source = str(text);
+  const out = [];
+  let start = 0;
+  while (start < source.length) {
+    let end = source.indexOf("\n\n", start);
+    if (end < 0) end = source.length;
+    const raw = source.slice(start, end);
+    const lead = raw.length - raw.replace(/^\s+/, "").length;
+    const body = raw.trim();
+    if (body) out.push({ text: body, start: start + lead, end: start + lead + body.length });
+    start = end + 2;
+  }
+  return out;
+}
+
+/** Paragraphs with the annotations that overlap each one, for rendering. */
+function annotateParagraphs(text, annotations) {
+  const list = Array.isArray(annotations) ? annotations : [];
+  return paragraphsOf(text).map((paragraph) => {
+    const hits = list.filter((entry) => entry && entry.start < paragraph.end && entry.end > paragraph.start);
+    return {
+      ...paragraph,
+      annotations: hits,
+      ids: hits.map((entry) => entry.id),
+      notes: hits.map((entry) => entry.note).filter(Boolean),
+    };
+  });
+}
+
+/** `Book.epub` -> `Book (EPUB).md`-style safe base for messages and notes. */
+function epubBaseName(path) {
+  return (
+    str(path)
+      .split("/")
+      .pop()
+      .replace(/\.epub$/i, "")
+      .replace(/[\\/:*?"<>|#[\]]/g, "")
+      .trim() || "EPUB"
+  );
+}
+
+module.exports = {
+  MAX_CHAPTERS,
+  MAX_CHAPTER_TEXT,
+  annotateParagraphs,
+  epubBaseName,
+  joinPath,
+  paragraphsOf,
+  readEpub,
+  xhtmlText,
+};
+};
+
+/* ---- src/epub-annotations.js ---- */
+__defs["epub-annotations"] = function (module, exports, require) {
+/*
+ * EPUB annotation sidecar.
+ *
+ * An EPUB is never written: highlights and notes live in a Markdown sidecar next
+ * to the book (`Book.epub.annotations.md`), so the book stays byte-identical and
+ * the annotations are readable, linkable and greppable. Each annotation records
+ * the chapter number, the character range inside that chapter's extracted text,
+ * the quote it was made over, an optional note, a colour and bounded tags.
+ */
+const { str } = require("./util");
+
+const COLORS = ["yellow", "green", "blue", "red", "purple"];
+const MAX_ANNOTATIONS = 2000;
+const MAX_QUOTE = 2000;
+const MAX_NOTE = 4000;
+const MAX_TAGS = 6;
+const MAX_TAG = 24;
+const MARKER = "<!-- mcq-epub-annotations -->";
+const EMPTY = Object.freeze({ epubPath: "", epubHash: "", annotations: [], damaged: [] });
+
+/** A stable, dependency-free hash of the book's bytes, used to spot a replaced file. */
+function epubHash(bytes) {
+  const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+  let h1 = 0x811c9dc5;
+  let h2 = 0x1000193;
+  for (const byte of data) {
+    h1 = (h1 ^ byte) * 0x01000193 >>> 0;
+    h2 = (h2 + byte * (h1 % 31 + 1)) >>> 0;
+  }
+  return (h1.toString(16).padStart(8, "0") + h2.toString(16).padStart(8, "0")).slice(0, 16);
+}
+
+function sidecarPathFor(path) {
+  return str(path).replace(/\.epub$/i, "") + ".epub.annotations.md";
+}
+
+/** Page-style tags: lower-case, hash-free, unique, at most six of 24 characters. */
+function normalizeTags(value) {
+  const list = Array.isArray(value) ? value : str(value).split(/[,;#]+/);
+  const out = [];
+  for (const raw of list) {
+    const tag = str(raw)
+      .trim()
+      .replace(/^#+/, "")
+      .replace(/[^A-Za-z0-9/_-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase()
+      .slice(0, MAX_TAG);
+    if (tag && !out.includes(tag)) out.push(tag);
+    if (out.length >= MAX_TAGS) break;
+  }
+  return out;
+}
+
+function number(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round(n) : null;
+}
+
+/** One annotation, or null when the chapter, range, quote or id is unusable. */
+function normalizeAnnotation(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const id = /^ann-[0-9]{1,6}$/.test(str(source.id)) ? str(source.id) : "";
+  const chapter = number(source.chapter);
+  const start = number(source.start);
+  const end = number(source.end);
+  const quote = str(source.quote).trim().slice(0, MAX_QUOTE);
+  if (!id || chapter === null || chapter < 1 || start === null || end === null) return null;
+  if (start < 0 || end <= start || !quote) return null;
+  return {
+    id,
+    chapter,
+    start,
+    end,
+    quote,
+    note: str(source.note).trim().slice(0, MAX_NOTE),
+    color: COLORS.includes(str(source.color).toLowerCase()) ? str(source.color).toLowerCase() : "yellow",
+    tags: normalizeTags(source.tags),
+  };
+}
+
+/** Everything a sidecar carries, tolerating a missing or damaged block. */
+function parseSidecar(text) {
+  const out = { ...EMPTY, annotations: [], damaged: [] };
+  const source = str(text);
+  if (!source.trim()) return out;
+  const front = /^---\r?\n([\s\S]*?)\r?\n---/.exec(source);
+  if (front) {
+    const epub = /^epub:\s*(.+)$/m.exec(front[1]);
+    const hash = /^epub_hash:\s*(.+)$/m.exec(front[1]);
+    if (epub) out.epubPath = str(epub[1]).replace(/^["']|["']$/g, "").trim();
+    if (hash) out.epubHash = str(hash[1]).replace(/^["']|["']$/g, "").trim();
+  }
+  const block = /```json\s*\n([\s\S]*?)```/i.exec(source);
+  if (!block) {
+    if (source.includes(MARKER)) out.damaged.push("The annotation block is missing its JSON body.");
+    return out;
+  }
+  let list;
+  try {
+    list = JSON.parse(block[1]);
+  } catch (e) {
+    out.damaged.push("The annotation block is not valid JSON; no annotation was loaded from it.");
+    return out;
+  }
+  if (!Array.isArray(list)) {
+    out.damaged.push("The annotation block is not a list.");
+    return out;
+  }
+  for (const item of list) {
+    const normalized = normalizeAnnotation(item);
+    if (normalized) out.annotations.push(normalized);
+    else out.damaged.push(`Skipped an annotation that is not usable (${str(item && item.id) || "no id"}).`);
+  }
+  return out;
+}
+
+/** One sidecar file, with the annotations readable and re-parseable. */
+function serializeSidecar(epubPath, hash, annotations) {
+  const list = (Array.isArray(annotations) ? annotations : []).map(normalizeAnnotation).filter(Boolean).slice(0, MAX_ANNOTATIONS);
+  const path = str(epubPath).trim();
+  const lines = [
+    "---",
+    `epub: ${JSON.stringify(path)}`,
+    `epub_hash: ${JSON.stringify(str(hash))}`,
+    `annotations: ${list.length}`,
+    "---",
+    "",
+    "# EPUB annotations",
+    "",
+    `Book: ${path ? `[[${path}]]` : "(unknown)"}`,
+    "",
+    MARKER,
+    "```json",
+    JSON.stringify(list, null, 2),
+    "```",
+    "",
+  ];
+  return { text: lines.join("\n"), annotations: list };
+}
+
+function nextId(annotations) {
+  let max = 0;
+  for (const annotation of annotations || []) {
+    const match = /^ann-([0-9]+)$/.exec(str(annotation && annotation.id));
+    if (match) max = Math.max(max, Number(match[1]));
+  }
+  return `ann-${max + 1}`;
+}
+
+/**
+ * Adds one annotation. `meta.chapterText` is the chapter's extracted text, used
+ * both to locate the quote and to prove the stored offsets still point at it.
+ * Returns `{ text, annotation, annotations, error }`; `error` is a sentence and
+ * nothing is added when the request is unusable.
+ */
+function addAnnotation(text, input, meta) {
+  const source = input && typeof input === "object" ? input : {};
+  const m = meta && typeof meta === "object" ? meta : {};
+  const chapterText = str(m.chapterText);
+  const quote = str(source.quote).trim().slice(0, MAX_QUOTE);
+  if (!quote) return { text: str(text), annotations: [], error: "Select some text to annotate first." };
+  if (chapterText && !chapterText.includes(quote)) {
+    return { text: str(text), annotations: [], error: "That quote is not in this chapter's text, so it cannot be anchored." };
+  }
+  const chapter = number(source.chapter);
+  if (chapter === null || chapter < 1) return { text: str(text), annotations: [], error: "An annotation needs a chapter." };
+  const at = chapterText ? chapterText.indexOf(quote) : -1;
+  const start = number(source.start) !== null ? number(source.start) : at >= 0 ? at : 0;
+  const end = number(source.end) !== null ? number(source.end) : start + quote.length;
+  const parsed = parseSidecar(text);
+  const existing = parsed.annotations.find((entry) => entry.chapter === chapter && entry.start === start && entry.end === end);
+  const annotation = normalizeAnnotation({
+    id: existing ? existing.id : nextId(parsed.annotations),
+    chapter,
+    start,
+    end,
+    quote,
+    note: source.note,
+    color: source.color,
+    tags: source.tags,
+  });
+  if (!annotation) return { text: str(text), annotations: parsed.annotations, error: "That annotation has no usable range." };
+  const annotations = existing
+    ? parsed.annotations.map((entry) => (entry.id === existing.id ? annotation : entry))
+    : parsed.annotations.concat([annotation]).slice(-MAX_ANNOTATIONS);
+  const written = serializeSidecar(m.epubPath || parsed.epubPath, m.hash || parsed.epubHash, annotations);
+  return { text: written.text, annotation, annotations: written.annotations };
+}
+
+function removeAnnotation(text, id) {
+  const parsed = parseSidecar(text);
+  const target = str(id).trim();
+  const annotations = parsed.annotations.filter((entry) => entry.id !== target);
+  if (annotations.length === parsed.annotations.length) {
+    return { text: str(text), removed: false, annotations: parsed.annotations };
+  }
+  const written = serializeSidecar(parsed.epubPath, parsed.epubHash, annotations);
+  return { text: written.text, removed: true, annotations: written.annotations };
+}
+
+/** Rows for one chapter, in reading order. */
+function annotationsForChapter(annotations, chapter) {
+  const n = number(chapter);
+  return (annotations || [])
+    .filter((entry) => normalizeAnnotation(entry) && entry.chapter === n)
+    .map(normalizeAnnotation)
+    .sort((a, b) => a.start - b.start || a.id.localeCompare(b.id));
+}
+
+/** `[[Book.epub#chapter=2&annotation=ann-3]]`, or "" when unusable. */
+function epubAnnotationLink(epubPath, chapter, id) {
+  const path = str(epubPath).trim().replace(/^\/+/, "").replace(/[|#[\]]/g, "");
+  const n = number(chapter);
+  const anchor = str(id).trim();
+  if (!path || !/\.epub$/i.test(path) || n === null || n < 1) return "";
+  if (anchor && !/^ann-[0-9]{1,6}$/.test(anchor)) return "";
+  return `[[${path}#chapter=${n}${anchor ? `&annotation=${anchor}` : ""}]]`;
+}
+
+function describeAnnotation(annotation) {
+  const entry = normalizeAnnotation(annotation);
+  if (!entry) return "That is not an EPUB annotation.";
+  return `chapter ${entry.chapter}, “${entry.quote.length > 60 ? entry.quote.slice(0, 60) + "…" : entry.quote}”${entry.note ? ` — ${entry.note}` : ""}`;
+}
+
+module.exports = {
+  COLORS,
+  MARKER,
+  MAX_ANNOTATIONS,
+  MAX_NOTE,
+  MAX_QUOTE,
+  MAX_TAGS,
+  addAnnotation,
+  annotationsForChapter,
+  describeAnnotation,
+  epubAnnotationLink,
+  epubHash,
+  normalizeAnnotation,
+  normalizeTags,
+  parseSidecar,
+  removeAnnotation,
+  serializeSidecar,
+  sidecarPathFor,
+};
+};
+
+/* ---- src/epub-reader-modal.js ---- */
+__defs["epub-reader-modal"] = function (module, exports, require) {
+/*
+ * The EPUB reader window.
+ *
+ * It shows one chapter at a time, marks the paragraphs that already carry an
+ * annotation, and lets the reader highlight or annotate a paragraph. Every change
+ * goes through the plugin's sidecar methods, so reopening the book re-reads the
+ * same annotations from the vault; the book itself is never written.
+ */
+const { Modal, Notice, Setting } = require("obsidian");
+const epub = require("./epub");
+const epubAnnotations = require("./epub-annotations");
+const { str } = require("./util");
+
+class EpubReaderModal extends Modal {
+  constructor(app, plugin, options) {
+    super(app);
+    this.plugin = plugin;
+    this.options = options && typeof options === "object" ? options : {};
+    this.path = str(this.options.path);
+    this.book = null;
+    this.annotations = [];
+    this.damaged = [];
+    this.chapter = Math.max(1, Math.round(Number(this.options.chapter) || 1));
+    this.color = "yellow";
+  }
+
+  async onOpen() {
+    this.contentEl.addClass("qt-epub-reader");
+    await this.load();
+  }
+
+  /** Reads the book and its sidecar again, then redraws. */
+  async load() {
+    this.book = await this.plugin.epubBook(this.path);
+    const parsed = await this.plugin.epubAnnotations(this.path);
+    this.annotations = parsed.annotations || [];
+    this.damaged = parsed.damaged || [];
+    if (this.chapter > this.book.total) this.chapter = this.book.total;
+    this.render();
+    return this.book;
+  }
+
+  chapterEntry() {
+    if (!this.book) return null;
+    return this.book.chapters.find((entry) => entry.n === this.chapter) || this.book.chapters[0] || null;
+  }
+
+  annotationsFor(n) {
+    return epubAnnotations.annotationsForChapter(this.annotations, n || this.chapter);
+  }
+
+  /** The chapter's paragraphs with the annotations that land on each one. */
+  rows() {
+    const chapter = this.chapterEntry();
+    if (!chapter) return [];
+    return epub.annotateParagraphs(chapter.text, this.annotationsFor(chapter.n));
+  }
+
+  render() {
+    const el = this.contentEl;
+    if (!el || typeof el.empty !== "function") return;
+    el.empty();
+    el.createDiv({ cls: "qt-epub-title", text: this.book ? `${this.book.title} — ${this.path}` : this.path });
+    if (!this.book) return;
+    const nav = el.createDiv({ cls: "qt-epub-nav" });
+    nav.createDiv({ cls: "qt-epub-count", text: `Chapter ${this.chapter} of ${this.book.total}` });
+    const previous = nav.createEl("button", { text: "Previous" });
+    previous.disabled = this.chapter <= 1;
+    previous.onclick = () => this.goTo(this.chapter - 1);
+    const next = nav.createEl("button", { text: "Next" });
+    next.disabled = this.chapter >= this.book.total;
+    next.onclick = () => this.goTo(this.chapter + 1);
+    if (this.damaged.length) {
+      el.createDiv({ cls: "qt-epub-damaged", text: `${this.damaged.length} annotation(s) could not be read: ${this.damaged[0]}` });
+    }
+    const chapter = this.chapterEntry();
+    el.createDiv({ cls: "qt-epub-chapter-title", text: chapter ? chapter.title : "" });
+    const body = el.createDiv({ cls: "qt-epub-body" });
+    for (const row of this.rows()) {
+      const paragraph = body.createDiv({ cls: row.ids.length ? "qt-epub-paragraph is-marked" : "qt-epub-paragraph" });
+      paragraph.createDiv({ cls: "qt-epub-text", text: row.text });
+      for (const note of row.notes) paragraph.createDiv({ cls: "qt-epub-note", text: note });
+      const actions = paragraph.createDiv({ cls: "qt-epub-actions" });
+      const mark = actions.createEl("button", { text: row.ids.length ? "Update highlight" : "Highlight" });
+      mark.onclick = () => this.mark(row);
+      for (const annotation of row.annotations) {
+        const remove = actions.createEl("button", { text: "Remove" });
+        remove.onclick = () => this.remove(annotation.id);
+      }
+    }
+    new Setting(el)
+      .setName("Colour")
+      .addDropdown((dropdown) => {
+        for (const color of epubAnnotations.COLORS) dropdown.addOption(color, color);
+        dropdown.setValue(this.color);
+        dropdown.onChange((value) => {
+          this.color = value;
+        });
+      });
+  }
+
+  goTo(n) {
+    const target = Math.round(Number(n));
+    if (!this.book || target < 1 || target > this.book.total) return false;
+    this.chapter = target;
+    this.render();
+    return true;
+  }
+
+  /** Highlights one paragraph; a second click on the same range updates its note. */
+  async mark(row) {
+    const paragraph = row && typeof row === "object" ? row : { text: str(row) };
+    try {
+      await this.plugin.addEpubHighlight(this.path, {
+        chapter: this.chapter,
+        quote: paragraph.text,
+        start: paragraph.start,
+        end: paragraph.end,
+        color: this.color,
+      });
+      await this.load();
+      new Notice("Highlight saved beside the book.");
+      return true;
+    } catch (e) {
+      new Notice(str(e && e.message ? e.message : e));
+      return false;
+    }
+  }
+
+  async annotate(row, note) {
+    const paragraph = row && typeof row === "object" ? row : { text: str(row) };
+    try {
+      await this.plugin.addEpubHighlight(this.path, {
+        chapter: this.chapter,
+        quote: paragraph.text,
+        start: paragraph.start,
+        end: paragraph.end,
+        note: str(note),
+        color: this.color,
+      });
+      await this.load();
+      return true;
+    } catch (e) {
+      new Notice(str(e && e.message ? e.message : e));
+      return false;
+    }
+  }
+
+  async remove(id) {
+    try {
+      const removed = await this.plugin.deleteEpubAnnotation(this.path, id);
+      await this.load();
+      if (!removed) new Notice(`There is no annotation ${str(id)} in this book.`);
+      return removed;
+    } catch (e) {
+      new Notice(str(e && e.message ? e.message : e));
+      return false;
+    }
+  }
+}
+
+module.exports = { EpubReaderModal };
+};
+
 /* ---- src/exam-block.js ---- */
 __defs["exam-block"] = function (module, exports, require) {
 /*
@@ -43902,6 +44535,39 @@ function renderNodes(node, depth, lines) {
   }
 }
 
+/**
+ * Any note becomes a map: headings nest by level and list lines nest under the
+ * heading they follow. A note with no heading still gets its list as branches.
+ */
+function mindmapFromMarkdown(text) {
+  const source = splitNote(text).body;
+  const root = { text: "Mind map", children: [] };
+  const stack = [{ node: root, level: 0, indent: -1 }];
+  let sawHeading = false;
+  for (const line of source.split("\n")) {
+    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+    if (heading) {
+      sawHeading = true;
+      const level = heading[1].length;
+      const node = { text: heading[2].trim(), children: [] };
+      if (!root.children.length && !stack[1]) root.text = node.text;
+      while (stack.length > 1 && stack[stack.length - 1].level >= level) stack.pop();
+      stack[stack.length - 1].node.children.push(node);
+      stack.push({ node, level, indent: -1 });
+      continue;
+    }
+    const list = /^([ \t]*)(?:[-*+]|\d+[.)])\s+(.+)$/.exec(line);
+    if (!list) continue;
+    const indent = list[1].replace(/\t/g, "  ").length;
+    while (stack.length > 1 && indent <= stack[stack.length - 1].indent) stack.pop();
+    const node = { text: list[2].trim(), children: [] };
+    stack[stack.length - 1].node.children.push(node);
+    stack.push({ node, level: stack[stack.length - 1].level, indent });
+  }
+  if (sawHeading && root.children.length === 1) return root.children[0];
+  return root;
+}
+
 /** Write a tree back as a Markmind note. */
 function markmindMarkdown(root) {
   const tree = root && typeof root === "object" ? root : { text: "Mind map", children: [] };
@@ -43985,6 +44651,7 @@ function moveNode(root, text, parentText) {
 }
 
 module.exports = {
+  mindmapFromMarkdown,
   PLUGIN_KEY,
   addChild,
   flattenMindmap,
@@ -55922,6 +56589,7 @@ const { annotationLink, annotationsMarkdown, hashBytes, parseAnnotationFile, rem
 const { INK_COLORS, INK_COLOR_HEX, INK_TOOLS, MARK_STYLES, MAX_INK_POINTS, areaAt, boxAt, clamp, drawInkSegment, drawInkStrokes, drawMarks, eraseStrokesAt, normalizeHighlightArea, normalizeHighlightAreas, normalizeInkStroke, normalizeInkStrokes, normalizeTextBox, normalizeTextBoxes, textInArea } = require("./pdf-ink");
 const { renderSidebar, rowPage, selectionBounds, sidebarRows, tagInput } = require("./pdf-annotator-sidebar");
 const { pageTextFromItems } = require("./reading-companion");
+const { normalizeRect } = require("./pdf-deep-link");
 const { formFields, loadEditorDocument } = require("./pdf-editor");
 
 const TOOL_LABELS = { pen: "Pen", highlighter: "Highlighter", text: "Text box", highlight: "Highlight", underline: "Underline", strike: "Strike-through", box: "Box", select: "Select text", eraser: "Eraser" };
@@ -56076,6 +56744,9 @@ class PdfInkModal extends Modal {
     this.plugin = plugin;
     this.pdfPath = (options && options.pdfPath) || "";
     this.page = Math.max(1, Math.round(Number(options && options.page) || 1));
+    // A rectangle deep link rings the selection it was made over, once.
+    this.focusRect = normalizeRect(options && options.rect);
+    this.focusAnnotation = String((options && options.annotation) || "").trim();
     this.total = 0;
     this.tool = "pen";
     this.color = "blue";
@@ -56703,6 +57374,9 @@ class PdfInkModal extends Modal {
       const bounds = selectionBounds(selected.areas);
       if (bounds) drawSelectionRing(ctx, bounds, width, height);
     }
+    if (this.focusRect && Number(page) === Number(this.page)) {
+      drawSelectionRing(ctx, this.focusRect, width, height);
+    }
   }
 
   redrawAll() {
@@ -56824,7 +57498,7 @@ class PdfInkModal extends Modal {
       this.pageQuoteIds = this.quotes.map((entry) => entry.id);
       await this.refreshAnnotations();
       const last = this.quotes[this.quotes.length - 1];
-      const link = annotationLink(this.pdfPath, this.page, last ? last.id : "");
+      const link = annotationLink(this.pdfPath, this.page, last ? last.id : "", selectionBounds(last ? last.areas : []));
       this.setStatus(`Saved a quote${input.note ? " with a note" : ""} on page ${this.page}.${link ? ` Link: ${link}` : ""}`);
       this.touch();
       this.redraw();
@@ -56836,7 +57510,9 @@ class PdfInkModal extends Modal {
   }
 
   async copyPageLink() {
-    const link = annotationLink(this.pdfPath, this.page, "");
+    const selected = this.annotationRows.find((row) => row.id === this.selectedId);
+    const rect = selected && rowPage(selected) === Number(this.page) ? selectionBounds(selected.areas) : this.focusRect;
+    const link = annotationLink(this.pdfPath, this.page, selected ? selected.id : "", rect);
     try {
       if (typeof navigator === "undefined" || !navigator.clipboard) throw new Error("Clipboard unavailable");
       await navigator.clipboard.writeText(link);
@@ -57355,6 +58031,31 @@ function latexPrompt(pageNumber) {
   return `Convert page ${Number(pageNumber) || 1} to Markdown with LaTeX maths. Return only the Markdown.`;
 }
 
+const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/** Bare base64 for a PNG, whichever shape the renderer hands back. */
+function pngBase64(png) {
+  if (typeof png === "string") {
+    const text = png.trim();
+    const dataUrl = /^data:[^;]*;base64,([\s\S]*)$/i.exec(text);
+    return (dataUrl ? dataUrl[1] : text).replace(/\s+/g, "");
+  }
+  const bytes =
+    png instanceof Uint8Array ? png : png instanceof ArrayBuffer ? new Uint8Array(png) : Array.isArray(png) ? Uint8Array.from(png) : null;
+  if (!bytes || !bytes.length) return "";
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i];
+    const b = i + 1 < bytes.length ? bytes[i + 1] : 0;
+    const c = i + 2 < bytes.length ? bytes[i + 2] : 0;
+    const n = (a << 16) | (b << 8) | c;
+    out += BASE64[(n >> 18) & 63] + BASE64[(n >> 12) & 63];
+    out += i + 1 < bytes.length ? BASE64[(n >> 6) & 63] : "=";
+    out += i + 2 < bytes.length ? BASE64[n & 63] : "=";
+  }
+  return out;
+}
+
 /** The reply with fences, preambles and stray delimiters removed; "" when empty. */
 function extractLatexMarkdown(reply) {
   let text = str(reply).replace(/\r\n?/g, "\n").trim();
@@ -57406,7 +58107,7 @@ function buildLatexNote(pages, meta) {
   return { title, text: lines.join("\n"), pages: list.length };
 }
 
-module.exports = { LATEX_SYSTEM, buildLatexNote, extractLatexMarkdown, latexNotePath, latexPrompt };
+module.exports = { LATEX_SYSTEM, buildLatexNote, extractLatexMarkdown, latexNotePath, latexPrompt, pngBase64 };
 };
 
 /* ---- src/plain-cards.js ---- */
@@ -57546,7 +58247,7 @@ const practiceFullscreen = require("./practice-fullscreen");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
 const { TodayView } = require("./today-view");
-const { ConfirmModal, FindQuestionModal, QuestionFolderModal } = require("./modals");
+const { ConfirmModal, FindQuestionModal, NameModal, QuestionFolderModal } = require("./modals");
 const { cloneFilters, fvals, hasFilters, isDue, matchSets, renameFolderInSettings } = require("./filters");
 const { QuestionTrackerSettingTab } = require("./settings-tab");
 const { AssignmentsView } = require("./assignments-view");
@@ -57561,6 +58262,10 @@ const fsrsTrain = require("./fsrs-train");
 const mindmap = require("./mindmap");
 const pdfDeepLink = require("./pdf-deep-link");
 const pdfLatex = require("./pdf-latex");
+const epub = require("./epub");
+const epubAnnotations = require("./epub-annotations");
+const { EpubReaderModal } = require("./epub-reader-modal");
+const serviceImport = require("./service-import");
 const canvasMap = require("./canvas-map");
 const canvasKanban = require("./canvas-kanban");
 const { KanbanReportModal } = require("./canvas-kanban-view");
@@ -57672,7 +58377,7 @@ const { normalizeTextTimerSettings } = require("./text-timer");
 const { renderTextTimerBlock } = require("./text-timer-view");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const { PdfImportModal } = require("./import-modal");
-const { readPdfPages } = require("./pdf");
+const { readPdfPages, renderPdfPagesAsPng } = require("./pdf");
 const { CourseNotesModal, removeAiSummary } = require("./course-notes");
 const { DocumentReviewModal } = require("./document-review-modal");
 const { OcrModal } = require("./ocr-modal");
@@ -57950,6 +58655,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "export-practice-sheet", name: "Export an answer-free practice sheet", callback: () => this.exportPracticeSheet() });
     this.addCommand({ id: "export-review-sheet", name: "Export an error-log review sheet", callback: () => this.exportReviewSheet() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
+    this.addCommand({ id: "import-service-export", name: "Import notes from an export (Airtable, Notion, Evernote, Keep, Bear, Roam)", callback: () => this.importActiveServiceExport() });
+    this.addCommand({ id: "import-service-clipboard", name: "Import notes from a pasted export", callback: () => this.importServiceClipboard() });
     this.addCommand({ id: "quick-add", name: "Quick add questions from pasted text", callback: () => this.openQuickAdd() });
     this.addCommand({ id: "import-quiz-clipboard", name: "Import a generated quiz from the clipboard", callback: () => this.openQuizClipboardImport() });
     this.addCommand({ id: "export-study-bundle", name: "Export a study bundle (backup of questions and cards)", callback: () => this.exportStudyBundle() });
@@ -57972,6 +58679,28 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "ocr-pdf", name: "OCR a scanned PDF", callback: () => this.openOcr() });
     this.addCommand({ id: "pdf-annotate", name: "PDF: add an annotation", callback: () => this.openPdfAnnotation() });
     this.addCommand({ id: "pdf-draw", name: "PDF: draw with pen or highlighter", callback: () => this.openPdfInk() });
+    this.addCommand({ id: "pdf-latex", name: "PDF: convert pages to a LaTeX note", callback: () => this.convertActivePdfLatex() });
+    this.addCommand({ id: "mindmap-add-child", name: "Mind map: add a child", callback: () => this.promptMindMap("add") });
+    this.addCommand({ id: "mindmap-rename", name: "Mind map: rename a node", callback: () => this.promptMindMap("rename") });
+    this.addCommand({ id: "mindmap-remove", name: "Mind map: remove a node", callback: () => this.promptMindMap("remove") });
+    this.addCommand({ id: "mindmap-move", name: "Mind map: move a node", callback: () => this.promptMindMap("move") });
+    this.addCommand({ id: "mindmap-from-note", name: "Mind map: make a Markmind map from this note", callback: () => this.mindMapFromNote() });
+    this.addCommand({
+      id: "pdf-open-link",
+      name: "PDF: open a copied deep link",
+      callback: async () => {
+        let text = "";
+        try {
+          text = navigator.clipboard && navigator.clipboard.readText ? await navigator.clipboard.readText() : "";
+        } catch (e) {
+          new Notice("Could not read a link from the clipboard. Copy a PDF deep link first.");
+          return;
+        }
+        this.openPdfDeepLink(text);
+      },
+    });
+    this.addCommand({ id: "epub-read", name: "EPUB: open the reader", callback: () => this.openActiveEpubReader() });
+    this.addCommand({ id: "epub-annotations", name: "EPUB: open this book's annotations", callback: () => this.openEpubAnnotations() });
     this.addCommand({ id: "pdf-edit", name: "PDF: open the editor (pages and forms)", callback: () => this.openActivePdfEditor() });
     this.addCommand({ id: "pdf-export-notes", name: "PDF: export annotations to Markdown", callback: () => this.exportActivePdfAnnotations() });
     this.addCommand({ id: "pdf-open-annotations", name: "PDF: open annotations", callback: () => this.openPdfAnnotations() });
@@ -58311,13 +59040,13 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor("sat-math", (source, el, ctx) => this.renderSatMathBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("sfc-cards", (source, el, ctx) => this.renderSfcCardsBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("cbt-exam", (source, el, ctx) => this.renderCbtExamBlock(source, el, ctx));
-    this.registerMarkdownCodeBlockProcessor("study-map", (source, el) => this.renderStudyMapBlock(source, el));
     this.registerMarkdownCodeBlockProcessor("vault-search", (source, el) => this.renderVaultSearchBlock(source, el));
     this.registerMarkdownCodeBlockProcessor("quizport", (source, el, ctx) => this.renderQuizPortBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("simple-flashcards", (source, el, ctx) => this.renderSimpleFlashcardsBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("reading-plan", (source, el, ctx) => this.renderReadingPlanBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("tag-timer", (source, el, ctx) => this.renderTagTimerBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("tally", (source, el, ctx) => this.renderTallyBlock(source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("study-map", (source, el) => this.renderStudyMapBlock(source, el));
     this.registerMarkdownCodeBlockProcessor("text-timer", (source, el, ctx) => this.renderTextTimerBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("cornell-note", (source, el) => renderCornellBlock(this, source, el));
     this.registerMarkdownCodeBlockProcessor("quiz", (source, el, ctx) => this.renderSimpleQuizBlock(source, el, ctx));
@@ -59037,9 +59766,108 @@ class QuestionTrackerPlugin extends Plugin {
     new PdfAnnotationModal(this.app, this, { pdfPath: pdfPath || "" }).open();
   }
 
-  openPdfInk(pdfPath) {
+  openPdfInk(pdfPath, options) {
     if (this.moduleOff("mcq")) return;
-    new PdfInkModal(this.app, this, { pdfPath: pdfPath || "" }).open();
+    const extra = options && typeof options === "object" ? options : {};
+    new PdfInkModal(this.app, this, { ...extra, pdfPath: pdfPath || extra.pdfPath || "" }).open();
+  }
+
+  /** Opens a PDF deep link in the reader on its page, with its rectangle ringed. */
+  openPdfDeepLink(link) {
+    if (this.moduleOff("mcq")) return null;
+    const parsed = pdfDeepLink.parsePdfDeepLink(link);
+    if (!parsed.valid) {
+      new Notice("That is not a PDF deep link. Copy one from an annotation or the reader.");
+      return null;
+    }
+    if (!this.app.vault.getAbstractFileByPath(parsed.path)) {
+      new Notice(`There is no ${parsed.path} in this vault.`);
+      return null;
+    }
+    this.openPdfInk(parsed.path, { page: parsed.page, rect: parsed.rect, annotation: parsed.annotation });
+    return parsed;
+  }
+
+  /** Reads an EPUB from the vault: container, package, spine and chapter text. */
+  async epubBook(path) {
+    const file = this.app.vault.getAbstractFileByPath(str(path));
+    if (!file) throw new Error(`There is no ${str(path)} in this vault.`);
+    if (!/\.epub$/i.test(file.path || str(path))) throw new Error(`${str(path)} is not an EPUB; open an .epub file.`);
+    return epub.readEpub(await this.app.vault.readBinary(file));
+  }
+
+  /** The annotation sidecar beside the book, or an empty set before the first highlight. */
+  async epubAnnotations(path) {
+    const sidecar = epubAnnotations.sidecarPathFor(path);
+    const file = this.app.vault.getAbstractFileByPath(sidecar);
+    if (!file) return { path: sidecar, epubPath: str(path), epubHash: "", annotations: [], damaged: [] };
+    return { ...epubAnnotations.parseSidecar(await this.app.vault.cachedRead(file)), path: sidecar, epubPath: str(path) };
+  }
+
+  /** Adds or updates one highlight, anchored to the real chapter text, and writes the sidecar. */
+  async addEpubHighlight(path, input) {
+    const file = this.app.vault.getAbstractFileByPath(str(path));
+    if (!file) throw new Error(`There is no ${str(path)} in this vault.`);
+    const bytes = await this.app.vault.readBinary(file);
+    const book = await epub.readEpub(bytes);
+    const source = input && typeof input === "object" ? input : {};
+    const number = Math.round(Number(source.chapter));
+    const chapter = book.chapters.find((entry) => entry.n === number);
+    if (!chapter) throw new Error(`Chapter ${str(source.chapter)} is not in ${epub.epubBaseName(path)} (1 to ${book.total}).`);
+    const sidecar = epubAnnotations.sidecarPathFor(path);
+    const existing = this.app.vault.getAbstractFileByPath(sidecar);
+    const text = existing ? await this.app.vault.cachedRead(existing) : "";
+    const result = epubAnnotations.addAnnotation(text, source, {
+      chapterText: chapter.text,
+      epubPath: str(path),
+      hash: epubAnnotations.epubHash(bytes),
+    });
+    if (result.error) throw new Error(result.error);
+    if (existing) await this.app.vault.modify(existing, result.text);
+    else await this.app.vault.create(sidecar, result.text);
+    return { annotation: result.annotation, annotations: result.annotations, path: sidecar };
+  }
+
+  /** Removes one annotation by id; false when the book has no such annotation. */
+  async deleteEpubAnnotation(path, id) {
+    const sidecar = epubAnnotations.sidecarPathFor(path);
+    const file = this.app.vault.getAbstractFileByPath(sidecar);
+    if (!file) return false;
+    const result = epubAnnotations.removeAnnotation(await this.app.vault.cachedRead(file), id);
+    if (!result.removed) return false;
+    await this.app.vault.modify(file, result.text);
+    return true;
+  }
+
+  openEpubReader(path) {
+    if (this.moduleOff("mcq")) return null;
+    new EpubReaderModal(this.app, this, { path: str(path) }).open();
+    return true;
+  }
+
+  /** The reader's command entry: it needs an open EPUB. */
+  openActiveEpubReader() {
+    const active = this.app.workspace.getActiveFile();
+    if (!active || !/\.epub$/i.test(active.path)) {
+      new Notice("Open an EPUB first, then run the reader again.");
+      return;
+    }
+    this.openEpubReader(active.path);
+  }
+
+  /** Opens the sidecar note, so the annotations are editable as Markdown too. */
+  openEpubAnnotations(path) {
+    const target = str(path) || str((this.app.workspace.getActiveFile() || {}).path);
+    if (!/\.epub$/i.test(target)) {
+      new Notice("Open an EPUB first.");
+      return;
+    }
+    const sidecar = epubAnnotations.sidecarPathFor(target);
+    if (!this.app.vault.getAbstractFileByPath(sidecar)) {
+      new Notice(`No EPUB annotations yet: ${sidecar} appears after the first highlight.`);
+      return;
+    }
+    this.app.workspace.openLinkText(sidecar, "", false);
   }
 
   openPdfEditor(pdfPath) {
@@ -65597,6 +66425,118 @@ ${body}
     return this.aiChat(system, [{ role: "user", content: user }], opts);
   }
 
+  /** Renders the chosen pages once so the vision model can read the handwriting. */
+  async renderLatexPages(bytes, spec) {
+    return renderPdfPagesAsPng(bytes, spec, null, 2);
+  }
+
+  /** Converts chosen PDF pages into one LaTeX note through the configured vision model. */
+  async convertPdfToLatex(pdfPath, spec) {
+    if (this.moduleOff("mcq")) return null;
+    const path = String(pdfPath || "").trim();
+    const file = path ? this.app.vault.getAbstractFileByPath(path) : null;
+    if (!file || !/\.pdf$/i.test(path)) throw new Error("Open a PDF first.");
+    if (!(this.settings.ai && this.settings.ai.enabled)) throw new Error("Turn on AI features before converting handwriting.");
+    const rendered = await this.renderLatexPages(await this.app.vault.readBinary(file), String(spec || "1").trim() || "1");
+    const pages = [];
+    for (const page of rendered.pages || []) {
+      const data = pdfLatex.pngBase64(page.png);
+      if (!data) continue;
+      const reply = await this.aiVision(pdfLatex.LATEX_SYSTEM, pdfLatex.latexPrompt(page.n), [{ data, mime: "image/png" }], { feature: "ocr" });
+      pages.push({ n: page.n, text: reply });
+    }
+    const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/") + 1) : "";
+    const stem = pdfLatex.latexNotePath(path);
+    const note = pdfLatex.buildLatexNote(pages, {
+      title: path.split("/").pop().replace(/\.pdf$/i, ""),
+      sourcePath: path,
+      model: this.aiModelFor ? this.aiModelFor("ocr") : "",
+      date: new Date().toISOString().slice(0, 10),
+    });
+    let target = folder + stem;
+    for (let n = 2; n < 50 && this.app.vault.getAbstractFileByPath(target); n++) target = folder + stem.replace(/\.md$/i, " " + n + ".md");
+    await this.app.vault.create(target, note.text);
+    return { path: target, pages: note.pages };
+  }
+
+  /** Prompts for a page range and converts the active PDF. */
+  convertActivePdfLatex() {
+    const active = this.app.workspace.getActiveFile();
+    if (!active || !/\.pdf$/i.test(active.path)) {
+      new Notice("Open a PDF first.");
+      return;
+    }
+    new NameModal(this.app, "Pages to convert (for example 1-3)", "1", async (spec) => {
+      try {
+        const result = await this.convertPdfToLatex(active.path, spec);
+        if (result) new Notice("Wrote " + result.path + ".");
+      } catch (e) {
+        new Notice(e && e.message ? e.message : String(e));
+      }
+    }).open();
+  }
+
+  /** A note as a map: Markmind frontmatter when present, headings otherwise. */
+  async mindMapTree(path) {
+    const file = this.app.vault.getAbstractFileByPath(String(path || ""));
+    if (!file) throw new Error("Open a Markdown note first.");
+    const text = await this.app.vault.cachedRead(file);
+    const root = mindmap.isMarkmind(text) ? mindmap.parseMarkmind(text).root : mindmap.mindmapFromMarkdown(text);
+    return { path: file.path, root };
+  }
+
+  /** Applies one map edit and writes the Markmind shape back to the note. */
+  async mindMapEdit(path, action, args) {
+    const a = args && typeof args === "object" ? args : {};
+    const file = this.app.vault.getAbstractFileByPath(String(path || ""));
+    if (!file) throw new Error("Open a Markdown note first.");
+    const { root } = await this.mindMapTree(path);
+    let op = null;
+    if (action === "add") op = mindmap.addChild(root, a.parent, a.text);
+    else if (action === "rename") op = mindmap.renameNode(root, a.from, a.to);
+    else if (action === "remove") op = mindmap.removeNode(root, a.text);
+    else if (action === "move") op = mindmap.moveNode(root, a.text, a.parent);
+    else throw new Error("Unknown mind-map action.");
+    if (!op || !op.ok) throw new Error(op && op.message ? op.message : "That node is not in this map.");
+    await this.app.vault.modify(file, mindmap.markmindMarkdown(op.tree));
+    return { path: file.path, root: op.tree };
+  }
+
+  /** Two prompts for one map edit, with a notice when the edit is refused. */
+  promptMindMap(action) {
+    const active = this.app.workspace.getActiveFile();
+    if (!active || !/\.md$/i.test(active.path)) {
+      new Notice("Open a Markdown note first.");
+      return;
+    }
+    const ask = (title, initial, cb) => new NameModal(this.app, title, initial, cb).open();
+    const done = (args) => this.mindMapEdit(active.path, action, args)
+      .then(() => new Notice("Saved the mind map."))
+      .catch((e) => new Notice(e && e.message ? e.message : String(e)));
+    if (action === "add") ask("Parent node", "", (parent) => ask("New child", "", (text) => done({ parent, text })));
+    else if (action === "rename") ask("Node to rename", "", (from) => ask("New text", from, (to) => done({ from, to })));
+    else if (action === "remove") ask("Node to remove", "", (text) => done({ text }));
+    else if (action === "move") ask("Node to move", "", (text) => ask("New parent", "", (parent) => done({ text, parent })));
+  }
+
+  /** Writes a Markmind note beside this one from its headings and lists. */
+  async mindMapFromNote() {
+    const active = this.app.workspace.getActiveFile();
+    if (!active || !/\.md$/i.test(active.path)) {
+      new Notice("Open a Markdown note first.");
+      return null;
+    }
+    const root = mindmap.mindmapFromMarkdown(await this.app.vault.cachedRead(active));
+    const target = active.path.replace(/\.md$/i, "") + " (mind map).md";
+    if (this.app.vault.getAbstractFileByPath(target)) {
+      new Notice(target + " already exists.");
+      return null;
+    }
+    await this.app.vault.create(target, mindmap.markmindMarkdown(root));
+    new Notice("Wrote " + target + ".");
+    return target;
+  }
+
   /** Opt-in image request for vision work. Only Direct AI can receive images. */
   async aiVision(system, prompt, images, opts) {
     const o = opts || {};
@@ -65804,6 +66744,87 @@ ${body}
       }
     }
     return this.importParsedCards(cards, { ...opts, errors });
+  }
+
+  /** Reads one export file from the vault as text. */
+  async serviceExportText(path) {
+    const file = this.app.vault.getAbstractFileByPath(str(path));
+    if (!file) throw new Error(`There is no ${str(path)} in this vault.`);
+    return str(await this.app.vault.cachedRead(file));
+  }
+
+  /**
+   * Imports one service export: `{ path }` or `{ text, filename }`, into a folder of
+   * notes. Each record becomes one note; an existing note is skipped, so a repeated
+   * import never duplicates or overwrites. Returns what was written and skipped.
+   */
+  async importServiceExport(source, options) {
+    const input = source && typeof source === "object" ? source : {};
+    const settings = options && typeof options === "object" ? options : {};
+    const path = str(input.path);
+    const filename = path || str(input.filename);
+    if (/\.text(bundle|pack)$/i.test(filename)) {
+      throw new Error(serviceImport.detectServiceExport("", filename).error);
+    }
+    const text = path ? await this.serviceExportText(path) : str(input.text);
+    const detected = serviceImport.detectServiceExport(text, filename);
+    if (!detected.ok) throw new Error(detected.error);
+    const parsed = serviceImport.parseServiceExport(text, { kind: settings.kind || detected.kind, filename });
+    if (!parsed.ok) throw new Error(parsed.error);
+    const folder = str(settings.folder).replace(/^\/+|\/+$/g, "") || `Imports/${detected.label}`;
+    await ensureFolder(this.app, folder);
+    const taken = new Set();
+    const written = [];
+    let skipped = 0;
+    for (const record of parsed.records) {
+      const notePath = serviceImport.uniqueNotePath(folder, record.title, taken);
+      if (this.app.vault.getAbstractFileByPath(notePath)) {
+        skipped += 1;
+        continue;
+      }
+      await this.app.vault.create(notePath, serviceImport.recordMarkdown(record));
+      taken.add(notePath);
+      written.push(notePath);
+    }
+    new Notice(
+      `${detected.service} import: ${written.length} note(s) written to ${folder}${skipped ? `, ${skipped} already there` : ""}${
+        parsed.skipped ? `, ${parsed.skipped} empty or trashed skipped` : ""
+      }.`,
+      8000
+    );
+    return { service: detected.service, kind: detected.kind, folder, written, skipped, total: parsed.total };
+  }
+
+  /** The importer's command entry: it reads the export that is open. */
+  async importActiveServiceExport() {
+    const active = this.app.workspace.getActiveFile();
+    if (!active || !active.path) {
+      new Notice("Open an export file first (an .enex, .json, .csv or .md export).");
+      return null;
+    }
+    try {
+      return await this.importServiceExport({ path: active.path });
+    } catch (e) {
+      new Notice(str(e && e.message ? e.message : e), 10000);
+      return null;
+    }
+  }
+
+  /** Imports an export straight from the clipboard, so a pasted export needs no file. */
+  async importServiceClipboard() {
+    let text = "";
+    try {
+      text = await navigator.clipboard.readText();
+    } catch (e) {
+      new Notice("Could not read the clipboard. Copy the export's text first.");
+      return null;
+    }
+    try {
+      return await this.importServiceExport({ text }, { folder: "" });
+    } catch (e) {
+      new Notice(str(e && e.message ? e.message : e), 10000);
+      return null;
+    }
   }
 
   /** Import an Anki plain-text/CSV export. Binary .apkg files need Anki's text export. */
@@ -85955,6 +86976,628 @@ module.exports = {
   selectApiSecret,
   selectPasswordSecret,
   storeApiKey,
+};
+};
+
+/* ---- src/service-import.js ---- */
+__defs["service-import"] = function (module, exports, require) {
+/*
+ * Importers for the note services whose exports are plain files: Evernote's
+ * `.enex` XML, Google Keep's Takeout JSON and HTML, Airtable's JSON/CSV, Notion's
+ * database CSV and Markdown pages, Bear's Markdown export and Roam's JSON export.
+ *
+ * Everything here is pure: it turns export text into records
+ * `{ title, body, tags, created, service, url }` and writes note Markdown, but it
+ * never touches the vault. Every export is untrusted input, so parsing is bounded
+ * (500 notes, 200,000 characters a note, 60 tags) and refuses clearly instead of
+ * guessing. Binary bundles (`.textbundle`, `.textpack`) are not opened: they carry
+ * attachments this importer does not copy, and the refusal says so.
+ */
+const { str } = require("./util");
+
+const SERVICES = {
+  evernote: "Evernote",
+  keep: "Google Keep",
+  airtable: "Airtable",
+  notion: "Notion",
+  bear: "Bear",
+  roam: "Roam",
+  database: "Airtable or Notion CSV",
+};
+
+const MAX_NOTES = 500;
+const MAX_TITLE = 200;
+const MAX_BODY = 200000;
+const MAX_TAGS = 60;
+const MAX_TAG = 40;
+const TITLE_COLUMNS = ["name", "title", "page", "item", "note"];
+const TAG_COLUMNS = ["tags", "tag", "labels", "label"];
+const DATE_COLUMNS = ["created", "created time", "created at", "creation date", "date"];
+const NOT_TITLE_COLUMNS = new Set(["id", "url", "link", "last edited time", "last edited", "edited"]);
+
+/* ------------------------------------------------------------------ helpers */
+
+function decodeEntities(text) {
+  return str(text)
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/&#x([0-9a-f]+);/gi, (_m, hex) => {
+      try {
+        return String.fromCodePoint(parseInt(hex, 16));
+      } catch (e) {
+        return "";
+      }
+    })
+    .replace(/&#(\d+);/g, (_m, dec) => {
+      try {
+        return String.fromCodePoint(Number(dec));
+      } catch (e) {
+        return "";
+      }
+    })
+    .replace(/&(lt|gt|amp|quot|apos|nbsp);/gi, (_m, name) =>
+      ({ lt: "<", gt: ">", amp: "&", quot: '"', apos: "'", nbsp: " " })[name.toLowerCase()]
+    );
+}
+
+/** Plain text from exported HTML: block tags become blank lines, nothing else survives. */
+function htmlToText(html) {
+  return decodeEntities(
+    str(html)
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<!--[\s\S]*?-->/g, " ")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/(p|div|li|h[1-6]|blockquote|en-note|tr)>/gi, "\n\n")
+      .replace(/<li[^>]*>/gi, "- ")
+      .replace(/<[^>]+>/g, " ")
+  )
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t\u00a0]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** Tags: lower-case, hash-free, punctuation-safe, unique, bounded. */
+function normalizeTags(value) {
+  const list = Array.isArray(value) ? value : str(value).split(/[,;#\n]+/);
+  const out = [];
+  for (const raw of list) {
+    const tag = str(raw)
+      .trim()
+      .replace(/^#+/, "")
+      .replace(/[^A-Za-z0-9/_-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase()
+      .slice(0, MAX_TAG);
+    if (tag && !out.includes(tag)) out.push(tag);
+    if (out.length >= MAX_TAGS) break;
+  }
+  return out;
+}
+
+function cleanTitle(value, fallback) {
+  const text = str(value)
+    .replace(/[*_`>]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (text || fallback || "Untitled note").slice(0, MAX_TITLE);
+}
+
+function titleFromBody(body, fallback) {
+  const line = str(body).split("\n").map((entry) => entry.replace(/^[#>\-*\s]+/, "").trim()).find(Boolean);
+  return cleanTitle(line, fallback);
+}
+
+function clampBody(body) {
+  return str(body).replace(/\r\n?/g, "\n").replace(/\n{3,}/g, "\n\n").trim().slice(0, MAX_BODY);
+}
+
+/** `20260201T101500Z` (Evernote) -> `2026-02-01T10:15:00Z`. */
+function evernoteDate(value) {
+  const match = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(str(value).trim());
+  if (!match) return "";
+  return `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}Z`;
+}
+
+function isoFrom(value) {
+  const text = str(value).trim();
+  if (!text) return "";
+  const direct = /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}(?::\d{2})?)(?:\.\d+)?Z?)?$/.exec(text);
+  if (direct) return direct[2] ? `${direct[1]}T${direct[2].length === 5 ? direct[2] + ":00" : direct[2]}Z` : direct[1];
+  const parsed = Date.parse(text);
+  return Number.isNaN(parsed) ? "" : new Date(parsed).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+/** Google Keep's microseconds and Roam's milliseconds. */
+function isoFromEpoch(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return "";
+  const ms = number > 1e14 ? Math.round(number / 1000) : number;
+  const date = new Date(ms);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+function serviceOf(kind) {
+  return SERVICES[kind] || "Export";
+}
+
+/* ---------------------------------------------------------------- Evernote */
+
+function parseEvernote(text) {
+  const source = str(text);
+  if (!/<en-export[\s>]/i.test(source) && !/<note[\s>]/i.test(source)) {
+    return { records: [], error: "That file is not an Evernote .enex export: it has no <en-export> notes." };
+  }
+  const records = [];
+  let skipped = 0;
+  for (const match of source.matchAll(/<note>([\s\S]*?)<\/note>/gi)) {
+    const block = match[1];
+    const titleMatch = /<title>([\s\S]*?)<\/title>/i.exec(block);
+    const contentMatch = /<content>([\s\S]*?)<\/content>/i.exec(block);
+    const created = evernoteDate((/<created>([\s\S]*?)<\/created>/i.exec(block) || [])[1]);
+    const tags = [...block.matchAll(/<tag>([\s\S]*?)<\/tag>/gi)].map((entry) => decodeEntities(entry[1]));
+    const url = decodeEntities((/<source-url>([\s\S]*?)<\/source-url>/i.exec(block) || [])[1] || "");
+    const rawContent = contentMatch ? contentMatch[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1") : "";
+    const body = rawContent ? htmlToText(rawContent) : "";
+    if (!body && !titleMatch) {
+      skipped += 1;
+      continue;
+    }
+    records.push({
+      title: cleanTitle(titleMatch ? decodeEntities(titleMatch[1]) : "", titleFromBody(body)),
+      body: clampBody(body),
+      tags: normalizeTags(tags),
+      created,
+      service: "Evernote",
+      url,
+    });
+    if (records.length >= MAX_NOTES) break;
+  }
+  if (!records.length) return { records: [], error: "That Evernote export contains no notes with a title or body." };
+  return { records, skipped, total: records.length + skipped };
+}
+
+/* ---------------------------------------------------------------- Keep */
+
+function keepBody(note) {
+  const parts = [];
+  const text = clampBody(note.textContent);
+  if (text) parts.push(text);
+  const items = Array.isArray(note.listContent) ? note.listContent : [];
+  if (items.length) {
+    const lines = items
+      .map((item) => `- ${item && item.isChecked ? "[x]" : "[ ]"} ${str(item && item.text).trim()}`)
+      .filter((line) => line.trim() !== "- [ ]");
+    if (lines.length) parts.push(lines.join("\n"));
+  }
+  return parts.join("\n\n");
+}
+
+function parseKeepJson(text) {
+  let data;
+  try {
+    data = JSON.parse(str(text));
+  } catch (e) {
+    return { records: [], error: "That Google Keep export is not valid JSON." };
+  }
+  const list = Array.isArray(data) ? data : Array.isArray(data && data.notes) ? data.notes : null;
+  if (!list) return { records: [], error: "That Google Keep JSON is not a list of notes." };
+  const records = [];
+  let skipped = 0;
+  for (const note of list) {
+    if (!note || typeof note !== "object") continue;
+    if (note.isTrashed) {
+      skipped += 1;
+      continue;
+    }
+    const body = keepBody(note);
+    const labels = Array.isArray(note.labels) ? note.labels.map((label) => (label && label.name) || label) : note.labels;
+    if (!body && !str(note.title).trim()) {
+      skipped += 1;
+      continue;
+    }
+    records.push({
+      title: cleanTitle(note.title, titleFromBody(body)),
+      body: clampBody(body),
+      tags: normalizeTags(labels),
+      created: isoFromEpoch(note.createdTimestampUsec),
+      service: "Google Keep",
+      url: "",
+    });
+    if (records.length >= MAX_NOTES) break;
+  }
+  if (!records.length) return { records: [], error: "That Google Keep export contains no notes (archived and trashed notes are skipped)." };
+  return { records, skipped, total: records.length + skipped };
+}
+
+function parseKeepHtml(text) {
+  const source = str(text);
+  const content = /<div[^>]*class="[^"]*\bcontent\b[^"]*"[^>]*>([\s\S]*?)<\/div>\s*(?:<ul|<div[^>]*class="[^"]*chips|<\/body|$)/i.exec(source) || /<body[^>]*>([\s\S]*?)<\/body>/i.exec(source);
+  const body = content ? htmlToText(content[1]) : "";
+  const titleMatch = /<h1[^>]*class="[^"]*\btitle\b[^"]*"[^>]*>([\s\S]*?)<\/h1>/i.exec(source);
+  const labelBlock = /<ul[^>]*class="[^"]*\blabels\b[^"]*"[^>]*>([\s\S]*?)<\/ul>/i.exec(source);
+  const tags = labelBlock ? [...labelBlock[1].matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi)].map((entry) => htmlToText(entry[1])) : [];
+  if (!body && !titleMatch) return { records: [], error: "That Google Keep HTML page has no note content." };
+  return {
+    records: [
+      {
+        title: cleanTitle(titleMatch ? htmlToText(titleMatch[1]) : "", titleFromBody(body)),
+        body: clampBody(body),
+        tags: normalizeTags(tags),
+        created: "",
+        service: "Google Keep",
+        url: "",
+      },
+    ],
+    skipped: 0,
+    total: 1,
+  };
+}
+
+/* ---------------------------------------------------------------- CSV */
+
+/** Quoted CSV/TSV: `""` is one quote, commas and newlines may sit inside a field. */
+function parseCsv(text, delimiter) {
+  const source = str(text).replace(/^\uFEFF/, "");
+  const split = delimiter || (source.split("\n")[0] && source.split("\n")[0].includes("\t") ? "\t" : ",");
+  const rows = [];
+  let row = [];
+  let field = "";
+  let quoted = false;
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i];
+    if (quoted) {
+      if (ch === '"' && source[i + 1] === '"') {
+        field += '"';
+        i += 1;
+      } else if (ch === '"') quoted = false;
+      else field += ch;
+      continue;
+    }
+    if (ch === '"' && !field) quoted = true;
+    else if (ch === split) {
+      row.push(field);
+      field = "";
+    } else if (ch === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+    } else if (ch !== "\r") field += ch;
+  }
+  if (field || row.length) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows.filter((entry) => entry.some((cell) => str(cell).trim()));
+}
+
+function recordFromRow(row, columns, service) {
+  const lower = columns.map((column) => str(column).trim().toLowerCase());
+  const cell = (index) => (index >= 0 ? str(row[index]).trim() : "");
+  const pick = (names) => {
+    for (const name of names) {
+      const index = lower.indexOf(name);
+      if (index >= 0 && cell(index)) return cell(index);
+    }
+    return "";
+  };
+  const titleIndex = lower.findIndex((name) => TITLE_COLUMNS.includes(name));
+  const title = pick(TITLE_COLUMNS) || row.map((value) => str(value).trim()).find(Boolean) || "";
+  const tags = normalizeTags(pick(TAG_COLUMNS));
+  const created = isoFrom(pick(DATE_COLUMNS));
+  const used = new Set([titleIndex, lower.indexOf("tags"), lower.indexOf("tag"), lower.indexOf("labels"), lower.findIndex((name) => DATE_COLUMNS.includes(name))]);
+  const sections = [];
+  columns.forEach((column, index) => {
+    if (used.has(index) || NOT_TITLE_COLUMNS.has(lower[index])) return;
+    const value = cell(index);
+    if (!value) return;
+    sections.push(`## ${str(column).trim()}\n${value}`);
+  });
+  return {
+    title: cleanTitle(title, "Untitled record"),
+    body: clampBody(sections.join("\n\n")),
+    tags,
+    created,
+    service,
+    url: pick(["url", "link"]),
+  };
+}
+
+function parseDatabaseCsv(text, service) {
+  const rows = parseCsv(text);
+  if (rows.length < 2) {
+    return { records: [], error: "That CSV export has no data rows: it needs a header row and at least one record." };
+  }
+  const columns = rows[0];
+  const records = [];
+  for (const row of rows.slice(1)) {
+    if (records.length >= MAX_NOTES) break;
+    records.push(recordFromRow(row, columns, service));
+  }
+  if (!records.length) return { records: [], error: "That CSV export contains no records." };
+  return { records, skipped: 0, total: records.length };
+}
+
+/* ---------------------------------------------------------------- Airtable */
+
+function parseAirtableJson(text) {
+  let data;
+  try {
+    data = JSON.parse(str(text));
+  } catch (e) {
+    return { records: [], error: "That Airtable export is not valid JSON." };
+  }
+  const list = Array.isArray(data) ? data : Array.isArray(data && data.records) ? data.records : null;
+  if (!list) return { records: [], error: "That Airtable JSON is not a list of records." };
+  const records = [];
+  for (const entry of list) {
+    if (records.length >= MAX_NOTES) break;
+    const fields = entry && typeof entry === "object" ? entry.fields || entry : {};
+    const lower = Object.keys(fields).reduce((map, key) => ({ ...map, [key.toLowerCase()]: fields[key] }), {});
+    const pick = (names) => {
+      for (const name of names) {
+        const value = lower[name];
+        if (Array.isArray(value) ? value.length : str(value).trim()) return Array.isArray(value) ? value.join(", ") : str(value).trim();
+      }
+      return "";
+    };
+    const title = pick(TITLE_COLUMNS) || str(entry && entry.id).trim();
+    const tags = normalizeTags(pick(TAG_COLUMNS));
+    const created = isoFrom(pick(DATE_COLUMNS) || str(entry && entry.createdTime));
+    const sections = Object.keys(fields)
+      .filter((key) => !TITLE_COLUMNS.includes(key.toLowerCase()) && !TAG_COLUMNS.includes(key.toLowerCase()) && !DATE_COLUMNS.includes(key.toLowerCase()) && key.toLowerCase() !== "id")
+      .map((key) => {
+        const value = fields[key];
+        const text = Array.isArray(value) ? value.join(", ") : str(value).trim();
+        return text ? `## ${key}\n${text}` : "";
+      })
+      .filter(Boolean);
+    records.push({
+      title: cleanTitle(title, "Untitled record"),
+      body: clampBody(sections.join("\n\n")),
+      tags,
+      created,
+      service: "Airtable",
+      url: pick(["url", "link"]),
+    });
+  }
+  if (!records.length) return { records: [], error: "That Airtable export contains no records." };
+  return { records, skipped: 0, total: records.length };
+}
+
+/* ---------------------------------------------------------------- Notion */
+
+function parseNotionMarkdown(text, filename) {
+  const source = str(text).replace(/\r\n?/g, "\n");
+  const heading = /^(#{1,3})[ \t]+(.+)$/m.exec(source);
+  const title = heading ? heading[2].trim() : str(filename).replace(/\.md$/i, "");
+  const lines = source.split("\n");
+  const body = heading ? lines.slice(lines.indexOf(heading[0]) + 1).join("\n") : source;
+  const tagLine = /^[ \t]*tags?[ \t]*:[ \t]*(.+)$/im.exec(body);
+  const tags = tagLine ? normalizeTags(tagLine[1]) : normalizeTags((source.match(/(^|\s)#([A-Za-z0-9/_-]+)/g) || []).map((entry) => entry.trim()));
+  const cleaned = clampBody(body.replace(/^[ \t]*tags?[ \t]*:.*$/im, ""));
+  return {
+    records: [{ title: cleanTitle(title, titleFromBody(cleaned)), body: cleaned, tags, created: "", service: "Notion", url: "" }],
+    skipped: 0,
+    total: 1,
+  };
+}
+
+/* ---------------------------------------------------------------- Bear */
+
+function parseBearMarkdown(text, filename) {
+  const source = str(text).replace(/\r\n?/g, "\n");
+  const heading = /^#[ \t]+(.+)$/m.exec(source);
+  if (!heading) return { records: [], error: "That file is not a Bear Markdown export: it has no \"# Title\" line." };
+  const firstLine = heading[1];
+  const tagPattern = /(^|\s)#([A-Za-z][A-Za-z0-9/_-]*)/g;
+  const tags = [];
+  for (const match of firstLine.matchAll(tagPattern)) tags.push(match[2]);
+  const title = firstLine.replace(tagPattern, "$1").trim();
+  const body = (heading ? source.slice(source.indexOf(heading[0]) + heading[0].length) : source)
+    .replace(tagPattern, "$1")
+    .replace(/[ \t]+$/gm, "");
+  return {
+    records: [
+      {
+        title: cleanTitle(title, str(filename).replace(/\.md$/i, "") || "Untitled note"),
+        body: clampBody(body),
+        tags: normalizeTags(tags),
+        created: "",
+        service: "Bear",
+        url: "",
+      },
+    ],
+    skipped: 0,
+    total: 1,
+  };
+}
+
+/* ---------------------------------------------------------------- Roam */
+
+function roamText(blocks, depth) {
+  const lines = [];
+  for (const block of Array.isArray(blocks) ? blocks : []) {
+    const text = str(block && block.string).trim();
+    if (text) lines.push(`${"  ".repeat(depth || 0)}- ${text}`);
+    if (block && Array.isArray(block.children) && block.children.length) {
+      const inner = roamText(block.children, (depth || 0) + 1);
+      if (inner) lines.push(inner);
+    }
+  }
+  return lines.join("\n");
+}
+
+function parseRoamJson(text) {
+  let data;
+  try {
+    data = JSON.parse(str(text));
+  } catch (e) {
+    return { records: [], error: "That Roam export is not valid JSON." };
+  }
+  const list = Array.isArray(data) ? data : Array.isArray(data && data.pages) ? data.pages : null;
+  if (!list) return { records: [], error: "That Roam JSON is not a list of pages." };
+  const records = [];
+  for (const page of list) {
+    if (records.length >= MAX_NOTES) break;
+    if (!page || typeof page !== "object") continue;
+    const title = cleanTitle(page.title, titleFromBody(roamText(page.children, 0)));
+    const body = roamText(page.children, 0);
+    const tagTokens = [];
+    for (const line of [str(page.title), body]) {
+      for (const match of line.matchAll(/#\[\[([^\]\n]+)\]\]|#([A-Za-z][A-Za-z0-9/_-]*)/g)) tagTokens.push(match[1] || match[2]);
+    }
+    const tags = normalizeTags(tagTokens);
+    const created = isoFromEpoch(page["create-time"]);
+    if (!title && !body) continue;
+    records.push({ title, body: clampBody(body), tags, created, service: "Roam", url: "" });
+  }
+  if (!records.length) return { records: [], error: "That Roam export contains no pages." };
+  return { records, skipped: 0, total: records.length };
+}
+
+/* ---------------------------------------------------------------- detection */
+
+/**
+ * Which service made this export. `filename` is a hint; content decides, so a file
+ * renamed to `.txt` still imports. Returns `{ ok, kind, service, label }` or
+ * `{ ok: false, error }` for an unsupported or binary bundle.
+ */
+function detectServiceExport(text, filename) {
+  const name = str(filename);
+  const lower = name.toLowerCase();
+  const source = str(text).replace(/^\uFEFF/, "").trim();
+  if (/\.textbundle$/i.test(lower) || /\.textpack$/i.test(lower)) {
+    return {
+      ok: false,
+      error: "Bear's .textbundle/.textpack bundles are not imported: they hold attachments and binary resources this importer does not copy. Export the notes as Markdown instead.",
+    };
+  }
+  if (/\.enex$/i.test(lower) || /<en-export[\s>]/i.test(source)) return { ok: true, kind: "evernote", service: "Evernote", label: "Evernote" };
+  if (/<div[^>]*class="[^"]*\bcontent\b/i.test(source) && /<html[\s>]/i.test(source)) return { ok: true, kind: "keep", service: "Google Keep", label: "Google Keep" };
+  if (/^[[{]/.test(source)) {
+    try {
+      const data = JSON.parse(source);
+      const list = Array.isArray(data) ? data : null;
+      if (list && list.some((entry) => entry && ("textContent" in entry || "listContent" in entry || "createdTimestampUsec" in entry))) {
+        return { ok: true, kind: "keep", service: "Google Keep", label: "Google Keep" };
+      }
+      if (list && list.some((entry) => entry && ("create-time" in entry || "children" in entry))) {
+        return { ok: true, kind: "roam", service: "Roam", label: "Roam" };
+      }
+      if (data && Array.isArray(data.records)) return { ok: true, kind: "airtable", service: "Airtable", label: "Airtable" };
+    } catch (e) {
+      return { ok: false, error: "That file starts like JSON but cannot be read as JSON." };
+    }
+  }
+  const sniff = source.replace(/\r\n?/g, "\n");
+  if (/\.csv$/i.test(lower) || (/^[^,\n]+,[^\n]*\n/.test(sniff) && sniff.includes("\n") && !/^#/.test(sniff))) {
+    return { ok: true, kind: "database", service: "Airtable or Notion CSV", label: "Airtable or Notion CSV" };
+  }
+  if (/\.md$/i.test(lower) || /^#{1,3}[ \t]+\S/m.test(source)) {
+    if (/(^|\s)#[A-Za-z][A-Za-z0-9/_-]*/.test(source) && !/^[ \t]*tags?[ \t]*:/im.test(source)) {
+      return { ok: true, kind: "bear", service: "Bear", label: "Bear" };
+    }
+    return { ok: true, kind: "notion", service: "Notion", label: "Notion" };
+  }
+  if (/<html[\s>]/i.test(source)) return { ok: false, error: "That HTML page is not a Google Keep Takeout note (no note content container)." };
+  return { ok: false, error: "That export is not one of the supported formats (Evernote .enex, Google Keep JSON/HTML, Airtable JSON/CSV, Notion CSV/Markdown, Bear Markdown, Roam JSON)." };
+}
+
+/** Parses an export of a known kind. Returns `{ ok, records, total, skipped, error }`. */
+function parseServiceExport(text, options) {
+  const settings = options && typeof options === "object" ? options : {};
+  const kind = str(settings.kind) || detectServiceExport(text, settings.filename).kind;
+  const filename = str(settings.filename);
+  if (!str(text).trim()) return { ok: false, kind, records: [], total: 0, error: "That export is empty." };
+  let parsed;
+  if (kind === "evernote") parsed = parseEvernote(text);
+  else if (kind === "keep") parsed = /^\s*[[{]/.test(text) ? parseKeepJson(text) : parseKeepHtml(text);
+  else if (kind === "airtable") parsed = /^\s*[[{]/.test(text) ? parseAirtableJson(text) : parseDatabaseCsv(text, "Airtable");
+  else if (kind === "roam") parsed = parseRoamJson(text);
+  else if (kind === "bear") parsed = parseBearMarkdown(text, filename);
+  else if (kind === "notion") parsed = /\.csv$/i.test(filename) || !/^#{1,3}[ \t]+\S/m.test(text) ? parseDatabaseCsv(text, "Notion") : parseNotionMarkdown(text, filename);
+  else if (kind === "database") parsed = parseDatabaseCsv(text, "Airtable or Notion CSV");
+  else parsed = { records: [], error: detectServiceExport(text, filename).error || "That export format is not supported." };
+  if (parsed.error) return { ok: false, kind, records: [], total: 0, error: parsed.error };
+  if (!parsed.records.length) return { ok: false, kind, records: [], total: 0, error: "That export contains no notes." };
+  return { ok: true, kind, service: serviceOf(kind), records: parsed.records, total: parsed.total || parsed.records.length, skipped: parsed.skipped || 0 };
+}
+
+/* ---------------------------------------------------------------- notes */
+
+function yamlString(value) {
+  return JSON.stringify(str(value));
+}
+
+/** The note for one record: frontmatter, a title heading and the exported body. */
+function recordMarkdown(record) {
+  const entry = record && typeof record === "object" ? record : {};
+  const title = cleanTitle(entry.title);
+  const tags = normalizeTags(entry.tags);
+  const lines = ["---", `title: ${yamlString(title)}`];
+  if (str(entry.created).trim()) lines.push(`created: ${yamlString(str(entry.created).trim())}`);
+  if (str(entry.url).trim()) lines.push(`source_url: ${yamlString(str(entry.url).trim())}`);
+  lines.push(`imported_from: ${yamlString(str(entry.service) || "Export")}`);
+  if (tags.length) {
+    lines.push("tags:");
+    for (const tag of tags) lines.push(`  - ${tag}`);
+  }
+  lines.push("---", "", `# ${title}`, "");
+  const body = clampBody(entry.body);
+  if (body) lines.push(body, "");
+  return lines.join("\n").replace(/\n{3,}$/, "\n\n");
+}
+
+/** A vault-safe file name: no reserved characters, bounded, never empty. */
+function noteFileName(title) {
+  const base = str(title)
+    .replace(/[\\/:*?"<>|#[\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+  return `${base || "Untitled note"}.md`;
+}
+
+/** `Folder/Title.md`, then `Folder/Title (2).md` … when the name is taken. */
+function uniqueNotePath(folder, title, taken) {
+  const dir = str(folder).replace(/\/+$/, "");
+  const name = noteFileName(title).replace(/\.md$/i, "");
+  const used = taken instanceof Set ? taken : new Set(taken || []);
+  let path = dir ? `${dir}/${name}.md` : `${name}.md`;
+  let n = 2;
+  while (used.has(path)) {
+    path = dir ? `${dir}/${name} (${n}).md` : `${name} (${n}).md`;
+    n += 1;
+  }
+  return path;
+}
+
+module.exports = {
+  MAX_BODY,
+  MAX_NOTES,
+  MAX_TAGS,
+  SERVICES,
+  detectServiceExport,
+  htmlToText,
+  isoFrom,
+  isoFromEpoch,
+  normalizeTags,
+  noteFileName,
+  parseAirtableJson,
+  parseBearMarkdown,
+  parseCsv,
+  parseDatabaseCsv,
+  parseEvernote,
+  parseKeepHtml,
+  parseKeepJson,
+  parseNotionMarkdown,
+  parseRoamJson,
+  parseServiceExport,
+  recordMarkdown,
+  uniqueNotePath,
 };
 };
 
@@ -112694,6 +114337,10 @@ const { AutoAnkiModal } = require("./auto-anki-modal");
 const studyBundle = require("./study-bundle");
 const studyBundleImport = require("./study-bundle-import");
 const zipWrite = require("./zip-write");
+const epub = require("./epub");
+const epubAnnotations = require("./epub-annotations");
+const { EpubReaderModal } = require("./epub-reader-modal");
+const serviceImport = require("./service-import");
 const { MAX_OPENCODE_MAJOR, OpenCodeManager, assertExtractedTree, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, platformTriple } = require("./opencode-manager");
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, sliceQuestionRange, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
 const { InsightsView } = require("./insights-view");
@@ -112946,6 +114593,10 @@ QuestionTrackerPlugin.__test = {
   studyBundle,
   studyBundleImport,
   zipWrite,
+  epub,
+  epubAnnotations,
+  EpubReaderModal,
+  serviceImport,
   OpenCodeManager,
   MAX_OPENCODE_MAJOR,
   opencodeMajor,

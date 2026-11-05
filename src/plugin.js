@@ -8,7 +8,7 @@ const practiceFullscreen = require("./practice-fullscreen");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
 const { TodayView } = require("./today-view");
-const { ConfirmModal, FindQuestionModal, QuestionFolderModal } = require("./modals");
+const { ConfirmModal, FindQuestionModal, NameModal, QuestionFolderModal } = require("./modals");
 const { cloneFilters, fvals, hasFilters, isDue, matchSets, renameFolderInSettings } = require("./filters");
 const { QuestionTrackerSettingTab } = require("./settings-tab");
 const { AssignmentsView } = require("./assignments-view");
@@ -23,6 +23,10 @@ const fsrsTrain = require("./fsrs-train");
 const mindmap = require("./mindmap");
 const pdfDeepLink = require("./pdf-deep-link");
 const pdfLatex = require("./pdf-latex");
+const epub = require("./epub");
+const epubAnnotations = require("./epub-annotations");
+const { EpubReaderModal } = require("./epub-reader-modal");
+const serviceImport = require("./service-import");
 const canvasMap = require("./canvas-map");
 const canvasKanban = require("./canvas-kanban");
 const { KanbanReportModal } = require("./canvas-kanban-view");
@@ -134,7 +138,7 @@ const { normalizeTextTimerSettings } = require("./text-timer");
 const { renderTextTimerBlock } = require("./text-timer-view");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const { PdfImportModal } = require("./import-modal");
-const { readPdfPages } = require("./pdf");
+const { readPdfPages, renderPdfPagesAsPng } = require("./pdf");
 const { CourseNotesModal, removeAiSummary } = require("./course-notes");
 const { DocumentReviewModal } = require("./document-review-modal");
 const { OcrModal } = require("./ocr-modal");
@@ -412,6 +416,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "export-practice-sheet", name: "Export an answer-free practice sheet", callback: () => this.exportPracticeSheet() });
     this.addCommand({ id: "export-review-sheet", name: "Export an error-log review sheet", callback: () => this.exportReviewSheet() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
+    this.addCommand({ id: "import-service-export", name: "Import notes from an export (Airtable, Notion, Evernote, Keep, Bear, Roam)", callback: () => this.importActiveServiceExport() });
+    this.addCommand({ id: "import-service-clipboard", name: "Import notes from a pasted export", callback: () => this.importServiceClipboard() });
     this.addCommand({ id: "quick-add", name: "Quick add questions from pasted text", callback: () => this.openQuickAdd() });
     this.addCommand({ id: "import-quiz-clipboard", name: "Import a generated quiz from the clipboard", callback: () => this.openQuizClipboardImport() });
     this.addCommand({ id: "export-study-bundle", name: "Export a study bundle (backup of questions and cards)", callback: () => this.exportStudyBundle() });
@@ -434,6 +440,28 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "ocr-pdf", name: "OCR a scanned PDF", callback: () => this.openOcr() });
     this.addCommand({ id: "pdf-annotate", name: "PDF: add an annotation", callback: () => this.openPdfAnnotation() });
     this.addCommand({ id: "pdf-draw", name: "PDF: draw with pen or highlighter", callback: () => this.openPdfInk() });
+    this.addCommand({ id: "pdf-latex", name: "PDF: convert pages to a LaTeX note", callback: () => this.convertActivePdfLatex() });
+    this.addCommand({ id: "mindmap-add-child", name: "Mind map: add a child", callback: () => this.promptMindMap("add") });
+    this.addCommand({ id: "mindmap-rename", name: "Mind map: rename a node", callback: () => this.promptMindMap("rename") });
+    this.addCommand({ id: "mindmap-remove", name: "Mind map: remove a node", callback: () => this.promptMindMap("remove") });
+    this.addCommand({ id: "mindmap-move", name: "Mind map: move a node", callback: () => this.promptMindMap("move") });
+    this.addCommand({ id: "mindmap-from-note", name: "Mind map: make a Markmind map from this note", callback: () => this.mindMapFromNote() });
+    this.addCommand({
+      id: "pdf-open-link",
+      name: "PDF: open a copied deep link",
+      callback: async () => {
+        let text = "";
+        try {
+          text = navigator.clipboard && navigator.clipboard.readText ? await navigator.clipboard.readText() : "";
+        } catch (e) {
+          new Notice("Could not read a link from the clipboard. Copy a PDF deep link first.");
+          return;
+        }
+        this.openPdfDeepLink(text);
+      },
+    });
+    this.addCommand({ id: "epub-read", name: "EPUB: open the reader", callback: () => this.openActiveEpubReader() });
+    this.addCommand({ id: "epub-annotations", name: "EPUB: open this book's annotations", callback: () => this.openEpubAnnotations() });
     this.addCommand({ id: "pdf-edit", name: "PDF: open the editor (pages and forms)", callback: () => this.openActivePdfEditor() });
     this.addCommand({ id: "pdf-export-notes", name: "PDF: export annotations to Markdown", callback: () => this.exportActivePdfAnnotations() });
     this.addCommand({ id: "pdf-open-annotations", name: "PDF: open annotations", callback: () => this.openPdfAnnotations() });
@@ -773,13 +801,13 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor("sat-math", (source, el, ctx) => this.renderSatMathBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("sfc-cards", (source, el, ctx) => this.renderSfcCardsBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("cbt-exam", (source, el, ctx) => this.renderCbtExamBlock(source, el, ctx));
-    this.registerMarkdownCodeBlockProcessor("study-map", (source, el) => this.renderStudyMapBlock(source, el));
     this.registerMarkdownCodeBlockProcessor("vault-search", (source, el) => this.renderVaultSearchBlock(source, el));
     this.registerMarkdownCodeBlockProcessor("quizport", (source, el, ctx) => this.renderQuizPortBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("simple-flashcards", (source, el, ctx) => this.renderSimpleFlashcardsBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("reading-plan", (source, el, ctx) => this.renderReadingPlanBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("tag-timer", (source, el, ctx) => this.renderTagTimerBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("tally", (source, el, ctx) => this.renderTallyBlock(source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("study-map", (source, el) => this.renderStudyMapBlock(source, el));
     this.registerMarkdownCodeBlockProcessor("text-timer", (source, el, ctx) => this.renderTextTimerBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("cornell-note", (source, el) => renderCornellBlock(this, source, el));
     this.registerMarkdownCodeBlockProcessor("quiz", (source, el, ctx) => this.renderSimpleQuizBlock(source, el, ctx));
@@ -1499,9 +1527,108 @@ class QuestionTrackerPlugin extends Plugin {
     new PdfAnnotationModal(this.app, this, { pdfPath: pdfPath || "" }).open();
   }
 
-  openPdfInk(pdfPath) {
+  openPdfInk(pdfPath, options) {
     if (this.moduleOff("mcq")) return;
-    new PdfInkModal(this.app, this, { pdfPath: pdfPath || "" }).open();
+    const extra = options && typeof options === "object" ? options : {};
+    new PdfInkModal(this.app, this, { ...extra, pdfPath: pdfPath || extra.pdfPath || "" }).open();
+  }
+
+  /** Opens a PDF deep link in the reader on its page, with its rectangle ringed. */
+  openPdfDeepLink(link) {
+    if (this.moduleOff("mcq")) return null;
+    const parsed = pdfDeepLink.parsePdfDeepLink(link);
+    if (!parsed.valid) {
+      new Notice("That is not a PDF deep link. Copy one from an annotation or the reader.");
+      return null;
+    }
+    if (!this.app.vault.getAbstractFileByPath(parsed.path)) {
+      new Notice(`There is no ${parsed.path} in this vault.`);
+      return null;
+    }
+    this.openPdfInk(parsed.path, { page: parsed.page, rect: parsed.rect, annotation: parsed.annotation });
+    return parsed;
+  }
+
+  /** Reads an EPUB from the vault: container, package, spine and chapter text. */
+  async epubBook(path) {
+    const file = this.app.vault.getAbstractFileByPath(str(path));
+    if (!file) throw new Error(`There is no ${str(path)} in this vault.`);
+    if (!/\.epub$/i.test(file.path || str(path))) throw new Error(`${str(path)} is not an EPUB; open an .epub file.`);
+    return epub.readEpub(await this.app.vault.readBinary(file));
+  }
+
+  /** The annotation sidecar beside the book, or an empty set before the first highlight. */
+  async epubAnnotations(path) {
+    const sidecar = epubAnnotations.sidecarPathFor(path);
+    const file = this.app.vault.getAbstractFileByPath(sidecar);
+    if (!file) return { path: sidecar, epubPath: str(path), epubHash: "", annotations: [], damaged: [] };
+    return { ...epubAnnotations.parseSidecar(await this.app.vault.cachedRead(file)), path: sidecar, epubPath: str(path) };
+  }
+
+  /** Adds or updates one highlight, anchored to the real chapter text, and writes the sidecar. */
+  async addEpubHighlight(path, input) {
+    const file = this.app.vault.getAbstractFileByPath(str(path));
+    if (!file) throw new Error(`There is no ${str(path)} in this vault.`);
+    const bytes = await this.app.vault.readBinary(file);
+    const book = await epub.readEpub(bytes);
+    const source = input && typeof input === "object" ? input : {};
+    const number = Math.round(Number(source.chapter));
+    const chapter = book.chapters.find((entry) => entry.n === number);
+    if (!chapter) throw new Error(`Chapter ${str(source.chapter)} is not in ${epub.epubBaseName(path)} (1 to ${book.total}).`);
+    const sidecar = epubAnnotations.sidecarPathFor(path);
+    const existing = this.app.vault.getAbstractFileByPath(sidecar);
+    const text = existing ? await this.app.vault.cachedRead(existing) : "";
+    const result = epubAnnotations.addAnnotation(text, source, {
+      chapterText: chapter.text,
+      epubPath: str(path),
+      hash: epubAnnotations.epubHash(bytes),
+    });
+    if (result.error) throw new Error(result.error);
+    if (existing) await this.app.vault.modify(existing, result.text);
+    else await this.app.vault.create(sidecar, result.text);
+    return { annotation: result.annotation, annotations: result.annotations, path: sidecar };
+  }
+
+  /** Removes one annotation by id; false when the book has no such annotation. */
+  async deleteEpubAnnotation(path, id) {
+    const sidecar = epubAnnotations.sidecarPathFor(path);
+    const file = this.app.vault.getAbstractFileByPath(sidecar);
+    if (!file) return false;
+    const result = epubAnnotations.removeAnnotation(await this.app.vault.cachedRead(file), id);
+    if (!result.removed) return false;
+    await this.app.vault.modify(file, result.text);
+    return true;
+  }
+
+  openEpubReader(path) {
+    if (this.moduleOff("mcq")) return null;
+    new EpubReaderModal(this.app, this, { path: str(path) }).open();
+    return true;
+  }
+
+  /** The reader's command entry: it needs an open EPUB. */
+  openActiveEpubReader() {
+    const active = this.app.workspace.getActiveFile();
+    if (!active || !/\.epub$/i.test(active.path)) {
+      new Notice("Open an EPUB first, then run the reader again.");
+      return;
+    }
+    this.openEpubReader(active.path);
+  }
+
+  /** Opens the sidecar note, so the annotations are editable as Markdown too. */
+  openEpubAnnotations(path) {
+    const target = str(path) || str((this.app.workspace.getActiveFile() || {}).path);
+    if (!/\.epub$/i.test(target)) {
+      new Notice("Open an EPUB first.");
+      return;
+    }
+    const sidecar = epubAnnotations.sidecarPathFor(target);
+    if (!this.app.vault.getAbstractFileByPath(sidecar)) {
+      new Notice(`No EPUB annotations yet: ${sidecar} appears after the first highlight.`);
+      return;
+    }
+    this.app.workspace.openLinkText(sidecar, "", false);
   }
 
   openPdfEditor(pdfPath) {
@@ -8059,6 +8186,118 @@ ${body}
     return this.aiChat(system, [{ role: "user", content: user }], opts);
   }
 
+  /** Renders the chosen pages once so the vision model can read the handwriting. */
+  async renderLatexPages(bytes, spec) {
+    return renderPdfPagesAsPng(bytes, spec, null, 2);
+  }
+
+  /** Converts chosen PDF pages into one LaTeX note through the configured vision model. */
+  async convertPdfToLatex(pdfPath, spec) {
+    if (this.moduleOff("mcq")) return null;
+    const path = String(pdfPath || "").trim();
+    const file = path ? this.app.vault.getAbstractFileByPath(path) : null;
+    if (!file || !/\.pdf$/i.test(path)) throw new Error("Open a PDF first.");
+    if (!(this.settings.ai && this.settings.ai.enabled)) throw new Error("Turn on AI features before converting handwriting.");
+    const rendered = await this.renderLatexPages(await this.app.vault.readBinary(file), String(spec || "1").trim() || "1");
+    const pages = [];
+    for (const page of rendered.pages || []) {
+      const data = pdfLatex.pngBase64(page.png);
+      if (!data) continue;
+      const reply = await this.aiVision(pdfLatex.LATEX_SYSTEM, pdfLatex.latexPrompt(page.n), [{ data, mime: "image/png" }], { feature: "ocr" });
+      pages.push({ n: page.n, text: reply });
+    }
+    const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/") + 1) : "";
+    const stem = pdfLatex.latexNotePath(path);
+    const note = pdfLatex.buildLatexNote(pages, {
+      title: path.split("/").pop().replace(/\.pdf$/i, ""),
+      sourcePath: path,
+      model: this.aiModelFor ? this.aiModelFor("ocr") : "",
+      date: new Date().toISOString().slice(0, 10),
+    });
+    let target = folder + stem;
+    for (let n = 2; n < 50 && this.app.vault.getAbstractFileByPath(target); n++) target = folder + stem.replace(/\.md$/i, " " + n + ".md");
+    await this.app.vault.create(target, note.text);
+    return { path: target, pages: note.pages };
+  }
+
+  /** Prompts for a page range and converts the active PDF. */
+  convertActivePdfLatex() {
+    const active = this.app.workspace.getActiveFile();
+    if (!active || !/\.pdf$/i.test(active.path)) {
+      new Notice("Open a PDF first.");
+      return;
+    }
+    new NameModal(this.app, "Pages to convert (for example 1-3)", "1", async (spec) => {
+      try {
+        const result = await this.convertPdfToLatex(active.path, spec);
+        if (result) new Notice("Wrote " + result.path + ".");
+      } catch (e) {
+        new Notice(e && e.message ? e.message : String(e));
+      }
+    }).open();
+  }
+
+  /** A note as a map: Markmind frontmatter when present, headings otherwise. */
+  async mindMapTree(path) {
+    const file = this.app.vault.getAbstractFileByPath(String(path || ""));
+    if (!file) throw new Error("Open a Markdown note first.");
+    const text = await this.app.vault.cachedRead(file);
+    const root = mindmap.isMarkmind(text) ? mindmap.parseMarkmind(text).root : mindmap.mindmapFromMarkdown(text);
+    return { path: file.path, root };
+  }
+
+  /** Applies one map edit and writes the Markmind shape back to the note. */
+  async mindMapEdit(path, action, args) {
+    const a = args && typeof args === "object" ? args : {};
+    const file = this.app.vault.getAbstractFileByPath(String(path || ""));
+    if (!file) throw new Error("Open a Markdown note first.");
+    const { root } = await this.mindMapTree(path);
+    let op = null;
+    if (action === "add") op = mindmap.addChild(root, a.parent, a.text);
+    else if (action === "rename") op = mindmap.renameNode(root, a.from, a.to);
+    else if (action === "remove") op = mindmap.removeNode(root, a.text);
+    else if (action === "move") op = mindmap.moveNode(root, a.text, a.parent);
+    else throw new Error("Unknown mind-map action.");
+    if (!op || !op.ok) throw new Error(op && op.message ? op.message : "That node is not in this map.");
+    await this.app.vault.modify(file, mindmap.markmindMarkdown(op.tree));
+    return { path: file.path, root: op.tree };
+  }
+
+  /** Two prompts for one map edit, with a notice when the edit is refused. */
+  promptMindMap(action) {
+    const active = this.app.workspace.getActiveFile();
+    if (!active || !/\.md$/i.test(active.path)) {
+      new Notice("Open a Markdown note first.");
+      return;
+    }
+    const ask = (title, initial, cb) => new NameModal(this.app, title, initial, cb).open();
+    const done = (args) => this.mindMapEdit(active.path, action, args)
+      .then(() => new Notice("Saved the mind map."))
+      .catch((e) => new Notice(e && e.message ? e.message : String(e)));
+    if (action === "add") ask("Parent node", "", (parent) => ask("New child", "", (text) => done({ parent, text })));
+    else if (action === "rename") ask("Node to rename", "", (from) => ask("New text", from, (to) => done({ from, to })));
+    else if (action === "remove") ask("Node to remove", "", (text) => done({ text }));
+    else if (action === "move") ask("Node to move", "", (text) => ask("New parent", "", (parent) => done({ text, parent })));
+  }
+
+  /** Writes a Markmind note beside this one from its headings and lists. */
+  async mindMapFromNote() {
+    const active = this.app.workspace.getActiveFile();
+    if (!active || !/\.md$/i.test(active.path)) {
+      new Notice("Open a Markdown note first.");
+      return null;
+    }
+    const root = mindmap.mindmapFromMarkdown(await this.app.vault.cachedRead(active));
+    const target = active.path.replace(/\.md$/i, "") + " (mind map).md";
+    if (this.app.vault.getAbstractFileByPath(target)) {
+      new Notice(target + " already exists.");
+      return null;
+    }
+    await this.app.vault.create(target, mindmap.markmindMarkdown(root));
+    new Notice("Wrote " + target + ".");
+    return target;
+  }
+
   /** Opt-in image request for vision work. Only Direct AI can receive images. */
   async aiVision(system, prompt, images, opts) {
     const o = opts || {};
@@ -8266,6 +8505,87 @@ ${body}
       }
     }
     return this.importParsedCards(cards, { ...opts, errors });
+  }
+
+  /** Reads one export file from the vault as text. */
+  async serviceExportText(path) {
+    const file = this.app.vault.getAbstractFileByPath(str(path));
+    if (!file) throw new Error(`There is no ${str(path)} in this vault.`);
+    return str(await this.app.vault.cachedRead(file));
+  }
+
+  /**
+   * Imports one service export: `{ path }` or `{ text, filename }`, into a folder of
+   * notes. Each record becomes one note; an existing note is skipped, so a repeated
+   * import never duplicates or overwrites. Returns what was written and skipped.
+   */
+  async importServiceExport(source, options) {
+    const input = source && typeof source === "object" ? source : {};
+    const settings = options && typeof options === "object" ? options : {};
+    const path = str(input.path);
+    const filename = path || str(input.filename);
+    if (/\.text(bundle|pack)$/i.test(filename)) {
+      throw new Error(serviceImport.detectServiceExport("", filename).error);
+    }
+    const text = path ? await this.serviceExportText(path) : str(input.text);
+    const detected = serviceImport.detectServiceExport(text, filename);
+    if (!detected.ok) throw new Error(detected.error);
+    const parsed = serviceImport.parseServiceExport(text, { kind: settings.kind || detected.kind, filename });
+    if (!parsed.ok) throw new Error(parsed.error);
+    const folder = str(settings.folder).replace(/^\/+|\/+$/g, "") || `Imports/${detected.label}`;
+    await ensureFolder(this.app, folder);
+    const taken = new Set();
+    const written = [];
+    let skipped = 0;
+    for (const record of parsed.records) {
+      const notePath = serviceImport.uniqueNotePath(folder, record.title, taken);
+      if (this.app.vault.getAbstractFileByPath(notePath)) {
+        skipped += 1;
+        continue;
+      }
+      await this.app.vault.create(notePath, serviceImport.recordMarkdown(record));
+      taken.add(notePath);
+      written.push(notePath);
+    }
+    new Notice(
+      `${detected.service} import: ${written.length} note(s) written to ${folder}${skipped ? `, ${skipped} already there` : ""}${
+        parsed.skipped ? `, ${parsed.skipped} empty or trashed skipped` : ""
+      }.`,
+      8000
+    );
+    return { service: detected.service, kind: detected.kind, folder, written, skipped, total: parsed.total };
+  }
+
+  /** The importer's command entry: it reads the export that is open. */
+  async importActiveServiceExport() {
+    const active = this.app.workspace.getActiveFile();
+    if (!active || !active.path) {
+      new Notice("Open an export file first (an .enex, .json, .csv or .md export).");
+      return null;
+    }
+    try {
+      return await this.importServiceExport({ path: active.path });
+    } catch (e) {
+      new Notice(str(e && e.message ? e.message : e), 10000);
+      return null;
+    }
+  }
+
+  /** Imports an export straight from the clipboard, so a pasted export needs no file. */
+  async importServiceClipboard() {
+    let text = "";
+    try {
+      text = await navigator.clipboard.readText();
+    } catch (e) {
+      new Notice("Could not read the clipboard. Copy the export's text first.");
+      return null;
+    }
+    try {
+      return await this.importServiceExport({ text }, { folder: "" });
+    } catch (e) {
+      new Notice(str(e && e.message ? e.message : e), 10000);
+      return null;
+    }
   }
 
   /** Import an Anki plain-text/CSV export. Binary .apkg files need Anki's text export. */

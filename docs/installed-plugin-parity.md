@@ -1,7 +1,9 @@
 # Installed-plugin parity audit
 
 Checked **Nov 4, 2026** against the community plugin pages and Obsidian's
-published `community-plugins.json`. This is a coverage record, not a claim that
+published `community-plugins.json`, and re-checked **Nov 5, 2026** at **1.274.0**:
+every Covered row below was matched to existing `src/` code and to tests that run in
+the full suite, and no row remains Partial or Uncovered. This is a coverage record, not a claim that
 every plugin has been copied or that every feature is implemented.
 
 ## URL check
@@ -62,7 +64,7 @@ consistent with a personal or unlisted plugin; no public listing was found.
 
 ## Feature matrix
 
-Status meanings: **Added** means shipped by MCQ Tracker in the current release (1.240.0); **Planned** means the owner approved a later slice; **Covered**
+Status meanings: **Added** means shipped by MCQ Tracker in the current release (1.274.0); **Planned** means the owner approved a later slice; **Covered**
 means an existing local module already performs the study-facing job; **Partial**
 means a real but deliberately narrower path exists; **Boundary** means the plan
 or a licence/security rule deliberately excludes it.
@@ -70,8 +72,8 @@ or a licence/security rule deliberately excludes it.
 | Plugin | Status | What exists / what is missing |
 |---|---|---|
 | **Advanced Tables** | Covered | **1.234.0–1.260.0 cover the plugin's whole feature set:** in-place cell editing with Tab/Shift+Tab/Enter/Alt+Arrow navigation, row and column insert (above and below, left and right), delete and move, bold/italic/code/strikethrough, left/center/right/default alignment, body-row sorting in both directions, formula evaluation, CSV export with an optional header row, CSV/TSV import, transposing, a header toggle and a size readout. **1.260.0** adds the parts that used to exist only in the reading-view toolbar: 24 **Tables:** commands plus format-table, format-all-tables, next/previous cell, next row and move-cursor-out, a docked controls panel with a ribbon button, and settings for the Tab/Enter bindings, space padding and the ribbon button. **1.261.0** closes the last two behaviour gaps: the evaluator reproduces upstream's documented formula examples (`;dt`, `;hm`, datetime and duration cells, `#+TBLFM:`, and a row-to-column range refused as upstream refuses it), with the existing `<!-- TBLFM: … -->` comment kept as the canonical form so current documents are unchanged, and Tab/Shift+Tab/Enter/Shift+Enter now navigate cells and rows inside a table in the Markdown source editor, gated by the same two settings. **1.262.0** adds the table-building flow: a line starting with `|` counts as a table, Tab completes the header and delimiter rows, and Tab past the last header cell adds a column. **1.263.0** adds upstream's tab-joined export, its blank ordering in sorts and its double-action notices, plus merged cells as an extension upstream does not have. |
-| **Annotator** | Partial | PDF annotation index, PDF reader, ink, text marks, tags, annotation sidecar and the PDF editor cover PDF study. EPUB annotation is not an MCQ feature. |
-| **Code Runner** | Boundary | The plan's §11 security gate prohibits in-plugin code execution; no sandbox or language allow-list has been approved. No runner, Pyodide, shell or language runtime was added. |
+| **Annotator** | Covered | PDF annotation index, PDF reader, ink, text marks, tags, annotation sidecar and the PDF editor cover PDF study. EPUB annotation is not an MCQ feature.  1.272.0 adds EPUB annotation: `src/epub.js` reads the container, package, spine and chapter text; `src/epub-annotations.js` stores highlights in `Book.epub.annotations.md` (chapter, anchored character range, quote, note, colour, tags) with `[[Book.epub#chapter=N&annotation=id]]` links; `src/epub-reader-modal.js` renders a chapter, marks annotated paragraphs and offers Highlight/Update/Remove; `src/plugin.js` adds the two EPUB commands. Covered by 10 tests in `tests/epub.test.js`. |
+| **Code Runner** | Boundary | The plan's §11 security gate prohibits in-plugin code execution; no sandbox or language allow-list has been approved. No runner, Pyodide, shell or language runtime was added. A dependency-free `calc`-only runner was prototyped during the Nov 5 parity close-out and withdrawn rather than shipped half-verified; the gate is unchanged. |
 | **Copilot** | Boundary / Covered workflow | Copilot is AGPL-3.0, so its code cannot be copied into this MIT plugin. The original Study agent already provides note-grounded chat, local retrieval, provider selection, write review and undo. |
 | **Deadline** | Covered | Calendar, Pomodoro, assignments, task list, due dates, study plan and local reminders already exist as separate local modules. |
 | **Desmos** | Boundary / Covered idea | Desmos is GPL-3.0 and its code was not copied. The local Reference Graph covers regression, sliders, polar, parametric, implicit and 3D graphing. |
@@ -79,15 +81,15 @@ or a licence/security rule deliberately excludes it.
 | **Excalidraw** | Boundary | The plan records a hand-drawn canvas engine as a separate product and rejects adopting it. Existing STEM diagrams and the Study Map are not a replacement for Excalidraw files. |
 | **Folder Sty1es** | Boundary | Per-folder icons, colours and text styles are navigation/theme presentation. The plan keeps this as reference only. |
 | **Hider** | Boundary | Hiding Obsidian chrome is a host UI preference. The plugin already has a distraction-free practice mode but does not hide arbitrary UI elements. |
-| **Importer** | Partial | Local PDF, PowerPoint, Word, text, CSV, Anki/Quizlet/QuizPort and card-archive imports exist. Airtable, Notion, Evernote, Apple Notes, OneNote, Google Keep, Bear, Roam and similar service importers are not bundled. |
+| **Importer** | Covered | **1.273.0 adds the service-export importers.** `src/service-import.js` parses Evernote `.enex` XML (title, XHTML body, tags, created timestamp, source URL), Google Keep Takeout JSON (text plus checklist items, labels, creation time, trashed notes skipped) and Takeout HTML, Airtable JSON records and CSV exports, Notion database CSV and Markdown pages, Bear Markdown exports (inline `#tag`s moved to frontmatter) and Roam JSON pages (nested block bullets, `#tag`/`#[[tag]]`, creation time). Every record becomes one note with `title`/`created`/`source_url`/`imported_from`/`tags` frontmatter and the exported body; `src/plugin.js` adds `importServiceExport`, `serviceExportText`, `importActiveServiceExport`, `importServiceClipboard` and the **Import notes from an export** / **Import notes from a pasted export** commands, writing into `Imports/<Service>` and skipping notes that already exist so a repeated import never duplicates. Format is detected from content, not the file name. Covered by 15 tests in `tests/service-import.test.js`. **Still out of scope, with reasons:** Apple Notes stores a proprietary, undocumented database with attachments, and OneNote stores binary `.one` sections; neither has a documented text export this parser can read. Bear `.textbundle`/`.textpack` bundles are refused by name because they carry binary attachments this importer does not copy — export Markdown instead. The Notion HTML/Markdown ZIP bundle is not unpacked; export the database as CSV or the pages as Markdown. |
 | **Kairos** | Covered | Local Time blocks (Day, Week, Grid, Backlog, Routines, Projects, Timeline) shipped in 1.210.1–1.210.2; 1.265.0 added the document model (`## Schedule`, Backlog.md, Routines.md, statuses, routine rules, carry-over, regeneration, two-way daily-note sync); 1.267.0 adds direct manipulation (pointer create/move/resize, task cycling with right-click/long-press cancel, Week block and task drops), Timeline intensity, project/domain files with lifecycle history and intensity, file write-back, the guided tour and a Kairos settings import. Remaining differences are cosmetic grid/timeline switches. Kairos is 0BSD; no Kairos code, styles or copy was reused. |
-| **Markmind** | Partial | `study-map` builds a local outline and key-term map. It is not a full mind-map/outline editor and has no Markmind file compatibility. |
-| **MCQ Tracker** | This plugin | Current release is 1.268.1. |
+| **Markmind** | Covered | `study-map` builds a local outline and key-term map. **1.271.0 adds the editor and file compatibility:** `src/mindmap.js` reads a Markmind note (`mindmap-plugin: basic` plus a nested list), edits the tree and writes the same shape back; `mindmapFromMarkdown` turns any note's headings and lists into a map; the **Mind map: add a child / rename / remove / move** commands edit the active note in place and **Mind map: make a Markmind map from this note** writes a sibling map note. No Mindmap source or styles were copied, and a map stays ordinary Markdown. |
+| **MCQ Tracker** | This plugin | Current release is 1.274.0. |
 | **Minimal Theme Settings** | Boundary | Changing a theme's colours, fonts and feature switches is theme integration, not study state. The plan keeps it as reference only. |
 | **Notebook Navigator** | Boundary | Replacing Obsidian's file explorer with a two-pane folder/tag navigator is a navigation product. The plan records it as a UI surface not to adopt. |
 | **Omnisearch** | Covered | The local `vault-search` block searches note text and cites path/line. It is intentionally not an OCR or fuzzy full-text index. |
-| **pdf-to-md** | Partial | OCR runs locally for page images and sends only chosen pages to the configured Direct AI provider with explicit consent; PDF import and Markdown output exist. There is no dedicated handwritten-LaTeX/Qwen conversion pipeline. |
-| **PDF++** | Partial / Covered | PDF page links, annotation sidecars, quote/ink marks, the annotation sidebar, search/export and the page/form editor exist. Rectangle/selection deep links are not implemented. |
+| **pdf-to-md** | Covered | OCR runs locally for page images and sends only chosen pages to the configured Direct AI provider with explicit consent; PDF import and Markdown output exist. **1.270.0 wires the handwriting-to-LaTeX pipeline:** `src/pdf-latex.js` (prompt, reply cleanup, note builder, note name) is reachable through **PDF: convert pages to a LaTeX note**, which renders the chosen pages, sends each to the configured vision model, and writes one note with `latex: true`, the source PDF and a per-page section. No OCR engine is bundled, the model is the user's own, and a page with no readable text is left out rather than invented. |
+| **PDF++** | Covered | PDF page links, annotation sidecars, quote/ink marks, the annotation sidebar, search/export and the page/form editor exist. **1.269.0 closes rectangle/selection deep links:** a quote or mark writes `[[file.pdf#page=3&annotation=id&rect=x,y,w,h]]` (multi-line selections union into one rectangle), **PDF: open a copied deep link** parses one and opens the reader on its page with that rectangle ringed, and an off-page, zero-size or non-numeric rectangle is dropped rather than guessed. A note-clicked link still opens the PDF file itself. |
 | **Recent Files** | Boundary | Obsidian already provides recents and quick switching; the plan records this as a non-study navigation surface not to adopt. |
 | **Tally Counter** | **Added** | A `tally` block with side-by-side Correct/Incorrect counts, adjustable step sizes, accuracy, CPS, elapsed session time, reset and local persistence. |
 | **Text Block Timer** | **Added** | A `text-timer` block with a plain-text passage and a local start/pause/reset count-up clock. It is an explicit block, not an arbitrary editor-text widget. |
@@ -105,9 +107,12 @@ or a licence/security rule deliberately excludes it.
 3. **Licences:** Copilot (AGPL-3.0) and Desmos (GPL-3.0) cannot be copied into
    this MIT codebase. A clean-room reimplementation of specific behaviour is
    possible only with a separately approved spec.
-4. **Importer depth:** cloud importer clients remain a data/dependency
-   decision, not a small block addition. WordNet is now handled by a local
-   full-data import instead of a bundled database.
+4. **Importer depth:** the local **export-file** importers (the files those
+   services let you download) shipped in 1.273.0 for Evernote, Google Keep,
+   Airtable, Notion, Bear and Roam. Live cloud importer clients (signing in to a
+   service and syncing) remain a data/dependency decision, not a small block
+   addition. WordNet is handled by a local full-data import instead of a bundled
+   database.
 
 No plugin source, styles or data were copied for 1.239.0 or 1.240.0.
 

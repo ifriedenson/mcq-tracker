@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 390 groups, 2606 exports. **Commands:** 194. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 394 groups, 2655 exports. **Commands:** 205. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -31,6 +31,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `DEFAULT_SETTINGS` | 112 | `tests/grading.test.js` |
 | `DocumentReviewModal` | 0 | `tests/feature-surfaces.test.js` |
 | `DueQueueModal` | 0 | `tests/feature-surfaces.test.js` |
+| `EpubReaderModal` | 0 | `tests/epub.test.js` |
 | `FindQuestionModal` | 0 | `tests/views.test.js` |
 | `FocusLogModal` | 0 | `tests/feature-surfaces.test.js` |
 | `FolderFilterSuggest` | 0 | `tests/views.test.js` |
@@ -179,6 +180,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `downloadFile` | 0 | — |
 | `durability` | 9 | `tests/durability.test.js` |
 | `emptyState` | 0 | `tests/empty-state.test.js` |
+| `epub` | 8 | `tests/epub.test.js` |
+| `epubAnnotations` | 17 | `tests/epub.test.js` |
 | `errorLog` | 0 | `tests/stats.test.js` |
 | `examBlock` | 2 | `tests/exam-block.test.js` |
 | `extractArchive` | 0 | — |
@@ -252,7 +255,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `matrix` | 22 | `tests/matrix.test.js` |
 | `memoryOf` | 0 | `tests/progress.test.js` |
 | `mergeAuth` | 0 | `tests/feature-surfaces.test.js` |
-| `mindmap` | 10 | `tests/feature-engines.test.js` |
+| `mindmap` | 11 | `tests/feature-engines.test.js`, `tests/mindmap-edit.test.js` |
 | `mixedQuestionAttempt` | 0 | `tests/mixed-review.test.js` |
 | `mochiExport` | 5 | `tests/mochi-export.test.js` |
 | `modelDiscovery` | 4 | `tests/model-discovery.test.js` |
@@ -281,16 +284,16 @@ the table and fails if a group, export count, command or citing test drifts.
 | `parseSections` | 0 | `tests/grading.test.js`, `tests/hints.test.js`, `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/needs-fixing.test.js`, `tests/question-types.test.js`, `tests/views.test.js` |
 | `partsToTurns` | 0 | `tests/feature-surfaces.test.js` |
 | `pauseQuickSession` | 0 | `tests/uncited-groups.test.js` |
-| `pdf` | 17 | `tests/cards-import.test.js`, `tests/feature-engines.test.js`, `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/study-modules-3.test.js` |
+| `pdf` | 17 | `tests/cards-import.test.js`, `tests/feature-engines.test.js`, `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-deep-link.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-latex.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/study-modules-3.test.js` |
 | `pdfAnnotationIndex` | 7 | `tests/study-modules-3.test.js` |
-| `pdfAnnotations` | 22 | `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/study-modules-3.test.js` |
+| `pdfAnnotations` | 22 | `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-deep-link.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/study-modules-3.test.js` |
 | `pdfAnnotatorSidebar` | 8 | `tests/pdf-annotator-sidebar.test.js` |
-| `pdfDeepLink` | 6 | `tests/feature-engines.test.js` |
+| `pdfDeepLink` | 6 | `tests/feature-engines.test.js`, `tests/pdf-deep-link.test.js` |
 | `pdfEditor` | 56 | `tests/pdf-editor-window.test.js`, `tests/pdf-reader-page-ops.test.js` |
 | `pdfEditorModal` | 3 | `tests/pdf-editor-window.test.js` |
 | `pdfInk` | 27 | `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-reader-page-ops.test.js` |
 | `pdfInkModal` | 2 | `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-reader-page-ops.test.js` |
-| `pdfLatex` | 5 | `tests/feature-engines.test.js` |
+| `pdfLatex` | 6 | `tests/feature-engines.test.js`, `tests/pdf-latex.test.js` |
 | `pickQuestion` | 0 | `tests/mastery-picker.test.js`, `tests/study-status.test.js` |
 | `plainCards` | 6 | `tests/plain-cards.test.js` |
 | `platformTriple` | 0 | `tests/feature-surfaces.test.js` |
@@ -336,6 +339,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `schedulerFit` | 8 | `tests/scheduler-fit.test.js` |
 | `scopeQuestions` | 0 | `tests/progress.test.js` |
 | `secretKeys` | 13 | `tests/secret-keys.test.js`, `tests/security-hardening.test.js` |
+| `serviceImport` | 22 | `tests/service-import.test.js` |
 | `sessionReport` | 5 | `tests/session-report.test.js` |
 | `setLastErrorType` | 0 | `tests/grading.test.js` |
 | `settingsGlobal` | 7 | `tests/settings-consolidation.test.js` |
@@ -400,7 +404,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `welcome` | 12 | `tests/welcome.test.js` |
 | `wordnet` | 18 | `tests/wordnet.test.js` |
 | `writingSessions` | 11 | `tests/writing-sessions.test.js` |
-| `zipWrite` | 2 | `tests/study-bundle-import.test.js` |
+| `zipWrite` | 2 | `tests/epub.test.js`, `tests/study-bundle-import.test.js` |
 
 ## Commands
 
@@ -418,6 +422,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `export-practice-sheet` | Export an answer-free practice sheet | `exportPracticeSheet` | `tests/practice-sheet.test.js` |
 | `export-review-sheet` | Export an error-log review sheet | `exportReviewSheet` | `tests/practice-sheet.test.js`, `tests/views.test.js` |
 | `import-pdf` | Import questions from a file (PDF, PowerPoint, Word) | `openPdfImport` | `tests/empty-state.test.js`, `tests/modules.test.js`, `tests/plugin.test.js` |
+| `import-service-export` | Import notes from an export (Airtable, Notion, Evernote, Keep, Bear, Roam) | `importActiveServiceExport` | `tests/service-import.test.js` |
+| `import-service-clipboard` | Import notes from a pasted export | `importServiceClipboard` | `tests/service-import.test.js` |
 | `quick-add` | Quick add questions from pasted text | `openQuickAdd` | `tests/note-quiz-clipboard.test.js`, `tests/plugin.test.js`, `tests/quick-add.test.js`, `tests/quiz-generator.test.js` |
 | `import-quiz-clipboard` | Import a generated quiz from the clipboard | `openQuizClipboardImport` | `tests/note-quiz-clipboard.test.js` |
 | `export-study-bundle` | Export a study bundle (backup of questions and cards) | `exportStudyBundle` | `tests/study-bundle-import.test.js`, `tests/study-bundle.test.js` |
@@ -429,7 +435,16 @@ the table and fails if a group, export count, command or citing test drifts.
 | `document-review` | Review a document for import | `openDocumentReview` | `tests/plugin.test.js` |
 | `ocr-pdf` | OCR a scanned PDF | `openOcr` | `tests/plugin.test.js` |
 | `pdf-annotate` | PDF: add an annotation | `openPdfAnnotation` | `tests/command-effects.test.js` |
-| `pdf-draw` | PDF: draw with pen or highlighter | `openPdfInk` | `tests/pdf-annotator.test.js`, `tests/pdf-ink.test.js` |
+| `pdf-draw` | PDF: draw with pen or highlighter | `openPdfInk` | `tests/pdf-annotator.test.js`, `tests/pdf-deep-link.test.js`, `tests/pdf-ink.test.js` |
+| `pdf-latex` | PDF: convert pages to a LaTeX note | `convertActivePdfLatex` | `tests/pdf-latex.test.js` |
+| `mindmap-add-child` | Mind map: add a child | `promptMindMap` | `tests/mindmap-edit.test.js` |
+| `mindmap-rename` | Mind map: rename a node | `promptMindMap` | `tests/mindmap-edit.test.js` |
+| `mindmap-remove` | Mind map: remove a node | `promptMindMap` | `tests/mindmap-edit.test.js` |
+| `mindmap-move` | Mind map: move a node | `promptMindMap` | `tests/mindmap-edit.test.js` |
+| `mindmap-from-note` | Mind map: make a Markmind map from this note | `mindMapFromNote` | `tests/mindmap-edit.test.js` |
+| `pdf-open-link` | PDF: open a copied deep link | `openPdfDeepLink` | `tests/pdf-deep-link.test.js` |
+| `epub-read` | EPUB: open the reader | `openActiveEpubReader` | `tests/epub.test.js` |
+| `epub-annotations` | EPUB: open this book's annotations | `openEpubAnnotations` | `tests/epub.test.js` |
 | `pdf-edit` | PDF: open the editor (pages and forms) | `openActivePdfEditor` | `tests/pdf-editor-history.test.js`, `tests/pdf-editor-record.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-editor.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/security-inventory.test.js` |
 | `pdf-export-notes` | PDF: export annotations to Markdown | `exportActivePdfAnnotations` | `tests/pdf-annotator.test.js` |
 | `pdf-open-annotations` | PDF: open annotations | `openPdfAnnotations` | `tests/command-effects.test.js` |
@@ -463,8 +478,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `open-assignments` | Open assignments and grades | `activateAssignments` | `tests/core-values.test.js`, `tests/plugin.test.js`, `tests/today.test.js` |
 | `open-study-tools` | Open Study Tools | `activateStudyTools` | `tests/plugin.test.js` |
 | `new-cornell-note` | Cornell notes: create a note | `activateStudyTools` | `tests/plugin.test.js` |
-| `open-study-workspace` | Open Study Workspace | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js` |
-| `open-time-blocks` | Time blocks: open the planner | `activateStudyWorkspace` | `tests/command-effects.test.js` |
+| `open-study-workspace` | Open Study Workspace | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |
+| `open-time-blocks` | Time blocks: open the planner | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/time-blocks-kairos.test.js` |
 | `open-time-blocks-day` | Time blocks: open the day view | `activateTimeBlocksView` | `tests/time-blocks-kairos.test.js` |
 | `open-time-blocks-week` | Time blocks: open the week view | `activateTimeBlocksView` | `tests/time-blocks-kairos.test.js` |
 | `open-time-blocks-grid` | Time blocks: open the grid view | `activateTimeBlocksView` | `tests/time-blocks-kairos.test.js` |
@@ -500,19 +515,19 @@ the table and fails if a group, export count, command or citing test drifts.
 | `canvas-query-report` | Canvas: report the active board's query groups | `reportCanvasQueryGroups` | `tests/canvas-query-groups.test.js` |
 | `canvas-query-apply` | Canvas: fit the active board's query groups around their matches | `applyCanvasQueryGroups` | `tests/canvas-query-groups.test.js` |
 | `open-task-list` | Open the task list | `activateTaskList` | `tests/plugin.test.js`, `tests/task-list.test.js` |
-| `open-reading-library` | Reading library: open the bookshelf | `activateStudyWorkspace` | `tests/command-effects.test.js` |
-| `new-feynman-cycle` | Feynman Learning: start a cycle | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js` |
-| `build-recall-queue` | Recall Scheduler: build a queue | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js` |
-| `new-topic-plan` | Topic planner: create an exam plan | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js` |
-| `study-flow-capture` | Study Flow: capture a source excerpt | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js` |
-| `subject-manager` | Subject Manager: open subjects | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js` |
-| `open-quiz-index` | Quiz index: scan quizzes and results | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js` |
-| `read-aloud` | Read aloud: speak the active note | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/settings-consolidation.test.js` |
-| `compile-lecture-notes` | Lecture notes: compile the log into one note | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js` |
-| `course-health` | Course health: check the course list | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/settings-consolidation.test.js` |
-| `audio-bookmarks` | Audio bookmarks: timestamp an attachment | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js` |
-| `feynman-ai-feedback` | Feynman: get AI feedback on an explanation | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js` |
-| `pdf-annotation-index` | PDF annotations: index the vault sidecars | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js` |
+| `open-reading-library` | Reading library: open the bookshelf | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/time-blocks-kairos.test.js` |
+| `new-feynman-cycle` | Feynman Learning: start a cycle | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |
+| `build-recall-queue` | Recall Scheduler: build a queue | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |
+| `new-topic-plan` | Topic planner: create an exam plan | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |
+| `study-flow-capture` | Study Flow: capture a source excerpt | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |
+| `subject-manager` | Subject Manager: open subjects | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |
+| `open-quiz-index` | Quiz index: scan quizzes and results | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |
+| `read-aloud` | Read aloud: speak the active note | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/settings-consolidation.test.js`, `tests/time-blocks-kairos.test.js` |
+| `compile-lecture-notes` | Lecture notes: compile the log into one note | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |
+| `course-health` | Course health: check the course list | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/settings-consolidation.test.js`, `tests/time-blocks-kairos.test.js` |
+| `audio-bookmarks` | Audio bookmarks: timestamp an attachment | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |
+| `feynman-ai-feedback` | Feynman: get AI feedback on an explanation | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |
+| `pdf-annotation-index` | PDF annotations: index the vault sidecars | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |
 | `new-assignment` | Assignments: add an assignment | `openNewAssignment` | `tests/plugin.test.js` |
 | `new-exam` | Exams: add an exam | `refreshViews` | `tests/core-values.test.js` |
 | `calendar-class-attended` | Calendar: mark this class note attended | `classNoteEvent` | `tests/command-effects.test.js` |
@@ -565,7 +580,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `manage-study-status` | Manage hidden study items | `openStudyStatusManager` | `tests/today.test.js` |
 | `weak-spots` | Show weak spots | `activateInsights` | `tests/modules.test.js`, `tests/plugin.test.js`, `tests/views.test.js` |
 | `error-log` | Show error log | `activateInsights` | `tests/modules.test.js`, `tests/plugin.test.js`, `tests/views.test.js` |
-| `find-question` | Find a question by ID | inline | `tests/plugin.test.js` |
+| `find-question` | Find a question by ID | — | `tests/plugin.test.js` |
 | `rename-source-id` | Rename old source_question_id properties to official_question_id | `migrateOfficialIds` | `tests/plugin.test.js` |
 | `open-ai-assistant` | Open AI assistant (OpenCode) | `activateView` | `tests/calendar.test.js`, `tests/cards-extract.test.js`, `tests/daily-quiz.test.js`, `tests/modules.test.js`, `tests/plugin.test.js`, `tests/today.test.js`, `tests/views.test.js` |
 | `next-question` | Next question (from current filters) | `activateView` | `tests/calendar.test.js`, `tests/cards-extract.test.js`, `tests/daily-quiz.test.js`, `tests/modules.test.js`, `tests/plugin.test.js`, `tests/today.test.js`, `tests/views.test.js` |
@@ -574,33 +589,33 @@ the table and fails if a group, export count, command or citing test drifts.
 | `add-fields-this-note` | Add missing tracking properties to this note | `addMissingFields` | `tests/command-effects.test.js` |
 | `add-fields-all` | Add missing tracking properties to all question notes | `addMissingFields` | `tests/command-effects.test.js` |
 | `repair-review-history` | Repair review counters from history | `repairReviewHistory` | `tests/history.test.js` |
-
-| `tables-next-cell` | Tables: go to the next cell | `activeTableContext` | `tests/table-commands.test.js` |
-| `tables-previous-cell` | Tables: go to the previous cell | `activeTableContext` | `tests/table-commands.test.js` |
-| `tables-next-row` | Tables: go to the next row | `activeTableContext` | `tests/table-commands.test.js` |
-| `tables-escape` | Tables: move the cursor out of the table | `activeTableContext` | `tests/table-commands.test.js` |
-| `tables-format` | Tables: format the table under the cursor | `activeTableContext` | `tests/table-commands.test.js` |
-| `tables-insert-row-above` | Tables: insert a row above | `activeTableContext` | `tests/table-commands.test.js` |
-| `tables-insert-row-below` | Tables: insert a row below | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-next-cell` | Tables: go to the next cell | `activeTableContext` | `tests/advanced-tables-executable-parity.test.js`, `tests/table-commands.test.js` |
+| `tables-previous-cell` | Tables: go to the previous cell | `activeTableContext` | `tests/advanced-tables-executable-parity.test.js`, `tests/table-commands.test.js` |
+| `tables-next-row` | Tables: go to the next row | `activeTableContext` | `tests/advanced-tables-executable-parity.test.js`, `tests/table-commands.test.js` |
+| `tables-escape` | Tables: move the cursor out of the table | `activeTableContext` | `tests/advanced-tables-executable-parity.test.js`, `tests/table-commands.test.js` |
+| `tables-format` | Tables: format the table under the cursor | `activeTableContext` | `tests/advanced-tables-executable-parity.test.js`, `tests/table-commands.test.js` |
+| `tables-insert-row-above` | Tables: insert a row above | `activeTableContext` | `tests/advanced-tables-executable-parity.test.js`, `tests/table-commands.test.js` |
+| `tables-insert-row-below` | Tables: insert a row below | `activeTableContext` | `tests/advanced-tables-executable-parity.test.js`, `tests/table-commands.test.js` |
 | `tables-insert-column-left` | Tables: insert a column to the left | `activeTableContext` | `tests/table-commands.test.js` |
-| `tables-insert-column-right` | Tables: insert a column to the right | `activeTableContext` | `tests/table-commands.test.js` |
-| `tables-delete-row` | Tables: delete the row | `activeTableContext` | `tests/table-commands.test.js` |
-| `tables-delete-column` | Tables: delete the column | `activeTableContext` | `tests/table-commands.test.js` |
-| `tables-move-row-up` | Tables: move the row up | `activeTableContext` | `tests/table-commands.test.js` |
-| `tables-move-row-down` | Tables: move the row down | `activeTableContext` | `tests/table-commands.test.js` |
-| `tables-move-column-left` | Tables: move the column left | `activeTableContext` | `tests/table-commands.test.js` |
-| `tables-move-column-right` | Tables: move the column right | `activeTableContext` | `tests/table-commands.test.js` |
-| `tables-align-left` | Tables: align the column left | `activeTableContext` | `tests/table-commands.test.js` |
-| `tables-align-center` | Tables: align the column center | `activeTableContext` | `tests/table-commands.test.js` |
-| `tables-align-right` | Tables: align the column right | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-insert-column-right` | Tables: insert a column to the right | `activeTableContext` | `tests/advanced-tables-executable-parity.test.js`, `tests/table-commands.test.js` |
+| `tables-delete-row` | Tables: delete the row | `activeTableContext` | `tests/advanced-tables-executable-parity.test.js`, `tests/table-commands.test.js` |
+| `tables-delete-column` | Tables: delete the column | `activeTableContext` | `tests/advanced-tables-executable-parity.test.js`, `tests/table-commands.test.js` |
+| `tables-move-row-up` | Tables: move the row up | `activeTableContext` | `tests/advanced-tables-executable-parity.test.js`, `tests/table-commands.test.js` |
+| `tables-move-row-down` | Tables: move the row down | `activeTableContext` | `tests/advanced-tables-executable-parity.test.js`, `tests/table-commands.test.js` |
+| `tables-move-column-left` | Tables: move the column left | `activeTableContext` | `tests/advanced-tables-executable-parity.test.js`, `tests/table-commands.test.js` |
+| `tables-move-column-right` | Tables: move the column right | `activeTableContext` | `tests/advanced-tables-executable-parity.test.js`, `tests/table-commands.test.js` |
+| `tables-align-left` | Tables: align the column left | `activeTableContext` | `tests/advanced-tables-executable-parity.test.js`, `tests/table-commands.test.js` |
+| `tables-align-center` | Tables: align the column center | `activeTableContext` | `tests/advanced-tables-executable-parity.test.js`, `tests/table-commands.test.js` |
+| `tables-align-right` | Tables: align the column right | `activeTableContext` | `tests/advanced-tables-executable-parity.test.js`, `tests/table-commands.test.js` |
 | `tables-align-default` | Tables: clear the column alignment | `activeTableContext` | `tests/table-commands.test.js` |
-| `tables-sort-asc` | Tables: sort rows ascending | `activeTableContext` | `tests/table-commands.test.js` |
-| `tables-sort-desc` | Tables: sort rows descending | `activeTableContext` | `tests/table-commands.test.js` |
-| `tables-transpose` | Tables: transpose | `activeTableContext` | `tests/table-commands.test.js` |
-| `tables-formulas` | Tables: evaluate formulas | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-sort-asc` | Tables: sort rows ascending | `activeTableContext` | `tests/advanced-tables-executable-parity.test.js`, `tests/table-commands.test.js` |
+| `tables-sort-desc` | Tables: sort rows descending | `activeTableContext` | `tests/advanced-tables-executable-parity.test.js`, `tests/table-commands.test.js` |
+| `tables-transpose` | Tables: transpose | `activeTableContext` | `tests/advanced-tables-executable-parity.test.js`, `tests/table-commands.test.js` |
+| `tables-formulas` | Tables: evaluate formulas | `activeTableContext` | `tests/advanced-tables-executable-parity.test.js`, `tests/advanced-tables-upstream.test.js`, `tests/table-commands.test.js` |
 | `tables-export-csv` | Tables: export as CSV | `activeTableContext` | `tests/table-commands.test.js` |
-| `tables-format-all` | Tables: format every table in this note | `activeEditorContext` | `tests/table-commands.test.js` |
-| `tables-open-controls` | Tables: open the table controls panel | `openTableControls` | `tests/table-commands.test.js` |
+| `tables-format-all` | Tables: format every table in this note | `activeEditorContext` | `tests/advanced-tables-executable-parity.test.js`, `tests/table-commands.test.js` |
+| `tables-open-controls` | Tables: open the table controls panel | `openTableControls` | `tests/advanced-tables-executable-parity.test.js`, `tests/table-commands.test.js` |
+
 ## Gaps (3 groups, 0 commands)
 
 Each entry is implemented in the bundle but has no test that names it. They are listed

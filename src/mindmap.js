@@ -53,6 +53,39 @@ function renderNodes(node, depth, lines) {
   }
 }
 
+/**
+ * Any note becomes a map: headings nest by level and list lines nest under the
+ * heading they follow. A note with no heading still gets its list as branches.
+ */
+function mindmapFromMarkdown(text) {
+  const source = splitNote(text).body;
+  const root = { text: "Mind map", children: [] };
+  const stack = [{ node: root, level: 0, indent: -1 }];
+  let sawHeading = false;
+  for (const line of source.split("\n")) {
+    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+    if (heading) {
+      sawHeading = true;
+      const level = heading[1].length;
+      const node = { text: heading[2].trim(), children: [] };
+      if (!root.children.length && !stack[1]) root.text = node.text;
+      while (stack.length > 1 && stack[stack.length - 1].level >= level) stack.pop();
+      stack[stack.length - 1].node.children.push(node);
+      stack.push({ node, level, indent: -1 });
+      continue;
+    }
+    const list = /^([ \t]*)(?:[-*+]|\d+[.)])\s+(.+)$/.exec(line);
+    if (!list) continue;
+    const indent = list[1].replace(/\t/g, "  ").length;
+    while (stack.length > 1 && indent <= stack[stack.length - 1].indent) stack.pop();
+    const node = { text: list[2].trim(), children: [] };
+    stack[stack.length - 1].node.children.push(node);
+    stack.push({ node, level: stack[stack.length - 1].level, indent });
+  }
+  if (sawHeading && root.children.length === 1) return root.children[0];
+  return root;
+}
+
 /** Write a tree back as a Markmind note. */
 function markmindMarkdown(root) {
   const tree = root && typeof root === "object" ? root : { text: "Mind map", children: [] };
@@ -136,6 +169,7 @@ function moveNode(root, text, parentText) {
 }
 
 module.exports = {
+  mindmapFromMarkdown,
   PLUGIN_KEY,
   addChild,
   flattenMindmap,
