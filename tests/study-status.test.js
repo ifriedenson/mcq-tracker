@@ -239,13 +239,13 @@ test("plugin: setting and restoring a status writes readable properties and refr
   const restored = await plugin.setStudyStatus(known.file, "active");
   assert.equal(restored.status, "active");
   assert.equal(known.fm.study_status, undefined);
-  assert.equal(plugin.filtered(plugin.getQuestions()).length, 2);
+  assert.equal(plugin.filtered(plugin.getQuestions(), { today: TODAY }).length, 2);
 
   const snoozed = await plugin.setStudyStatus(active.file, "known", { now: NOW, days: 7 });
   assert.equal(snoozed.status, "known");
   assert.equal(active.fm.study_status, "known");
   assert.equal(active.fm.known_until, "2026-11-05");
-  assert.deepEqual(plugin.filtered(plugin.getQuestions()).map((q) => q.file.path), ["Questions/known.md"]);
+  assert.deepEqual(plugin.filtered(plugin.getQuestions(), { today: TODAY }).map((q) => q.file.path), ["Questions/known.md"]);
 
   const excluded = await plugin.setStudyStatus(known.file, "excluded", { reason: "known it" });
   assert.equal(excluded.status, "excluded");

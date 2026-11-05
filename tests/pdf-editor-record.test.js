@@ -68,8 +68,18 @@ test("the record's limits match the engine's own constants", () => {
   assert.equal(history.HISTORY_BYTES, 96 * 1024 * 1024, "the history budget is 96 MB");
   assert.match(record, /last 20 steps within a 96 MB budget/, "the record states the history bounds");
   assert.match(record, /over-2000-page refusals/, "the record states the page limit");
-  assert.match(record, /1–8 lengths/, "the record states the dash-length limit");
-  assert.match(record, /0 to 1000/, "the record states the dash-phase limit");
+  assert.match(record, /1–8 dash lengths of at most 100 with a phase from 0 to\n1,000/, "the record states the dash limits");
+  for (const stated of [
+    "80 MB and 2,000 pages on open",
+    "500 pages added\nfrom another file at once",
+    "500 links and 500 form fields",
+    "60-character field\nnames with 50 choices",
+    "200 bookmarks with 120-character titles at three levels",
+    "remote\ntargets from page 1 to 100,000",
+    "100 split parts",
+  ]) {
+    assert.ok(record.replace(/\n/g, " ").includes(stated.replace(/\n/g, " ")), `the record states: ${stated}`);
+  }
 });
 
 test("the editor refuses what the record says it refuses", async () => {
@@ -102,10 +112,10 @@ test("the editor stays pure, offline and free of dynamic code", () => {
 
 test("every release the record lists has its notes and a shipped entry", () => {
   const versions = ["1.242.0", "1.243.0", "1.244.0", "1.245.0", "1.246.0", "1.247.0", "1.248.0", "1.249.0",
-    "1.250.0", "1.251.0", "1.252.0", "1.253.0", "1.254.0", "1.255.0", "1.256.0"];
+    "1.250.0", "1.251.0", "1.252.0", "1.253.0", "1.254.0", "1.255.0", "1.256.0", "1.256.1"];
   for (const version of versions) {
     assert.ok(fs.existsSync(path.join(root, "docs", "release-notes", `${version}.md`)), `${version} has release notes`);
     assert.ok(record.includes(version), `the record names ${version}`);
   }
-  assert.match(record, /docs\/release-notes\/1\.242\.0\.md` through `1\.256\.0\.md/);
+  assert.match(record, /docs\/release-notes\/1\.242\.0\.md` through `1\.256\.1\.md/);
 });

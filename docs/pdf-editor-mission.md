@@ -22,6 +22,13 @@ dispatches. No network request, provider, account or new dependency was added at
 | Reading | continuous reader, text selection, marks, ink, text boxes, notes, in-reader annotation sidebar, ask-AI-about-a-passage | 1.215.0–1.226.0 |
 | Safety | every mutation is one undo step in a bounded byte-level history that returns the opened file byte-for-byte; Save always writes a new copy; the source PDF and its `.annotations.md` sidecar are never modified | 1.218.0 |
 
+The limits, as the engine enforces them: 80 MB and 2,000 pages on open; 500 pages added
+from another file at once; 500 links and 500 form fields per document, 60-character field
+names with 50 choices; 200 bookmarks with 120-character titles at three levels; remote
+targets from page 1 to 100,000; 1–8 dash lengths of at most 100 with a phase from 0 to
+1,000; 100 split parts; and 20 undo steps — the opened file plus the last 20 steps within
+a 96 MB budget.
+
 ## Verification
 
 - `tests/pdf-editor.test.js` — 90 tests on real bytes: page operations, form fill and
@@ -34,7 +41,8 @@ dispatches. No network request, provider, account or new dependency was added at
 - `tests/pdf-editor-record.test.js` — 5 tests that hold this record to the code: every capability
   it names is exported, every limit it states equals the engine's constant, the empty and damaged
   refusals behave, both editor files stay free of network calls, dynamic code and `innerHTML`, and
-  every release it lists has its notes.
+  every release it lists has its notes. The limits sentence above is read back against
+  `src/pdf-editor.js` declaration by declaration.
 - `tests/pdf-editor-window.test.js` drives the real window against the built `main.js` in a
   mocked vault: rotate, move, fill, burn, save, the second-save path, the command, the reader
   hand-over, and the **Add link**, **Move link**, **Move to page**, **Style link** (border style, dash pattern and dash phase included) and **Change link** (with the **Change to** launch file, named destination and remote file and destination) rows.
@@ -62,7 +70,9 @@ dispatches. No network request, provider, account or new dependency was added at
   **4,976,540 bytes**.
 - At 1.256.0: full suite **1932 pass** (record 5), `main.js` unchanged at
   **4,976,540 bytes** across **298 modules**.
-- Release notes: `docs/release-notes/1.242.0.md` through `1.256.0.md`, with the earlier
+- At 1.256.1: full suite **1932 pass** (record 5, with the limits sentence now asserted
+  against the code), `main.js` still unchanged at **4,976,540 bytes**.
+- Release notes: `docs/release-notes/1.242.0.md` through `1.256.1.md`, with the earlier
   1.218.0–1.231.0 notes beside them.
 
 ## Review (Nov 4, 2026)
@@ -83,7 +93,9 @@ through Obsidian's `createEl`/`setText`. The only write path is
 overwrites an existing path. Parsing untrusted PDFs in-process with pdf-lib is
 the residual risk, shared with the reader, and is recorded here rather than
 claimed away. `tests/pdf-editor-record.test.js` now fails the suite if the
-record or this purity claim drifts from the code.
+record or this purity claim drifts from the code. A follow-up at 1.256.1 wrote the
+engine's numeric limits into this record so the limits the test checks are the ones the
+document states, rather than only the constants.
 
 ## Remaining gates — refused, never approximated
 
