@@ -114,10 +114,16 @@ No plugin source, styles or data were copied for 1.239.0 or 1.240.0.
 ## Advanced Tables, feature by feature
 
 One row per feature the upstream plugin and its library document, and what this
-plugin does for it. The formula rows are proved by
-`tests/table-formulas-upstream.test.js`, which runs the examples from
-upstream's own formula guide and compares the resulting table rows; the key rows
-are proved by the source-editor tests in `tests/table-commands.test.js`.
+plugin does for it. Every row below is proved by a named test that drives the
+plugin's own code — the command, editor key handler, postprocessor, docked panel
+or write path — rather than a stand-in that re-implements the behaviour. The
+formula rows are proved by `tests/table-formulas-upstream.test.js`, which runs the
+examples from upstream's own formula guide and compares the resulting table rows;
+the command, key, panel and settings rows are proved by `tests/table-commands.test.js`
+and `tests/table-editor.test.js`. The exact test names are listed under the table.
+
+Against upstream head `1a22239` (advanced-tables-obsidian 0.23.2) and library head
+`147ac63` (md-advanced-tables 3.11.0).
 
 | Upstream feature | Here | Status |
 |---|---|---|
@@ -133,3 +139,24 @@ are proved by the source-editor tests in `tests/table-commands.test.js`.
 | Command palette entries | 26 `Tables:` commands covering navigation, insertion, deletion, movement, alignment, sorting, formatting, formulas, CSV, transpose and the panel. | Matches |
 | Settings for padding, Tab and Enter, ribbon | **Pad cell width using spaces**, **Bind Tab to cell navigation**, **Bind Enter to row navigation** and **Show the table controls button** on the **Advanced Tables** settings page, beside the module switch. | Matches |
 | Works on Obsidian Mobile | The **Tables:** commands and docked panel need no physical Tab or keyboard, and the reading-view toolbar is always visible on touch. | Matches |
+
+### Proved by
+
+Every row above names the passing test that demonstrates it. All of these run in
+`node --test` and load the plugin's real modules.
+
+| Row | Test |
+|---|---|
+| Auto formatting | `tests/table-commands.test.js`: *formatTableAt pads one table, reports no change twice and refuses outside a table*; *formatAllTables formats every table and refuses a note without one*; *format and format-all write padded tables, and padding can be off*; *minimal formatting renders valid cells without padding* |
+| Excel-like navigation, source editor | `tests/table-commands.test.js`: *Tab moves to the next cell in the source editor*; *Shift+Tab moves to the previous cell and Enter to the next row*; *Shift+Enter moves up a row and escapes from the header row*; *navigation keeps the cursor on cells with escaped pipes and wide characters* |
+| Excel-like navigation, reading view | `tests/table-editor.test.js`: *keyboard navigation moves across rows and stops at table boundaries*; *decorated cells commit edits and Tab moves focus without wrapping*; *an active Markdown editor is used instead of a disk read/modify race* |
+| Building a table from a bare `\|` | `tests/table-commands.test.js`: *a pipe line with no delimiter is a draft that Tab completes*; *an empty pipe completes to a one-column table*; *a finished table and plain text are not drafts*; *addTableColumn adds a column at the right edge of every row*; *Tab on a bare pipe starts the table and moves into the next heading*; *Tab at the last header cell adds a column through the editor path*; *the next-cell command starts a table from a bare pipe*; *the format command completes a draft pipe table with one column*; *formatting a normal table leaves its rows, columns and text alone* |
+| Spreadsheet formulas | `tests/table-formulas-upstream.test.js`: *upstream example:* all thirteen (overview sum, Fibonacci, subtraction, `#+TBLFM` conditional, nested `if`, range sum, `;%.2f`, `;dt`, datetime subtraction, task durations, chaining, the refused row-to-column range, the write-back). `tests/table-editor.test.js`: *TBLFM formulas calculate totals, shares and chained values*; *TBLFM mean, relative references and CRLF survive evaluation*; *TBLFM refuses missing, malformed and out-of-range formulas*; *TBLFM updates use the note write path* |
+| Add, remove and move columns and rows | `tests/table-commands.test.js`: *insert row above and insert column left keep the table rectangular*; *insert above, align and delete run through the editor*. `tests/table-editor.test.js`: *row and column operations keep the table rectangular and aligned*; *structural actions preserve CRLF endings and refuse invalid boundaries*; *the table toolbar commits the active cell before applying a structure action*; *structural changes use the note write path and keep the source valid* |
+| Column alignment | `tests/table-editor.test.js`: *column alignment updates the delimiter row for every supported value*; *the table toolbar commits the active cell before formatting and alignment*; *formatting and alignment go through the note write path*. `tests/table-commands.test.js`: *insert above, align and delete run through the editor* |
+| Sort rows by a specified column | `tests/table-editor.test.js`: *table sorting orders numeric body rows ascending and descending*; *table sorting orders text case-insensitively and keeps ties stable*; *sorting preserves CRLF and TBLFM comments immediately after the table*; *sorting refuses a header-only table, an empty column and bad requests*; *table sorting writes the sorted content through the note path*; *the table toolbar sorts the active column and refuses without a selected cell* |
+| Export to CSV | `tests/table-commands.test.js`: *CSV export can leave the header row out*; *the CSV dialog copies with or without the header row*. `tests/table-editor.test.js`: *table CSV quotes safely, unescapes pipes and protects spreadsheet formulas*; *CSV export copies the table without changing the note*; *the table toolbar exposes formula and CSV actions and commits before each* |
+| Table controls sidebar | `tests/table-commands.test.js`: *the docked panel draws every group and its buttons act on the table*; *the controls command opens a right leaf and reveals the panel again*; *the ribbon button follows the Advanced Tables settings* |
+| Command palette entries | `tests/table-commands.test.js`: *every table command is registered and only offers itself inside a table* (all 26 ids, plus the no-editor refusal); `tests/capability-inventory.test.js` also requires every registered command to be cited by a test |
+| Settings for padding, Tab and Enter, ribbon | `tests/table-commands.test.js`: *the Tab and Enter settings turn their keys off without touching the editor*; *format and format-all write padded tables, and padding can be off*; *the module switch and a cursor outside a table leave the keys alone*; *the ribbon button follows the Advanced Tables settings* |
+| Works on Obsidian Mobile | `tests/table-commands.test.js`: *touch devices keep the reading-view toolbar visible without a hover* (the `@media (hover: none)` rule that makes the toolbar always visible); *the docked panel draws every group and its buttons act on the table* and *the next-cell command starts a table from a bare pipe* (both act with no key event at all) |

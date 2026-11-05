@@ -7,6 +7,8 @@
  */
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const { load } = require("./helpers/load");
 const { makeApp, makeDom } = require("./helpers/fake");
 
@@ -563,4 +565,98 @@ test("formatting a normal table leaves its rows, columns and text alone", async 
   assert.equal(parsed.columns, 2, "no column was added to a finished table");
   assert.equal(parsed.rows.length, 3, "no row was added either");
   assert.deepEqual(parsed.rows, [["Term", "Meaning"], ["ATP", "Energy"], ["ADP", "Phosphate"]]);
+});
+
+/* ---- controls panel: opening, the ribbon button, touch visibility ---- */
+
+test("the controls command opens a right leaf and reveals the panel again", async () => {
+  const { plugin, app } = await tablePlugin(NOTE, { line: 4, ch: 2 });
+  const leaves = [];
+  const revealed = [];
+  const leaf = {
+    state: null,
+    setViewState: async (state) => {
+      leaf.state = state;
+      leaves.push(leaf);
+    },
+  };
+  app.workspace.getLeavesOfType = (type) => leaves.filter((entry) => !entry.state || entry.state.type === type);
+  app.workspace.getRightLeaf = () => leaf;
+  app.workspace.revealLeaf = (shown) => revealed.push(shown);
+
+  const command = plugin.commands.find((entry) => entry.id === "tables-open-controls");
+  assert.ok(command, "the panel command is registered");
+  assert.equal(typeof command.callback, "function", "the panel command needs no cursor in a table");
+  const first = await command.callback();
+  assert.equal(first, leaf, "the command hands back the new leaf");
+  assert.equal(leaves.length, 1, "it creates one right leaf");
+  assert.equal(leaf.state.type, "question-tracker-table-controls", "the leaf holds the table controls view");
+  assert.equal(leaf.state.active, true);
+  assert.deepEqual(revealed, [leaf], "the new panel is revealed");
+
+  const again = await plugin.openTableControls();
+  assert.equal(again, leaf, "an open panel is reused");
+  assert.equal(leaves.length, 1, "a second press does not create another leaf");
+  assert.equal(revealed.length, 2, "the existing panel is revealed again");
+
+  app.workspace.getLeavesOfType = () => [];
+  app.workspace.getRightLeaf = () => null;
+  assert.equal(await plugin.openTableControls(), null, "no right leaf means no panel, not a crash");
+});
+
+test("the ribbon button follows the Advanced Tables settings", async () => {
+  const { plugin } = await tablePlugin(NOTE, { line: 4, ch: 2 });
+  const added = [];
+  const removed = [];
+  plugin.addRibbonIcon = (icon, title, onClick) => {
+    const handle = { icon, title, onClick, remove: () => removed.push(title) };
+    added.push(handle);
+    return handle;
+  };
+  plugin._tableRibbon = null;
+  plugin.settings.tableEditor = {
+    ...editor.normalizeTableEditorSettings({ enabled: true }),
+    bindTab: true,
+    bindEnter: true,
+    padCells: true,
+    showRibbon: true,
+  };
+  let opened = 0;
+  plugin.openTableControls = async () => {
+    opened += 1;
+    return null;
+  };
+
+  await plugin.onTableEditorToggled();
+  assert.equal(added.length, 1, "enabling the module adds one ribbon button");
+  assert.equal(added[0].icon, "table");
+  assert.equal(added[0].title, "Advanced Tables: controls");
+  assert.equal(plugin._tableRibbon, added[0], "the plugin keeps the button handle");
+  await added[0].onClick();
+  assert.equal(opened, 1, "the ribbon button opens the controls panel");
+
+  plugin.settings.tableEditor = { ...plugin.settings.tableEditor, showRibbon: false };
+  await plugin.onTableEditorToggled();
+  assert.deepEqual(removed, ["Advanced Tables: controls"], "turning the setting off removes it");
+  assert.equal(plugin._tableRibbon, null, "the stale handle is dropped");
+
+  plugin.settings.tableEditor = { ...plugin.settings.tableEditor, enabled: false, showRibbon: true };
+  await plugin.onTableEditorToggled();
+  assert.equal(added.length, 1, "the module switch keeps the button off");
+  assert.equal(removed.length, 1, "and does not remove it twice");
+});
+
+test("touch devices keep the reading-view toolbar visible without a hover", () => {
+  const css = fs.readFileSync(path.join(__dirname, "..", "styles.css"), "utf8");
+  const base = css.match(/(^|\n)\.qt-table-toolbar \{([^}]*)\}/);
+  assert.ok(base, "the toolbar has a base rule");
+  assert.match(base[2], /opacity:\s*0/, "it starts hidden on a pointer device");
+  assert.match(base[2], /pointer-events:\s*none/);
+
+  const media = css.match(/@media \(hover: none\) \{([\s\S]*?)\n\}/);
+  assert.ok(media, "a hoverless media query exists");
+  const touch = media[1].match(/\.qt-table-toolbar \{([^}]*)\}/);
+  assert.ok(touch, "the hoverless query targets the toolbar");
+  assert.match(touch[1], /opacity:\s*1/, "a touch device sees it with no hover");
+  assert.match(touch[1], /pointer-events:\s*auto/, "and its buttons stay clickable");
 });
