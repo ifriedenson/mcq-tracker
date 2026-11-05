@@ -888,3 +888,275 @@ test("the table toolbar sorts the active column and refuses without a selected c
   await flush();
   assert.match(errors[0] || "", /Select a table cell/);
 });
+
+
+test("CSV and TSV paste parsing keeps quoted commas, quotes and tabs inside one cell", () => {
+  const csv = editor.parseDelimitedTable('Name,Note\r\nA,"x, y"\r\nB,"say ""hi"""\r\n');
+  assert.equal(csv.ok, true);
+  assert.equal(csv.delimiter, "csv");
+  assert.deepEqual(csv.rows, [["Name", "Note"], ["A", "x, y"], ["B", 'say "hi"']]);
+
+  const tsv = editor.parseDelimitedTable("Name\tNote\nA\tx | y\n");
+  assert.equal(tsv.ok, true);
+  assert.equal(tsv.delimiter, "tsv");
+  assert.deepEqual(tsv.rows, [["Name", "Note"], ["A", "x | y"]]);
+
+  assert.equal(editor.parseDelimitedTable("   ").reason, "empty");
+  assert.equal(editor.parseDelimitedTable('A,"B').reason, "quote");
+});
+
+test("CSV import appends rows through the table write path and escapes pipes", () => {
+  const source = "| Name | Score |\r\n| :--- | ---: |\r\n| A | 1 |\r\n";
+  const table = editor.parseTables(source)[0];
+  const result = editor.updateTableCsvImport(source, 0, table, 'B,2\nC,"x | y"\n', "append");
+  assert.equal(result.ok, true);
+  assert.equal(result.changed, true);
+  assert.equal(result.imported, 2);
+  assert.ok(result.text.includes("\r\n"), "CRLF is preserved");
+  assert.equal(result.text.includes("\n\n"), false);
+  const updated = editor.parseTables(result.text)[0];
+  assert.deepEqual(updated.align, ["left", "right"]);
+  assert.deepEqual(updated.rows, [["Name", "Score"], ["A", "1"], ["B", "2"], ["C", "x \\| y"]]);
+  assert.equal(updated.rows.every((row) => row.length === 2), true);
+
+  const same = editor.updateTableCsvImport(result.text, 0, updated, "A,1\nB,2\nC,x | y\n", "replace");
+  assert.equal(same.ok, true);
+  assert.equal(same.changed, false, "replacing rows with identical data reports no change");
+  assert.deepEqual(editor.parseTables(same.text)[0].rows, updated.rows);
+});
+
+test("CSV import into an empty table takes its header and width from the paste", () => {
+  const source = "|  |  |\n| --- | --- |\n";
+  const table = editor.parseTables(source)[0];
+  const result = editor.updateTableCsvImport(source, 0, table, "Term,Definition,Source\nATP,Energy,Cell\n", "replace");
+  assert.equal(result.ok, true);
+  assert.equal(result.delimiter, "csv");
+  const updated = editor.parseTables(result.text)[0];
+  assert.deepEqual(updated.header, ["Term", "Definition", "Source"]);
+  assert.deepEqual(updated.rows, [["Term", "Definition", "Source"], ["ATP", "Energy", "Cell"]]);
+  assert.deepEqual(updated.align, ["none", "none", "none"]);
+  assert.equal(updated.rows.every((row) => row.length === 3), true);
+});
+
+test("replacing the rows swaps the body and keeps the header and alignment", () => {
+  const source = "| Term | Meaning |\n| :--- | ---: |\n| ATP | Energy |\n| DNA | Code |\n";
+  const table = editor.parseTables(source)[0];
+  const result = editor.updateTableCsvImport(source, 0, table, "ATP\tEnergy currency\n", "replace");
+  assert.equal(result.ok, true);
+  const updated = editor.parseTables(result.text)[0];
+  assert.deepEqual(updated.rows, [["Term", "Meaning"], ["ATP", "Energy currency"]]);
+  assert.deepEqual(updated.align, ["left", "right"]);
+  assert.equal(result.delimiter, "tsv");
+});
+
+test("import refuses wider data, a full table, an over-long cell and a missing table", () => {
+  const source = "| A | B |\n| --- | --- |\n| 1 | 2 |\n";
+  const table = editor.parseTables(source)[0];
+  assert.equal(editor.importTableData(table, "1,2,3", { mode: "append" }).reason, "columns");
+  assert.match(editor.importTableData(table, "1,2,3", { mode: "append" }).message, /2 columns.*3/);
+  assert.equal(editor.importTableData(table, "", { mode: "append" }).reason, "empty");
+  assert.equal(editor.importTableData(table, "1,2", { mode: "sideways" }).reason, "mode");
+  assert.equal(editor.importTableData(null, "1", { mode: "append" }).reason, "table");
+
+  const tooLong = "x".repeat(editor.MAX_CELL_LENGTH + 1);
+  const long = editor.importTableData(table, `1,${tooLong}`, { mode: "append" });
+  assert.equal(long.reason, "limit");
+  assert.match(long.message, new RegExp(String(editor.MAX_CELL_LENGTH)));
+
+  const full = "| A | B |\n| --- | --- |\n" + "| 1 | 2 |\n".repeat(editor.MAX_TABLE_ROWS - 1);
+  const fullTable = editor.parseTables(full)[0];
+  assert.equal(fullTable.rows.length, editor.MAX_TABLE_ROWS);
+  const overRows = editor.importTableData(fullTable, "3,4", { mode: "append" });
+  assert.equal(overRows.reason, "limit");
+  assert.match(overRows.message, new RegExp(String(editor.MAX_TABLE_ROWS)));
+
+  const widePaste = Array.from({ length: editor.MAX_TABLE_COLUMNS + 1 }, () => "v").join(",");
+  assert.equal(editor.importTableData(table, widePaste, { mode: "append" }).reason, "limit");
+  assert.equal(editor.updateTableCsvImport("No table here.\n", 0, null, "1,2", "append").reason, "not-found");
+});
+
+test("transpose swaps rows and columns and toggles back", () => {
+  const source = "| Name | Q1 | Q2 |\r\n| --- | --- | --- |\r\n| A | 1 | 2 |\r\n| B | 3 | 4 |\r\n";
+  const table = editor.parseTables(source)[0];
+  const once = editor.updateTableTranspose(source, 0, table);
+  assert.equal(once.ok, true);
+  assert.ok(once.text.includes("\r\n"), "CRLF is preserved");
+  const transposed = editor.parseTables(once.text)[0];
+  assert.deepEqual(transposed.header, ["Name", "A", "B"]);
+  assert.deepEqual(transposed.rows, [["Name", "A", "B"], ["Q1", "1", "3"], ["Q2", "2", "4"]]);
+  assert.deepEqual(transposed.align, ["none", "none", "none"]);
+  assert.equal(transposed.rows.every((row) => row.length === 3), true);
+  const delimiter = editor.splitTableRow(once.replacement.split(/\r?\n/)[1]);
+  assert.equal(delimiter.cells.length, 3, "the delimiter row matches the new column count");
+
+  const twice = editor.updateTableTranspose(once.text, 0, transposed);
+  assert.equal(twice.ok, true);
+  const restored = editor.parseTables(twice.text)[0];
+  assert.deepEqual(restored.header, ["Name", "Q1", "Q2"]);
+  assert.deepEqual(restored.rows, [["Name", "Q1", "Q2"], ["A", "1", "2"], ["B", "3", "4"]]);
+  assert.equal(restored.rows.every((row) => row.length === 3), true);
+});
+
+test("transpose refuses a header-only table and one past the column limit", () => {
+  const headerOnly = "| A | B |\n| --- | --- |\n";
+  const headerTable = editor.parseTables(headerOnly)[0];
+  const empty = editor.transposeTable(headerTable);
+  assert.equal(empty.reason, "no-rows");
+  assert.match(empty.message, /at least one body row/);
+  assert.equal(editor.updateTableTranspose(headerOnly, 0, headerTable).reason, "no-rows");
+
+  const tall = "| A | B |\n| --- | --- |\n"
+    + Array.from({ length: editor.MAX_TABLE_COLUMNS }, (_, index) => `| ${index} | x |`).join("\n") + "\n";
+  const tallTable = editor.parseTables(tall)[0];
+  assert.equal(tallTable.rows.length, editor.MAX_TABLE_COLUMNS + 1);
+  const over = editor.transposeTable(tallTable);
+  assert.equal(over.reason, "limit");
+  assert.match(over.message, new RegExp(String(editor.MAX_TABLE_COLUMNS)));
+  assert.equal(editor.transposeTable(null).reason, "table");
+});
+
+test("the header toggle moves row 0 between the header and the body without losing text", () => {
+  const source = "| Term | Meaning |\r\n| --- | --- |\r\n| ATP | Energy |\r\n| DNA | Code |\r\n";
+  const table = editor.parseTables(source)[0];
+  const off = editor.updateTableHeader(source, 0, table);
+  assert.equal(off.ok, true);
+  assert.equal(off.header, "off");
+  assert.ok(off.text.includes("\r\n"), "CRLF is preserved");
+  const blank = editor.parseTables(off.text)[0];
+  assert.deepEqual(blank.header, ["", ""]);
+  assert.deepEqual(blank.rows, [["", ""], ["Term", "Meaning"], ["ATP", "Energy"], ["DNA", "Code"]]);
+  assert.equal(editor.headerRowState(blank), "off");
+
+  const on = editor.updateTableHeader(off.text, 0, blank);
+  assert.equal(on.ok, true);
+  assert.equal(on.header, "on");
+  const restored = editor.parseTables(on.text)[0];
+  assert.deepEqual(restored.rows, [["Term", "Meaning"], ["ATP", "Energy"], ["DNA", "Code"]]);
+  assert.equal(editor.headerRowState(restored), "on");
+});
+
+test("the header toggle refuses when there is nowhere to move and counts name the table", () => {
+  const blankOnly = "|  |  |\n| --- | --- |\n";
+  const blankTable = editor.parseTables(blankOnly)[0];
+  const nowhere = editor.toggleHeaderRow(blankTable);
+  assert.equal(nowhere.reason, "no-rows");
+  assert.match(nowhere.message, /no body row/);
+  assert.equal(editor.updateTableHeader(blankOnly, 0, blankTable).reason, "no-rows");
+
+  const full = "| A | B |\n| --- | --- |\n" + "| 1 | 2 |\n".repeat(editor.MAX_TABLE_ROWS - 1);
+  const fullTable = editor.parseTables(full)[0];
+  assert.equal(editor.toggleHeaderRow(fullTable).reason, "limit");
+  assert.equal(editor.toggleHeaderRow(null).reason, "table");
+
+  const source = "| Term | Meaning |\n| --- | --- |\n| ATP | Energy |\n";
+  const counts = editor.tableCounts(editor.parseTables(source)[0]);
+  assert.deepEqual(counts, {
+    ok: true,
+    rows: 2,
+    bodyRows: 1,
+    columns: 2,
+    header: "on",
+    label: "2 columns, 1 body row, header row on",
+  });
+  assert.equal(editor.tableCounts(null).reason, "table");
+});
+
+test("the toolbar exposes import, transpose, header and count actions", async () => {
+  const source = "| Term | Meaning |\n| --- | --- |\n| ATP | Energy |\n";
+  const table = editor.parseTables(source)[0];
+  const tableEl = fakeTable(["Term", "Meaning"], [["ATP", "Energy"]]);
+  tableEl.ownerDocument = fakeToolbarDoc();
+  const calls = [];
+  const decorated = editor.decorateTable(tableEl, {
+    table,
+    commit: () => { calls.push("commit"); return { ok: true }; },
+    importData: (mode) => { calls.push(`import:${mode}`); return { ok: true }; },
+    transpose: () => { calls.push("transpose"); return { ok: true }; },
+    toggleHeader: () => { calls.push("header"); return { ok: true }; },
+    counts: () => { calls.push("counts"); return { ok: true }; },
+  });
+  const button = (id) => decorated.toolbar.children.find((child) => child.attrs["data-qt-table-action"] === id);
+  for (const id of ["table-import-append", "table-import-replace", "table-transpose", "table-header", "table-counts"]) {
+    assert.ok(button(id), `the toolbar has a ${id} button`);
+  }
+  assert.equal(editor.TABLE_IMPORT_ACTIONS.length, 2);
+  assert.equal(editor.TABLE_DATA_ACTIONS.length, 3);
+
+  const cell = tableEl.rows[1].cells[0];
+  fire(cell, "focus");
+  cell.textContent = "Adenosine triphosphate";
+  fire(button("table-import-replace"), "click", { preventDefault() {} });
+  await flush();
+  await flush();
+  fire(button("table-transpose"), "click", { preventDefault() {} });
+  await flush();
+  await flush();
+  fire(button("table-header"), "click", { preventDefault() {} });
+  await flush();
+  await flush();
+  fire(button("table-counts"), "click", { preventDefault() {} });
+  await flush();
+  await flush();
+  assert.deepEqual(calls, ["commit", "import:replace", "transpose", "header", "counts"]);
+});
+
+test("clipboard import, transpose and the header toggle write through the note path", async () => {
+  const note = "Before\n\n| Name | Q1 |\n| --- | --- |\n| A | 1 |\n\nAfter";
+  const app = makeApp([{ path: "note.md", text: note }]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.tableEditor = { enabled: true };
+  const table = editor.parseTables(note)[0];
+  const hadNavigator = Object.prototype.hasOwnProperty.call(globalThis, "navigator");
+  const previous = globalThis.navigator;
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { clipboard: { readText: async () => "B,2\n" } },
+  });
+  try {
+    const imported = await plugin.importTableCsv("note.md", 0, table, "append");
+    assert.equal(imported.ok, true);
+    assert.equal(app.modified && app.modified.length, 1);
+    let updated = editor.parseTables(app.modified[0].text)[0];
+    assert.deepEqual(updated.rows.slice(1), [["A", "1"], ["B", "2"]]);
+
+    const transposed = await plugin.updateTableTranspose("note.md", 0, updated);
+    assert.equal(transposed.ok, true);
+    updated = editor.parseTables(app.modified[1].text)[0];
+    assert.deepEqual(updated.header, ["Name", "A", "B"]);
+    assert.deepEqual(updated.rows.slice(1), [["Q1", "1", "2"]]);
+
+    const header = await plugin.updateTableHeader("note.md", 0, updated);
+    assert.equal(header.ok, true);
+    updated = editor.parseTables(app.modified[2].text)[0];
+    assert.equal(editor.headerRowState(updated), "off");
+    assert.deepEqual(updated.header, ["", "", ""]);
+    assert.ok(app.modified[2].text.startsWith(note.split("| Name")[0]), "the note around the table is untouched");
+  } finally {
+    if (hadNavigator) Object.defineProperty(globalThis, "navigator", { configurable: true, value: previous });
+    else delete globalThis.navigator;
+  }
+
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: {} });
+  try {
+    const refused = await plugin.importTableCsv("note.md", 0, table, "append");
+    assert.equal(refused.reason, "clipboard");
+    assert.equal(app.modified.length, 3, "a refused import never writes");
+  } finally {
+    if (hadNavigator) Object.defineProperty(globalThis, "navigator", { configurable: true, value: previous });
+    else delete globalThis.navigator;
+  }
+});
+
+test("the size readout reports the table without writing", async () => {
+  const note = "| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n";
+  const app = makeApp([{ path: "note.md", text: note }]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.tableEditor = { enabled: true };
+  const counts = plugin.reportTableCounts(editor.parseTables(note)[0]);
+  assert.equal(counts.ok, true);
+  assert.equal(counts.label, "2 columns, 2 body rows, header row on");
+  assert.equal(app.modified, undefined, "the readout never writes");
+  assert.equal(plugin.reportTableCounts(null).ok, false);
+});

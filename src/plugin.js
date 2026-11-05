@@ -9790,6 +9790,10 @@ ${body}
         sort: (direction, column) => this.updateTableSort(sourcePath, lineStart, table, direction, column),
         formula: () => this.updateTableFormulas(sourcePath, lineStart, table),
         exportCsv: () => this.exportTableCsv(sourcePath, lineStart, table),
+        importData: (mode) => this.importTableCsv(sourcePath, lineStart, table, mode),
+        transpose: () => this.updateTableTranspose(sourcePath, lineStart, table),
+        toggleHeader: () => this.updateTableHeader(sourcePath, lineStart, table),
+        counts: () => this.reportTableCounts(table),
         onError: (message) => {
           if (message) new Notice(message);
         },
@@ -9848,6 +9852,55 @@ ${body}
       new Notice(result.changed ? "Table formulas evaluated." : "Table formulas are already up to date.");
     }
     return result;
+  }
+
+  /** Imports pasted CSV/TSV through the same queue and write path as an edit. */
+  async importTableCsv(sourcePath, sectionStart, table, mode) {
+    const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : null;
+    if (!clipboard || typeof clipboard.readText !== "function") {
+      return { ok: false, reason: "clipboard", message: "Clipboard access is unavailable." };
+    }
+    let input = "";
+    try {
+      input = str(await clipboard.readText());
+    } catch (e) {
+      return { ok: false, reason: "clipboard", message: `Could not read the clipboard: ${str(e && e.message ? e.message : e)}` };
+    }
+    const result = await this.updateTableBlock(sourcePath, sectionStart, table, (current, startLine, expected) =>
+      tableEditor.updateTableCsvImport(current, startLine, expected, input, mode)
+    );
+    if (result && result.ok) {
+      if (!result.changed) new Notice("The pasted rows are already in the table.");
+      else new Notice(`Imported ${result.imported} ${result.imported === 1 ? "row" : "rows"} from the clipboard.`);
+    }
+    return result;
+  }
+
+  /** Transposes the table through the same queue and write path. */
+  async updateTableTranspose(sourcePath, sectionStart, table) {
+    const result = await this.updateTableBlock(sourcePath, sectionStart, table, (current, startLine, expected) =>
+      tableEditor.updateTableTranspose(current, startLine, expected)
+    );
+    if (result && result.ok) new Notice("Table transposed.");
+    return result;
+  }
+
+  /** Toggles the header row through the same queue and write path. */
+  async updateTableHeader(sourcePath, sectionStart, table) {
+    const result = await this.updateTableBlock(sourcePath, sectionStart, table, (current, startLine, expected) =>
+      tableEditor.updateTableHeader(current, startLine, expected)
+    );
+    if (result && result.ok) {
+      new Notice(result.header === "on" ? "Header row restored." : "Header row removed; its values are now the first body row.");
+    }
+    return result;
+  }
+
+  /** Reports the table's shape without writing anything. */
+  reportTableCounts(table) {
+    const counts = tableEditor.tableCounts(table);
+    new Notice(counts.ok ? counts.label : counts.message);
+    return counts;
   }
 
   /** Copies the current table as CSV without changing the note. */

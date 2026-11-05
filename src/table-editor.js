@@ -48,7 +48,26 @@ const TABLE_FORMULA_ACTIONS = [
   { id: "table-csv", kind: "export", short: "CSV", label: "Copy table as CSV" },
 ];
 
-const TABLE_TOOLBAR_ACTIONS = TABLE_STRUCTURE_ACTIONS.concat(TABLE_FORMAT_ACTIONS, TABLE_SORT_ACTIONS, TABLE_FORMULA_ACTIONS);
+/** CSV/TSV import: adding pasted rows, or replacing the whole body with them. */
+const TABLE_IMPORT_ACTIONS = [
+  { id: "table-import-append", kind: "import", mode: "append", short: "Paste", label: "Import CSV or TSV below this table" },
+  { id: "table-import-replace", kind: "import", mode: "replace", short: "Replace", label: "Replace the table rows with CSV or TSV" },
+];
+
+/** Whole-table actions: transpose, the header row, and the size readout. */
+const TABLE_DATA_ACTIONS = [
+  { id: "table-transpose", kind: "transpose", short: "T↔", label: "Transpose rows and columns" },
+  { id: "table-header", kind: "header", short: "H", label: "Toggle the header row" },
+  { id: "table-counts", kind: "count", short: "N×M", label: "Show the row and column count" },
+];
+
+const TABLE_TOOLBAR_ACTIONS = TABLE_STRUCTURE_ACTIONS.concat(
+  TABLE_FORMAT_ACTIONS,
+  TABLE_SORT_ACTIONS,
+  TABLE_FORMULA_ACTIONS,
+  TABLE_IMPORT_ACTIONS,
+  TABLE_DATA_ACTIONS
+);
 
 function text(value) {
   return value === null || value === undefined ? "" : String(value);
@@ -500,6 +519,236 @@ function sortTable(table, column, direction) {
   return { ok: true, changed, table: { ...table, rows, header: rows[0].slice() } };
 }
 
+/**
+ * Splits pasted CSV or TSV into raw rows. Quoted fields keep pipes, commas,
+ * tabs and line breaks; `""` inside a quoted field is one quote. The delimiter
+ * is a tab when the first line has one, otherwise a comma. A trailing newline
+ * does not add an empty row, and an unclosed quote or an empty paste refuses.
+ */
+function parseDelimitedTable(input) {
+  const source = text(input).replace(/^\uFEFF/, "");
+  if (!source.trim()) return { ok: false, reason: "empty", message: "Paste CSV or TSV rows to import." };
+  const firstLine = source.split(/\r?\n/, 1)[0];
+  const separator = firstLine.includes("\t") ? "\t" : ",";
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let quoted = false;
+  let closed = false;
+  for (let i = 0; i < source.length; i += 1) {
+    const character = source[i];
+    if (quoted) {
+      if (character === '"') {
+        if (source[i + 1] === '"') {
+          cell += '"';
+          i += 1;
+        } else {
+          quoted = false;
+          closed = true;
+        }
+      } else {
+        cell += character;
+      }
+      continue;
+    }
+    if (character === '"' && cell === "") {
+      quoted = true;
+      closed = false;
+      continue;
+    }
+    if (character === separator && !closed) {
+      row.push(cell);
+      cell = "";
+      continue;
+    }
+    if (character === "\r") continue;
+    if (character === "\n") {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+      closed = false;
+      continue;
+    }
+    closed = false;
+    cell += character;
+  }
+  if (quoted) return { ok: false, reason: "quote", message: "A quoted field in the pasted data is not closed." };
+  row.push(cell);
+  rows.push(row);
+  if (/[\r\n]$/.test(source) && rows.length > 1) rows.pop();
+  while (rows.length > 1 && rows[rows.length - 1].every((value) => text(value).trim() === "")) rows.pop();
+
+  if (rows.length > MAX_TABLE_ROWS) {
+    return { ok: false, reason: "limit", message: `A table cannot have more than ${MAX_TABLE_ROWS} rows.` };
+  }
+  for (const cells of rows) {
+    if (cells.length > MAX_TABLE_COLUMNS) {
+      return { ok: false, reason: "limit", message: `A table cannot have more than ${MAX_TABLE_COLUMNS} columns.` };
+    }
+    for (const value of cells) {
+      if (text(value).length > MAX_CELL_LENGTH) {
+        return { ok: false, reason: "limit", message: `A table cell cannot be longer than ${MAX_CELL_LENGTH} characters.` };
+      }
+    }
+  }
+  return { ok: true, delimiter: separator === "\t" ? "tsv" : "csv", rows };
+}
+
+/** True while the first row carries no text, so the table is a placeholder. */
+function headerRowState(table) {
+  if (!table || !Array.isArray(table.rows) || !table.rows.length) return "off";
+  return table.rows[0].every((cell) => text(cell).trim() === "") ? "off" : "on";
+}
+
+/** Row, body-row and column counts plus the header state, for the toolbar readout. */
+function tableCounts(table) {
+  if (!table || !Array.isArray(table.rows)) return { ok: false, reason: "table", message: "The table is no longer available." };
+  const columns = Math.max(1, table.columns || (Array.isArray(table.align) ? table.align.length : 0) || 1);
+  const rows = table.rows.length;
+  const bodyRows = Math.max(0, rows - 1);
+  const header = headerRowState(table);
+  return {
+    ok: true,
+    rows,
+    bodyRows,
+    columns,
+    header,
+    label: `${columns} ${columns === 1 ? "column" : "columns"}, ${bodyRows} body ${bodyRows === 1 ? "row" : "rows"}, header row ${header}`,
+  };
+}
+
+/**
+ * Turns pasted CSV/TSV into table rows through `escapeCell`, so a comma or a
+ * tab never splits a cell and a pipe never starts a column. `replace` swaps the
+ * body rows, `append` adds below them. A placeholder table with a blank header
+ * and no body takes the pasted shape: its first row becomes the header.
+ */
+function importTableData(table, input, options) {
+  if (!table || !Array.isArray(table.rows) || !Array.isArray(table.align)) {
+    return { ok: false, reason: "table", message: "The table is no longer available." };
+  }
+  const mode = text(options && options.mode) || "replace";
+  if (mode !== "append" && mode !== "replace") {
+    return { ok: false, reason: "mode", message: "Choose whether to add the pasted rows or replace the table with them." };
+  }
+  const parsed = parseDelimitedTable(input);
+  if (!parsed.ok) return parsed;
+
+  const columns = Math.max(1, table.columns || table.align.length || 1);
+  const rows = table.rows.map((cells) => padRow(cells, columns));
+  const placeholder = headerRowState(table) === "off" && rows.length <= 1;
+  const imported = parsed.rows.map((cells) => cells.map((value) => escapeCell(value)));
+
+  if (placeholder) {
+    const width = Math.max(...imported.map((cells) => cells.length));
+    if (width > MAX_TABLE_COLUMNS) {
+      return { ok: false, reason: "limit", message: `A table cannot have more than ${MAX_TABLE_COLUMNS} columns.` };
+    }
+    const nextRows = imported.map((cells) => padRow(cells, width));
+    if (nextRows.length > MAX_TABLE_ROWS) {
+      return { ok: false, reason: "limit", message: `A table cannot have more than ${MAX_TABLE_ROWS} rows.` };
+    }
+    const align = nextRows[0].map(() => "none");
+    const next = { ...table, columns: width, align, rows: nextRows, header: nextRows[0].slice() };
+    return { ok: true, changed: true, table: next, imported: nextRows.length, delimiter: parsed.delimiter };
+  }
+
+  const widest = imported.reduce((max, cells) => Math.max(max, cells.length), 0);
+  if (widest > columns) {
+    return {
+      ok: false,
+      reason: "columns",
+      message: `This table has ${columns} ${columns === 1 ? "column" : "columns"}, but the pasted data has ${widest}.`,
+    };
+  }
+  const body = imported.map((cells) => padRow(cells, columns));
+  const nextRows = mode === "replace" ? [rows[0].slice(), ...body] : [...rows, ...body];
+  if (nextRows.length > MAX_TABLE_ROWS) {
+    return { ok: false, reason: "limit", message: `A table cannot have more than ${MAX_TABLE_ROWS} rows.` };
+  }
+  const next = { ...table, columns, align: table.align.slice(0, columns), rows: nextRows, header: nextRows[0].slice() };
+  while (next.align.length < columns) next.align.push("none");
+  return { ok: true, changed: !sameRows(table.rows, nextRows, columns), table: next, imported: body.length, delimiter: parsed.delimiter };
+}
+
+function sameRows(a, b, columns) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+  for (let row = 0; row < a.length; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      if (text((a[row] || [])[column]) !== text((b[row] || [])[column])) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Swaps rows and columns. The first column becomes the new header and every
+ * other column becomes one body row. Alignment belongs to the old columns, so
+ * the transposed table starts with default alignment on every column.
+ */
+function transposeTable(table) {
+  if (!table || !Array.isArray(table.rows) || !Array.isArray(table.align)) {
+    return { ok: false, reason: "table", message: "The table is no longer available." };
+  }
+  const columns = Math.max(1, table.columns || table.align.length || 1);
+  const rows = table.rows.map((cells) => padRow(cells, columns));
+  if (rows.length < 2) return { ok: false, reason: "no-rows", message: "A table needs at least one body row to transpose." };
+  if (rows.length > MAX_TABLE_COLUMNS) {
+    return { ok: false, reason: "limit", message: `A transposed table would have ${rows.length} columns, but a table cannot have more than ${MAX_TABLE_COLUMNS}.` };
+  }
+  if (columns > MAX_TABLE_ROWS) {
+    return { ok: false, reason: "limit", message: `A transposed table would have ${columns} rows, but a table cannot have more than ${MAX_TABLE_ROWS}.` };
+  }
+  const nextRows = [rows.map((cells) => cells[0])];
+  for (let column = 1; column < columns; column += 1) nextRows.push(rows.map((cells) => cells[column]));
+  const align = nextRows[0].map(() => "none");
+  return {
+    ok: true,
+    changed: !sameRows(table.rows, nextRows, rows.length),
+    table: { ...table, columns: rows.length, align, rows: nextRows, header: nextRows[0].slice() },
+  };
+}
+
+/**
+ * Moves the first row between the header and the body. GFM always renders row 0
+ * as the header, so "off" installs a blank header row and pushes the old header
+ * into the body (nothing is lost), and "on" promotes the first body row back.
+ * One toggle is undone by the next, and a table with no body row cannot gain a
+ * header because there is no row to promote.
+ */
+function toggleHeaderRow(table) {
+  if (!table || !Array.isArray(table.rows) || !Array.isArray(table.align)) {
+    return { ok: false, reason: "table", message: "The table is no longer available." };
+  }
+  const columns = Math.max(1, table.columns || table.align.length || 1);
+  const rows = table.rows.map((cells) => padRow(cells, columns));
+  if (headerRowState(table) === "off") {
+    if (rows.length < 2) return { ok: false, reason: "no-rows", message: "This table has no body row to use as its header." };
+    const nextRows = rows.slice(1);
+    const align = table.align.slice(0, columns);
+    while (align.length < columns) align.push("none");
+    return {
+      ok: true,
+      changed: true,
+      header: "on",
+      table: { ...table, columns, align, rows: nextRows, header: nextRows[0].slice() },
+    };
+  }
+  if (rows.length >= MAX_TABLE_ROWS) {
+    return { ok: false, reason: "limit", message: `A table cannot have more than ${MAX_TABLE_ROWS} rows.` };
+  }
+  const align = table.align.slice(0, columns);
+  while (align.length < columns) align.push("none");
+  const nextRows = [new Array(columns).fill(""), ...rows];
+  return {
+    ok: true,
+    changed: true,
+    header: "off",
+    table: { ...table, columns, align, rows: nextRows, header: nextRows[0].slice() },
+  };
+}
+
 /** Escapes a committed cell so a typed pipe becomes data, not a new column. */
 function escapeCell(value) {
   let cell = text(value).replace(/\r\n?/g, "\n").replace(/\n+/g, " ").trim().slice(0, MAX_CELL_LENGTH);
@@ -676,6 +925,44 @@ function updateTableFormulas(markdown, startLine, expected) {
   return { ...tableBlockUpdate(source, table, applied.table), changed: applied.changed };
 }
 
+/** Imports pasted CSV/TSV into a source table through the shared write path. */
+function updateTableCsvImport(markdown, startLine, expected, input, mode) {
+  const source = text(markdown);
+  const lines = source.split(/\r?\n/);
+  const table = tableForUpdate(lines, Number.isInteger(startLine) ? startLine : -1, expected);
+  if (!table) return { ok: false, reason: "not-found", message: "This table could not be matched to the note." };
+  const change = importTableData(table, input, { mode });
+  if (!change.ok) return change;
+  return {
+    ...tableBlockUpdate(source, table, change.table),
+    changed: change.changed,
+    imported: change.imported,
+    delimiter: change.delimiter,
+  };
+}
+
+/** Transposes a source table through the shared write path. */
+function updateTableTranspose(markdown, startLine, expected) {
+  const source = text(markdown);
+  const lines = source.split(/\r?\n/);
+  const table = tableForUpdate(lines, Number.isInteger(startLine) ? startLine : -1, expected);
+  if (!table) return { ok: false, reason: "not-found", message: "This table could not be matched to the note." };
+  const change = transposeTable(table);
+  if (!change.ok) return change;
+  return { ...tableBlockUpdate(source, table, change.table), changed: change.changed };
+}
+
+/** Toggles the header row of a source table through the shared write path. */
+function updateTableHeader(markdown, startLine, expected) {
+  const source = text(markdown);
+  const lines = source.split(/\r?\n/);
+  const table = tableForUpdate(lines, Number.isInteger(startLine) ? startLine : -1, expected);
+  if (!table) return { ok: false, reason: "not-found", message: "This table could not be matched to the note." };
+  const change = toggleHeaderRow(table);
+  if (!change.ok) return change;
+  return { ...tableBlockUpdate(source, table, change.table), changed: change.changed, header: change.header };
+}
+
 /** Serializes the current source table, without its TBLFM comments, as CSV. */
 function tableCsvAt(markdown, startLine, expected) {
   const source = text(markdown);
@@ -781,6 +1068,10 @@ function decorateTable(tableEl, options) {
   const sort = typeof opts.sort === "function" ? opts.sort : null;
   const formula = typeof opts.formula === "function" ? opts.formula : null;
   const exportCsv = typeof opts.exportCsv === "function" ? opts.exportCsv : null;
+  const importData = typeof opts.importData === "function" ? opts.importData : null;
+  const transpose = typeof opts.transpose === "function" ? opts.transpose : null;
+  const toggleHeader = typeof opts.toggleHeader === "function" ? opts.toggleHeader : null;
+  const counts = typeof opts.counts === "function" ? opts.counts : null;
   const onError = typeof opts.onError === "function" ? opts.onError : null;
   const rows = tableRows(tableEl);
   if (!rows.length || rows.length !== table.rows.length) return null;
@@ -921,6 +1212,55 @@ function decorateTable(tableEl, options) {
       .catch((error) => fail(error && error.message ? error.message : "The table could not be copied as CSV."));
   };
 
+  const runImport = (mode) => {
+    if (!importData) return;
+    return Promise.resolve(commitActive())
+      .then((saved) => {
+        if (saved && saved.ok === false) return null;
+        return importData(mode);
+      })
+      .then((result) => {
+        if (result && result.ok === false) fail(result.message || "The pasted rows could not be imported.");
+      })
+      .catch((error) => fail(error && error.message ? error.message : "The pasted rows could not be imported."));
+  };
+
+  const runTranspose = () => {
+    if (!transpose) return;
+    return Promise.resolve(commitActive())
+      .then((saved) => {
+        if (saved && saved.ok === false) return null;
+        return transpose();
+      })
+      .then((result) => {
+        if (result && result.ok === false) fail(result.message || "The table could not be transposed.");
+      })
+      .catch((error) => fail(error && error.message ? error.message : "The table could not be transposed."));
+  };
+
+  const runHeader = () => {
+    if (!toggleHeader) return;
+    return Promise.resolve(commitActive())
+      .then((saved) => {
+        if (saved && saved.ok === false) return null;
+        return toggleHeader();
+      })
+      .then((result) => {
+        if (result && result.ok === false) fail(result.message || "The header row could not be changed.");
+      })
+      .catch((error) => fail(error && error.message ? error.message : "The header row could not be changed."));
+  };
+
+  const runCounts = () => {
+    if (!counts) return;
+    return Promise.resolve()
+      .then(() => counts())
+      .then((result) => {
+        if (result && result.ok === false) fail(result.message || "The table size is unavailable.");
+      })
+      .catch((error) => fail(error && error.message ? error.message : "The table size is unavailable."));
+  };
+
   const runAction = (action) => {
     if (!action) return;
     if (action.kind === "structure") return runStructure(action.id);
@@ -929,6 +1269,10 @@ function decorateTable(tableEl, options) {
     if (action.kind === "sort") return runSort(action.direction);
     if (action.kind === "formula") return runFormula();
     if (action.kind === "export") return runExport();
+    if (action.kind === "import") return runImport(action.mode);
+    if (action.kind === "transpose") return runTranspose();
+    if (action.kind === "header") return runHeader();
+    if (action.kind === "count") return runCounts();
   };
 
   const focusCell = (row, column) => {
@@ -995,7 +1339,9 @@ function decorateTable(tableEl, options) {
   });
 
   decorating = false;
-  const toolbar = structure || format || align || sort || formula || exportCsv ? createTableToolbar(tableEl, runAction) : null;
+  const toolbar = structure || format || align || sort || formula || exportCsv || importData || transpose || toggleHeader || counts
+    ? createTableToolbar(tableEl, runAction)
+    : null;
   return { cells, rows: table.rows.length, columns: table.columns, focusCell, toolbar };
 }
 
@@ -1003,8 +1349,10 @@ module.exports = {
   MAX_CELL_LENGTH,
   MAX_TABLE_COLUMNS,
   MAX_TABLE_ROWS,
+  TABLE_DATA_ACTIONS,
   TABLE_FORMAT_ACTIONS,
   TABLE_FORMULA_ACTIONS,
+  TABLE_IMPORT_ACTIONS,
   TABLE_SORT_ACTIONS,
   TABLE_STRUCTURE_ACTIONS,
   TABLE_TOOLBAR_ACTIONS,
@@ -1012,8 +1360,11 @@ module.exports = {
   decorateTable,
   escapeCell,
   findTable,
+  headerRowState,
+  importTableData,
   navigateCell,
   normalizeTableEditorSettings,
+  parseDelimitedTable,
   parseTableBlock,
   parseTables,
   renderTable,
@@ -1022,12 +1373,18 @@ module.exports = {
   splitTableRow,
   sortTable,
   structureTable,
+  tableCounts,
   toggleCellFormat,
+  toggleHeaderRow,
+  transposeTable,
   updateTableAlignment,
+  updateTableCsvImport,
   updateTableFormat,
   updateTableFormulas,
+  updateTableHeader,
   updateTableSort,
   updateTableStructure,
+  updateTableTranspose,
   tableCsvAt,
   updateTableText,
 };
