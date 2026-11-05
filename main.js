@@ -24305,6 +24305,7 @@ const VIEW_TYPE_POMODORO = "question-tracker-pomodoro";
 const VIEW_TYPE_TASK_LIST = "question-tracker-task-list";
 const VIEW_TYPE_WEB_BROWSER = "question-tracker-web-browser";
 const VIEW_TYPE_AGENT = "question-tracker-agent";
+const VIEW_TYPE_TABLE_CONTROLS = "question-tracker-table-controls";
 
 const FILTER_FIELDS = [
   ["folder", "Folder"], // not a property: comes from where the note is saved, and includes sub folders
@@ -24469,7 +24470,7 @@ const DEFAULT_SETTINGS = {
   retention: { enabled: true }, // read-only card forecast
   vocabulary: { enabled: true, words: [] }, // local dictionary and per-word review ladder
   wordNet: { enabled: false, folder: "WordNet" }, // offline full WordNet import, opt-in
-  tableEditor: { enabled: false }, // rendered-table cell editing and keyboard navigation, opt-in
+  tableEditor: { enabled: false, bindTab: true, bindEnter: true, padCells: true, showRibbon: true }, // rendered-table editing and navigation, opt-in
   webBrowser: { enabled: false, home: "", search: "duckduckgo", bookmarks: [], history: [] }, // opt-in in-app browser view; only http/https, off by default
   readingLibrary: { enabled: true, hideFinished: false, books: [] }, // local bookshelf, page progress and captured quotes
   writingSession: { path: "", startedAt: 0, baseline: 0, sessions: [] }, // read-only writing-session count; only session times are stored
@@ -24578,6 +24579,7 @@ module.exports = {
   VIEW_TYPE_TASK_LIST,
   VIEW_TYPE_WEB_BROWSER,
   VIEW_TYPE_AGENT,
+  VIEW_TYPE_TABLE_CONTROLS,
   FILTER_FIELDS,
   MODES,
   DEFAULT_SETTINGS,
@@ -57589,6 +57591,38 @@ const taskTags = require("./task-tags");
 const glossary = require("./glossary");
 const wordnet = require("./wordnet");
 const tableEditor = require("./table-editor");
+const { TableControlsView } = require("./table-controls-view");
+const { TableCsvModal } = require("./table-csv-modal");
+const { VIEW_TYPE_TABLE_CONTROLS } = require("./constants");
+
+/** Command-palette entries mirroring the Advanced Tables plugin. */
+const TABLE_COMMANDS = [
+  { id: "tables-next-cell", name: "Tables: go to the next cell", action: "next-cell" },
+  { id: "tables-previous-cell", name: "Tables: go to the previous cell", action: "previous-cell" },
+  { id: "tables-next-row", name: "Tables: go to the next row", action: "next-row" },
+  { id: "tables-escape", name: "Tables: move the cursor out of the table", action: "escape" },
+  { id: "tables-format", name: "Tables: format the table under the cursor", action: "format" },
+  { id: "tables-insert-row-above", name: "Tables: insert a row above", action: "insert-row-above" },
+  { id: "tables-insert-row-below", name: "Tables: insert a row below", action: "insert-row-below" },
+  { id: "tables-insert-column-left", name: "Tables: insert a column to the left", action: "insert-column-left" },
+  { id: "tables-insert-column-right", name: "Tables: insert a column to the right", action: "insert-column-right" },
+  { id: "tables-delete-row", name: "Tables: delete the row", action: "delete-row" },
+  { id: "tables-delete-column", name: "Tables: delete the column", action: "delete-column" },
+  { id: "tables-move-row-up", name: "Tables: move the row up", action: "move-row-up" },
+  { id: "tables-move-row-down", name: "Tables: move the row down", action: "move-row-down" },
+  { id: "tables-move-column-left", name: "Tables: move the column left", action: "move-column-left" },
+  { id: "tables-move-column-right", name: "Tables: move the column right", action: "move-column-right" },
+  { id: "tables-align-left", name: "Tables: align the column left", action: "align-left" },
+  { id: "tables-align-center", name: "Tables: align the column center", action: "align-center" },
+  { id: "tables-align-right", name: "Tables: align the column right", action: "align-right" },
+  { id: "tables-align-default", name: "Tables: clear the column alignment", action: "align-default" },
+  { id: "tables-sort-asc", name: "Tables: sort rows ascending", action: "sort-asc" },
+  { id: "tables-sort-desc", name: "Tables: sort rows descending", action: "sort-desc" },
+  { id: "tables-transpose", name: "Tables: transpose", action: "transpose" },
+  { id: "tables-formulas", name: "Tables: evaluate formulas", action: "formulas" },
+  { id: "tables-export-csv", name: "Tables: export as CSV", action: "export-csv" },
+];
+
 const writingSessions = require("./writing-sessions");
 const voiceMemo = require("./voice-memo");
 const { buildCornellNote } = require("./cornell");
@@ -57841,6 +57875,10 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_WEB_BROWSER, (leaf) => new WebBrowserView(leaf, this));
     const { AgentView: StudyAgentView } = require("./agent-view");
     this.registerView(VIEW_TYPE_AGENT, (leaf) => new StudyAgentView(leaf, this));
+    this.registerView(VIEW_TYPE_TABLE_CONTROLS, (leaf) => new TableControlsView(leaf, this));
+    if (this.tableEditorSettings().enabled && this.tableEditorSettings().showRibbon) {
+      this._tableRibbon = this.addRibbonIcon("table", "Advanced Tables: controls", () => this.openTableControls());
+    }
     this.noteReviewDock = new NoteReviewDock(this);
     if (typeof this.registerMarkdownPostProcessor === "function") {
       this.registerMarkdownPostProcessor((el) => satCallout.syncSatCallouts(el));
@@ -58418,6 +58456,33 @@ class QuestionTrackerPlugin extends Plugin {
       callback: () => this.repairReviewHistory(),
     });
 
+    for (const command of TABLE_COMMANDS) {
+      this.addCommand({
+        id: command.id,
+        name: command.name,
+        checkCallback: (checking) => {
+          const context = this.activeTableContext();
+          if (!context) return false;
+          if (!checking) this.runTableAction(command.action);
+          return true;
+        },
+      });
+    }
+    this.addCommand({
+      id: "tables-format-all",
+      name: "Tables: format every table in this note",
+      checkCallback: (checking) => {
+        const context = this.activeEditorContext();
+        if (!context) return false;
+        if (!checking) this.formatAllTablesInNote();
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "tables-open-controls",
+      name: "Tables: open the table controls panel",
+      callback: () => this.openTableControls(),
+    });
     this.addSettingTab(new QuestionTrackerSettingTab(this.app, this));
 
     this.registerInterval(
@@ -67293,6 +67358,212 @@ ${body}
     return wordnet.lookupWord(this.wordNetIndex, query);
   }
 
+  /* ---- Table commands: palette, panel and editor cursor ----------------- */
+
+  /** The active Markdown editor and its note text, or null. */
+  activeEditorContext() {
+    const active = this.app.workspace && this.app.workspace.activeEditor;
+    const editor = active && active.editor;
+    const file = active && active.file;
+    if (!editor || !file || typeof editor.getValue !== "function") return null;
+    return { editor, file, path: str(file.path), text: str(editor.getValue()) };
+  }
+
+  /** The editor context plus the table under the cursor, TBLFM lines included. */
+  activeTableContext() {
+    const context = this.activeEditorContext();
+    if (!context) return null;
+    const cursor = typeof context.editor.getCursor === "function" ? context.editor.getCursor() : null;
+    const line = cursor && Number.isInteger(cursor.line) ? cursor.line : -1;
+    const table = tableEditor.tableAtLine(context.text, line);
+    if (!table) return null;
+    return { ...context, cursor, line, table };
+  }
+
+  /** Runs one palette, panel or toolbar action against the cursor's table. */
+  runTableAction(action) {
+    const id = str(action).trim().replace(/^tables-/, "");
+    const context = this.activeTableContext();
+    if (!context) {
+      const message = "Put the cursor in a table first.";
+      new Notice(message);
+      return Promise.resolve({ ok: false, reason: "not-table", message });
+    }
+    const line = context.line;
+    const ch = context.cursor && Number.isInteger(context.cursor.ch) ? context.cursor.ch : 0;
+    const start = context.table.start;
+    if (id === "escape") return Promise.resolve(this.escapeTable(context));
+    if (id === "format") return this.formatTable(context);
+    if (id === "export-csv") return Promise.resolve(this.openTableCsv(context.table));
+    if (id === "next-cell" || id === "previous-cell" || id === "next-row") return Promise.resolve(this.moveTableCell(context, id));
+    const at = tableEditor.cellAtLine(context.text, line, ch);
+    if (!at) {
+      const message = "Put the cursor in one of the table rows first.";
+      new Notice(message);
+      return Promise.resolve({ ok: false, reason: "not-row", message });
+    }
+    const row = at.row;
+    const column = at.column;
+    const structure = {
+      "insert-row-above": "row-insert-above",
+      "insert-row-below": "row-insert-below",
+      "insert-column-left": "column-insert-left",
+      "insert-column-right": "column-insert-right",
+      "delete-row": "row-delete",
+      "delete-column": "column-delete",
+      "move-row-up": "row-move-up",
+      "move-row-down": "row-move-down",
+      "move-column-left": "column-move-left",
+      "move-column-right": "column-move-right",
+    };
+    if (structure[id]) return this.updateTableStructure(context.path, start, context.table, structure[id], row, column);
+    const alignment = { "align-left": "left", "align-center": "center", "align-right": "right", "align-default": "none" };
+    if (alignment[id]) return this.updateTableAlignment(context.path, start, context.table, alignment[id], column);
+    if (id === "sort-asc" || id === "sort-desc") return this.updateTableSort(context.path, start, context.table, id === "sort-asc" ? "asc" : "desc", column);
+    if (id === "transpose") return this.updateTableTranspose(context.path, start, context.table);
+    if (id === "formulas") return this.updateTableFormulas(context.path, start, context.table);
+    return Promise.resolve({ ok: false, reason: "action", message: "Unknown table action." });
+  }
+
+  /** Tab, Shift+Tab and Enter inside the source editor; adds a row at the end. */
+  moveTableCell(context, action) {
+    const cursor = context.cursor || { line: context.line, ch: 0 };
+    const target = action === "next-cell"
+      ? tableEditor.nextCellTarget(context.text, cursor.line, cursor.ch)
+      : action === "previous-cell"
+        ? tableEditor.previousCellTarget(context.text, cursor.line, cursor.ch)
+        : tableEditor.nextRowTarget(context.text, cursor.line, cursor.ch);
+    if (!target.ok) {
+      if (target.message) new Notice(target.message);
+      return target;
+    }
+    if (!target.append) {
+      if (typeof context.editor.setCursor === "function") context.editor.setCursor({ line: target.line, ch: target.ch });
+      return { ok: true, line: target.line, ch: target.ch };
+    }
+    const appended = tableEditor.appendTableRow(context.text, cursor.line);
+    if (!appended.ok) {
+      if (appended.message) new Notice(appended.message);
+      return appended;
+    }
+    return this.writeTableResult(context, appended).then(() => {
+      if (typeof context.editor.setCursor === "function") context.editor.setCursor({ line: appended.rowLine, ch: appended.column });
+      return { ok: true, appended: true, line: appended.rowLine };
+    });
+  }
+
+  /** Moves the cursor to the line after the table, adding a blank line if needed. */
+  escapeTable(context) {
+    const cursor = context.cursor || { line: context.line, ch: 0 };
+    const target = tableEditor.escapeTableTarget(context.text, cursor.line);
+    if (!target.ok) {
+      if (target.message) new Notice(target.message);
+      return target;
+    }
+    const editor = context.editor;
+    if (target.insert && typeof editor.replaceRange === "function" && typeof editor.getLine === "function") {
+      const endLine = context.table.end;
+      editor.replaceRange("\n", { line: endLine, ch: str(editor.getLine(endLine)).length });
+    }
+    if (typeof editor.setCursor === "function") editor.setCursor({ line: target.line, ch: 0 });
+    return { ok: true, line: target.line };
+  }
+
+  /** Re-renders the cursor's table with padded, aligned cells. */
+  async formatTable(context) {
+    const settings = this.tableEditorSettings();
+    const result = await this.updateTableBlock(context.path, context.table.start, context.table, (current, startLine) =>
+      tableEditor.formatTableAt(current, startLine, { pad: settings.padCells !== false })
+    );
+    if (result && result.ok) new Notice(result.changed ? "Table formatted." : "The table is already formatted.");
+    else if (result && result.message) new Notice(result.message);
+    return result;
+  }
+
+  /** Re-renders every table in the open note. */
+  async formatAllTablesInNote() {
+    const context = this.activeEditorContext();
+    if (!context) {
+      const message = "Open a note with tables first.";
+      new Notice(message);
+      return { ok: false, reason: "no-editor", message };
+    }
+    const settings = this.tableEditorSettings();
+    const result = tableEditor.formatAllTables(context.text, { pad: settings.padCells !== false });
+    if (!result.ok) {
+      if (result.message) new Notice(result.message);
+      return result;
+    }
+    if (!result.changed) {
+      new Notice("Every table is already formatted.");
+      return result;
+    }
+    const editor = context.editor;
+    if (editor && typeof editor.setValue === "function") editor.setValue(result.text);
+    else if (context.file && this.app.vault && typeof this.app.vault.modify === "function") await this.app.vault.modify(context.file, result.text);
+    else return { ok: false, reason: "write", message: "This note cannot be written." };
+    new Notice(`Formatted ${result.tables} ${result.tables === 1 ? "table" : "tables"}.`);
+    return result;
+  }
+
+  /** Writes a table result through the editor or the vault, like updateTableBlock. */
+  async writeTableResult(context, result) {
+    if (!result || !result.ok || !result.changed) return result || { ok: false, reason: "change" };
+    const editor = context.editor;
+    if (editor && typeof editor.replaceRange === "function" && typeof editor.getLine === "function") {
+      const nextLine = editor.getLine(result.endLine + 1);
+      const hasNextLine = nextLine !== undefined && nextLine !== null;
+      editor.replaceRange(
+        result.replacement.replace(/\r\n/g, "\n") + (hasNextLine ? "\n" : ""),
+        { line: result.startLine, ch: 0 },
+        hasNextLine ? { line: result.endLine + 1, ch: 0 } : { line: result.endLine, ch: str(editor.getLine(result.endLine)).length }
+      );
+      return result;
+    }
+    if (context.file && this.app.vault && typeof this.app.vault.modify === "function") {
+      await this.app.vault.modify(context.file, result.text);
+      return result;
+    }
+    return { ok: false, reason: "write", message: "This note cannot be written." };
+  }
+
+  /** Opens the CSV dialog for one table, with the header-row switch. */
+  openTableCsv(table) {
+    if (!table || !Array.isArray(table.rows)) return { ok: false, reason: "table", message: "The table is no longer available." };
+    const modal = new TableCsvModal(this.app, table);
+    modal.open();
+    return { ok: true, modal };
+  }
+
+  /** Opens or reveals the docked table controls panel. */
+  async openTableControls() {
+    const workspace = this.app.workspace;
+    if (!workspace) return null;
+    const existing = typeof workspace.getLeavesOfType === "function" ? workspace.getLeavesOfType(VIEW_TYPE_TABLE_CONTROLS) : [];
+    if (existing && existing.length) {
+      if (typeof workspace.revealLeaf === "function") workspace.revealLeaf(existing[0]);
+      return existing[0];
+    }
+    const leaf = typeof workspace.getRightLeaf === "function" ? workspace.getRightLeaf(false) : null;
+    if (!leaf || typeof leaf.setViewState !== "function") return null;
+    await leaf.setViewState({ type: VIEW_TYPE_TABLE_CONTROLS, active: true });
+    if (typeof workspace.revealLeaf === "function") workspace.revealLeaf(leaf);
+    return leaf;
+  }
+
+  /** Adds or removes the ribbon button after the settings change. */
+  async onTableEditorToggled() {
+    const settings = this.tableEditorSettings();
+    const wanted = settings.enabled && settings.showRibbon;
+    if (wanted && !this._tableRibbon) {
+      this._tableRibbon = this.addRibbonIcon("table", "Advanced Tables: controls", () => this.openTableControls());
+    } else if (!wanted && this._tableRibbon) {
+      if (typeof this._tableRibbon.remove === "function") this._tableRibbon.remove();
+      this._tableRibbon = null;
+    }
+    if (typeof this.refreshViews === "function") this.refreshViews();
+  }
+
   /* ---- In-place rendered-table editing -------------------------------- */
 
   tableEditorSettings() {
@@ -67317,8 +67588,11 @@ ${body}
     tables.forEach((tableEl, index) => {
       const table = tableEditor.findTable(parsed, tableEditor.renderedHeader(tableEl), index);
       if (!table) return;
+      const tableSettings = this.tableEditorSettings();
       tableEditor.decorateTable(tableEl, {
         table,
+        bindTab: tableSettings.bindTab,
+        bindEnter: tableSettings.bindEnter,
         commit: (row, column, value) => this.updateTableCell(sourcePath, lineStart, table, row, column, value),
         structure: (action, row, column) => this.updateTableStructure(sourcePath, lineStart, table, action, row, column),
         format: (value, row, column) => this.updateTableCellFormat(sourcePath, lineStart, table, value, row, column),
@@ -85343,6 +85617,7 @@ function renderModules(containerEl, plugin, redisplay, openModule) {
       })
     );
 
+
   new Setting(containerEl)
     .setName("Reference")
     .setDesc("A local formula sheet, constants list and unit converter in its own view. Off by default; its settings are under Reference.")
@@ -94298,13 +94573,44 @@ const PAGES = {
   "advanced-tables": {
     title: "Advanced Tables",
     description:
-      "Edit rendered Markdown table cells in place, move between them with Tab, Shift+Tab, Enter, Shift+Enter or Alt+Arrow, format the selected cell and set its column alignment, evaluate TBLFM formulas, copy the table as CSV, sort body rows by a column, and use the toolbar to insert, delete or move rows and columns. Every table change rewrites the source table with padded columns, escaped pipes and a valid delimiter row; merged cells stay out of this slice.",
+      "Edit rendered Markdown table cells in place, move between them with Tab, Shift+Tab, Enter, Shift+Enter or Alt+Arrow, format the selected cell and set its column alignment, evaluate TBLFM formulas, copy the table as CSV, sort body rows by a column, and use the toolbar to insert, delete or move rows and columns. Every table change rewrites the source table with padded columns, escaped pipes and a valid delimiter row. The palette's Tables: commands and the docked controls panel work on the table under the cursor in the editor, format one table or the whole note, add rows at the end, move the cursor out of the table and export CSV with or without the header row. Merged cells stay out of this slice.",
     enabledGetter: "tableEditorEnabled",
     enable: (plugin, v) => update(plugin, "tableEditor", tableEditor.normalizeTableEditorSettings, { enabled: v }),
     afterToggle: "onTableEditorToggled",
     toggleDesc: "Adds in-place cell editing, keyboard navigation, formatting, column alignment, body-row sorting, local TBLFM formulas, CSV copy and row/column controls to rendered Markdown tables. Off by default; no note changes happen until you edit a cell or use the toolbar.",
+    fields: [
+      {
+        type: "toggle",
+        name: "Bind Tab to cell navigation",
+        desc: "In an editable rendered table, Tab and Shift+Tab move between cells. Turn this off to leave the keys to the browser.",
+        get: (plugin) => tableEditor.normalizeTableEditorSettings(plugin.settings.tableEditor).bindTab,
+        set: async (plugin, v) => update(plugin, "tableEditor", tableEditor.normalizeTableEditorSettings, { bindTab: v }),
+      },
+      {
+        type: "toggle",
+        name: "Bind Enter to row navigation",
+        desc: "In an editable rendered table, Enter and Shift+Enter move down and up a row. Turn this off to leave the key to the browser.",
+        get: (plugin) => tableEditor.normalizeTableEditorSettings(plugin.settings.tableEditor).bindEnter,
+        set: async (plugin, v) => update(plugin, "tableEditor", tableEditor.normalizeTableEditorSettings, { bindEnter: v }),
+      },
+      {
+        type: "toggle",
+        name: "Pad cell width using spaces",
+        desc: "Pad every cell to the width of the longest value in its column. Off writes minimal cells that Obsidian still renders as a table.",
+        get: (plugin) => tableEditor.normalizeTableEditorSettings(plugin.settings.tableEditor).padCells,
+        set: async (plugin, v) => update(plugin, "tableEditor", tableEditor.normalizeTableEditorSettings, { padCells: v }),
+      },
+      {
+        type: "toggle",
+        name: "Show the table controls button",
+        desc: "Add a ribbon button that opens the docked table controls panel. The panel is also available from the command palette.",
+        get: (plugin) => tableEditor.normalizeTableEditorSettings(plugin.settings.tableEditor).showRibbon,
+        set: async (plugin, v) => update(plugin, "tableEditor", tableEditor.normalizeTableEditorSettings, { showRibbon: v }),
+        after: (plugin) => plugin.onTableEditorToggled(),
+      },
+    ],
     status: (plugin) => plugin.tableEditorEnabled()
-      ? "Editable cells, formatting, alignment, body-row sorting, formula evaluation, CSV copy and row/column controls in reading view; the note keeps padded, valid Markdown table rows."
+      ? "Editable cells, formatting, alignment, body-row sorting, formula evaluation, CSV copy and row/column controls in reading view, plus the Tables: commands and the docked panel; the note keeps padded, valid Markdown table rows."
       : "Off: rendered tables keep Obsidian's normal read-only behaviour.",
   },
   citations: {
@@ -100409,6 +100715,222 @@ function safeSvg(svg) {
 module.exports = { safeSvg };
 };
 
+/* ---- src/table-controls-view.js ---- */
+__defs["table-controls-view"] = function (module, exports, require) {
+/*
+ * The docked table controls panel, mirroring the upstream plugin's sidebar.
+ * Every button calls the plugin's own action runner, so the panel writes
+ * through exactly the same path as the command palette and the table toolbar.
+ */
+const { ItemView, Notice } = require("obsidian");
+const { VIEW_TYPE_TABLE_CONTROLS } = require("./constants");
+const { str } = require("./util");
+
+/** Button groups, in the upstream order (Align, Move, Edit, Sort, More). */
+const TABLE_CONTROL_GROUPS = [
+  {
+    label: "Align",
+    actions: [
+      ["tables-align-left", "Left"],
+      ["tables-align-center", "Center"],
+      ["tables-align-right", "Right"],
+    ],
+  },
+  {
+    label: "Move",
+    actions: [
+      ["tables-move-row-down", "Row ↓"],
+      ["tables-move-row-up", "Row ↑"],
+      ["tables-move-column-right", "Column →"],
+      ["tables-move-column-left", "Column ←"],
+      ["tables-transpose", "Transpose"],
+    ],
+  },
+  {
+    label: "Edit",
+    actions: [
+      ["tables-insert-row-above", "Row above"],
+      ["tables-insert-row-below", "Row below"],
+      ["tables-insert-column-left", "Column left"],
+      ["tables-insert-column-right", "Column right"],
+      ["tables-delete-row", "Delete row"],
+      ["tables-delete-column", "Delete column"],
+    ],
+  },
+  {
+    label: "Sort and formulas",
+    actions: [
+      ["tables-sort-asc", "Sort ↑"],
+      ["tables-sort-desc", "Sort ↓"],
+      ["tables-formulas", "Σ formulas"],
+    ],
+  },
+  {
+    label: "More",
+    actions: [
+      ["tables-format", "Format table"],
+      ["tables-export-csv", "CSV"],
+      ["tables-escape", "Leave table"],
+    ],
+  },
+];
+
+class TableControlsView extends ItemView {
+  constructor(leaf, plugin) {
+    super(leaf);
+    this.plugin = plugin;
+  }
+
+  getViewType() {
+    return VIEW_TYPE_TABLE_CONTROLS;
+  }
+
+  getDisplayText() {
+    return "Advanced Tables";
+  }
+
+  getIcon() {
+    return "table";
+  }
+
+  async onOpen() {
+    this.draw();
+  }
+
+  /** Rebuilds the panel and its status line from the cursor's table. */
+  draw() {
+    const container = this.containerEl && this.containerEl.children ? this.containerEl.children[1] || this.containerEl : this.containerEl;
+    if (!container || typeof container.empty !== "function") return null;
+    container.empty();
+    const root = container.createDiv({ cls: "qt-table-controls" });
+    root.createEl("h4", { cls: "qt-table-controls-title", text: "Advanced Tables" });
+    const context = this.plugin && typeof this.plugin.activeTableContext === "function" ? this.plugin.activeTableContext() : null;
+    const status = root.createEl("p", { cls: "qt-table-controls-status" });
+    status.setText(
+      context
+        ? `In a table: ${context.table.rows.length} rows × ${context.table.columns} columns.`
+        : "Put the cursor in a table, then use these buttons."
+    );
+    for (const group of TABLE_CONTROL_GROUPS) {
+      const row = root.createDiv({ cls: "qt-table-controls-row" });
+      row.createSpan({ cls: "qt-table-controls-label", text: group.label });
+      const buttons = row.createDiv({ cls: "qt-table-controls-buttons" });
+      for (const entry of group.actions) {
+        const id = entry[0];
+        const label = entry[1];
+        const button = buttons.createEl("button", { cls: "qt-table-controls-button", text: label });
+        button.setAttribute("type", "button");
+        button.setAttribute("aria-label", label);
+        button.setAttribute("data-qt-table-command", id);
+        if (typeof button.addEventListener === "function") {
+          button.addEventListener("click", () => {
+            let pending = null;
+            try {
+              pending = this.plugin.runTableAction(id);
+            } catch (error) {
+              new Notice(str(error && error.message ? error.message : error) || "The table action failed.");
+              return;
+            }
+            Promise.resolve(pending)
+              .then((value) => {
+                if (value && value.ok === false && value.message) new Notice(value.message);
+                this.draw();
+              })
+              .catch((error) => new Notice(str(error && error.message ? error.message : error) || "The table action failed."));
+          });
+        }
+      }
+    }
+    return root;
+  }
+}
+
+module.exports = { TABLE_CONTROL_GROUPS, TableControlsView };
+};
+
+/* ---- src/table-csv-modal.js ---- */
+__defs["table-csv-modal"] = function (module, exports, require) {
+/*
+ * CSV export dialog for one table. It matches the upstream plugin's switch:
+ * the header row can be left out of the copy. The text comes from the parsed
+ * table, never from the note, so opening or copying never writes the note.
+ */
+const { Modal, Notice } = require("obsidian");
+const tableEditor = require("./table-editor");
+const { str } = require("./util");
+
+class TableCsvModal extends Modal {
+  constructor(app, table, onCopy) {
+    super(app);
+    this.table = table;
+    this.includeHeader = true;
+    this.onCopy = typeof onCopy === "function" ? onCopy : null;
+    this.copies = 0;
+  }
+
+  /** The CSV for the current header choice, or "" when the table is gone. */
+  csv() {
+    const result = tableEditor.tableCsvFromTable(this.table, { header: this.includeHeader });
+    return result.ok ? result.csv : "";
+  }
+
+  onOpen() {
+    const el = this.contentEl;
+    el.empty();
+    el.createEl("h2", { text: "Export table as CSV" });
+    const label = el.createEl("label", { cls: "qt-table-csv-toggle" });
+    const checkbox = label.createEl("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = this.includeHeader;
+    label.createSpan({ text: "Include table headers" });
+    const area = el.createEl("textarea", { cls: "qt-table-csv-text" });
+    area.readOnly = true;
+    area.value = this.csv();
+    const render = () => {
+      this.includeHeader = checkbox.checked === true;
+      area.value = this.csv();
+    };
+    if (typeof checkbox.addEventListener === "function") checkbox.addEventListener("change", render);
+    const actions = el.createDiv({ cls: "qt-table-csv-actions" });
+    const copy = actions.createEl("button", { cls: "mod-cta", text: "Copy CSV" });
+    copy.setAttribute("type", "button");
+    if (typeof copy.addEventListener === "function") copy.addEventListener("click", () => this.copy());
+    this.area = area;
+    this.checkbox = checkbox;
+  }
+
+  /** Copies the current CSV to the clipboard; the dialog stays open. */
+  async copy() {
+    const csv = this.csv();
+    if (!csv) {
+      new Notice("The table is no longer available.");
+      return { ok: false, reason: "table" };
+    }
+    const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : null;
+    if (!clipboard || typeof clipboard.writeText !== "function") {
+      new Notice("Clipboard access is unavailable.");
+      return { ok: false, reason: "clipboard", message: "Clipboard access is unavailable." };
+    }
+    try {
+      await clipboard.writeText(csv);
+    } catch (e) {
+      new Notice(`Could not copy the table as CSV: ${str(e && e.message ? e.message : e)}`);
+      return { ok: false, reason: "clipboard", message: "Could not copy the table as CSV." };
+    }
+    this.copies += 1;
+    if (this.onCopy) this.onCopy(csv, this.includeHeader);
+    new Notice(this.includeHeader ? "Table copied as CSV with its header row." : "Table copied as CSV without its header row.");
+    return { ok: true, csv, header: this.includeHeader };
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+module.exports = { TableCsvModal };
+};
+
 /* ---- src/table-editor.js ---- */
 __defs["table-editor"] = function (module, exports, require) {
 /*
@@ -100429,10 +100951,12 @@ const MAX_CELL_LENGTH = 4000;
 /** Structural actions exposed by the table toolbar. */
 const TABLE_STRUCTURE_ACTIONS = [
   { id: "row-insert-below", kind: "structure", short: "+ Row", label: "Insert row below" },
+  { id: "row-insert-above", kind: "structure", short: "R↑", label: "Insert row above" },
   { id: "row-delete", kind: "structure", short: "− Row", label: "Delete row" },
   { id: "row-move-up", kind: "structure", short: "↑ Row", label: "Move row up" },
   { id: "row-move-down", kind: "structure", short: "↓ Row", label: "Move row down" },
   { id: "column-insert-right", kind: "structure", short: "+ Col", label: "Insert column right" },
+  { id: "column-insert-left", kind: "structure", short: "C←", label: "Insert column left" },
   { id: "column-delete", kind: "structure", short: "− Col", label: "Delete column" },
   { id: "column-move-left", kind: "structure", short: "← Col", label: "Move column left" },
   { id: "column-move-right", kind: "structure", short: "→ Col", label: "Move column right" },
@@ -100488,7 +101012,13 @@ function text(value) {
 /** The module is opt-in: anything except an explicit true keeps it off. */
 function normalizeTableEditorSettings(value) {
   const source = value && typeof value === "object" ? value : {};
-  return { enabled: source.enabled === true };
+  return {
+    enabled: source.enabled === true,
+    bindTab: source.bindTab !== false,
+    bindEnter: source.bindEnter !== false,
+    padCells: source.padCells !== false,
+    showRibbon: source.showRibbon !== false,
+  };
 }
 
 function isDelimiterCell(cell) {
@@ -100662,8 +101192,9 @@ function delimiterCell(align, width) {
   return "-".repeat(width);
 }
 
-/** Renders a whole block: all rows are padded to the same column width. */
-function renderTable(table) {
+/** Renders a whole block: all rows are padded to the same column width unless `pad` is false. */
+function renderTable(table, options) {
+  const padCells = !(options && options.pad === false);
   const columns = Math.max(1, table.columns || table.align.length || 0);
   const rows = (table.rows || []).map((row) => padRow(row, columns));
   const widths = [];
@@ -100675,13 +101206,14 @@ function renderTable(table) {
     for (const row of rows) width = Math.max(width, displayWidth(row[column]));
     widths.push(width);
   }
+  const delimiterWidth = (alignment) => (alignment === "center" ? MIN_COLUMN_WIDTH + 2 : alignment === "left" || alignment === "right" ? MIN_COLUMN_WIDTH + 1 : MIN_COLUMN_WIDTH);
   const indent = text(table.indent).replace(/\t/g, "    ");
   const lines = [];
   rows.forEach((row, index) => {
-    const cells = row.map((cell, column) => pad(text(cell), widths[column], table.align[column]));
+    const cells = row.map((cell, column) => (padCells ? pad(text(cell), widths[column], table.align[column]) : text(cell)));
     lines.push(indent + "| " + cells.join(" | ") + " |");
     if (index === (table.headerCount || 1) - 1) {
-      const delimiter = table.align.map((align, column) => delimiterCell(align, widths[column]));
+      const delimiter = table.align.map((align, column) => delimiterCell(align, padCells ? widths[column] : delimiterWidth(align)));
       lines.push(indent + "| " + delimiter.join(" | ") + " |");
     }
   });
@@ -100739,6 +101271,15 @@ function structureTable(table, action, row, column) {
     }
     const [movedAlign] = align.splice(column, 1);
     align.splice(target, 0, movedAlign);
+  } else if (action === "row-insert-above") {
+    if (!hasRow) return { ok: false, reason: "row", message: "That table row is no longer available." };
+    if (rowCount >= MAX_TABLE_ROWS) return { ok: false, reason: "limit", message: `A table cannot have more than ${MAX_TABLE_ROWS} rows.` };
+    rows.splice(row, 0, new Array(columns).fill(""));
+  } else if (action === "column-insert-left") {
+    if (!hasColumn) return { ok: false, reason: "column", message: "That table column is no longer available." };
+    if (columns >= MAX_TABLE_COLUMNS) return { ok: false, reason: "limit", message: `A table cannot have more than ${MAX_TABLE_COLUMNS} columns.` };
+    for (const cells of rows) cells.splice(column, 0, "");
+    align.splice(column, 0, "none");
   } else {
     return { ok: false, reason: "action", message: "Unknown table action." };
   }
@@ -101161,6 +101702,213 @@ function toggleHeaderRow(table) {
   };
 }
 
+/** True when a line is a TBLFM comment attached to the table above it. */
+function isFormulaLine(line) {
+  return /^\s*TBLFM:/.test(text(line));
+}
+
+/** The table whose lines, or attached TBLFM comments, cover a zero-based line. */
+function tableAtLine(markdown, line) {
+  if (!Number.isInteger(line) || line < 0) return null;
+  const source = text(markdown);
+  const lines = source.split(/\r?\n/);
+  for (const table of parseTables(source)) {
+    if (line >= table.start && line <= table.end) return table;
+    for (let i = table.end + 1; i < lines.length && i <= table.end + 4; i += 1) {
+      if (!isFormulaLine(lines[i])) break;
+      if (i === line) return table;
+    }
+  }
+  return null;
+}
+
+/** Trims one raw cell span and keeps where its text starts. */
+function cellSpan(raw, from, to) {
+  let start = from;
+  let end = to;
+  while (start < end && /\s/.test(raw[start])) start += 1;
+  while (end > start && /\s/.test(raw[end - 1])) end -= 1;
+  return { start, end, text: raw.slice(start, end) };
+}
+
+/** Character offsets of every cell on one row, without the outer pipes. */
+function rowCellSpans(line) {
+  const raw = text(line);
+  const indent = (raw.match(/^\s*/) || [""])[0].length;
+  const spans = [];
+  let index = indent;
+  if (raw[index] === "|") index += 1;
+  let start = index;
+  let escaped = false;
+  let ticks = 0;
+  for (; index < raw.length; index += 1) {
+    const character = raw[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (character === "`") {
+      let run = 1;
+      while (raw[index + run] === "`") run += 1;
+      if (!ticks) ticks = run;
+      else if (ticks === run) ticks = 0;
+      index += run - 1;
+      continue;
+    }
+    if (character === "|" && ticks === 0) {
+      spans.push(cellSpan(raw, start, index));
+      start = index + 1;
+      if (index === raw.length - 1) return spans;
+    }
+  }
+  if (start <= raw.length) spans.push(cellSpan(raw, start, raw.length));
+  return spans;
+}
+
+/** Line number of a zero-based row: the header sits at the top, then the delimiter. */
+function tableRowLine(table, row) {
+  return row === 0 ? table.start : table.start + row + 1;
+}
+
+/** Zero-based row index for a line inside the table, or -1. */
+function tableRowIndex(table, line) {
+  if (!table || !Number.isInteger(line)) return -1;
+  if (line === table.start) return 0;
+  const row = line - table.start - 1;
+  return row >= 1 && row < table.rows.length ? row : -1;
+}
+
+/** Row and column under a line/character pair inside the table. */
+function cellAtLine(markdown, line, ch) {
+  const source = text(markdown);
+  const table = tableAtLine(source, line);
+  if (!table) return null;
+  const row = tableRowIndex(table, line);
+  if (row < 0) return null;
+  const spans = rowCellSpans(source.split(/\r?\n/)[line]);
+  let column = 0;
+  for (let i = 0; i < spans.length && i < table.columns; i += 1) {
+    if (Number.isInteger(ch) && ch >= spans[i].start) column = i;
+  }
+  return { table, row, column, spans };
+}
+
+/** Next cell's line and character, wrapping to the next row and then a new row. */
+function nextCellTarget(markdown, line, ch) {
+  const source = text(markdown);
+  const at = cellAtLine(source, line, ch);
+  if (!at) return { ok: false, reason: "not-table", message: "The cursor is not in a table." };
+  const lines = source.split(/\r?\n/);
+  if (at.column + 1 < at.table.columns) {
+    const next = rowCellSpans(lines[line])[at.column + 1];
+    return { ok: true, line, ch: next ? next.start : text(lines[line]).length };
+  }
+  const row = at.row + 1;
+  if (row < at.table.rows.length) {
+    const targetLine = tableRowLine(at.table, row);
+    const spans = rowCellSpans(lines[targetLine]);
+    return { ok: true, line: targetLine, ch: spans[0] ? spans[0].start : 0 };
+  }
+  return { ok: true, append: true, table: at.table, row: at.row, column: at.column, line, ch };
+}
+
+/** Previous cell's line and character, wrapping back to the previous row. */
+function previousCellTarget(markdown, line, ch) {
+  const source = text(markdown);
+  const at = cellAtLine(source, line, ch);
+  if (!at) return { ok: false, reason: "not-table", message: "The cursor is not in a table." };
+  const lines = source.split(/\r?\n/);
+  if (at.column > 0) {
+    const previous = rowCellSpans(lines[line])[at.column - 1];
+    return { ok: true, line, ch: previous ? previous.start : 0 };
+  }
+  if (at.row > 0) {
+    const targetLine = tableRowLine(at.table, at.row - 1);
+    const spans = rowCellSpans(lines[targetLine]);
+    const last = spans[Math.min(spans.length, at.table.columns) - 1];
+    return { ok: true, line: targetLine, ch: last ? last.start : 0 };
+  }
+  return { ok: false, reason: "boundary", message: "The cursor is already in the first cell." };
+}
+
+/** Same column on the next row, asking for a new row at the end of the table. */
+function nextRowTarget(markdown, line, ch) {
+  const source = text(markdown);
+  const at = cellAtLine(source, line, ch);
+  if (!at) return { ok: false, reason: "not-table", message: "The cursor is not in a table." };
+  const lines = source.split(/\r?\n/);
+  const row = at.row + 1;
+  if (row < at.table.rows.length) {
+    const targetLine = tableRowLine(at.table, row);
+    const spans = rowCellSpans(lines[targetLine]);
+    const target = spans[Math.min(at.column, Math.max(0, spans.length - 1))];
+    return { ok: true, line: targetLine, ch: target ? target.start : 0 };
+  }
+  return { ok: true, append: true, table: at.table, row: at.row, column: at.column, line, ch };
+}
+
+/** The line just after the table (and its TBLFM comments), adding one if needed. */
+function escapeTableTarget(markdown, line) {
+  const source = text(markdown);
+  const table = tableAtLine(source, line);
+  if (!table) return { ok: false, reason: "not-table", message: "The cursor is not in a table." };
+  const lines = source.split(/\r?\n/);
+  let end = table.end;
+  while (end + 1 < lines.length && isFormulaLine(lines[end + 1])) end += 1;
+  const target = end + 1;
+  if (target >= lines.length) return { ok: true, line: target, ch: 0, insert: true };
+  if (!text(lines[target]).trim()) return { ok: true, line: target, ch: 0, insert: false };
+  return { ok: true, line: target, ch: 0, insert: true };
+}
+
+/** Adds one blank body row and returns where it sits. */
+function appendTableRow(markdown, line) {
+  const source = text(markdown);
+  const table = tableAtLine(source, line);
+  if (!table) return { ok: false, reason: "not-table", message: "The cursor is not in a table." };
+  const change = structureTable(table, "row-insert-below", table.rows.length - 1, 0);
+  if (!change.ok) return change;
+  const update = tableBlockUpdate(source, table, change.table);
+  return { ...update, changed: true, rowLine: table.end + 1, column: 0 };
+}
+
+/** Re-renders the table under the cursor with padded, aligned cells. */
+function formatTableAt(markdown, line, options) {
+  const source = text(markdown);
+  const table = tableAtLine(source, line);
+  if (!table) return { ok: false, reason: "not-table", message: "The cursor is not in a table." };
+  const update = tableBlockUpdate(source, table, table, options);
+  const original = source.split(/\r?\n/).slice(table.start, table.end + 1).join("\n");
+  return { ...update, changed: update.replacement !== original, table };
+}
+
+/** Re-renders every table in the note, from the bottom so line numbers stay valid. */
+function formatAllTables(markdown, options) {
+  const source = text(markdown);
+  const tables = parseTables(source);
+  if (!tables.length) return { ok: false, reason: "none", message: "This note has no tables to format." };
+  let next = source;
+  for (let index = tables.length - 1; index >= 0; index -= 1) {
+    next = tableBlockUpdate(next, tables[index], tables[index], options).text;
+  }
+  return { ok: true, text: next, changed: next !== source, tables: tables.length };
+}
+
+/** CSV for one parsed table, optionally leaving the header row out. */
+function tableCsvFromTable(table, options) {
+  if (!table || !Array.isArray(table.rows) || !table.rows.length) {
+    return { ok: false, reason: "table", message: "The table is no longer available." };
+  }
+  const includeHeader = !(options && options.header === false);
+  const rows = includeHeader ? table.rows : table.rows.slice(1);
+  const csv = rows.map((row) => row.map((cell) => tableFormulas.csvCell(cell)).join(",")).join("\n") + "\n";
+  return { ok: true, csv, header: includeHeader };
+}
+
 /** Escapes a committed cell so a typed pipe becomes data, not a new column. */
 function escapeCell(value) {
   let cell = text(value).replace(/\r\n?/g, "\n").replace(/\n+/g, " ").trim().slice(0, MAX_CELL_LENGTH);
@@ -101244,10 +101992,10 @@ function tableForUpdate(lines, startLine, expected) {
 }
 
 /** Replaces one source table block and preserves the note's line endings. */
-function tableBlockUpdate(source, table, nextTable) {
+function tableBlockUpdate(source, table, nextTable, options) {
   const eol = source.includes("\r\n") ? "\r\n" : "\n";
   const lines = source.split(/\r?\n/);
-  const rendered = renderTable(nextTable).join(eol);
+  const rendered = renderTable(nextTable, options).join(eol);
   const fullLines = lines.slice(0, table.start).concat(rendered.split(eol), lines.slice(table.end + 1));
   return {
     ok: true,
@@ -101376,12 +102124,14 @@ function updateTableHeader(markdown, startLine, expected) {
 }
 
 /** Serializes the current source table, without its TBLFM comments, as CSV. */
-function tableCsvAt(markdown, startLine, expected) {
+function tableCsvAt(markdown, startLine, expected, options) {
   const source = text(markdown);
   const lines = source.split(/\r?\n/);
   const table = tableForUpdate(lines, Number.isInteger(startLine) ? startLine : -1, expected);
   if (!table) return { ok: false, reason: "not-found", message: "This table could not be matched to the note." };
-  return { ok: true, csv: tableFormulas.tableToCsv(table), table };
+  const csv = tableCsvFromTable(table, options);
+  if (!csv.ok) return csv;
+  return { ok: true, csv: csv.csv, header: csv.header, table };
 }
 
 /**
@@ -101485,6 +102235,8 @@ function decorateTable(tableEl, options) {
   const toggleHeader = typeof opts.toggleHeader === "function" ? opts.toggleHeader : null;
   const counts = typeof opts.counts === "function" ? opts.counts : null;
   const onError = typeof opts.onError === "function" ? opts.onError : null;
+  const bindTab = opts.bindTab !== false;
+  const bindEnter = opts.bindEnter !== false;
   const rows = tableRows(tableEl);
   if (!rows.length || rows.length !== table.rows.length) return null;
   if (tableEl.getAttribute && tableEl.getAttribute("data-qt-table-editor") === "on") return null;
@@ -101726,6 +102478,8 @@ function decorateTable(tableEl, options) {
       });
       cell.addEventListener("keydown", (event) => {
         if (!event || event.isComposing) return;
+        if (!bindTab && event.key === "Tab") return;
+        if (!bindEnter && (event.key === "Enter" || event.key === "Shift+Enter")) return;
         if (event.key === "Escape") {
           if (event.preventDefault) event.preventDefault();
           cell.textContent = cell.__qtTableOriginal || "";
@@ -101769,23 +102523,36 @@ module.exports = {
   TABLE_STRUCTURE_ACTIONS,
   TABLE_TOOLBAR_ACTIONS,
   alignTableColumn,
+  appendTableRow,
+  cellAtLine,
   decorateTable,
   escapeCell,
+  escapeTableTarget,
   findTable,
+  formatAllTables,
+  formatTableAt,
   headerRowState,
   importTableData,
   navigateCell,
+  nextCellTarget,
+  nextRowTarget,
   normalizeTableEditorSettings,
   parseDelimitedTable,
   parseTableBlock,
   parseTables,
+  previousCellTarget,
   renderTable,
+  rowCellSpans,
   renderedHeader,
   formatTableCell,
   splitTableRow,
   sortTable,
   structureTable,
+  tableAtLine,
   tableCounts,
+  tableCsvFromTable,
+  tableRowIndex,
+  tableRowLine,
   toggleCellFormat,
   toggleHeaderRow,
   transposeTable,
@@ -110238,6 +111005,8 @@ QuestionTrackerPlugin.__test = {
   glossary,
   wordnet,
   tableEditor,
+  tableControls: require("./table-controls-view"),
+  tableCsvModal: require("./table-csv-modal"),
   writingSessions,
   voiceMemo,
   cornell,

@@ -119,6 +119,7 @@ function renderModules(containerEl, plugin, redisplay, openModule) {
       })
     );
 
+
   new Setting(containerEl)
     .setName("Reference")
     .setDesc("A local formula sheet, constants list and unit converter in its own view. Off by default; its settings are under Reference.")

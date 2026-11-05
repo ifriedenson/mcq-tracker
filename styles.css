@@ -12310,3 +12310,54 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 .qt-web-browser-history-head { display: flex; align-items: center; justify-content: space-between; }
 .qt-web-browser-history-row { display: flex; gap: 8px; align-items: baseline; }
 .qt-web-browser-history-host { color: var(--text-muted); font-size: var(--font-ui-smaller); }
+
+/* Advanced Tables: docked controls panel and CSV dialog. */
+.qt-table-controls {
+  padding: 8px 4px;
+}
+.qt-table-controls-title {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+.qt-table-controls-status {
+  margin: 0 0 10px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+.qt-table-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.qt-table-controls-label {
+  min-width: 96px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+.qt-table-controls-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.qt-table-controls-button {
+  padding: 2px 8px;
+  font-size: var(--font-ui-smaller);
+}
+.qt-table-csv-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0;
+}
+.qt-table-csv-text {
+  width: 100%;
+  min-height: 180px;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+}
+.qt-table-csv-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}

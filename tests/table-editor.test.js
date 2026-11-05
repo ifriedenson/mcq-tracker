@@ -148,9 +148,12 @@ function fakeEditor(value) {
 }
 
 test("table editor settings are opt-in and ignore loose truthy values", () => {
-  assert.deepEqual(editor.normalizeTableEditorSettings(undefined), { enabled: false });
-  assert.deepEqual(editor.normalizeTableEditorSettings({ enabled: 1 }), { enabled: false });
-  assert.deepEqual(editor.normalizeTableEditorSettings({ enabled: true }), { enabled: true });
+  const off = { enabled: false, bindTab: true, bindEnter: true, padCells: true, showRibbon: true };
+  const on = { enabled: true, bindTab: true, bindEnter: true, padCells: true, showRibbon: true };
+  assert.deepEqual(editor.normalizeTableEditorSettings(undefined), off);
+  assert.deepEqual(editor.normalizeTableEditorSettings({ enabled: 1 }), off);
+  assert.deepEqual(editor.normalizeTableEditorSettings({ enabled: true }), on);
+  assert.deepEqual(editor.normalizeTableEditorSettings({ enabled: true, bindTab: false, bindEnter: false, padCells: false, showRibbon: false }), { enabled: true, bindTab: false, bindEnter: false, padCells: false, showRibbon: false });
 });
 
 test("a committed cell escapes pipes and keeps the whole table aligned", () => {

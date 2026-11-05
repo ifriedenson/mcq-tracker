@@ -457,13 +457,44 @@ const PAGES = {
   "advanced-tables": {
     title: "Advanced Tables",
     description:
-      "Edit rendered Markdown table cells in place, move between them with Tab, Shift+Tab, Enter, Shift+Enter or Alt+Arrow, format the selected cell and set its column alignment, evaluate TBLFM formulas, copy the table as CSV, sort body rows by a column, and use the toolbar to insert, delete or move rows and columns. Every table change rewrites the source table with padded columns, escaped pipes and a valid delimiter row; merged cells stay out of this slice.",
+      "Edit rendered Markdown table cells in place, move between them with Tab, Shift+Tab, Enter, Shift+Enter or Alt+Arrow, format the selected cell and set its column alignment, evaluate TBLFM formulas, copy the table as CSV, sort body rows by a column, and use the toolbar to insert, delete or move rows and columns. Every table change rewrites the source table with padded columns, escaped pipes and a valid delimiter row. The palette's Tables: commands and the docked controls panel work on the table under the cursor in the editor, format one table or the whole note, add rows at the end, move the cursor out of the table and export CSV with or without the header row. Merged cells stay out of this slice.",
     enabledGetter: "tableEditorEnabled",
     enable: (plugin, v) => update(plugin, "tableEditor", tableEditor.normalizeTableEditorSettings, { enabled: v }),
     afterToggle: "onTableEditorToggled",
     toggleDesc: "Adds in-place cell editing, keyboard navigation, formatting, column alignment, body-row sorting, local TBLFM formulas, CSV copy and row/column controls to rendered Markdown tables. Off by default; no note changes happen until you edit a cell or use the toolbar.",
+    fields: [
+      {
+        type: "toggle",
+        name: "Bind Tab to cell navigation",
+        desc: "In an editable rendered table, Tab and Shift+Tab move between cells. Turn this off to leave the keys to the browser.",
+        get: (plugin) => tableEditor.normalizeTableEditorSettings(plugin.settings.tableEditor).bindTab,
+        set: async (plugin, v) => update(plugin, "tableEditor", tableEditor.normalizeTableEditorSettings, { bindTab: v }),
+      },
+      {
+        type: "toggle",
+        name: "Bind Enter to row navigation",
+        desc: "In an editable rendered table, Enter and Shift+Enter move down and up a row. Turn this off to leave the key to the browser.",
+        get: (plugin) => tableEditor.normalizeTableEditorSettings(plugin.settings.tableEditor).bindEnter,
+        set: async (plugin, v) => update(plugin, "tableEditor", tableEditor.normalizeTableEditorSettings, { bindEnter: v }),
+      },
+      {
+        type: "toggle",
+        name: "Pad cell width using spaces",
+        desc: "Pad every cell to the width of the longest value in its column. Off writes minimal cells that Obsidian still renders as a table.",
+        get: (plugin) => tableEditor.normalizeTableEditorSettings(plugin.settings.tableEditor).padCells,
+        set: async (plugin, v) => update(plugin, "tableEditor", tableEditor.normalizeTableEditorSettings, { padCells: v }),
+      },
+      {
+        type: "toggle",
+        name: "Show the table controls button",
+        desc: "Add a ribbon button that opens the docked table controls panel. The panel is also available from the command palette.",
+        get: (plugin) => tableEditor.normalizeTableEditorSettings(plugin.settings.tableEditor).showRibbon,
+        set: async (plugin, v) => update(plugin, "tableEditor", tableEditor.normalizeTableEditorSettings, { showRibbon: v }),
+        after: (plugin) => plugin.onTableEditorToggled(),
+      },
+    ],
     status: (plugin) => plugin.tableEditorEnabled()
-      ? "Editable cells, formatting, alignment, body-row sorting, formula evaluation, CSV copy and row/column controls in reading view; the note keeps padded, valid Markdown table rows."
+      ? "Editable cells, formatting, alignment, body-row sorting, formula evaluation, CSV copy and row/column controls in reading view, plus the Tables: commands and the docked panel; the note keeps padded, valid Markdown table rows."
       : "Off: rendered tables keep Obsidian's normal read-only behaviour.",
   },
   citations: {

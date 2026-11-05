@@ -17,10 +17,12 @@ const MAX_CELL_LENGTH = 4000;
 /** Structural actions exposed by the table toolbar. */
 const TABLE_STRUCTURE_ACTIONS = [
   { id: "row-insert-below", kind: "structure", short: "+ Row", label: "Insert row below" },
+  { id: "row-insert-above", kind: "structure", short: "R↑", label: "Insert row above" },
   { id: "row-delete", kind: "structure", short: "− Row", label: "Delete row" },
   { id: "row-move-up", kind: "structure", short: "↑ Row", label: "Move row up" },
   { id: "row-move-down", kind: "structure", short: "↓ Row", label: "Move row down" },
   { id: "column-insert-right", kind: "structure", short: "+ Col", label: "Insert column right" },
+  { id: "column-insert-left", kind: "structure", short: "C←", label: "Insert column left" },
   { id: "column-delete", kind: "structure", short: "− Col", label: "Delete column" },
   { id: "column-move-left", kind: "structure", short: "← Col", label: "Move column left" },
   { id: "column-move-right", kind: "structure", short: "→ Col", label: "Move column right" },
@@ -76,7 +78,13 @@ function text(value) {
 /** The module is opt-in: anything except an explicit true keeps it off. */
 function normalizeTableEditorSettings(value) {
   const source = value && typeof value === "object" ? value : {};
-  return { enabled: source.enabled === true };
+  return {
+    enabled: source.enabled === true,
+    bindTab: source.bindTab !== false,
+    bindEnter: source.bindEnter !== false,
+    padCells: source.padCells !== false,
+    showRibbon: source.showRibbon !== false,
+  };
 }
 
 function isDelimiterCell(cell) {
@@ -250,8 +258,9 @@ function delimiterCell(align, width) {
   return "-".repeat(width);
 }
 
-/** Renders a whole block: all rows are padded to the same column width. */
-function renderTable(table) {
+/** Renders a whole block: all rows are padded to the same column width unless `pad` is false. */
+function renderTable(table, options) {
+  const padCells = !(options && options.pad === false);
   const columns = Math.max(1, table.columns || table.align.length || 0);
   const rows = (table.rows || []).map((row) => padRow(row, columns));
   const widths = [];
@@ -263,13 +272,14 @@ function renderTable(table) {
     for (const row of rows) width = Math.max(width, displayWidth(row[column]));
     widths.push(width);
   }
+  const delimiterWidth = (alignment) => (alignment === "center" ? MIN_COLUMN_WIDTH + 2 : alignment === "left" || alignment === "right" ? MIN_COLUMN_WIDTH + 1 : MIN_COLUMN_WIDTH);
   const indent = text(table.indent).replace(/\t/g, "    ");
   const lines = [];
   rows.forEach((row, index) => {
-    const cells = row.map((cell, column) => pad(text(cell), widths[column], table.align[column]));
+    const cells = row.map((cell, column) => (padCells ? pad(text(cell), widths[column], table.align[column]) : text(cell)));
     lines.push(indent + "| " + cells.join(" | ") + " |");
     if (index === (table.headerCount || 1) - 1) {
-      const delimiter = table.align.map((align, column) => delimiterCell(align, widths[column]));
+      const delimiter = table.align.map((align, column) => delimiterCell(align, padCells ? widths[column] : delimiterWidth(align)));
       lines.push(indent + "| " + delimiter.join(" | ") + " |");
     }
   });
@@ -327,6 +337,15 @@ function structureTable(table, action, row, column) {
     }
     const [movedAlign] = align.splice(column, 1);
     align.splice(target, 0, movedAlign);
+  } else if (action === "row-insert-above") {
+    if (!hasRow) return { ok: false, reason: "row", message: "That table row is no longer available." };
+    if (rowCount >= MAX_TABLE_ROWS) return { ok: false, reason: "limit", message: `A table cannot have more than ${MAX_TABLE_ROWS} rows.` };
+    rows.splice(row, 0, new Array(columns).fill(""));
+  } else if (action === "column-insert-left") {
+    if (!hasColumn) return { ok: false, reason: "column", message: "That table column is no longer available." };
+    if (columns >= MAX_TABLE_COLUMNS) return { ok: false, reason: "limit", message: `A table cannot have more than ${MAX_TABLE_COLUMNS} columns.` };
+    for (const cells of rows) cells.splice(column, 0, "");
+    align.splice(column, 0, "none");
   } else {
     return { ok: false, reason: "action", message: "Unknown table action." };
   }
@@ -749,6 +768,213 @@ function toggleHeaderRow(table) {
   };
 }
 
+/** True when a line is a TBLFM comment attached to the table above it. */
+function isFormulaLine(line) {
+  return /^\s*TBLFM:/.test(text(line));
+}
+
+/** The table whose lines, or attached TBLFM comments, cover a zero-based line. */
+function tableAtLine(markdown, line) {
+  if (!Number.isInteger(line) || line < 0) return null;
+  const source = text(markdown);
+  const lines = source.split(/\r?\n/);
+  for (const table of parseTables(source)) {
+    if (line >= table.start && line <= table.end) return table;
+    for (let i = table.end + 1; i < lines.length && i <= table.end + 4; i += 1) {
+      if (!isFormulaLine(lines[i])) break;
+      if (i === line) return table;
+    }
+  }
+  return null;
+}
+
+/** Trims one raw cell span and keeps where its text starts. */
+function cellSpan(raw, from, to) {
+  let start = from;
+  let end = to;
+  while (start < end && /\s/.test(raw[start])) start += 1;
+  while (end > start && /\s/.test(raw[end - 1])) end -= 1;
+  return { start, end, text: raw.slice(start, end) };
+}
+
+/** Character offsets of every cell on one row, without the outer pipes. */
+function rowCellSpans(line) {
+  const raw = text(line);
+  const indent = (raw.match(/^\s*/) || [""])[0].length;
+  const spans = [];
+  let index = indent;
+  if (raw[index] === "|") index += 1;
+  let start = index;
+  let escaped = false;
+  let ticks = 0;
+  for (; index < raw.length; index += 1) {
+    const character = raw[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (character === "`") {
+      let run = 1;
+      while (raw[index + run] === "`") run += 1;
+      if (!ticks) ticks = run;
+      else if (ticks === run) ticks = 0;
+      index += run - 1;
+      continue;
+    }
+    if (character === "|" && ticks === 0) {
+      spans.push(cellSpan(raw, start, index));
+      start = index + 1;
+      if (index === raw.length - 1) return spans;
+    }
+  }
+  if (start <= raw.length) spans.push(cellSpan(raw, start, raw.length));
+  return spans;
+}
+
+/** Line number of a zero-based row: the header sits at the top, then the delimiter. */
+function tableRowLine(table, row) {
+  return row === 0 ? table.start : table.start + row + 1;
+}
+
+/** Zero-based row index for a line inside the table, or -1. */
+function tableRowIndex(table, line) {
+  if (!table || !Number.isInteger(line)) return -1;
+  if (line === table.start) return 0;
+  const row = line - table.start - 1;
+  return row >= 1 && row < table.rows.length ? row : -1;
+}
+
+/** Row and column under a line/character pair inside the table. */
+function cellAtLine(markdown, line, ch) {
+  const source = text(markdown);
+  const table = tableAtLine(source, line);
+  if (!table) return null;
+  const row = tableRowIndex(table, line);
+  if (row < 0) return null;
+  const spans = rowCellSpans(source.split(/\r?\n/)[line]);
+  let column = 0;
+  for (let i = 0; i < spans.length && i < table.columns; i += 1) {
+    if (Number.isInteger(ch) && ch >= spans[i].start) column = i;
+  }
+  return { table, row, column, spans };
+}
+
+/** Next cell's line and character, wrapping to the next row and then a new row. */
+function nextCellTarget(markdown, line, ch) {
+  const source = text(markdown);
+  const at = cellAtLine(source, line, ch);
+  if (!at) return { ok: false, reason: "not-table", message: "The cursor is not in a table." };
+  const lines = source.split(/\r?\n/);
+  if (at.column + 1 < at.table.columns) {
+    const next = rowCellSpans(lines[line])[at.column + 1];
+    return { ok: true, line, ch: next ? next.start : text(lines[line]).length };
+  }
+  const row = at.row + 1;
+  if (row < at.table.rows.length) {
+    const targetLine = tableRowLine(at.table, row);
+    const spans = rowCellSpans(lines[targetLine]);
+    return { ok: true, line: targetLine, ch: spans[0] ? spans[0].start : 0 };
+  }
+  return { ok: true, append: true, table: at.table, row: at.row, column: at.column, line, ch };
+}
+
+/** Previous cell's line and character, wrapping back to the previous row. */
+function previousCellTarget(markdown, line, ch) {
+  const source = text(markdown);
+  const at = cellAtLine(source, line, ch);
+  if (!at) return { ok: false, reason: "not-table", message: "The cursor is not in a table." };
+  const lines = source.split(/\r?\n/);
+  if (at.column > 0) {
+    const previous = rowCellSpans(lines[line])[at.column - 1];
+    return { ok: true, line, ch: previous ? previous.start : 0 };
+  }
+  if (at.row > 0) {
+    const targetLine = tableRowLine(at.table, at.row - 1);
+    const spans = rowCellSpans(lines[targetLine]);
+    const last = spans[Math.min(spans.length, at.table.columns) - 1];
+    return { ok: true, line: targetLine, ch: last ? last.start : 0 };
+  }
+  return { ok: false, reason: "boundary", message: "The cursor is already in the first cell." };
+}
+
+/** Same column on the next row, asking for a new row at the end of the table. */
+function nextRowTarget(markdown, line, ch) {
+  const source = text(markdown);
+  const at = cellAtLine(source, line, ch);
+  if (!at) return { ok: false, reason: "not-table", message: "The cursor is not in a table." };
+  const lines = source.split(/\r?\n/);
+  const row = at.row + 1;
+  if (row < at.table.rows.length) {
+    const targetLine = tableRowLine(at.table, row);
+    const spans = rowCellSpans(lines[targetLine]);
+    const target = spans[Math.min(at.column, Math.max(0, spans.length - 1))];
+    return { ok: true, line: targetLine, ch: target ? target.start : 0 };
+  }
+  return { ok: true, append: true, table: at.table, row: at.row, column: at.column, line, ch };
+}
+
+/** The line just after the table (and its TBLFM comments), adding one if needed. */
+function escapeTableTarget(markdown, line) {
+  const source = text(markdown);
+  const table = tableAtLine(source, line);
+  if (!table) return { ok: false, reason: "not-table", message: "The cursor is not in a table." };
+  const lines = source.split(/\r?\n/);
+  let end = table.end;
+  while (end + 1 < lines.length && isFormulaLine(lines[end + 1])) end += 1;
+  const target = end + 1;
+  if (target >= lines.length) return { ok: true, line: target, ch: 0, insert: true };
+  if (!text(lines[target]).trim()) return { ok: true, line: target, ch: 0, insert: false };
+  return { ok: true, line: target, ch: 0, insert: true };
+}
+
+/** Adds one blank body row and returns where it sits. */
+function appendTableRow(markdown, line) {
+  const source = text(markdown);
+  const table = tableAtLine(source, line);
+  if (!table) return { ok: false, reason: "not-table", message: "The cursor is not in a table." };
+  const change = structureTable(table, "row-insert-below", table.rows.length - 1, 0);
+  if (!change.ok) return change;
+  const update = tableBlockUpdate(source, table, change.table);
+  return { ...update, changed: true, rowLine: table.end + 1, column: 0 };
+}
+
+/** Re-renders the table under the cursor with padded, aligned cells. */
+function formatTableAt(markdown, line, options) {
+  const source = text(markdown);
+  const table = tableAtLine(source, line);
+  if (!table) return { ok: false, reason: "not-table", message: "The cursor is not in a table." };
+  const update = tableBlockUpdate(source, table, table, options);
+  const original = source.split(/\r?\n/).slice(table.start, table.end + 1).join("\n");
+  return { ...update, changed: update.replacement !== original, table };
+}
+
+/** Re-renders every table in the note, from the bottom so line numbers stay valid. */
+function formatAllTables(markdown, options) {
+  const source = text(markdown);
+  const tables = parseTables(source);
+  if (!tables.length) return { ok: false, reason: "none", message: "This note has no tables to format." };
+  let next = source;
+  for (let index = tables.length - 1; index >= 0; index -= 1) {
+    next = tableBlockUpdate(next, tables[index], tables[index], options).text;
+  }
+  return { ok: true, text: next, changed: next !== source, tables: tables.length };
+}
+
+/** CSV for one parsed table, optionally leaving the header row out. */
+function tableCsvFromTable(table, options) {
+  if (!table || !Array.isArray(table.rows) || !table.rows.length) {
+    return { ok: false, reason: "table", message: "The table is no longer available." };
+  }
+  const includeHeader = !(options && options.header === false);
+  const rows = includeHeader ? table.rows : table.rows.slice(1);
+  const csv = rows.map((row) => row.map((cell) => tableFormulas.csvCell(cell)).join(",")).join("\n") + "\n";
+  return { ok: true, csv, header: includeHeader };
+}
+
 /** Escapes a committed cell so a typed pipe becomes data, not a new column. */
 function escapeCell(value) {
   let cell = text(value).replace(/\r\n?/g, "\n").replace(/\n+/g, " ").trim().slice(0, MAX_CELL_LENGTH);
@@ -832,10 +1058,10 @@ function tableForUpdate(lines, startLine, expected) {
 }
 
 /** Replaces one source table block and preserves the note's line endings. */
-function tableBlockUpdate(source, table, nextTable) {
+function tableBlockUpdate(source, table, nextTable, options) {
   const eol = source.includes("\r\n") ? "\r\n" : "\n";
   const lines = source.split(/\r?\n/);
-  const rendered = renderTable(nextTable).join(eol);
+  const rendered = renderTable(nextTable, options).join(eol);
   const fullLines = lines.slice(0, table.start).concat(rendered.split(eol), lines.slice(table.end + 1));
   return {
     ok: true,
@@ -964,12 +1190,14 @@ function updateTableHeader(markdown, startLine, expected) {
 }
 
 /** Serializes the current source table, without its TBLFM comments, as CSV. */
-function tableCsvAt(markdown, startLine, expected) {
+function tableCsvAt(markdown, startLine, expected, options) {
   const source = text(markdown);
   const lines = source.split(/\r?\n/);
   const table = tableForUpdate(lines, Number.isInteger(startLine) ? startLine : -1, expected);
   if (!table) return { ok: false, reason: "not-found", message: "This table could not be matched to the note." };
-  return { ok: true, csv: tableFormulas.tableToCsv(table), table };
+  const csv = tableCsvFromTable(table, options);
+  if (!csv.ok) return csv;
+  return { ok: true, csv: csv.csv, header: csv.header, table };
 }
 
 /**
@@ -1073,6 +1301,8 @@ function decorateTable(tableEl, options) {
   const toggleHeader = typeof opts.toggleHeader === "function" ? opts.toggleHeader : null;
   const counts = typeof opts.counts === "function" ? opts.counts : null;
   const onError = typeof opts.onError === "function" ? opts.onError : null;
+  const bindTab = opts.bindTab !== false;
+  const bindEnter = opts.bindEnter !== false;
   const rows = tableRows(tableEl);
   if (!rows.length || rows.length !== table.rows.length) return null;
   if (tableEl.getAttribute && tableEl.getAttribute("data-qt-table-editor") === "on") return null;
@@ -1314,6 +1544,8 @@ function decorateTable(tableEl, options) {
       });
       cell.addEventListener("keydown", (event) => {
         if (!event || event.isComposing) return;
+        if (!bindTab && event.key === "Tab") return;
+        if (!bindEnter && (event.key === "Enter" || event.key === "Shift+Enter")) return;
         if (event.key === "Escape") {
           if (event.preventDefault) event.preventDefault();
           cell.textContent = cell.__qtTableOriginal || "";
@@ -1357,23 +1589,36 @@ module.exports = {
   TABLE_STRUCTURE_ACTIONS,
   TABLE_TOOLBAR_ACTIONS,
   alignTableColumn,
+  appendTableRow,
+  cellAtLine,
   decorateTable,
   escapeCell,
+  escapeTableTarget,
   findTable,
+  formatAllTables,
+  formatTableAt,
   headerRowState,
   importTableData,
   navigateCell,
+  nextCellTarget,
+  nextRowTarget,
   normalizeTableEditorSettings,
   parseDelimitedTable,
   parseTableBlock,
   parseTables,
+  previousCellTarget,
   renderTable,
+  rowCellSpans,
   renderedHeader,
   formatTableCell,
   splitTableRow,
   sortTable,
   structureTable,
+  tableAtLine,
   tableCounts,
+  tableCsvFromTable,
+  tableRowIndex,
+  tableRowLine,
   toggleCellFormat,
   toggleHeaderRow,
   transposeTable,

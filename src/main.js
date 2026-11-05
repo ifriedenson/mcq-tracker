@@ -581,6 +581,8 @@ QuestionTrackerPlugin.__test = {
   glossary,
   wordnet,
   tableEditor,
+  tableControls: require("./table-controls-view"),
+  tableCsvModal: require("./table-csv-modal"),
   writingSessions,
   voiceMemo,
   cornell,

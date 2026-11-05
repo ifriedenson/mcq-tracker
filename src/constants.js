@@ -21,6 +21,7 @@ const VIEW_TYPE_POMODORO = "question-tracker-pomodoro";
 const VIEW_TYPE_TASK_LIST = "question-tracker-task-list";
 const VIEW_TYPE_WEB_BROWSER = "question-tracker-web-browser";
 const VIEW_TYPE_AGENT = "question-tracker-agent";
+const VIEW_TYPE_TABLE_CONTROLS = "question-tracker-table-controls";
 
 const FILTER_FIELDS = [
   ["folder", "Folder"], // not a property: comes from where the note is saved, and includes sub folders
@@ -185,7 +186,7 @@ const DEFAULT_SETTINGS = {
   retention: { enabled: true }, // read-only card forecast
   vocabulary: { enabled: true, words: [] }, // local dictionary and per-word review ladder
   wordNet: { enabled: false, folder: "WordNet" }, // offline full WordNet import, opt-in
-  tableEditor: { enabled: false }, // rendered-table cell editing and keyboard navigation, opt-in
+  tableEditor: { enabled: false, bindTab: true, bindEnter: true, padCells: true, showRibbon: true }, // rendered-table editing and navigation, opt-in
   webBrowser: { enabled: false, home: "", search: "duckduckgo", bookmarks: [], history: [] }, // opt-in in-app browser view; only http/https, off by default
   readingLibrary: { enabled: true, hideFinished: false, books: [] }, // local bookshelf, page progress and captured quotes
   writingSession: { path: "", startedAt: 0, baseline: 0, sessions: [] }, // read-only writing-session count; only session times are stored
@@ -294,6 +295,7 @@ module.exports = {
   VIEW_TYPE_TASK_LIST,
   VIEW_TYPE_WEB_BROWSER,
   VIEW_TYPE_AGENT,
+  VIEW_TYPE_TABLE_CONTROLS,
   FILTER_FIELDS,
   MODES,
   DEFAULT_SETTINGS,

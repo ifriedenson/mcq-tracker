@@ -53,6 +53,38 @@ const taskTags = require("./task-tags");
 const glossary = require("./glossary");
 const wordnet = require("./wordnet");
 const tableEditor = require("./table-editor");
+const { TableControlsView } = require("./table-controls-view");
+const { TableCsvModal } = require("./table-csv-modal");
+const { VIEW_TYPE_TABLE_CONTROLS } = require("./constants");
+
+/** Command-palette entries mirroring the Advanced Tables plugin. */
+const TABLE_COMMANDS = [
+  { id: "tables-next-cell", name: "Tables: go to the next cell", action: "next-cell" },
+  { id: "tables-previous-cell", name: "Tables: go to the previous cell", action: "previous-cell" },
+  { id: "tables-next-row", name: "Tables: go to the next row", action: "next-row" },
+  { id: "tables-escape", name: "Tables: move the cursor out of the table", action: "escape" },
+  { id: "tables-format", name: "Tables: format the table under the cursor", action: "format" },
+  { id: "tables-insert-row-above", name: "Tables: insert a row above", action: "insert-row-above" },
+  { id: "tables-insert-row-below", name: "Tables: insert a row below", action: "insert-row-below" },
+  { id: "tables-insert-column-left", name: "Tables: insert a column to the left", action: "insert-column-left" },
+  { id: "tables-insert-column-right", name: "Tables: insert a column to the right", action: "insert-column-right" },
+  { id: "tables-delete-row", name: "Tables: delete the row", action: "delete-row" },
+  { id: "tables-delete-column", name: "Tables: delete the column", action: "delete-column" },
+  { id: "tables-move-row-up", name: "Tables: move the row up", action: "move-row-up" },
+  { id: "tables-move-row-down", name: "Tables: move the row down", action: "move-row-down" },
+  { id: "tables-move-column-left", name: "Tables: move the column left", action: "move-column-left" },
+  { id: "tables-move-column-right", name: "Tables: move the column right", action: "move-column-right" },
+  { id: "tables-align-left", name: "Tables: align the column left", action: "align-left" },
+  { id: "tables-align-center", name: "Tables: align the column center", action: "align-center" },
+  { id: "tables-align-right", name: "Tables: align the column right", action: "align-right" },
+  { id: "tables-align-default", name: "Tables: clear the column alignment", action: "align-default" },
+  { id: "tables-sort-asc", name: "Tables: sort rows ascending", action: "sort-asc" },
+  { id: "tables-sort-desc", name: "Tables: sort rows descending", action: "sort-desc" },
+  { id: "tables-transpose", name: "Tables: transpose", action: "transpose" },
+  { id: "tables-formulas", name: "Tables: evaluate formulas", action: "formulas" },
+  { id: "tables-export-csv", name: "Tables: export as CSV", action: "export-csv" },
+];
+
 const writingSessions = require("./writing-sessions");
 const voiceMemo = require("./voice-memo");
 const { buildCornellNote } = require("./cornell");
@@ -305,6 +337,10 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_WEB_BROWSER, (leaf) => new WebBrowserView(leaf, this));
     const { AgentView: StudyAgentView } = require("./agent-view");
     this.registerView(VIEW_TYPE_AGENT, (leaf) => new StudyAgentView(leaf, this));
+    this.registerView(VIEW_TYPE_TABLE_CONTROLS, (leaf) => new TableControlsView(leaf, this));
+    if (this.tableEditorSettings().enabled && this.tableEditorSettings().showRibbon) {
+      this._tableRibbon = this.addRibbonIcon("table", "Advanced Tables: controls", () => this.openTableControls());
+    }
     this.noteReviewDock = new NoteReviewDock(this);
     if (typeof this.registerMarkdownPostProcessor === "function") {
       this.registerMarkdownPostProcessor((el) => satCallout.syncSatCallouts(el));
@@ -882,6 +918,33 @@ class QuestionTrackerPlugin extends Plugin {
       callback: () => this.repairReviewHistory(),
     });
 
+    for (const command of TABLE_COMMANDS) {
+      this.addCommand({
+        id: command.id,
+        name: command.name,
+        checkCallback: (checking) => {
+          const context = this.activeTableContext();
+          if (!context) return false;
+          if (!checking) this.runTableAction(command.action);
+          return true;
+        },
+      });
+    }
+    this.addCommand({
+      id: "tables-format-all",
+      name: "Tables: format every table in this note",
+      checkCallback: (checking) => {
+        const context = this.activeEditorContext();
+        if (!context) return false;
+        if (!checking) this.formatAllTablesInNote();
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "tables-open-controls",
+      name: "Tables: open the table controls panel",
+      callback: () => this.openTableControls(),
+    });
     this.addSettingTab(new QuestionTrackerSettingTab(this.app, this));
 
     this.registerInterval(
@@ -9757,6 +9820,212 @@ ${body}
     return wordnet.lookupWord(this.wordNetIndex, query);
   }
 
+  /* ---- Table commands: palette, panel and editor cursor ----------------- */
+
+  /** The active Markdown editor and its note text, or null. */
+  activeEditorContext() {
+    const active = this.app.workspace && this.app.workspace.activeEditor;
+    const editor = active && active.editor;
+    const file = active && active.file;
+    if (!editor || !file || typeof editor.getValue !== "function") return null;
+    return { editor, file, path: str(file.path), text: str(editor.getValue()) };
+  }
+
+  /** The editor context plus the table under the cursor, TBLFM lines included. */
+  activeTableContext() {
+    const context = this.activeEditorContext();
+    if (!context) return null;
+    const cursor = typeof context.editor.getCursor === "function" ? context.editor.getCursor() : null;
+    const line = cursor && Number.isInteger(cursor.line) ? cursor.line : -1;
+    const table = tableEditor.tableAtLine(context.text, line);
+    if (!table) return null;
+    return { ...context, cursor, line, table };
+  }
+
+  /** Runs one palette, panel or toolbar action against the cursor's table. */
+  runTableAction(action) {
+    const id = str(action).trim().replace(/^tables-/, "");
+    const context = this.activeTableContext();
+    if (!context) {
+      const message = "Put the cursor in a table first.";
+      new Notice(message);
+      return Promise.resolve({ ok: false, reason: "not-table", message });
+    }
+    const line = context.line;
+    const ch = context.cursor && Number.isInteger(context.cursor.ch) ? context.cursor.ch : 0;
+    const start = context.table.start;
+    if (id === "escape") return Promise.resolve(this.escapeTable(context));
+    if (id === "format") return this.formatTable(context);
+    if (id === "export-csv") return Promise.resolve(this.openTableCsv(context.table));
+    if (id === "next-cell" || id === "previous-cell" || id === "next-row") return Promise.resolve(this.moveTableCell(context, id));
+    const at = tableEditor.cellAtLine(context.text, line, ch);
+    if (!at) {
+      const message = "Put the cursor in one of the table rows first.";
+      new Notice(message);
+      return Promise.resolve({ ok: false, reason: "not-row", message });
+    }
+    const row = at.row;
+    const column = at.column;
+    const structure = {
+      "insert-row-above": "row-insert-above",
+      "insert-row-below": "row-insert-below",
+      "insert-column-left": "column-insert-left",
+      "insert-column-right": "column-insert-right",
+      "delete-row": "row-delete",
+      "delete-column": "column-delete",
+      "move-row-up": "row-move-up",
+      "move-row-down": "row-move-down",
+      "move-column-left": "column-move-left",
+      "move-column-right": "column-move-right",
+    };
+    if (structure[id]) return this.updateTableStructure(context.path, start, context.table, structure[id], row, column);
+    const alignment = { "align-left": "left", "align-center": "center", "align-right": "right", "align-default": "none" };
+    if (alignment[id]) return this.updateTableAlignment(context.path, start, context.table, alignment[id], column);
+    if (id === "sort-asc" || id === "sort-desc") return this.updateTableSort(context.path, start, context.table, id === "sort-asc" ? "asc" : "desc", column);
+    if (id === "transpose") return this.updateTableTranspose(context.path, start, context.table);
+    if (id === "formulas") return this.updateTableFormulas(context.path, start, context.table);
+    return Promise.resolve({ ok: false, reason: "action", message: "Unknown table action." });
+  }
+
+  /** Tab, Shift+Tab and Enter inside the source editor; adds a row at the end. */
+  moveTableCell(context, action) {
+    const cursor = context.cursor || { line: context.line, ch: 0 };
+    const target = action === "next-cell"
+      ? tableEditor.nextCellTarget(context.text, cursor.line, cursor.ch)
+      : action === "previous-cell"
+        ? tableEditor.previousCellTarget(context.text, cursor.line, cursor.ch)
+        : tableEditor.nextRowTarget(context.text, cursor.line, cursor.ch);
+    if (!target.ok) {
+      if (target.message) new Notice(target.message);
+      return target;
+    }
+    if (!target.append) {
+      if (typeof context.editor.setCursor === "function") context.editor.setCursor({ line: target.line, ch: target.ch });
+      return { ok: true, line: target.line, ch: target.ch };
+    }
+    const appended = tableEditor.appendTableRow(context.text, cursor.line);
+    if (!appended.ok) {
+      if (appended.message) new Notice(appended.message);
+      return appended;
+    }
+    return this.writeTableResult(context, appended).then(() => {
+      if (typeof context.editor.setCursor === "function") context.editor.setCursor({ line: appended.rowLine, ch: appended.column });
+      return { ok: true, appended: true, line: appended.rowLine };
+    });
+  }
+
+  /** Moves the cursor to the line after the table, adding a blank line if needed. */
+  escapeTable(context) {
+    const cursor = context.cursor || { line: context.line, ch: 0 };
+    const target = tableEditor.escapeTableTarget(context.text, cursor.line);
+    if (!target.ok) {
+      if (target.message) new Notice(target.message);
+      return target;
+    }
+    const editor = context.editor;
+    if (target.insert && typeof editor.replaceRange === "function" && typeof editor.getLine === "function") {
+      const endLine = context.table.end;
+      editor.replaceRange("\n", { line: endLine, ch: str(editor.getLine(endLine)).length });
+    }
+    if (typeof editor.setCursor === "function") editor.setCursor({ line: target.line, ch: 0 });
+    return { ok: true, line: target.line };
+  }
+
+  /** Re-renders the cursor's table with padded, aligned cells. */
+  async formatTable(context) {
+    const settings = this.tableEditorSettings();
+    const result = await this.updateTableBlock(context.path, context.table.start, context.table, (current, startLine) =>
+      tableEditor.formatTableAt(current, startLine, { pad: settings.padCells !== false })
+    );
+    if (result && result.ok) new Notice(result.changed ? "Table formatted." : "The table is already formatted.");
+    else if (result && result.message) new Notice(result.message);
+    return result;
+  }
+
+  /** Re-renders every table in the open note. */
+  async formatAllTablesInNote() {
+    const context = this.activeEditorContext();
+    if (!context) {
+      const message = "Open a note with tables first.";
+      new Notice(message);
+      return { ok: false, reason: "no-editor", message };
+    }
+    const settings = this.tableEditorSettings();
+    const result = tableEditor.formatAllTables(context.text, { pad: settings.padCells !== false });
+    if (!result.ok) {
+      if (result.message) new Notice(result.message);
+      return result;
+    }
+    if (!result.changed) {
+      new Notice("Every table is already formatted.");
+      return result;
+    }
+    const editor = context.editor;
+    if (editor && typeof editor.setValue === "function") editor.setValue(result.text);
+    else if (context.file && this.app.vault && typeof this.app.vault.modify === "function") await this.app.vault.modify(context.file, result.text);
+    else return { ok: false, reason: "write", message: "This note cannot be written." };
+    new Notice(`Formatted ${result.tables} ${result.tables === 1 ? "table" : "tables"}.`);
+    return result;
+  }
+
+  /** Writes a table result through the editor or the vault, like updateTableBlock. */
+  async writeTableResult(context, result) {
+    if (!result || !result.ok || !result.changed) return result || { ok: false, reason: "change" };
+    const editor = context.editor;
+    if (editor && typeof editor.replaceRange === "function" && typeof editor.getLine === "function") {
+      const nextLine = editor.getLine(result.endLine + 1);
+      const hasNextLine = nextLine !== undefined && nextLine !== null;
+      editor.replaceRange(
+        result.replacement.replace(/\r\n/g, "\n") + (hasNextLine ? "\n" : ""),
+        { line: result.startLine, ch: 0 },
+        hasNextLine ? { line: result.endLine + 1, ch: 0 } : { line: result.endLine, ch: str(editor.getLine(result.endLine)).length }
+      );
+      return result;
+    }
+    if (context.file && this.app.vault && typeof this.app.vault.modify === "function") {
+      await this.app.vault.modify(context.file, result.text);
+      return result;
+    }
+    return { ok: false, reason: "write", message: "This note cannot be written." };
+  }
+
+  /** Opens the CSV dialog for one table, with the header-row switch. */
+  openTableCsv(table) {
+    if (!table || !Array.isArray(table.rows)) return { ok: false, reason: "table", message: "The table is no longer available." };
+    const modal = new TableCsvModal(this.app, table);
+    modal.open();
+    return { ok: true, modal };
+  }
+
+  /** Opens or reveals the docked table controls panel. */
+  async openTableControls() {
+    const workspace = this.app.workspace;
+    if (!workspace) return null;
+    const existing = typeof workspace.getLeavesOfType === "function" ? workspace.getLeavesOfType(VIEW_TYPE_TABLE_CONTROLS) : [];
+    if (existing && existing.length) {
+      if (typeof workspace.revealLeaf === "function") workspace.revealLeaf(existing[0]);
+      return existing[0];
+    }
+    const leaf = typeof workspace.getRightLeaf === "function" ? workspace.getRightLeaf(false) : null;
+    if (!leaf || typeof leaf.setViewState !== "function") return null;
+    await leaf.setViewState({ type: VIEW_TYPE_TABLE_CONTROLS, active: true });
+    if (typeof workspace.revealLeaf === "function") workspace.revealLeaf(leaf);
+    return leaf;
+  }
+
+  /** Adds or removes the ribbon button after the settings change. */
+  async onTableEditorToggled() {
+    const settings = this.tableEditorSettings();
+    const wanted = settings.enabled && settings.showRibbon;
+    if (wanted && !this._tableRibbon) {
+      this._tableRibbon = this.addRibbonIcon("table", "Advanced Tables: controls", () => this.openTableControls());
+    } else if (!wanted && this._tableRibbon) {
+      if (typeof this._tableRibbon.remove === "function") this._tableRibbon.remove();
+      this._tableRibbon = null;
+    }
+    if (typeof this.refreshViews === "function") this.refreshViews();
+  }
+
   /* ---- In-place rendered-table editing -------------------------------- */
 
   tableEditorSettings() {
@@ -9781,8 +10050,11 @@ ${body}
     tables.forEach((tableEl, index) => {
       const table = tableEditor.findTable(parsed, tableEditor.renderedHeader(tableEl), index);
       if (!table) return;
+      const tableSettings = this.tableEditorSettings();
       tableEditor.decorateTable(tableEl, {
         table,
+        bindTab: tableSettings.bindTab,
+        bindEnter: tableSettings.bindEnter,
         commit: (row, column, value) => this.updateTableCell(sourcePath, lineStart, table, row, column, value),
         structure: (action, row, column) => this.updateTableStructure(sourcePath, lineStart, table, action, row, column),
         format: (value, row, column) => this.updateTableCellFormat(sourcePath, lineStart, table, value, row, column),

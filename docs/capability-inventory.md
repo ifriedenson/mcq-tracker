@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 388 groups, 2537 exports. **Commands:** 150. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 390 groups, 2553 exports. **Commands:** 176. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -369,7 +369,9 @@ the table and fails if a group, export count, command or citing test drifts.
 | `support` | 6 | `tests/support.test.js` |
 | `survey` | 4 | `tests/survey.test.js` |
 | `svgSafety` | 1 | `tests/security-hardening.test.js`, `tests/security-inventory.test.js` |
-| `tableEditor` | 41 | `tests/table-editor.test.js` |
+| `tableControls` | 2 | `tests/table-commands.test.js` |
+| `tableCsvModal` | 1 | `tests/table-commands.test.js` |
+| `tableEditor` | 54 | `tests/table-commands.test.js`, `tests/table-editor.test.js` |
 | `tagTimer` | 26 | `tests/tag-timer.test.js` |
 | `tally` | 15 | `tests/tally.test.js` |
 | `taskTags` | 5 | `tests/task-tags.test.js` |
@@ -555,6 +557,32 @@ the table and fails if a group, export count, command or citing test drifts.
 | `add-fields-all` | Add missing tracking properties to all question notes | `addMissingFields` | `tests/command-effects.test.js` |
 | `repair-review-history` | Repair review counters from history | `repairReviewHistory` | `tests/history.test.js` |
 
+| `tables-next-cell` | Tables: go to the next cell | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-previous-cell` | Tables: go to the previous cell | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-next-row` | Tables: go to the next row | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-escape` | Tables: move the cursor out of the table | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-format` | Tables: format the table under the cursor | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-insert-row-above` | Tables: insert a row above | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-insert-row-below` | Tables: insert a row below | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-insert-column-left` | Tables: insert a column to the left | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-insert-column-right` | Tables: insert a column to the right | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-delete-row` | Tables: delete the row | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-delete-column` | Tables: delete the column | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-move-row-up` | Tables: move the row up | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-move-row-down` | Tables: move the row down | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-move-column-left` | Tables: move the column left | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-move-column-right` | Tables: move the column right | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-align-left` | Tables: align the column left | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-align-center` | Tables: align the column center | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-align-right` | Tables: align the column right | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-align-default` | Tables: clear the column alignment | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-sort-asc` | Tables: sort rows ascending | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-sort-desc` | Tables: sort rows descending | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-transpose` | Tables: transpose | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-formulas` | Tables: evaluate formulas | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-export-csv` | Tables: export as CSV | `activeTableContext` | `tests/table-commands.test.js` |
+| `tables-format-all` | Tables: format every table in this note | `activeEditorContext` | `tests/table-commands.test.js` |
+| `tables-open-controls` | Tables: open the table controls panel | `openTableControls` | `tests/table-commands.test.js` |
 ## Gaps (3 groups, 0 commands)
 
 Each entry is implemented in the bundle but has no test that names it. They are listed
