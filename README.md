@@ -830,9 +830,9 @@ Study Tools contains local workflows that do not belong in Practice, Cards, Cale
 - **Lecture log.** Keep a local list of lectures by course, date, title and optional topics. Add one at a time or paste lines in the form `Course | YYYY-MM-DD | Lecture title | Topics`. Today shows the next upcoming lecture. No audio, transcript or network request is involved.
 - **Study goals.** Set a goal, optional course, target minutes and due date; log progress in 15- or 30-minute steps and mark it done. **Use next exam** creates a goal from the current study plan. Open goals appear on Today with a progress bar. Goals are stored in plugin data, not in your notes.
 
-## Study Workspace (twenty independent modules)
+## Study Workspace (twenty-one independent modules)
 
-Open **Study Workspace** from the command palette or the ribbon. It contains twenty local workflows, each with its own switch under Settings, Global, Modules. The tabs reuse the Study Tools cards, forms and responsive breakpoint; on phones the forms and score rows stack and the tab strip scrolls.
+Open **Study Workspace** from the command palette or the ribbon. It contains twenty-one local workflows, each with its own switch under Settings, Global, Modules. The tabs reuse the Study Tools cards, forms and responsive breakpoint; on phones the forms and score rows stack and the tab strip scrolls.
 
 - **Feynman Learning.** Start a four-step cycle for a concept: explain it simply, find the gaps, simplify it with an example, and teach it back. Finish by scoring clarity, accuracy and simplicity from 1 to 5. Saved cycles show their average and highlight weak dimensions. Scoring is local; no model is called.
 - **Recall Scheduler.** Build a queue from note headings or longer knowledge fragments. Choose an optional folder and limit, reveal a unit, then rate it Again, Hard, Good or Easy. The local ladder schedules the next due date; review state lives in plugin data and note text is never rewritten.
