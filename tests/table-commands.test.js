@@ -534,3 +534,33 @@ test("the next-cell command starts a table from a bare pipe", async () => {
   assert.equal(result.ok, true);
   assert.equal(editor.parseTables(harness.editor.getValue())[0].columns, 2);
 });
+
+/* ---- formatting a draft, as upstream's format command does ---- */
+
+test("the format command completes a draft pipe table with one column", async () => {
+  const harness = await tablePlugin("| Term", { line: 0, ch: 5 });
+  harness.plugin.settings.tableEditor = { ...editor.normalizeTableEditorSettings({ enabled: true }) };
+  const result = await harness.plugin.runTableAction("format");
+  assert.equal(result.ok, true, "format completes the draft instead of refusing it");
+  const text = harness.editor.getValue();
+  const lines = text.split("\n");
+  const parsed = editor.parseTables(text)[0];
+  assert.equal(parsed.columns, 1, "the draft completes without gaining an empty column");
+  assert.deepEqual(parsed.rows, [["Term"]]);
+  assert.equal(lines.length, 2, "the delimiter row was written");
+  assert.match(lines[1], /^\| -+ \|$/, "the second line is a delimiter row");
+});
+
+test("formatting a normal table leaves its rows, columns and text alone", async () => {
+  const canonical = editor.renderTable(editor.parseTables(NOTE)[0]).join("\n");
+  const harness = await tablePlugin(canonical, { line: 0, ch: 2 });
+  harness.plugin.settings.tableEditor = { ...editor.normalizeTableEditorSettings({ enabled: true }) };
+  const result = await harness.plugin.runTableAction("format");
+  assert.equal(result.ok, true);
+  assert.equal(result.changed, false, "an already formatted table is not rewritten");
+  assert.equal(harness.editor.getValue(), canonical, "the text is byte-identical");
+  const parsed = editor.parseTables(harness.editor.getValue())[0];
+  assert.equal(parsed.columns, 2, "no column was added to a finished table");
+  assert.equal(parsed.rows.length, 3, "no row was added either");
+  assert.deepEqual(parsed.rows, [["Term", "Meaning"], ["ATP", "Energy"], ["ADP", "Phosphate"]]);
+});
