@@ -67384,6 +67384,25 @@ ${body}
   /** Runs one palette, panel or toolbar action against the cursor's table. */
   runTableAction(action) {
     const id = str(action).trim().replace(/^tables-/, "");
+    const editorContext = id === "next-cell" || id === "format" ? this.activeEditorContext() : null;
+    if (editorContext) {
+      const cursor = typeof editorContext.editor.getCursor === "function" ? editorContext.editor.getCursor() : null;
+      const line = cursor && Number.isInteger(cursor.line) ? cursor.line : -1;
+      if (!tableEditor.tableAtLine(editorContext.text, line) && tableEditor.tableDraftAtLine(editorContext.text, line)) {
+        const settings = this.tableEditorSettings();
+        const started = tableEditor.startTable(editorContext.text, line, {
+          pad: settings.padCells !== false,
+          addColumn: id === "next-cell",
+        });
+        if (started.ok) {
+          return this.writeTableResult({ ...editorContext, cursor }, started).then(() => {
+            if (typeof editorContext.editor.setCursor === "function") editorContext.editor.setCursor({ line: started.rowLine, ch: started.ch });
+            if (id === "format") new Notice("Table formatted.");
+            return started;
+          });
+        }
+      }
+    }
     const context = this.activeTableContext();
     if (!context) {
       const message = "Put the cursor in a table first.";
@@ -67454,8 +67473,21 @@ ${body}
     if (typeof editor.somethingSelected === "function" && editor.somethingSelected()) return false;
     const cursor = editor.getCursor();
     if (!cursor || !Number.isInteger(cursor.line)) return false;
-    if (!tableEditor.tableAtLine(context.text, cursor.line)) return false;
     const ch = Number.isInteger(cursor.ch) ? cursor.ch : 0;
+    if (!tableEditor.tableAtLine(context.text, cursor.line)) {
+      // A bare pipe is a table being written: Tab finishes the header and the
+      // delimiter row and moves into the next heading, as upstream's next cell
+      // does. Anything else keeps the editor's own key handling.
+      if (key !== "Tab" || event.shiftKey === true) return false;
+      const started = tableEditor.startTable(context.text, cursor.line, { pad: settings.padCells !== false });
+      if (!started.ok) return false;
+      event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+      Promise.resolve(this.writeTableResult(context, started)).then(() => {
+        if (typeof editor.setCursor === "function") editor.setCursor({ line: started.rowLine, ch: started.ch });
+      });
+      return true;
+    }
     const shifted = event.shiftKey === true;
     let move;
     if (key === "Tab") {
@@ -67474,19 +67506,22 @@ ${body}
       move = tableEditor.nextRowTarget(context.text, cursor.line, ch);
     }
     if (!move || !move.ok) return false;
-    let appended = null;
+    let written = null;
     if (move.append) {
-      appended = tableEditor.appendTableRow(context.text, cursor.line);
-      if (!appended.ok) return false;
+      written = tableEditor.appendTableRow(context.text, cursor.line);
+      if (!written.ok) return false;
+    } else if (move.addColumn) {
+      written = tableEditor.addTableColumn(context.text, cursor.line, { pad: settings.padCells !== false });
+      if (!written.ok) return false;
     }
     event.preventDefault();
     if (typeof event.stopPropagation === "function") event.stopPropagation();
-    if (!appended) {
+    if (!written) {
       if (typeof editor.setCursor === "function") editor.setCursor({ line: move.line, ch: move.ch });
       return true;
     }
-    Promise.resolve(this.writeTableResult(context, appended)).then(() => {
-      if (typeof editor.setCursor === "function") editor.setCursor({ line: appended.rowLine, ch: appended.column || 0 });
+    Promise.resolve(this.writeTableResult(context, written)).then(() => {
+      if (typeof editor.setCursor === "function") editor.setCursor({ line: written.rowLine, ch: written.ch || 0 });
     });
     return true;
   }
@@ -67502,6 +67537,17 @@ ${body}
     if (!target.ok) {
       if (target.message) new Notice(target.message);
       return target;
+    }
+    if (target.addColumn) {
+      const added = tableEditor.addTableColumn(context.text, cursor.line, { pad: this.tableEditorSettings().padCells !== false });
+      if (!added.ok) {
+        if (added.message) new Notice(added.message);
+        return added;
+      }
+      return this.writeTableResult(context, added).then(() => {
+        if (typeof context.editor.setCursor === "function") context.editor.setCursor({ line: added.rowLine, ch: added.ch });
+        return { ok: true, added: true, line: added.rowLine, column: added.column };
+      });
     }
     if (!target.append) {
       if (typeof context.editor.setCursor === "function") context.editor.setCursor({ line: target.line, ch: target.ch });
@@ -101873,6 +101919,9 @@ function nextCellTarget(markdown, line, ch) {
     const next = rowCellSpans(lines[line])[at.column + 1];
     return { ok: true, line, ch: next ? next.start : text(lines[line]).length };
   }
+  // Upstream's next cell adds a column when Tab runs past the last header
+  // cell, which is how headings are typed in.
+  if (at.row === 0) return { ok: true, addColumn: true, table: at.table, row: 0, column: at.table.columns, line, ch };
   const row = at.row + 1;
   if (row < at.table.rows.length) {
     const targetLine = tableRowLine(at.table, row);
@@ -101953,6 +102002,89 @@ function appendTableRow(markdown, line) {
   if (!change.ok) return change;
   const update = tableBlockUpdate(source, table, change.table);
   return { ...update, changed: true, rowLine: table.end + 1, column: 0 };
+}
+
+/** True for a line that starts with a table pipe, as upstream reads a table. */
+function isTableRowLine(line) {
+  return /^\s*\|/.test(text(line));
+}
+
+/**
+ * A table being written but not finished: one or more pipe lines with no
+ * delimiter row. Upstream treats this as a table and completes it on Tab,
+ * which is how a bare `|` grows into a table.
+ */
+function tableDraftAtLine(markdown, line) {
+  if (!Number.isInteger(line) || line < 0) return null;
+  const lines = text(markdown).split(/\r?\n/);
+  if (line >= lines.length || !isTableRowLine(lines[line])) return null;
+  let start = line;
+  while (start > 0 && isTableRowLine(lines[start - 1])) start -= 1;
+  let end = line;
+  while (end + 1 < lines.length && isTableRowLine(lines[end + 1])) end += 1;
+  const rows = [];
+  for (let i = start; i <= end; i += 1) {
+    const parsed = splitTableRow(lines[i]);
+    if (!parsed || !parsed.cells.length) return null;
+    // A delimiter inside the run means this is a finished (or malformed) table.
+    if (isDelimiterRow(parsed.cells)) return null;
+    rows.push(parsed.cells);
+  }
+  if (parseTableBlock(lines, start)) return null;
+  const columns = Math.max(1, ...rows.map((row) => row.length));
+  if (columns > MAX_TABLE_COLUMNS || rows.length + 1 > MAX_TABLE_ROWS) return null;
+  return {
+    start,
+    end,
+    indent: ((splitTableRow(lines[start]) || {}).indent || "").replace(/\t/g, "    "),
+    columns,
+    rows: rows.map((row) => padRow(row, columns)),
+    header: padRow(rows[0], columns),
+  };
+}
+
+/**
+ * Turns a draft into a table: header, delimiter row, and one more empty header
+ * cell when a heading was already typed.
+ */
+function startTable(markdown, line, options) {
+  const source = text(markdown);
+  const draft = tableDraftAtLine(source, line);
+  if (!draft) return { ok: false, reason: "not-draft", message: "There is no table starting on this line." };
+  const table = {
+    start: draft.start,
+    end: draft.end,
+    indent: draft.indent,
+    align: new Array(draft.columns).fill("none"),
+    columns: draft.columns,
+    rows: draft.rows,
+    header: draft.header,
+    headerCount: 1,
+  };
+  const typed = draft.header.some((cell) => text(cell).trim() !== "");
+  const addColumn = typed && !(options && options.addColumn === false);
+  const change = addColumn ? structureTable(table, "column-insert-right", 0, draft.columns - 1) : { ok: true, table };
+  if (!change.ok) return change;
+  const update = tableBlockUpdate(source, table, change.table, options);
+  const eol = source.includes("\r\n") ? "\r\n" : "\n";
+  const spans = rowCellSpans(update.replacement.split(eol)[0]);
+  const column = addColumn ? change.table.columns - 1 : 0;
+  const target = spans[column] || spans[0];
+  return { ...update, changed: true, rowLine: draft.start, column, ch: target ? target.start : 0 };
+}
+
+/** Adds one empty column at the right edge and puts the cursor in its header cell. */
+function addTableColumn(markdown, line, options) {
+  const source = text(markdown);
+  const table = tableAtLine(source, line);
+  if (!table) return { ok: false, reason: "not-table", message: "The cursor is not in a table." };
+  const change = structureTable(table, "column-insert-right", 0, table.columns - 1);
+  if (!change.ok) return change;
+  const update = tableBlockUpdate(source, table, change.table, options);
+  const eol = source.includes("\r\n") ? "\r\n" : "\n";
+  const spans = rowCellSpans(update.replacement.split(eol)[0]);
+  const target = spans[table.columns];
+  return { ...update, changed: true, rowLine: table.start, column: table.columns, ch: target ? target.start : 0 };
 }
 
 /** Re-renders the table under the cursor with padded, aligned cells. */
@@ -102601,6 +102733,7 @@ module.exports = {
   TABLE_SORT_ACTIONS,
   TABLE_STRUCTURE_ACTIONS,
   TABLE_TOOLBAR_ACTIONS,
+  addTableColumn,
   alignTableColumn,
   appendTableRow,
   cellAtLine,
@@ -102626,9 +102759,11 @@ module.exports = {
   renderedHeader,
   formatTableCell,
   splitTableRow,
+  startTable,
   sortTable,
   structureTable,
   tableAtLine,
+  tableDraftAtLine,
   tableCounts,
   tableCsvFromTable,
   tableRowIndex,

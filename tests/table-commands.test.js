@@ -107,14 +107,16 @@ test("cellAtLine maps a cursor to its row and column, header included", () => {
   assert.equal(editor.cellAtLine(NOTE, 9, 0), null, "a line outside the table has no cell");
 });
 
-test("next cell walks the row, wraps to the next row and then asks for a new row", () => {
+test("next cell walks the row, adds a header column and wraps in the body", () => {
   const first = editor.nextCellTarget(NOTE, 2, 2);
   assert.deepEqual({ line: first.line, ch: first.ch }, { line: 2, ch: 9 });
-  const wrapped = editor.nextCellTarget(NOTE, 2, 13);
-  assert.equal(wrapped.line, 4, "the delimiter row is skipped");
+  const headerEnd = editor.nextCellTarget(NOTE, 2, 13);
+  assert.equal(headerEnd.addColumn, true, "tabbing past the last header cell adds a column");
+  const wrapped = editor.nextCellTarget(NOTE, 4, 13);
+  assert.equal(wrapped.line, 5, "the delimiter row is skipped");
   assert.equal(wrapped.ch, 2);
   const end = editor.nextCellTarget(NOTE, 5, 13);
-  assert.equal(end.append, true, "the last cell asks for one more row");
+  assert.equal(end.append, true, "the last body cell asks for one more row");
 });
 
 test("previous cell walks back and refuses in the first cell", () => {
@@ -453,4 +455,82 @@ test("navigation keeps the cursor on cells with escaped pipes and wide character
   assert.equal(next.ok, true);
   assert.equal(next.ch, wideSpans[1].start);
   assert.equal(wide.split("\n")[2].slice(next.ch).trim(), "い |");
+});
+
+/* ---- building a table from a bare pipe, as upstream documents ---- */
+
+test("a pipe line with no delimiter is a draft that Tab completes", () => {
+  const draft = editor.tableDraftAtLine("| Term", 0);
+  assert.equal(draft.columns, 1);
+  const started = editor.startTable("| Term", 0);
+  assert.equal(started.ok, true);
+  assert.equal(started.changed, true);
+  const parsed = editor.parseTables(started.text)[0];
+  assert.deepEqual(parsed.rows[0], ["Term", ""], "the typed heading gets the next header cell");
+  const spans = editor.rowCellSpans(started.text.split("\n")[0]);
+  assert.equal(started.ch, spans[1].start, "the cursor lands in the new heading");
+  assert.equal(started.rowLine, 0);
+});
+
+test("an empty pipe completes to a one-column table", () => {
+  const started = editor.startTable("|", 0);
+  assert.equal(started.ok, true);
+  assert.equal(editor.parseTables(started.text)[0].columns, 1);
+  assert.equal(started.column, 0);
+  assert.equal(started.ch, editor.rowCellSpans(started.text.split("\n")[0])[0].start);
+});
+
+test("a finished table and plain text are not drafts", () => {
+  assert.equal(editor.tableDraftAtLine(NOTE, 2), null);
+  assert.equal(editor.tableDraftAtLine("No table here", 0), null);
+  assert.equal(editor.startTable(NOTE, 2).ok, false);
+  assert.equal(editor.startTable("| a |\n| --- |\n| 1 |", 1).ok, false);
+});
+
+test("addTableColumn adds a column at the right edge of every row", () => {
+  const added = editor.addTableColumn(NOTE, 4);
+  assert.equal(added.ok, true);
+  const parsed = editor.parseTables(added.text)[0];
+  assert.equal(parsed.columns, 3);
+  assert.deepEqual(parsed.rows[0], ["Term", "Meaning", ""]);
+  assert.deepEqual(parsed.rows[2], ["ADP", "Phosphate", ""]);
+  assert.equal(added.rowLine, 2);
+  const spans = editor.rowCellSpans(added.text.split("\n")[2]);
+  assert.equal(added.ch, spans[2].start);
+});
+
+test("Tab on a bare pipe starts the table and moves into the next heading", async () => {
+  const harness = await tablePlugin("| Term", { line: 0, ch: 6 });
+  harness.plugin.settings.tableEditor = { ...editor.normalizeTableEditorSettings({ enabled: true }) };
+  const event = keyEvent("Tab");
+  assert.equal(harness.plugin.onTableEditorKeydown(event), true);
+  assert.equal(event.prevented, true);
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  const parsed = editor.parseTables(harness.editor.getValue())[0];
+  assert.equal(parsed.columns, 2);
+  assert.deepEqual(parsed.rows[0], ["Term", ""]);
+  assert.equal(harness.editor.getCursor().line, 0);
+});
+
+test("Tab at the last header cell adds a column through the editor path", async () => {
+  const { plugin, editor: ed } = await keyPlugin();
+  const spans = editor.rowCellSpans(ed.getLine(2));
+  ed.setCursor({ line: 2, ch: spans[1].start });
+  const event = keyEvent("Tab");
+  assert.equal(plugin.onTableEditorKeydown(event), true);
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  const parsed = editor.parseTables(ed.getValue())[0];
+  assert.equal(parsed.columns, 3);
+  assert.deepEqual(parsed.rows[0], ["Term", "Meaning", ""]);
+  assert.equal(ed.getCursor().line, 2);
+});
+
+test("the next-cell command starts a table from a bare pipe", async () => {
+  const harness = await tablePlugin("| Term", { line: 0, ch: 0 });
+  harness.plugin.settings.tableEditor = { ...editor.normalizeTableEditorSettings({ enabled: true }) };
+  const result = await harness.plugin.runTableAction("next-cell");
+  assert.equal(result.ok, true);
+  assert.equal(editor.parseTables(harness.editor.getValue())[0].columns, 2);
 });

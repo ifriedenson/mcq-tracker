@@ -9846,6 +9846,25 @@ ${body}
   /** Runs one palette, panel or toolbar action against the cursor's table. */
   runTableAction(action) {
     const id = str(action).trim().replace(/^tables-/, "");
+    const editorContext = id === "next-cell" || id === "format" ? this.activeEditorContext() : null;
+    if (editorContext) {
+      const cursor = typeof editorContext.editor.getCursor === "function" ? editorContext.editor.getCursor() : null;
+      const line = cursor && Number.isInteger(cursor.line) ? cursor.line : -1;
+      if (!tableEditor.tableAtLine(editorContext.text, line) && tableEditor.tableDraftAtLine(editorContext.text, line)) {
+        const settings = this.tableEditorSettings();
+        const started = tableEditor.startTable(editorContext.text, line, {
+          pad: settings.padCells !== false,
+          addColumn: id === "next-cell",
+        });
+        if (started.ok) {
+          return this.writeTableResult({ ...editorContext, cursor }, started).then(() => {
+            if (typeof editorContext.editor.setCursor === "function") editorContext.editor.setCursor({ line: started.rowLine, ch: started.ch });
+            if (id === "format") new Notice("Table formatted.");
+            return started;
+          });
+        }
+      }
+    }
     const context = this.activeTableContext();
     if (!context) {
       const message = "Put the cursor in a table first.";
@@ -9916,8 +9935,21 @@ ${body}
     if (typeof editor.somethingSelected === "function" && editor.somethingSelected()) return false;
     const cursor = editor.getCursor();
     if (!cursor || !Number.isInteger(cursor.line)) return false;
-    if (!tableEditor.tableAtLine(context.text, cursor.line)) return false;
     const ch = Number.isInteger(cursor.ch) ? cursor.ch : 0;
+    if (!tableEditor.tableAtLine(context.text, cursor.line)) {
+      // A bare pipe is a table being written: Tab finishes the header and the
+      // delimiter row and moves into the next heading, as upstream's next cell
+      // does. Anything else keeps the editor's own key handling.
+      if (key !== "Tab" || event.shiftKey === true) return false;
+      const started = tableEditor.startTable(context.text, cursor.line, { pad: settings.padCells !== false });
+      if (!started.ok) return false;
+      event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+      Promise.resolve(this.writeTableResult(context, started)).then(() => {
+        if (typeof editor.setCursor === "function") editor.setCursor({ line: started.rowLine, ch: started.ch });
+      });
+      return true;
+    }
     const shifted = event.shiftKey === true;
     let move;
     if (key === "Tab") {
@@ -9936,19 +9968,22 @@ ${body}
       move = tableEditor.nextRowTarget(context.text, cursor.line, ch);
     }
     if (!move || !move.ok) return false;
-    let appended = null;
+    let written = null;
     if (move.append) {
-      appended = tableEditor.appendTableRow(context.text, cursor.line);
-      if (!appended.ok) return false;
+      written = tableEditor.appendTableRow(context.text, cursor.line);
+      if (!written.ok) return false;
+    } else if (move.addColumn) {
+      written = tableEditor.addTableColumn(context.text, cursor.line, { pad: settings.padCells !== false });
+      if (!written.ok) return false;
     }
     event.preventDefault();
     if (typeof event.stopPropagation === "function") event.stopPropagation();
-    if (!appended) {
+    if (!written) {
       if (typeof editor.setCursor === "function") editor.setCursor({ line: move.line, ch: move.ch });
       return true;
     }
-    Promise.resolve(this.writeTableResult(context, appended)).then(() => {
-      if (typeof editor.setCursor === "function") editor.setCursor({ line: appended.rowLine, ch: appended.column || 0 });
+    Promise.resolve(this.writeTableResult(context, written)).then(() => {
+      if (typeof editor.setCursor === "function") editor.setCursor({ line: written.rowLine, ch: written.ch || 0 });
     });
     return true;
   }
@@ -9964,6 +9999,17 @@ ${body}
     if (!target.ok) {
       if (target.message) new Notice(target.message);
       return target;
+    }
+    if (target.addColumn) {
+      const added = tableEditor.addTableColumn(context.text, cursor.line, { pad: this.tableEditorSettings().padCells !== false });
+      if (!added.ok) {
+        if (added.message) new Notice(added.message);
+        return added;
+      }
+      return this.writeTableResult(context, added).then(() => {
+        if (typeof context.editor.setCursor === "function") context.editor.setCursor({ line: added.rowLine, ch: added.ch });
+        return { ok: true, added: true, line: added.rowLine, column: added.column };
+      });
     }
     if (!target.append) {
       if (typeof context.editor.setCursor === "function") context.editor.setCursor({ line: target.line, ch: target.ch });

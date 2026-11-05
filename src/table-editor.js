@@ -873,6 +873,9 @@ function nextCellTarget(markdown, line, ch) {
     const next = rowCellSpans(lines[line])[at.column + 1];
     return { ok: true, line, ch: next ? next.start : text(lines[line]).length };
   }
+  // Upstream's next cell adds a column when Tab runs past the last header
+  // cell, which is how headings are typed in.
+  if (at.row === 0) return { ok: true, addColumn: true, table: at.table, row: 0, column: at.table.columns, line, ch };
   const row = at.row + 1;
   if (row < at.table.rows.length) {
     const targetLine = tableRowLine(at.table, row);
@@ -953,6 +956,89 @@ function appendTableRow(markdown, line) {
   if (!change.ok) return change;
   const update = tableBlockUpdate(source, table, change.table);
   return { ...update, changed: true, rowLine: table.end + 1, column: 0 };
+}
+
+/** True for a line that starts with a table pipe, as upstream reads a table. */
+function isTableRowLine(line) {
+  return /^\s*\|/.test(text(line));
+}
+
+/**
+ * A table being written but not finished: one or more pipe lines with no
+ * delimiter row. Upstream treats this as a table and completes it on Tab,
+ * which is how a bare `|` grows into a table.
+ */
+function tableDraftAtLine(markdown, line) {
+  if (!Number.isInteger(line) || line < 0) return null;
+  const lines = text(markdown).split(/\r?\n/);
+  if (line >= lines.length || !isTableRowLine(lines[line])) return null;
+  let start = line;
+  while (start > 0 && isTableRowLine(lines[start - 1])) start -= 1;
+  let end = line;
+  while (end + 1 < lines.length && isTableRowLine(lines[end + 1])) end += 1;
+  const rows = [];
+  for (let i = start; i <= end; i += 1) {
+    const parsed = splitTableRow(lines[i]);
+    if (!parsed || !parsed.cells.length) return null;
+    // A delimiter inside the run means this is a finished (or malformed) table.
+    if (isDelimiterRow(parsed.cells)) return null;
+    rows.push(parsed.cells);
+  }
+  if (parseTableBlock(lines, start)) return null;
+  const columns = Math.max(1, ...rows.map((row) => row.length));
+  if (columns > MAX_TABLE_COLUMNS || rows.length + 1 > MAX_TABLE_ROWS) return null;
+  return {
+    start,
+    end,
+    indent: ((splitTableRow(lines[start]) || {}).indent || "").replace(/\t/g, "    "),
+    columns,
+    rows: rows.map((row) => padRow(row, columns)),
+    header: padRow(rows[0], columns),
+  };
+}
+
+/**
+ * Turns a draft into a table: header, delimiter row, and one more empty header
+ * cell when a heading was already typed.
+ */
+function startTable(markdown, line, options) {
+  const source = text(markdown);
+  const draft = tableDraftAtLine(source, line);
+  if (!draft) return { ok: false, reason: "not-draft", message: "There is no table starting on this line." };
+  const table = {
+    start: draft.start,
+    end: draft.end,
+    indent: draft.indent,
+    align: new Array(draft.columns).fill("none"),
+    columns: draft.columns,
+    rows: draft.rows,
+    header: draft.header,
+    headerCount: 1,
+  };
+  const typed = draft.header.some((cell) => text(cell).trim() !== "");
+  const addColumn = typed && !(options && options.addColumn === false);
+  const change = addColumn ? structureTable(table, "column-insert-right", 0, draft.columns - 1) : { ok: true, table };
+  if (!change.ok) return change;
+  const update = tableBlockUpdate(source, table, change.table, options);
+  const eol = source.includes("\r\n") ? "\r\n" : "\n";
+  const spans = rowCellSpans(update.replacement.split(eol)[0]);
+  const column = addColumn ? change.table.columns - 1 : 0;
+  const target = spans[column] || spans[0];
+  return { ...update, changed: true, rowLine: draft.start, column, ch: target ? target.start : 0 };
+}
+
+/** Adds one empty column at the right edge and puts the cursor in its header cell. */
+function addTableColumn(markdown, line, options) {
+  const source = text(markdown);
+  const table = tableAtLine(source, line);
+  if (!table) return { ok: false, reason: "not-table", message: "The cursor is not in a table." };
+  const change = structureTable(table, "column-insert-right", 0, table.columns - 1);
+  if (!change.ok) return change;
+  const update = tableBlockUpdate(source, table, change.table, options);
+  const eol = source.includes("\r\n") ? "\r\n" : "\n";
+  const spans = rowCellSpans(update.replacement.split(eol)[0]);
+  const target = spans[table.columns];
+  return { ...update, changed: true, rowLine: table.start, column: table.columns, ch: target ? target.start : 0 };
 }
 
 /** Re-renders the table under the cursor with padded, aligned cells. */
@@ -1601,6 +1687,7 @@ module.exports = {
   TABLE_SORT_ACTIONS,
   TABLE_STRUCTURE_ACTIONS,
   TABLE_TOOLBAR_ACTIONS,
+  addTableColumn,
   alignTableColumn,
   appendTableRow,
   cellAtLine,
@@ -1626,9 +1713,11 @@ module.exports = {
   renderedHeader,
   formatTableCell,
   splitTableRow,
+  startTable,
   sortTable,
   structureTable,
   tableAtLine,
+  tableDraftAtLine,
   tableCounts,
   tableCsvFromTable,
   tableRowIndex,
