@@ -74,6 +74,10 @@ const complex = require("./complex");
 const graphComplex = require("./graph-complex");
 const geometry = require("./geometry");
 const geometryPanel = require("./geometry-panel");
+const fsrsTrain = require("./fsrs-train");
+const mindmap = require("./mindmap");
+const pdfDeepLink = require("./pdf-deep-link");
+const pdfLatex = require("./pdf-latex");
 const graph3d = require("./graph-3d");
 const graph3dPanel = require("./graph-3d-panel");
 const graph3dExport = require("./graph-3d-export");
@@ -343,6 +347,10 @@ QuestionTrackerPlugin.__test = {
   graphComplex,
   geometry,
   geometryPanel,
+  fsrsTrain,
+  mindmap,
+  pdfDeepLink,
+  pdfLatex,
   graph3d,
   graph3dPanel,
   graph3dExport,

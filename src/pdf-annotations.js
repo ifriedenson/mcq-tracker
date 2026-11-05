@@ -179,18 +179,15 @@ function removeAnnotation(text, id, meta) {
   return { text: serializeAnnotationFile(pdfPath, pdfHash, annotations), annotations, pdfPath, pdfHash };
 }
 
-/** `[[file.pdf#page=3&annotation=ann-1]]`, or "" when the path, page or id is unusable. */
-function annotationLink(pdfPath, page, id) {
-  const clean = str(pdfPath).trim().replace(/^\/+/, "");
-  const number = Math.round(Number(page));
-  if (!clean || !/\.pdf$/i.test(clean)) return "";
-  if (!Number.isFinite(number) || number < 1 || number > 100000) return "";
-  const safePath = clean.replace(/[|#[\]\r\n]/g, "").trim();
-  if (!safePath) return "";
-  const anchor = str(id).trim();
-  if (!anchor) return `[[${safePath}#page=${number}]]`;
-  if (!/^[A-Za-z0-9_-]{1,64}$/.test(anchor)) return "";
-  return `[[${safePath}#page=${number}&annotation=${anchor}]]`;
+const { formatPdfDeepLink, unionRect } = require("./pdf-deep-link");
+
+/**
+ * `[[file.pdf#page=3&annotation=ann-1&rect=…]]`, or "" when the path, page or id
+ * is unusable. A rectangle, when one is given, is the selection the annotation
+ * was made over, so reopening the link can ring that exact area.
+ */
+function annotationLink(pdfPath, page, id, rect) {
+  return formatPdfDeepLink(pdfPath, page, { annotation: id, rect: rect || null });
 }
 
 /**
@@ -265,7 +262,7 @@ function annotationsMarkdown(rows, options) {
     lines.push(`- **${row.type}** (${row.color})${quote ? `: “${quote}”` : summary ? `: ${summary}` : ""}`);
     if (note) lines.push(`  - Note: ${note.replace(/\n+/g, " ")}`);
     if (Array.isArray(row.tags) && row.tags.length) lines.push(`  - Tags: ${row.tags.map((tag) => `#${tag}`).join(" ")}`);
-    const link = annotationLink(row.pdfPath, row.page, row.id);
+    const link = annotationLink(row.pdfPath, row.page, row.id, unionRect(row.areas));
     if (link) lines.push(`  - Link: ${link}`);
   }
   lines.push("");

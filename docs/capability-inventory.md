@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 384 groups, 2494 exports. **Commands:** 150. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 388 groups, 2526 exports. **Commands:** 150. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -202,8 +202,9 @@ the table and fails if a group, export count, command or citing test drifts.
 | `friendlyApiError` | 0 | `tests/feature-surfaces.test.js` |
 | `friendlyError` | 0 | `tests/feature-surfaces.test.js` |
 | `frq` | 40 | `tests/frq-handwriting.test.js`, `tests/frq-review.test.js`, `tests/frq.test.js`, `tests/p1-knowledge.test.js` |
-| `fsrs` | 14 | `tests/analytics.test.js`, `tests/cards.test.js`, `tests/fsrs-fit.test.js`, `tests/fsrs.test.js`, `tests/progress.test.js` |
+| `fsrs` | 14 | `tests/analytics.test.js`, `tests/cards.test.js`, `tests/feature-engines.test.js`, `tests/fsrs-fit.test.js`, `tests/fsrs.test.js`, `tests/progress.test.js` |
 | `fsrsFit` | 6 | `tests/fsrs-fit.test.js` |
+| `fsrsTrain` | 11 | `tests/feature-engines.test.js` |
 | `geometry` | 35 | `tests/feature-surfaces.test.js`, `tests/geometry.test.js` |
 | `geometryPanel` | 9 | `tests/feature-surfaces.test.js` |
 | `glossary` | 10 | `tests/glossary.test.js` |
@@ -251,6 +252,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `matrix` | 22 | `tests/matrix.test.js` |
 | `memoryOf` | 0 | `tests/progress.test.js` |
 | `mergeAuth` | 0 | `tests/feature-surfaces.test.js` |
+| `mindmap` | 10 | `tests/feature-engines.test.js` |
 | `mixedQuestionAttempt` | 0 | `tests/mixed-review.test.js` |
 | `mochiExport` | 5 | `tests/mochi-export.test.js` |
 | `modelDiscovery` | 4 | `tests/model-discovery.test.js` |
@@ -279,14 +281,16 @@ the table and fails if a group, export count, command or citing test drifts.
 | `parseSections` | 0 | `tests/grading.test.js`, `tests/hints.test.js`, `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/needs-fixing.test.js`, `tests/question-types.test.js`, `tests/views.test.js` |
 | `partsToTurns` | 0 | `tests/feature-surfaces.test.js` |
 | `pauseQuickSession` | 0 | `tests/uncited-groups.test.js` |
-| `pdf` | 17 | `tests/cards-import.test.js`, `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/study-modules-3.test.js` |
+| `pdf` | 17 | `tests/cards-import.test.js`, `tests/feature-engines.test.js`, `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/study-modules-3.test.js` |
 | `pdfAnnotationIndex` | 7 | `tests/study-modules-3.test.js` |
 | `pdfAnnotations` | 22 | `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/study-modules-3.test.js` |
 | `pdfAnnotatorSidebar` | 8 | `tests/pdf-annotator-sidebar.test.js` |
+| `pdfDeepLink` | 6 | `tests/feature-engines.test.js` |
 | `pdfEditor` | 56 | `tests/pdf-editor-window.test.js`, `tests/pdf-reader-page-ops.test.js` |
 | `pdfEditorModal` | 3 | `tests/pdf-editor-window.test.js` |
 | `pdfInk` | 27 | `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-reader-page-ops.test.js` |
 | `pdfInkModal` | 2 | `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-reader-page-ops.test.js` |
+| `pdfLatex` | 5 | `tests/feature-engines.test.js` |
 | `pickQuestion` | 0 | `tests/mastery-picker.test.js`, `tests/study-status.test.js` |
 | `plainCards` | 6 | `tests/plain-cards.test.js` |
 | `platformTriple` | 0 | `tests/feature-surfaces.test.js` |
