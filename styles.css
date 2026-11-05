@@ -12277,6 +12277,14 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   padding: 2px 7px;
 }
 
+.qt-table-merged {
+  text-align: center;
+}
+
+.qt-table-merge-hidden {
+  display: none;
+}
+
 @media (hover: none) {
   .qt-table-toolbar {
     opacity: 1;

@@ -660,3 +660,50 @@ test("touch devices keep the reading-view toolbar visible without a hover", () =
   assert.match(touch[1], /opacity:\s*1/, "a touch device sees it with no hover");
   assert.match(touch[1], /pointer-events:\s*auto/, "and its buttons stay clickable");
 });
+
+
+/* ---- upstream extras: tab-delimited copy and the double-binding notice ---- */
+
+test("the CSV dialog can copy tab-separated rows", async () => {
+  const { plugin } = await tablePlugin(NOTE, { line: 4, ch: 2 });
+  const writes = [];
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { clipboard: { writeText: async (value) => writes.push(value) } } });
+  const modal = new TableCsvModal(plugin.app, editor.parseTables(NOTE)[0]);
+  modal.contentEl = makeDom().root;
+  modal.onOpen();
+  assert.equal(modal.csv(), "Term,Meaning\nATP,Energy\nADP,Phosphate\n");
+  modal.useTabs = true;
+  const tsv = "Term\tMeaning\nATP\tEnergy\nADP\tPhosphate\n";
+  assert.equal(modal.csv(), tsv);
+  await modal.copy();
+  assert.equal(writes[writes.length - 1], tsv, "the clipboard gets tabs");
+});
+
+test("the navigation commands warn when their key binding is also on", async () => {
+  const { plugin } = await tablePlugin(NOTE, { line: 4, ch: 2 });
+  const calls = [];
+  const real = plugin.noticeDoubleBinding.bind(plugin);
+  plugin.noticeDoubleBinding = (action) => {
+    calls.push(action);
+    return real(action);
+  };
+  plugin.commands.find((entry) => entry.id === "tables-next-cell").checkCallback(false);
+  assert.deepEqual(calls, ["next-cell"], "the command path asks before it moves");
+
+  plugin.settings.tableEditor = { ...editor.normalizeTableEditorSettings({ enabled: true }), bindTab: false, bindEnter: true };
+  assert.equal(real("next-cell"), false, "no warning when Tab is not bound");
+  assert.equal(real("previous-cell"), false);
+  assert.equal(real("next-row"), true, "Enter is still bound");
+
+  plugin.settings.tableEditor = { ...plugin.settings.tableEditor, bindEnter: false };
+  assert.equal(real("next-row"), false);
+
+  plugin.settings.tableEditor = { ...plugin.settings.tableEditor, bindTab: true, bindEnter: true };
+  const platform = obsidian.Platform;
+  const wasMobile = platform.isMobile;
+  platform.isMobile = true;
+  assert.equal(real("next-cell"), false, "mobile has no physical keys to double up");
+  assert.equal(real("next-row"), false);
+  platform.isMobile = wasMobile;
+  assert.equal(real("next-cell"), true, "and the desktop warning comes back");
+});

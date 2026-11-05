@@ -13,13 +13,17 @@ class TableCsvModal extends Modal {
     super(app);
     this.table = table;
     this.includeHeader = true;
+    this.useTabs = false;
     this.onCopy = typeof onCopy === "function" ? onCopy : null;
     this.copies = 0;
   }
 
   /** The CSV for the current header choice, or "" when the table is gone. */
   csv() {
-    const result = tableEditor.tableCsvFromTable(this.table, { header: this.includeHeader });
+    const result = tableEditor.tableCsvFromTable(this.table, {
+      header: this.includeHeader,
+      delimiter: this.useTabs ? "\t" : ",",
+    });
     return result.ok ? result.csv : "";
   }
 
@@ -32,20 +36,28 @@ class TableCsvModal extends Modal {
     checkbox.type = "checkbox";
     checkbox.checked = this.includeHeader;
     label.createSpan({ text: "Include table headers" });
+    const tabLabel = el.createEl("label", { cls: "qt-table-csv-toggle" });
+    const tabCheckbox = tabLabel.createEl("input");
+    tabCheckbox.type = "checkbox";
+    tabCheckbox.checked = this.useTabs;
+    tabLabel.createSpan({ text: "Separate with tabs" });
     const area = el.createEl("textarea", { cls: "qt-table-csv-text" });
     area.readOnly = true;
     area.value = this.csv();
     const render = () => {
       this.includeHeader = checkbox.checked === true;
+      this.useTabs = tabCheckbox.checked === true;
       area.value = this.csv();
     };
     if (typeof checkbox.addEventListener === "function") checkbox.addEventListener("change", render);
+    if (typeof tabCheckbox.addEventListener === "function") tabCheckbox.addEventListener("change", render);
     const actions = el.createDiv({ cls: "qt-table-csv-actions" });
     const copy = actions.createEl("button", { cls: "mod-cta", text: "Copy CSV" });
     copy.setAttribute("type", "button");
     if (typeof copy.addEventListener === "function") copy.addEventListener("click", () => this.copy());
     this.area = area;
     this.checkbox = checkbox;
+    this.tabCheckbox = tabCheckbox;
   }
 
   /** Copies the current CSV to the clipboard; the dialog stays open. */

@@ -926,7 +926,10 @@ class QuestionTrackerPlugin extends Plugin {
         checkCallback: (checking) => {
           const context = this.activeTableContext();
           if (!context) return false;
-          if (!checking) this.runTableAction(command.action);
+          if (!checking) {
+            this.noticeDoubleBinding(command.action);
+            this.runTableAction(command.action);
+          }
           return true;
         },
       });
@@ -9841,6 +9844,27 @@ ${body}
     const table = tableEditor.tableAtLine(context.text, line);
     if (!table) return null;
     return { ...context, cursor, line, table };
+  }
+
+  /**
+   * Upstream warns when a navigation command also has its key binding on, since
+   * one press can move twice. Mobile has no physical keys, so it stays quiet.
+   */
+  noticeDoubleBinding(action) {
+    const settings = this.tableEditorSettings();
+    const platform = require("obsidian").Platform;
+    if (platform && platform.isMobile) return false;
+    let message = "";
+    if (action === "next-cell" && settings.bindTab !== false) {
+      message = "Advanced Tables: Next cell also bound to tab. Possibly producing double actions. See Advanced Tables settings.";
+    } else if (action === "previous-cell" && settings.bindTab !== false) {
+      message = "Advanced Tables: Previous cell also bound to shift+tab. Possibly producing double actions. See Advanced Tables settings.";
+    } else if (action === "next-row" && settings.bindEnter !== false) {
+      message = "Advanced Tables: Next row also bound to enter. Possibly producing double actions. See Advanced Tables settings.";
+    }
+    if (!message) return false;
+    new Notice(message);
+    return true;
   }
 
   /** Runs one palette, panel or toolbar action against the cursor's table. */

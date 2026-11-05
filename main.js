@@ -58464,7 +58464,10 @@ class QuestionTrackerPlugin extends Plugin {
         checkCallback: (checking) => {
           const context = this.activeTableContext();
           if (!context) return false;
-          if (!checking) this.runTableAction(command.action);
+          if (!checking) {
+            this.noticeDoubleBinding(command.action);
+            this.runTableAction(command.action);
+          }
           return true;
         },
       });
@@ -67379,6 +67382,27 @@ ${body}
     const table = tableEditor.tableAtLine(context.text, line);
     if (!table) return null;
     return { ...context, cursor, line, table };
+  }
+
+  /**
+   * Upstream warns when a navigation command also has its key binding on, since
+   * one press can move twice. Mobile has no physical keys, so it stays quiet.
+   */
+  noticeDoubleBinding(action) {
+    const settings = this.tableEditorSettings();
+    const platform = require("obsidian").Platform;
+    if (platform && platform.isMobile) return false;
+    let message = "";
+    if (action === "next-cell" && settings.bindTab !== false) {
+      message = "Advanced Tables: Next cell also bound to tab. Possibly producing double actions. See Advanced Tables settings.";
+    } else if (action === "previous-cell" && settings.bindTab !== false) {
+      message = "Advanced Tables: Previous cell also bound to shift+tab. Possibly producing double actions. See Advanced Tables settings.";
+    } else if (action === "next-row" && settings.bindEnter !== false) {
+      message = "Advanced Tables: Next row also bound to enter. Possibly producing double actions. See Advanced Tables settings.";
+    }
+    if (!message) return false;
+    new Notice(message);
+    return true;
   }
 
   /** Runs one palette, panel or toolbar action against the cursor's table. */
@@ -100976,13 +101000,17 @@ class TableCsvModal extends Modal {
     super(app);
     this.table = table;
     this.includeHeader = true;
+    this.useTabs = false;
     this.onCopy = typeof onCopy === "function" ? onCopy : null;
     this.copies = 0;
   }
 
   /** The CSV for the current header choice, or "" when the table is gone. */
   csv() {
-    const result = tableEditor.tableCsvFromTable(this.table, { header: this.includeHeader });
+    const result = tableEditor.tableCsvFromTable(this.table, {
+      header: this.includeHeader,
+      delimiter: this.useTabs ? "\t" : ",",
+    });
     return result.ok ? result.csv : "";
   }
 
@@ -100995,20 +101023,28 @@ class TableCsvModal extends Modal {
     checkbox.type = "checkbox";
     checkbox.checked = this.includeHeader;
     label.createSpan({ text: "Include table headers" });
+    const tabLabel = el.createEl("label", { cls: "qt-table-csv-toggle" });
+    const tabCheckbox = tabLabel.createEl("input");
+    tabCheckbox.type = "checkbox";
+    tabCheckbox.checked = this.useTabs;
+    tabLabel.createSpan({ text: "Separate with tabs" });
     const area = el.createEl("textarea", { cls: "qt-table-csv-text" });
     area.readOnly = true;
     area.value = this.csv();
     const render = () => {
       this.includeHeader = checkbox.checked === true;
+      this.useTabs = tabCheckbox.checked === true;
       area.value = this.csv();
     };
     if (typeof checkbox.addEventListener === "function") checkbox.addEventListener("change", render);
+    if (typeof tabCheckbox.addEventListener === "function") tabCheckbox.addEventListener("change", render);
     const actions = el.createDiv({ cls: "qt-table-csv-actions" });
     const copy = actions.createEl("button", { cls: "mod-cta", text: "Copy CSV" });
     copy.setAttribute("type", "button");
     if (typeof copy.addEventListener === "function") copy.addEventListener("click", () => this.copy());
     this.area = area;
     this.checkbox = checkbox;
+    this.tabCheckbox = tabCheckbox;
   }
 
   /** Copies the current CSV to the clipboard; the dialog stays open. */
@@ -101547,6 +101583,67 @@ function sortableNumber(value) {
  * Stable body-row sort. The header stays at row 0; numeric-looking cells compare
  * by value, other cells as text, blanks stay last, and ties keep source order.
  */
+const MERGE_LEFT = "^";
+const MERGE_UP = "\"";
+
+/** A cell is a merge marker only when it holds exactly the marker. */
+function mergeMarker(value) {
+  const cell = text(value).trim();
+  if (cell === MERGE_LEFT) return MERGE_LEFT;
+  if (cell === MERGE_UP) return MERGE_UP;
+  return "";
+}
+
+/**
+ * Reads a table's merge markers: `^` joins a cell to the run on its left
+ * (colspan) and `"` joins it to the cell above (rowspan). Returns the spans to
+ * draw and the markers to hide, or a refusal when a marker has nothing to join.
+ * The markers stay in the source, so formatting, sorting and every write path
+ * round-trip the merged layout unchanged.
+ */
+function tableMerges(table) {
+  if (!table || !Array.isArray(table.rows) || !table.rows.length) {
+    return { ok: false, reason: "table", message: "The table is no longer available." };
+  }
+  const rows = table.rows;
+  const owner = rows.map(() => []);
+  const spans = [];
+  const hidden = [];
+  for (let row = 0; row < rows.length; row += 1) {
+    const rowCells = Array.isArray(rows[row]) ? rows[row] : [];
+    for (let column = 0; column < rowCells.length; column += 1) {
+      const marker = mergeMarker(rowCells[column]);
+      if (!marker) {
+        const span = { row, column, colspan: 1, rowspan: 1 };
+        spans.push(span);
+        owner[row][column] = span;
+        continue;
+      }
+      if (marker === MERGE_LEFT) {
+        if (column === 0) {
+          return { ok: false, reason: "merge", message: "A cell can only merge left when a cell sits to its left." };
+        }
+        const left = owner[row][column - 1];
+        if (!left) {
+          return { ok: false, reason: "merge", message: "A merged cell needs a plain cell to its left." };
+        }
+        left.colspan += 1;
+        owner[row][column] = left;
+        hidden.push({ row, column });
+        continue;
+      }
+      const above = row > 0 ? owner[row - 1][column] : null;
+      if (!above) {
+        return { ok: false, reason: "merge", message: "A cell can only merge up when a cell sits above it." };
+      }
+      above.rowspan += 1;
+      owner[row][column] = above;
+      hidden.push({ row, column });
+    }
+  }
+  return { ok: true, spans, hidden };
+}
+
 function sortTable(table, column, direction) {
   if (!table || !Array.isArray(table.rows) || !Array.isArray(table.align)) {
     return { ok: false, reason: "table", message: "The table is no longer available." };
@@ -101567,7 +101664,12 @@ function sortTable(table, column, direction) {
   body.sort((a, b) => {
     const aBlank = text(a.value).trim() === "";
     const bBlank = text(b.value).trim() === "";
-    if (aBlank !== bBlank) return aBlank ? 1 : -1;
+    if (aBlank !== bBlank) {
+      // Upstream treats an empty cell as the smallest value, so blanks lead an
+      // ascending sort and trail a descending one. Equal values keep source order.
+      const blankFirst = aBlank ? -1 : 1;
+      return direction === "asc" ? blankFirst : -blankFirst;
+    }
     if (aBlank) return a.index - b.index;
     const aNumber = sortableNumber(a.value);
     const bNumber = sortableNumber(b.value);
@@ -102115,9 +102217,10 @@ function tableCsvFromTable(table, options) {
     return { ok: false, reason: "table", message: "The table is no longer available." };
   }
   const includeHeader = !(options && options.header === false);
+  const delimiter = options && options.delimiter === "\t" ? "\t" : ",";
   const rows = includeHeader ? table.rows : table.rows.slice(1);
-  const csv = rows.map((row) => row.map((cell) => tableFormulas.csvCell(cell)).join(",")).join("\n") + "\n";
-  return { ok: true, csv, header: includeHeader };
+  const csv = rows.map((row) => row.map((cell) => tableFormulas.csvCell(cell, delimiter)).join(delimiter)).join("\n") + "\n";
+  return { ok: true, csv, header: includeHeader, delimiter };
 }
 
 /** Escapes a committed cell so a typed pipe becomes data, not a new column. */
@@ -102652,7 +102755,7 @@ function decorateTable(tableEl, options) {
 
   const focusCell = (row, column) => {
     const target = cells[row] && cells[row][column];
-    if (!target) return false;
+    if (!target || target.__qtTableHidden) return false;
     if (typeof target.focus === "function") target.focus();
     placeCaretAtEnd(target);
     return true;
@@ -102715,6 +102818,26 @@ function decorateTable(tableEl, options) {
     });
   });
 
+  const merges = tableMerges(table);
+  if (merges.ok) {
+    for (const span of merges.spans) {
+      if (span.colspan === 1 && span.rowspan === 1) continue;
+      const root = cells[span.row] && cells[span.row][span.column];
+      if (!root) continue;
+      setAttribute(root, "colspan", span.colspan);
+      setAttribute(root, "rowspan", span.rowspan);
+      addClass(root, "qt-table-merged");
+    }
+    for (const spot of merges.hidden) {
+      const mergedAway = cells[spot.row] && cells[spot.row][spot.column];
+      if (!mergedAway) continue;
+      mergedAway.__qtTableHidden = true;
+      setAttribute(mergedAway, "contenteditable", "false");
+      setAttribute(mergedAway, "data-qt-table-merged", "on");
+      addClass(mergedAway, "qt-table-merge-hidden");
+    }
+  }
+
   decorating = false;
   const toolbar = structure || format || align || sort || formula || exportCsv || importData || transpose || toggleHeader || counts
     ? createTableToolbar(tableEl, runAction)
@@ -102764,6 +102887,7 @@ module.exports = {
   structureTable,
   tableAtLine,
   tableDraftAtLine,
+  tableMerges,
   tableCounts,
   tableCsvFromTable,
   tableRowIndex,
@@ -103426,10 +103550,12 @@ function applyTableFormulas(table, formulas, escape) {
 }
 
 /** CSV for the table's source rows, with RFC-style quoting and formula-injection protection. */
-function csvCell(value) {
+function csvCell(value, delimiter) {
+  const sep = delimiter === "\t" ? "\t" : ",";
   let result = unescapePipes(value);
   if (/^[=+@\t\r]/.test(result)) result = `'${result}`;
-  if (/[",\r\n]/.test(result)) result = `"${result.replace(/"/g, '""')}"`;
+  const needsQuotes = sep === "\t" ? /["\t\r\n]/.test(result) : /[",\r\n]/.test(result);
+  if (needsQuotes) result = `"${result.replace(/"/g, '""')}"`;
   return result;
 }
 

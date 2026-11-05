@@ -639,10 +639,12 @@ function applyTableFormulas(table, formulas, escape) {
 }
 
 /** CSV for the table's source rows, with RFC-style quoting and formula-injection protection. */
-function csvCell(value) {
+function csvCell(value, delimiter) {
+  const sep = delimiter === "\t" ? "\t" : ",";
   let result = unescapePipes(value);
   if (/^[=+@\t\r]/.test(result)) result = `'${result}`;
-  if (/[",\r\n]/.test(result)) result = `"${result.replace(/"/g, '""')}"`;
+  const needsQuotes = sep === "\t" ? /["\t\r\n]/.test(result) : /[",\r\n]/.test(result);
+  if (needsQuotes) result = `"${result.replace(/"/g, '""')}"`;
   return result;
 }
 

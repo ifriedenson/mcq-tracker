@@ -501,6 +501,67 @@ function sortableNumber(value) {
  * Stable body-row sort. The header stays at row 0; numeric-looking cells compare
  * by value, other cells as text, blanks stay last, and ties keep source order.
  */
+const MERGE_LEFT = "^";
+const MERGE_UP = "\"";
+
+/** A cell is a merge marker only when it holds exactly the marker. */
+function mergeMarker(value) {
+  const cell = text(value).trim();
+  if (cell === MERGE_LEFT) return MERGE_LEFT;
+  if (cell === MERGE_UP) return MERGE_UP;
+  return "";
+}
+
+/**
+ * Reads a table's merge markers: `^` joins a cell to the run on its left
+ * (colspan) and `"` joins it to the cell above (rowspan). Returns the spans to
+ * draw and the markers to hide, or a refusal when a marker has nothing to join.
+ * The markers stay in the source, so formatting, sorting and every write path
+ * round-trip the merged layout unchanged.
+ */
+function tableMerges(table) {
+  if (!table || !Array.isArray(table.rows) || !table.rows.length) {
+    return { ok: false, reason: "table", message: "The table is no longer available." };
+  }
+  const rows = table.rows;
+  const owner = rows.map(() => []);
+  const spans = [];
+  const hidden = [];
+  for (let row = 0; row < rows.length; row += 1) {
+    const rowCells = Array.isArray(rows[row]) ? rows[row] : [];
+    for (let column = 0; column < rowCells.length; column += 1) {
+      const marker = mergeMarker(rowCells[column]);
+      if (!marker) {
+        const span = { row, column, colspan: 1, rowspan: 1 };
+        spans.push(span);
+        owner[row][column] = span;
+        continue;
+      }
+      if (marker === MERGE_LEFT) {
+        if (column === 0) {
+          return { ok: false, reason: "merge", message: "A cell can only merge left when a cell sits to its left." };
+        }
+        const left = owner[row][column - 1];
+        if (!left) {
+          return { ok: false, reason: "merge", message: "A merged cell needs a plain cell to its left." };
+        }
+        left.colspan += 1;
+        owner[row][column] = left;
+        hidden.push({ row, column });
+        continue;
+      }
+      const above = row > 0 ? owner[row - 1][column] : null;
+      if (!above) {
+        return { ok: false, reason: "merge", message: "A cell can only merge up when a cell sits above it." };
+      }
+      above.rowspan += 1;
+      owner[row][column] = above;
+      hidden.push({ row, column });
+    }
+  }
+  return { ok: true, spans, hidden };
+}
+
 function sortTable(table, column, direction) {
   if (!table || !Array.isArray(table.rows) || !Array.isArray(table.align)) {
     return { ok: false, reason: "table", message: "The table is no longer available." };
@@ -521,7 +582,12 @@ function sortTable(table, column, direction) {
   body.sort((a, b) => {
     const aBlank = text(a.value).trim() === "";
     const bBlank = text(b.value).trim() === "";
-    if (aBlank !== bBlank) return aBlank ? 1 : -1;
+    if (aBlank !== bBlank) {
+      // Upstream treats an empty cell as the smallest value, so blanks lead an
+      // ascending sort and trail a descending one. Equal values keep source order.
+      const blankFirst = aBlank ? -1 : 1;
+      return direction === "asc" ? blankFirst : -blankFirst;
+    }
     if (aBlank) return a.index - b.index;
     const aNumber = sortableNumber(a.value);
     const bNumber = sortableNumber(b.value);
@@ -1069,9 +1135,10 @@ function tableCsvFromTable(table, options) {
     return { ok: false, reason: "table", message: "The table is no longer available." };
   }
   const includeHeader = !(options && options.header === false);
+  const delimiter = options && options.delimiter === "\t" ? "\t" : ",";
   const rows = includeHeader ? table.rows : table.rows.slice(1);
-  const csv = rows.map((row) => row.map((cell) => tableFormulas.csvCell(cell)).join(",")).join("\n") + "\n";
-  return { ok: true, csv, header: includeHeader };
+  const csv = rows.map((row) => row.map((cell) => tableFormulas.csvCell(cell, delimiter)).join(delimiter)).join("\n") + "\n";
+  return { ok: true, csv, header: includeHeader, delimiter };
 }
 
 /** Escapes a committed cell so a typed pipe becomes data, not a new column. */
@@ -1606,7 +1673,7 @@ function decorateTable(tableEl, options) {
 
   const focusCell = (row, column) => {
     const target = cells[row] && cells[row][column];
-    if (!target) return false;
+    if (!target || target.__qtTableHidden) return false;
     if (typeof target.focus === "function") target.focus();
     placeCaretAtEnd(target);
     return true;
@@ -1669,6 +1736,26 @@ function decorateTable(tableEl, options) {
     });
   });
 
+  const merges = tableMerges(table);
+  if (merges.ok) {
+    for (const span of merges.spans) {
+      if (span.colspan === 1 && span.rowspan === 1) continue;
+      const root = cells[span.row] && cells[span.row][span.column];
+      if (!root) continue;
+      setAttribute(root, "colspan", span.colspan);
+      setAttribute(root, "rowspan", span.rowspan);
+      addClass(root, "qt-table-merged");
+    }
+    for (const spot of merges.hidden) {
+      const mergedAway = cells[spot.row] && cells[spot.row][spot.column];
+      if (!mergedAway) continue;
+      mergedAway.__qtTableHidden = true;
+      setAttribute(mergedAway, "contenteditable", "false");
+      setAttribute(mergedAway, "data-qt-table-merged", "on");
+      addClass(mergedAway, "qt-table-merge-hidden");
+    }
+  }
+
   decorating = false;
   const toolbar = structure || format || align || sort || formula || exportCsv || importData || transpose || toggleHeader || counts
     ? createTableToolbar(tableEl, runAction)
@@ -1718,6 +1805,7 @@ module.exports = {
   structureTable,
   tableAtLine,
   tableDraftAtLine,
+  tableMerges,
   tableCounts,
   tableCsvFromTable,
   tableRowIndex,

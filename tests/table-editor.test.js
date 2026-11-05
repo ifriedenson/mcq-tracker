@@ -802,7 +802,7 @@ test("table sorting orders text case-insensitively and keeps ties stable", () =>
   const tieSource = "| Name | Score |\n| --- | --- |\n| A | 2 |\n| B | 1 |\n| C | 2 |\n| D | 1 |\n| E | |\n";
   const tieTable = editor.parseTables(tieSource)[0];
   const tieAsc = editor.updateTableSort(tieSource, 0, tieTable, 1, "asc");
-  assert.deepEqual(editor.parseTables(tieAsc.text)[0].rows.slice(1).map((row) => row[0]), ["B", "D", "A", "C", "E"]);
+  assert.deepEqual(editor.parseTables(tieAsc.text)[0].rows.slice(1).map((row) => row[0]), ["E", "B", "D", "A", "C"], "upstream treats the blank cell as the smallest value");
   const tieDesc = editor.updateTableSort(tieSource, 0, tieTable, 1, "desc");
   assert.deepEqual(editor.parseTables(tieDesc.text)[0].rows.slice(1).map((row) => row[0]), ["A", "C", "B", "D", "E"]);
 });
@@ -1162,4 +1162,64 @@ test("the size readout reports the table without writing", async () => {
   assert.equal(counts.label, "2 columns, 2 body rows, header row on");
   assert.equal(app.modified, undefined, "the readout never writes");
   assert.equal(plugin.reportTableCounts(null).ok, false);
+});
+
+
+/* ---- merged cells (^ join left, " join up) and upstream blank ordering ---- */
+
+test("merge markers report the spans they draw and the cells they hide", () => {
+  const source = "| Wide | ^ | Narrow |\n| --- | --- | --- |\n| a | b | c |\n| d | \" | e |";
+  const table = editor.parseTables(source)[0];
+  const merges = editor.tableMerges(table);
+  assert.equal(merges.ok, true);
+  const wide = merges.spans.find((span) => span.row === 0 && span.column === 0);
+  assert.equal(wide.colspan, 2, "the header cell spans two columns");
+  const down = merges.spans.find((span) => span.row === 1 && span.column === 1);
+  assert.equal(down.rowspan, 2, "the body cell spans two rows");
+  assert.deepEqual(merges.hidden, [{ row: 0, column: 1 }, { row: 2, column: 1 }]);
+
+  const formatted = editor.renderTable(table).join("\n");
+  assert.match(formatted, /\| Wide\s+\| \^\s+\|/, "formatting keeps the marker");
+  assert.deepEqual(editor.tableMerges(editor.parseTables(formatted)[0]), merges, "the layout round-trips");
+});
+
+test("a merge with nothing to join refuses instead of guessing", () => {
+  const edge = editor.parseTables("| ^ | b |\n| --- | --- |\n| 1 | 2 |")[0];
+  assert.equal(editor.tableMerges(edge).reason, "merge");
+  const header = editor.parseTables("| a | \" |\n| --- | --- |\n| 1 | 2 |")[0];
+  assert.equal(editor.tableMerges(header).reason, "merge", "the header row has nothing above it");
+  assert.equal(editor.tableMerges(null).ok, false);
+});
+
+test("the reading-view table applies the span and hides the merged-away cell", () => {
+  const source = "| Wide | ^ | Narrow |\n| --- | --- | --- |\n| a | b | c |\n| d | \" | e |";
+  const table = editor.parseTables(source)[0];
+  const tableEl = fakeTable(["Wide", "^", "Narrow"], [["a", "b", "c"], ["d", "\"", "e"]]);
+  const decorated = editor.decorateTable(tableEl, { table, commit: () => ({ ok: true }) });
+  assert.ok(decorated);
+  assert.equal(tableEl.rows[0].cells[0].getAttribute("colspan"), "2");
+  assert.equal(tableEl.rows[0].cells[1].getAttribute("data-qt-table-merged"), "on");
+  assert.equal(tableEl.rows[0].cells[1].getAttribute("contenteditable"), "false", "a merged-away cell is not editable");
+  assert.equal(tableEl.rows[1].cells[1].getAttribute("rowspan"), "2");
+});
+
+test("sorting puts blank cells first ascending and last descending, as upstream does", () => {
+  const source = "| Name | Score |\n| --- | --- |\n| A | 2 |\n| B | |\n| C | 1 |";
+  const table = editor.parseTables(source)[0];
+  const asc = editor.updateTableSort(source, 0, table, 1, "asc");
+  assert.deepEqual(editor.parseTables(asc.text)[0].rows.slice(1).map((row) => row[0]), ["B", "C", "A"]);
+  const desc = editor.updateTableSort(asc.text, 0, editor.parseTables(asc.text)[0], 1, "desc");
+  assert.deepEqual(editor.parseTables(desc.text)[0].rows.slice(1).map((row) => row[0]), ["A", "C", "B"]);
+});
+
+test("CSV export can join cells with tabs, as upstream does", () => {
+  const table = editor.parseTables("| A | B |\n| --- | --- |\n| 1 | x,y |\n| 2 | say \"hi\" |")[0];
+  const tabs = editor.tableCsvFromTable(table, { delimiter: "\t" });
+  assert.equal(tabs.ok, true);
+  assert.equal(tabs.delimiter, "\t");
+  assert.equal(tabs.csv, "A\tB\n1\tx,y\n2\t\"say \"\"hi\"\"\"\n", "a comma needs no quoting, a quote does");
+  const comma = editor.tableCsvFromTable(table);
+  assert.equal(comma.csv.split("\n")[1], "1,\"x,y\"");
+  const noHeader = editor.tableCsvFromTable(table, { header: false, delimiter: "\t" });
+  assert.equal(noHeader.csv.split("\n")[0], "1\tx,y");
 });
