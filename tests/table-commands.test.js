@@ -707,3 +707,35 @@ test("the navigation commands warn when their key binding is also on", async () 
   platform.isMobile = wasMobile;
   assert.equal(real("next-cell"), true, "and the desktop warning comes back");
 });
+
+/* ---- every command action that had no direct plugin-path test ---- */
+
+test("the remaining table commands change the table through the plugin path", async () => {
+  const base = "| Name | Score |\n| --- | --- |\n| A | 1 |\n| B | 2 |\n| C | 3 |";
+  const cases = [
+    ["insert-row-above", { line: 2, ch: 2 }, (table) => table.rows.length === 5],
+    ["insert-row-below", { line: 2, ch: 2 }, (table) => table.rows.length === 5],
+    ["insert-column-left", { line: 2, ch: 2 }, (table) => table.columns === 3],
+    ["insert-column-right", { line: 2, ch: 2 }, (table) => table.columns === 3],
+    ["delete-row", { line: 2, ch: 2 }, (table) => table.rows.length === 3],
+    ["delete-column", { line: 2, ch: 2 }, (table) => table.columns === 1],
+    ["move-row-up", { line: 3, ch: 2 }, (table) => table.rows[1][0] === "B"],
+    ["move-row-down", { line: 2, ch: 2 }, (table) => table.rows[1][0] === "B"],
+    ["move-column-left", { line: 2, ch: 8 }, (table) => table.header[0] === "Score"],
+    ["move-column-right", { line: 2, ch: 2 }, (table) => table.header[0] === "Score"],
+    ["align-left", { line: 2, ch: 2 }, (table) => table.align[0] === "left"],
+    ["align-center", { line: 2, ch: 2 }, (table) => table.align[0] === "center"],
+    ["align-right", { line: 2, ch: 2 }, (table) => table.align[0] === "right"],
+    ["align-default", { line: 2, ch: 2 }, (table) => table.align[0] === "none", "| Name | Score |\n| :--- | :--- |\n| A | 1 |\n| B | 2 |\n| C | 3 |"],
+    ["sort-asc", { line: 2, ch: 8 }, (table) => table.rows[1][1] === "1"],
+    ["sort-desc", { line: 2, ch: 8 }, (table) => table.rows[1][1] === "3"],
+    ["transpose", { line: 2, ch: 2 }, (table) => table.columns === 4],
+  ];
+  for (const [action, cursor, check, source] of cases) {
+    const harness = await tablePlugin(source || base, cursor);
+    const result = await harness.plugin.runTableAction(action);
+    assert.notEqual(result && result.ok, false, `${action} is applied instead of refusing`);
+    const table = editor.parseTables(harness.editor.getValue())[0];
+    assert.ok(check(table), `${action} produced the documented table`);
+  }
+});

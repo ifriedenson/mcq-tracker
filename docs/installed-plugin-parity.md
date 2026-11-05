@@ -175,3 +175,83 @@ Every row above names the passing test that demonstrates it. All of these run in
 | Works on Obsidian Mobile | `tests/table-commands.test.js`: *touch devices keep the reading-view toolbar visible without a hover* (the `@media (hover: none)` rule that makes the toolbar always visible); *the docked panel draws every group and its buttons act on the table* and *the next-cell command starts a table from a bare pipe* (both act with no key event at all) |
 | Double-action warning | `tests/table-commands.test.js`: *the navigation commands warn when their key binding is also on* (the command path asks first, the warning follows each binding, and mobile stays quiet) |
 | Merged cells (extension) | `tests/table-editor.test.js`: *merge markers report the spans they draw and the cells they hide*; *a merge with nothing to join refuses instead of guessing*; *the reading-view table applies the span and hides the merged-away cell* |
+
+## Advanced Tables: the complete upstream surface
+
+Checked against `tgrosinger/advanced-tables-obsidian` head `1a22239` and
+`tgrosinger/md-advanced-tables` head `147ac63`. The plugin registers **22 commands**
+and exposes **4 settings**; every row names the file and function that implements it
+here, and the test that drives it. `tests/advanced-tables-parity.test.js` fails if a
+row, a function or a cited test disappears, so this table cannot drift from the code.
+
+### Commands
+
+| Upstream id | Upstream name | Here | Implementation | Test |
+|---|---|---|---|---|
+| `next-row` | Go to next row | `tables-next-row` | `src/plugin.js` `moveTableCell` | `tests/table-commands.test.js` *Shift+Tab moves to the previous cell and Enter to the next row* |
+| `next-cell` | Go to next cell | `tables-next-cell` | `src/plugin.js` `moveTableCell` | `tests/table-commands.test.js` *next cell moves the cursor and adds a row at the end of the table* |
+| `previous-cell` | Go to previous cell | `tables-previous-cell` | `src/plugin.js` `moveTableCell` | `tests/table-commands.test.js` *Shift+Tab moves to the previous cell and Enter to the next row* |
+| `format-table` | Format table at the cursor | `tables-format` | `src/plugin.js` `formatTable` | `tests/table-commands.test.js` *format and format-all write padded tables, and padding can be off* |
+| `format-all-tables` | Format all tables in this file | `tables-format-all` | `src/plugin.js` `formatAllTablesInNote` | `tests/table-commands.test.js` *format and format-all write padded tables, and padding can be off* |
+| `insert-column` | Insert column before current | `tables-insert-column-left` | `src/table-editor.js` `structureTable` | `tests/table-commands.test.js` *the remaining table commands change the table through the plugin path* |
+| `insert-row` | Insert row before current | `tables-insert-row-above` | `src/table-editor.js` `structureTable` | `tests/table-commands.test.js` *the remaining table commands change the table through the plugin path* |
+| `escape-table` | Move cursor out of table | `tables-escape` | `src/plugin.js` `escapeTable` | `tests/table-commands.test.js` *escape leaves the table and inserts a blank line when needed* |
+| `left-align-column` | Left align column | `tables-align-left` | `src/table-editor.js` `alignTableColumn` | `tests/table-commands.test.js` *the remaining table commands change the table through the plugin path* |
+| `center-align-column` | Center align column | `tables-align-center` | `src/table-editor.js` `alignTableColumn` | `tests/table-commands.test.js` *the remaining table commands change the table through the plugin path* |
+| `right-align-column` | Right align column | `tables-align-right` | `src/table-editor.js` `alignTableColumn` | `tests/table-commands.test.js` *the remaining table commands change the table through the plugin path* |
+| `move-column-left` | Move column left | `tables-move-column-left` | `src/table-editor.js` `structureTable` | `tests/table-commands.test.js` *the remaining table commands change the table through the plugin path* |
+| `move-column-right` | Move column right | `tables-move-column-right` | `src/table-editor.js` `structureTable` | `tests/table-commands.test.js` *the remaining table commands change the table through the plugin path* |
+| `move-row-up` | Move row up | `tables-move-row-up` | `src/table-editor.js` `structureTable` | `tests/table-commands.test.js` *the remaining table commands change the table through the plugin path* |
+| `move-row-down` | Move row down | `tables-move-row-down` | `src/table-editor.js` `structureTable` | `tests/table-commands.test.js` *the remaining table commands change the table through the plugin path* |
+| `delete-column` | Delete column | `tables-delete-column` | `src/table-editor.js` `structureTable` | `tests/table-commands.test.js` *insert above, align and delete run through the editor* |
+| `delete-row` | Delete row | `tables-delete-row` | `src/table-editor.js` `structureTable` | `tests/table-commands.test.js` *insert above, align and delete run through the editor* |
+| `sort-rows-ascending` | Sort rows ascending | `tables-sort-asc` | `src/table-editor.js` `sortTable` | `tests/table-commands.test.js` *the remaining table commands change the table through the plugin path* |
+| `sort-rows-descending` | Sort rows descending | `tables-sort-desc` | `src/table-editor.js` `sortTable` | `tests/table-commands.test.js` *the remaining table commands change the table through the plugin path* |
+| `transpose` | Transpose | `tables-transpose` | `src/table-editor.js` `transposeTable` | `tests/table-editor.test.js` *transpose swaps rows and columns and toggles back* |
+| `evaluate-formulas` | Evaluate table formulas | `tables-formulas` | `src/table-formulas.js` `applyTableFormulas` | `tests/table-editor.test.js` *TBLFM formulas calculate totals, shares and chained values* |
+| `table-control-bar` | Open table controls toolbar | `tables-open-controls` | `src/plugin.js` `openTableControls` | `tests/table-commands.test.js` *the controls command opens a right leaf and reveals the panel again* |
+
+Ours also ships commands upstream has no id for, counted separately rather than as
+parity: insert row below, insert column right, clear column alignment, export as CSV,
+format every table in this note, and open the table controls panel.
+
+### Settings
+
+| Upstream key | Upstream default | Here | Implementation | Test |
+|---|---|---|---|---|
+| `formatType` | `NORMAL` (padded); `WEAK` is minimal spacing | `padCells` | `src/table-editor.js` `normalizeTableEditorSettings` `renderTable` | `tests/table-commands.test.js` *format and format-all write padded tables, and padding can be off* |
+| `showRibbonIcon` | `true` | `showRibbon` | `src/plugin.js` `onTableEditorToggled` | `tests/table-commands.test.js` *the ribbon button follows the Advanced Tables settings* |
+| `bindEnter` | `true` | `bindEnter` | `src/plugin.js` `onTableEditorKeydown` | `tests/table-commands.test.js` *the Tab and Enter settings turn their keys off without touching the editor* |
+| `bindTab` | `true` | `bindTab` | `src/plugin.js` `onTableEditorKeydown` | `tests/table-commands.test.js` *the Tab and Enter settings turn their keys off without touching the editor* |
+
+Upstream's `formatType` chooses padded (`NORMAL`) or minimal (`WEAK`) spacing; ours is
+the `padCells` switch, and `renderTable({ pad: false })` writes the minimal form. The
+module also has an `enabled` switch upstream lacks, because this editor is opt-in.
+
+### Behaviours
+
+| Behaviour | Implementation | Test |
+|---|---|---|
+| **Formatting: normal and weak spacing** | `src/table-editor.js` `renderTable` `formatTableAt` | `tests/table-commands.test.js` *minimal formatting renders valid cells without padding* |
+| **Column alignment in the delimiter row** | `src/table-editor.js` `alignTableColumn` | `tests/table-editor.test.js` *column alignment updates the delimiter row for every supported value* |
+| **Sorting: numbers, text, blanks first ascending** | `src/table-editor.js` `sortTable` | `tests/table-editor.test.js` *sorting puts blank cells first ascending and last descending, as upstream does* |
+| **Transposing rows and columns** | `src/table-editor.js` `transposeTable` | `tests/table-editor.test.js` *transpose swaps rows and columns and toggles back* |
+| **Moving rows and columns with edge refusals** | `src/table-editor.js` `structureTable` | `tests/table-editor.test.js` *structural actions preserve CRLF endings and refuse invalid boundaries* |
+| **CSV export joined with commas** | `src/table-editor.js` `tableCsvFromTable` | `tests/table-commands.test.js` *CSV export can leave the header row out* |
+| **CSV export joined with tabs (upstream form)** | `src/table-editor.js` `tableCsvFromTable` `src/table-csv-modal.js` | `tests/table-editor.test.js` *CSV export can join cells with tabs, as upstream does* |
+| **CSV copy dialog with both delimiters** | `src/table-csv-modal.js` | `tests/table-commands.test.js` *the CSV dialog can copy tab-separated rows* |
+| **TBLFM evaluation** | `src/table-formulas.js` `applyTableFormulas` | `tests/table-formulas-upstream.test.js` *upstream example: @>$2=sum(@I..@-1) totals the column* |
+| **Tab/Shift+Tab and Enter/Shift+Enter in the source editor** | `src/plugin.js` `onTableEditorKeydown` | `tests/table-commands.test.js` *Tab moves to the next cell in the source editor* |
+| **Building a table from a bare pipe** | `src/table-editor.js` `tableDraftAtLine` `startTable` | `tests/table-commands.test.js` *a pipe line with no delimiter is a draft that Tab completes* |
+| **Double-binding notices and their mobile suppression** | `src/plugin.js` `noticeDoubleBinding` | `tests/table-commands.test.js` *the navigation commands warn when their key binding is also on* |
+| **Docked controls panel** | `src/table-controls-view.js` | `tests/table-commands.test.js` *the docked panel draws every group and its buttons act on the table* |
+| **Reading-view cell editing** | `src/table-editor.js` `decorateTable` | `tests/table-editor.test.js` *decorated cells commit edits and Tab moves focus without wrapping* |
+| **Merged cells (ours; upstream has none)** | `src/table-editor.js` `tableMerges` `decorateTable` | `tests/table-editor.test.js` *the reading-view table applies the span and hides the merged-away cell* |
+
+### Left to the owner
+
+- **Donation buttons:** upstream's settings page links to the author's donation pages.
+  They are deliberately not reproduced, and nothing about table behaviour depends on them.
+
+No other item is outstanding: every upstream command, setting and behaviour above has
+working code reachable from the plugin's own paths and a passing test.
