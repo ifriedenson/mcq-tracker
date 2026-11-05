@@ -7,7 +7,11 @@
  * is the exact build of src/, so a sink has to exist in src/ to reach the bundle.
  * Comments and string literals are masked before matching so explanatory prose
  * stays harmless; template-literal interpolations remain code because they run.
- * Regex literals are not tokenized, so a regex that spells a sink is reported.
+ * Regex literals are tokenized so a quote, backtick or `//` inside one cannot
+ * open a string or comment frame and silently hide the code that follows, but
+ * their bodies stay counted as code, so a regex that spells a sink is reported.
+ * Whether a `/` opens a regex is decided from the previous significant token,
+ * the same way a JavaScript parser resolves the division/regex ambiguity.
  */
 const fs = require("fs");
 const path = require("path");
@@ -23,11 +27,40 @@ const RULES = [
   { name: "dynamic require", re: /\brequire\s*\(/g, kind: "literal" },
 ];
 
+/** Characters a `/` may follow and still open a regex literal rather than divide. */
+const REGEX_PREFIX_CHARS = "(,=:[!&|?{};+-*%^~<>";
+/** Keywords a `/` may follow and still open a regex literal. */
+const REGEX_PREFIX_WORDS = new Set([
+  "return", "typeof", "instanceof", "in", "of", "new", "delete", "void",
+  "case", "do", "else", "yield", "await", "throw",
+]);
+
+function isIdentifierChar(ch) {
+  return (ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z") || (ch >= "0" && ch <= "9") || ch === "_" || ch === "$";
+}
+
+/** The identifier ending at `end` (inclusive), or "" when the token is not a word. */
+function wordEndingAt(source, end) {
+  let start = end;
+  while (start >= 0 && isIdentifierChar(source[start])) start--;
+  const word = source.slice(start + 1, end + 1);
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(word) ? word : "";
+}
+
+/** Whether the `/` at `index` starts a regex literal, given the previous significant character. */
+function startsRegex(source, index, previous) {
+  if (isIdentifierChar(previous)) {
+    return REGEX_PREFIX_WORDS.has(wordEndingAt(source, index - 1));
+  }
+  return previous === "" || REGEX_PREFIX_CHARS.includes(previous);
+}
+
 /** One byte per source character: 1 = code, 0 = comment, string or template text. */
 function maskCode(source) {
   const mask = new Uint8Array(source.length);
   const stack = [{ kind: "code", depth: 0 }];
   let i = 0;
+  let previous = "";
   while (i < source.length) {
     const frame = stack[stack.length - 1];
     const ch = source[i];
@@ -51,6 +84,7 @@ function maskCode(source) {
       if (ch === "\\") i += 2;
       else if (ch === frame.quote || ch === "\n") {
         stack.pop();
+        previous = ch;
         i++;
       } else i++;
       continue;
@@ -59,6 +93,7 @@ function maskCode(source) {
       if (ch === "\\") i += 2;
       else if (ch === "`") {
         stack.pop();
+        previous = ch;
         i++;
       } else if (ch === "$" && next === "{") {
         stack.push({ kind: "code", depth: 0, interpolation: true });
@@ -77,6 +112,38 @@ function maskCode(source) {
       i += 2;
       continue;
     }
+    if (ch === "/" && startsRegex(source, i, previous)) {
+      let end = i + 1;
+      let inClass = false;
+      while (end < source.length) {
+        const c = source[end];
+        if (c === "\\") {
+          end += 2;
+          continue;
+        }
+        if (c === "\n") break;
+        if (inClass) {
+          if (c === "]") inClass = false;
+          end++;
+          continue;
+        }
+        if (c === "[") {
+          inClass = true;
+          end++;
+          continue;
+        }
+        if (c === "/") {
+          end++;
+          break;
+        }
+        end++;
+      }
+      while (end < source.length && /[a-z]/i.test(source[end])) end++;
+      for (let k = i; k < end && k < source.length; k++) mask[k] = 1;
+      previous = "/";
+      i = end;
+      continue;
+    }
     if (ch === '"' || ch === "'") {
       stack.push({ kind: "string", quote: ch });
       i++;
@@ -90,16 +157,19 @@ function maskCode(source) {
     if (frame.interpolation) {
       if (ch === "{") {
         frame.depth++;
+        previous = ch;
         i++;
         continue;
       }
       if (ch === "}") {
         if (frame.depth === 0) stack.pop();
         else frame.depth--;
+        previous = ch;
         i++;
         continue;
       }
     }
+    if (ch !== " " && ch !== "\t" && ch !== "\n" && ch !== "\r") previous = ch;
     i++;
   }
   return mask;

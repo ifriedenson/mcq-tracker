@@ -1,11 +1,13 @@
 "use strict";
 /**
  * `docs/capability-inventory.md` is generated from the built bundle: one row per
- * module group, one row per registered command, and an explicit list of gaps.
+ * module group, one row per registered command, and an explicit list of the groups
+ * with no citing test.
  *
- * This test re-derives all of it. Deleting a function, renaming a group, adding
- * or removing a command, or dropping the test that cites a capability all fail
- * here, so the inventory cannot drift away from the code it describes.
+ * This test re-derives all of it. Deleting a function, renaming a group, adding or
+ * removing a command, dropping the test that cites a capability, or changing a
+ * README count or a settings heading all fail here, so the inventory and the
+ * user-facing prose cannot drift away from the code they describe.
  */
 const test = require("node:test");
 const assert = require("node:assert");
@@ -17,9 +19,9 @@ const { makeApp } = require("./helpers/fake");
 const { T, Plugin: QT } = load();
 const ROOT = path.join(__dirname, "..");
 const doc = fs.readFileSync(path.join(ROOT, "docs", "capability-inventory.md"), "utf8");
+const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
 const testFiles = fs.readdirSync(path.join(ROOT, "tests")).filter((f) => f.endsWith(".test.js")).sort();
 const testText = Object.fromEntries(testFiles.map((f) => [f, fs.readFileSync(path.join(ROOT, "tests", f), "utf8")]));
-const cites = (group) => testFiles.filter((f) => testText[f].includes("T." + group));
 
 /** The lines of one `## ` section, stopping at the next heading. */
 function section(heading) {
@@ -42,6 +44,20 @@ function backticked(cell) {
 const moduleRows = section("## Modules").split("\n").filter((line) => line.startsWith("| `"));
 const commandRows = section("## Commands").split("\n").filter((line) => line.startsWith("| `"));
 const gapText = section(doc.match(/^## Gaps \(\d+ groups, \d+ commands\)$/m) ? doc.match(/^## Gaps .*$/m)[0] : "## Gaps");
+
+const cites = (group) => testFiles.filter((f) => testText[f].includes("T." + group));
+
+/** The callback a command row delegates to, read from the table itself. */
+function commandCallback(id) {
+  const row = commandRows.find((line) => backticked(tableCells(line)[0])[0] === id);
+  return row ? backticked(tableCells(row)[2])[0] || "" : "";
+}
+
+/** A command is cited when a test names its id or the callback it delegates to. */
+function commandCites(id) {
+  const callback = commandCallback(id);
+  return testFiles.filter((f) => testText[f].includes(id) || (callback && testText[f].includes(callback)));
+}
 
 test("the inventory lists every module group with its real export count", () => {
   const groups = Object.keys(T).sort();
@@ -84,16 +100,35 @@ test("every command row names a registered command whose callback is real", asyn
   }
 });
 
-test("the gaps section lists exactly the groups and commands with no citing test", () => {
+test("every command row's cited tests exist and really mention the command", () => {
+  for (const line of commandRows) {
+    const [id, , , tests] = tableCells(line);
+    const name = backticked(id)[0];
+    const cited = backticked(tests);
+    assert.ok(cited.length, `${name} names at least one test`);
+    for (const entry of cited) {
+      const file = entry.replace(/^tests\//, "");
+      assert.ok(testFiles.includes(file), `${name} cites an existing test (${entry})`);
+      const callback = commandCallback(name);
+      assert.ok(
+        testText[file].includes(name) || (callback && testText[file].includes(callback)),
+        `${entry} mentions ${name} or its callback ${callback}`
+      );
+    }
+  }
+});
+
+test("the gaps section lists exactly the uncited groups, each with a reason, and no uncited command", () => {
   const uncitedGroups = Object.keys(T).sort().filter((group) => !cites(group).length);
-  const uncitedCommands = commandRows
-    .map((line) => tableCells(line))
-    .filter((cell) => cell[3] === "—")
-    .map((cell) => backticked(cell[0])[0]);
+  const uncitedCommands = commandRows.map((line) => tableCells(line)).filter((cell) => !backticked(cell[3]).length).map((cell) => backticked(cell[0])[0]);
   const listedGroups = [...gapText.matchAll(/^- module `([^`]+)`/gm)].map((m) => m[1]).sort();
   const listedCommands = [...gapText.matchAll(/^- command `([^`]+)`/gm)].map((m) => m[1]);
   assert.deepEqual(listedGroups, uncitedGroups, "every group without a citing test is listed as a gap");
   assert.deepEqual(listedCommands, uncitedCommands, "every command without a citing test is listed as a gap");
+  assert.deepEqual(uncitedCommands, [], "every command-palette command has a test that exercises it");
+  for (const line of gapText.split("\n").filter((entry) => entry.startsWith("- module `"))) {
+    assert.match(line, /` \(\d+ exports\) — plumbing: .+\.$/, "a listed group names why it is not separately tested");
+  }
   const header = doc.match(/^## Gaps \((\d+) groups, (\d+) commands\)$/m);
   assert.ok(header, "the gaps heading carries its counts");
   assert.equal(Number(header[1]), uncitedGroups.length, "the group gap count matches");
@@ -110,4 +145,43 @@ test("the summary counts match the tables", () => {
     "the export count matches the bundle"
   );
   assert.equal(Number(summary[3]), commandRows.length, "the command count matches the table");
+});
+
+test("the README's Study Workspace count matches the tabs the view registers", () => {
+  const view = fs.readFileSync(path.join(ROOT, "src", "study-workspace-view.js"), "utf8");
+  const tabs = [...view.matchAll(/^\s*\{ id: "([a-zA-Z]+)", label:/gm)].map((m) => m[1]);
+  assert.equal(tabs.length, 21, `the view registers ${tabs.length} tabs`);
+  assert.ok(readme.includes("twenty-one independent modules"), "the README heading states the count");
+  assert.ok(readme.includes("twenty-one local workflows"), "the README body states the count");
+  assert.ok(!/twenty independent modules/.test(readme), "the stale count is gone");
+  for (const label of ["Feynman", "Recall", "Time blocks", "Reading library", "Quiz index"]) {
+    assert.ok(view.includes('label: "' + label + '"'), `the ${label} tab is registered`);
+  }
+});
+
+test("the settings headings the README describes still exist in the settings code", () => {
+  const settingsFiles = fs.readdirSync(path.join(ROOT, "src")).filter((f) => f.endsWith(".js") && /settings/i.test(f));
+  assert.ok(settingsFiles.length >= 3, `${settingsFiles.length} settings files`);
+  const headings = new Set();
+  for (const file of settingsFiles) {
+    const text = fs.readFileSync(path.join(ROOT, "src", file), "utf8");
+    for (const match of text.matchAll(/setName\("([^"]+)"\)\s*\.setHeading\(\)/g)) headings.add(match[1]);
+  }
+  assert.ok(headings.size >= 30, `${headings.size} headings are drawn`);
+  const documented = [
+    "Whole-note review",
+    "Spaced Everything",
+    "Daily quiz",
+    "Simple quiz blocks",
+    "Simple note quiz",
+    "Decks",
+    "AnkiConnect",
+    "CouchDB sync",
+    "Auto Anki",
+    "Text2Anki",
+  ];
+  for (const name of documented) {
+    assert.ok(headings.has(name), `the ${name} settings heading exists`);
+    assert.ok(readme.includes(name), `the README still describes ${name}`);
+  }
 });

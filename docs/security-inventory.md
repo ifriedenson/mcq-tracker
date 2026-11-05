@@ -40,10 +40,7 @@ No other file in `src/` names `requestUrl` or `fetch`.
 
 ## 3. Dynamic code
 
-None. `scripts/check-no-dynamic-code.js` masks comments and strings and reports `eval`, `Function`,
-string timers, dynamic `import()` and dynamic `require()` — **0 violations in 297 files**. The
-expression evaluators are hand-written recursive-descent parsers that never build code:
-`src/parameterized.js`, `src/polynomial.js`, `src/reference-graph.js`.
+None. `scripts/check-no-dynamic-code.js` tokenizes comments, strings, template literals and regex literals before matching, deciding from the previous significant token whether a `/` opens a regex or divides, so a quote, a backtick or `//` inside a regex can no longer open a string or comment frame and hide the code after it. Regex bodies stay counted as code, so a sink spelled inside one is still reported. It reports `eval`, `Function`, a `setTimeout`/`setInterval` given a string, and a dynamic `require` or `import`; `tests/dynamic-code-lint.test.js` proves the tokenizer on fixtures that place a sink after a regex holding a backtick or a quote, and asserts that `src/plugin.js` is scanned in full — including both `requestUrl` calls — and that no source file collapses to a fraction of itself.
 
 ## 4. Dynamic HTML sinks
 
