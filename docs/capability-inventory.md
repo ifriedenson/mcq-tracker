@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 384 groups, 2494 exports. **Commands:** 150. **Gaps:** 43 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 384 groups, 2494 exports. **Commands:** 150. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -14,41 +14,41 @@ the table and fails if a group, export count, command or citing test drifts.
 | `API_PRESETS` | 10 | `tests/local-models.test.js`, `tests/qwen-preset.test.js` |
 | `API_SYSTEM` | 0 | `tests/ai-write-guard.test.js` |
 | `ASSIGNMENTS_TABS` | 3 | `tests/modules.test.js` |
-| `AgentEditReviewModal` | 0 | — |
+| `AgentEditReviewModal` | 0 | `tests/feature-surfaces.test.js` |
 | `ApiClient` | 0 | `tests/chat-stream.test.js`, `tests/local-models.test.js`, `tests/model-discovery.test.js`, `tests/ocr.test.js`, `tests/qwen-preset.test.js`, `tests/secret-keys.test.js` |
-| `AssignmentModal` | 0 | — |
+| `AssignmentModal` | 0 | `tests/feature-surfaces.test.js` |
 | `AssignmentsView` | 0 | `tests/assignments.test.js`, `tests/mobile-module-layout.test.js` |
 | `AutoAnkiModal` | 0 | `tests/auto-anki.test.js` |
 | `CALENDAR_TABS` | 7 | `tests/calendar.test.js` |
 | `CARDS_TABS` | 4 | `tests/modules.test.js` |
-| `CalculationPreviewModal` | 0 | — |
+| `CalculationPreviewModal` | 0 | `tests/feature-surfaces.test.js` |
 | `CalendarView` | 0 | `tests/calendar.test.js`, `tests/term-calendar.test.js` |
-| `CardExtractModal` | 0 | — |
+| `CardExtractModal` | 0 | `tests/feature-surfaces.test.js` |
 | `CardModal` | 0 | `tests/source-recall.test.js` |
 | `CardView` | 0 | `tests/card-learning.test.js`, `tests/card-reveal.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/interval-preview.test.js`, `tests/mobile-module-layout.test.js`, `tests/source-recall.test.js`, `tests/study-status.test.js` |
 | `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/note-context.test.js`, `tests/security-hardening.test.js`, `tests/think-first.test.js` |
 | `CourseOverviewModal` | 0 | `tests/core-values.test.js` |
 | `DEFAULT_SETTINGS` | 112 | `tests/grading.test.js` |
-| `DocumentReviewModal` | 0 | — |
-| `DueQueueModal` | 0 | — |
+| `DocumentReviewModal` | 0 | `tests/feature-surfaces.test.js` |
+| `DueQueueModal` | 0 | `tests/feature-surfaces.test.js` |
 | `FindQuestionModal` | 0 | `tests/views.test.js` |
-| `FocusLogModal` | 0 | — |
+| `FocusLogModal` | 0 | `tests/feature-surfaces.test.js` |
 | `FolderFilterSuggest` | 0 | `tests/views.test.js` |
 | `FrqGraderModal` | 0 | `tests/frq-handwriting.test.js`, `tests/frq.test.js` |
 | `GLOBAL_TABS` | 3 | `tests/modules.test.js` |
 | `InsightsView` | 0 | `tests/study-plan.test.js`, `tests/views.test.js` |
-| `LocalEventModal` | 0 | — |
+| `LocalEventModal` | 0 | `tests/feature-surfaces.test.js` |
 | `LocalEventsView` | 0 | `tests/mobile-calendar-agenda.test.js` |
-| `MAX_OPENCODE_MAJOR` | 0 | — |
+| `MAX_OPENCODE_MAJOR` | 0 | `tests/feature-surfaces.test.js` |
 | `MCQ_TABS` | 5 | `tests/calendar.test.js`, `tests/daily-quiz.test.js` |
 | `MixedReviewModal` | 0 | `tests/mixed-review.test.js` |
 | `NewFrqNoteModal` | 0 | `tests/frq.test.js` |
-| `NoteReviewDock` | 0 | — |
+| `NoteReviewDock` | 0 | `tests/feature-surfaces.test.js` |
 | `NoteReviewModal` | 0 | `tests/spaced-everything.test.js` |
-| `OcrModal` | 0 | — |
+| `OcrModal` | 0 | `tests/feature-surfaces.test.js` |
 | `OpenCodeClient` | 0 | `tests/chat-stream.test.js`, `tests/opencode-compat.test.js` |
 | `OpenCodeManager` | 0 | `tests/opencode-compat.test.js` |
-| `PdfAnnotationModal` | 0 | — |
+| `PdfAnnotationModal` | 0 | `tests/feature-surfaces.test.js` |
 | `PdfImportModal` | 0 | `tests/empty-state.test.js`, `tests/import-source.test.js`, `tests/views.test.js` |
 | `PdfInkModal` | 0 | `tests/pdf-ink.test.js` |
 | `PomodoroView` | 0 | `tests/mobile-module-layout.test.js`, `tests/pomodoro-view.test.js` |
@@ -57,26 +57,26 @@ the table and fails if a group, export count, command or citing test drifts.
 | `QUICK_START_URL` | 0 | `tests/empty-state.test.js` |
 | `QUICK_TIME_OPTIONS` | 3 | `tests/uncited-groups.test.js` |
 | `QuestionFolderModal` | 0 | `tests/views.test.js` |
-| `QuestionTrackerSettingTab` | 0 | — |
-| `QuickAddModal` | 0 | — |
+| `QuestionTrackerSettingTab` | 0 | `tests/feature-surfaces.test.js` |
+| `QuickAddModal` | 0 | `tests/feature-surfaces.test.js` |
 | `REFERENCE_TABS` | 2 | `tests/modules.test.js` |
 | `ReferenceView` | 0 | `tests/ap-exam-history.test.js`, `tests/ap-resource-notes.test.js`, `tests/ap-score.test.js`, `tests/calculator.test.js`, `tests/complex.test.js`, `tests/geometry.test.js`, `tests/graph-3d.test.js`, `tests/graph-complex.test.js`, `tests/matrix.test.js`, `tests/mobile-reference-stats.test.js`, `tests/reference-advanced.test.js`, `tests/reference-sheets.test.js`, `tests/reference-tools.test.js`, `tests/reference.test.js` |
 | `ReviewCalendarView` | 0 | `tests/mobile-calendar-agenda.test.js` |
 | `SETTINGS_MODULES` | 46 | `tests/calendar.test.js`, `tests/modules.test.js`, `tests/review-calendar.test.js`, `tests/study-tool-settings.test.js` |
 | `SimpleNoteQuizModal` | 0 | `tests/simple-note-quiz.test.js` |
-| `SpacedEverythingCaptureModal` | 0 | — |
+| `SpacedEverythingCaptureModal` | 0 | `tests/feature-surfaces.test.js` |
 | `StudyMatchModal` | 0 | `tests/study-modes.test.js` |
 | `StudySlotModal` | 0 | `tests/calendar.test.js` |
 | `StudyStatsView` | 0 | `tests/mobile-reference-stats.test.js` |
-| `StudyStatusModal` | 0 | — |
+| `StudyStatusModal` | 0 | `tests/feature-surfaces.test.js` |
 | `StudyToolsView` | 0 | `tests/lecture-links.test.js`, `tests/mobile-module-layout.test.js`, `tests/study-tools.test.js` |
 | `StudyWorkspaceView` | 0 | `tests/citations.test.js`, `tests/fsrs-fit.test.js`, `tests/glossary.test.js`, `tests/mobile-module-layout.test.js`, `tests/reading-library.test.js`, `tests/settings-consolidation.test.js`, `tests/study-modules-2.test.js`, `tests/study-modules-3.test.js`, `tests/study-workspace-health.test.js`, `tests/study-workspace-layout.test.js`, `tests/study-workspace-tabs.test.js`, `tests/study-workspace.test.js`, `tests/task-tags.test.js`, `tests/time-blocks.test.js`, `tests/vault-task-index.test.js`, `tests/wordnet.test.js`, `tests/writing-sessions.test.js` |
 | `TaskListView` | 0 | `tests/task-list.test.js` |
 | `TestView` | 0 | `tests/views.test.js` |
 | `TodayView` | 0 | `tests/ap-exam-resources.test.js`, `tests/core-values.test.js`, `tests/daily-quiz-freeze.test.js`, `tests/daily-quiz.test.js`, `tests/focus.test.js`, `tests/frq-review.test.js`, `tests/reading-plan.test.js`, `tests/study-plan.test.js`, `tests/study-tools.test.js`, `tests/today-dom.test.js`, `tests/today.test.js` |
-| `TranscriptPracticeModal` | 0 | — |
-| `WeakSpotModal` | 0 | — |
-| `WelcomeModal` | 0 | — |
+| `TranscriptPracticeModal` | 0 | `tests/feature-surfaces.test.js` |
+| `WeakSpotModal` | 0 | `tests/feature-surfaces.test.js` |
+| `WelcomeModal` | 0 | `tests/feature-surfaces.test.js` |
 | `activityLevel` | 0 | `tests/analytics.test.js` |
 | `adaptiveSession` | 5 | `tests/adaptive-session.test.js` |
 | `adaptiveTargetRank` | 0 | `tests/filters.test.js` |
@@ -92,8 +92,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `aiTools` | 7 | `tests/ai-tools.test.js` |
 | `aiWriteGuard` | 7 | `tests/ai-write-guard.test.js` |
 | `aiWrites` | 7 | `tests/ai-writes.test.js` |
-| `analytics` | 18 | `tests/p1-knowledge.test.js` |
-| `analyticsEmbed` | 11 | — |
+| `analytics` | 18 | `tests/feature-surfaces.test.js`, `tests/p1-knowledge.test.js` |
+| `analyticsEmbed` | 11 | `tests/feature-surfaces.test.js` |
 | `ankiConnect` | 21 | `tests/anki-connect.test.js`, `tests/anki-folder-exclusions.test.js` |
 | `answerFromSection` | 0 | `tests/grading.test.js`, `tests/math-rendering.test.js` |
 | `answerSetFromSection` | 0 | `tests/question-types.test.js` |
@@ -105,7 +105,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `apResourceNotes` | 19 | `tests/ap-resource-notes.test.js` |
 | `apResources` | 7 | `tests/ap-resource-notes.test.js` |
 | `apScore` | 10 | `tests/ap-exam-history.test.js`, `tests/ap-score.test.js`, `tests/frq.test.js` |
-| `apiTurns` | 0 | — |
+| `apiTurns` | 0 | `tests/feature-surfaces.test.js` |
 | `apkg` | 7 | `tests/apkg.test.js`, `tests/security-hardening.test.js` |
 | `apkgExport` | 6 | `tests/apkg.test.js` |
 | `applyAttempt` | 0 | `tests/card-learning.test.js`, `tests/cards.test.js`, `tests/exam-schedule.test.js`, `tests/fsrs-fit.test.js`, `tests/fsrs.test.js`, `tests/grading.test.js`, `tests/history.test.js`, `tests/leech.test.js`, `tests/needs-fixing.test.js`, `tests/note-review-dock.test.js`, `tests/p1-knowledge.test.js`, `tests/parameterized.test.js`, `tests/scheduler-fit.test.js`, `tests/sm2.test.js` |
@@ -121,14 +121,14 @@ the table and fails if a group, export count, command or citing test drifts.
 | `buildDashboard` | 0 | `tests/analytics-embed.test.js`, `tests/analytics.test.js` |
 | `buildDueQueue` | 0 | `tests/study-status.test.js` |
 | `buildGeneralContext` | 0 | `tests/ai-context.test.js`, `tests/tutor-presets.test.js` |
-| `buildGradeSnapshot` | 0 | — |
+| `buildGradeSnapshot` | 0 | `tests/feature-surfaces.test.js` |
 | `buildHeatmap` | 0 | `tests/analytics.test.js` |
 | `buildMastery` | 0 | `tests/analytics-embed.test.js`, `tests/progress.test.js` |
 | `buildMasteryTrend` | 0 | `tests/progress.test.js` |
 | `buildMixedQueue` | 0 | `tests/due-queue.test.js`, `tests/mixed-review.test.js` |
 | `buildMomentum` | 0 | `tests/progress.test.js` |
 | `buildProgress` | 0 | `tests/progress.test.js` |
-| `buildQuickQueue` | 0 | — |
+| `buildQuickQueue` | 0 | `tests/feature-surfaces.test.js` |
 | `buildReportMarkdown` | 0 | `tests/import.test.js` |
 | `buildRetention` | 0 | `tests/analytics.test.js` |
 | `buildTestSet` | 0 | `tests/stats.test.js` |
@@ -142,7 +142,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `calendarModel` | 52 | `tests/calendar.test.js`, `tests/core-values.test.js`, `tests/exam-schedule.test.js`, `tests/term-calendar.test.js` |
 | `calendarNotes` | 8 | `tests/calendar.test.js` |
 | `calendarPlanner` | 10 | `tests/calendar-planner.test.js` |
-| `candidateAssetNames` | 0 | — |
+| `candidateAssetNames` | 0 | `tests/feature-surfaces.test.js` |
 | `cardArchive` | 8 | `tests/card-archive.test.js` |
 | `cardGenerator` | 11 | `tests/card-generator.test.js`, `tests/spaced-quiz.test.js` |
 | `cardGradeQueue` | 8 | `tests/card-grading-ai.test.js` |
@@ -170,7 +170,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `courseHealth` | 5 | `tests/core-values.test.js`, `tests/study-modules-2.test.js`, `tests/study-workspace-health.test.js` |
 | `courseNotes` | 11 | `tests/course-notes.test.js` |
 | `courseTemplates` | 12 | `tests/course-templates.test.js` |
-| `createQuickSession` | 0 | — |
+| `createQuickSession` | 0 | `tests/feature-surfaces.test.js` |
 | `dailyQuiz` | 14 | `tests/daily-quiz-freeze.test.js`, `tests/daily-quiz.test.js` |
 | `distractorQuality` | 5 | `tests/distractor-quality.test.js` |
 | `documentCards` | 7 | `tests/document-cards.test.js`, `tests/import-routes-audit.test.js` |
@@ -186,7 +186,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `feynmanAi` | 8 | `tests/study-modules-3.test.js` |
 | `figures` | 3 | `tests/figures.test.js` |
 | `fileExplorer` | 4 | `tests/card-scheduler-explorer.test.js` |
-| `fillDefaults` | 0 | — |
+| `fillDefaults` | 0 | `tests/feature-surfaces.test.js` |
 | `filterOptionCounts` | 0 | `tests/filters.test.js` |
 | `filterOptions` | 0 | `tests/filters.test.js` |
 | `finalizeNote` | 0 | `tests/computed-verification.test.js`, `tests/import.test.js` |
@@ -199,20 +199,20 @@ the table and fails if a group, export count, command or citing test drifts.
 | `focus` | 15 | `tests/focus.test.js`, `tests/tag-timer.test.js` |
 | `folderChain` | 0 | `tests/filters.test.js` |
 | `folderLabel` | 0 | `tests/filters.test.js` |
-| `friendlyApiError` | 0 | — |
-| `friendlyError` | 0 | — |
+| `friendlyApiError` | 0 | `tests/feature-surfaces.test.js` |
+| `friendlyError` | 0 | `tests/feature-surfaces.test.js` |
 | `frq` | 40 | `tests/frq-handwriting.test.js`, `tests/frq-review.test.js`, `tests/frq.test.js`, `tests/p1-knowledge.test.js` |
 | `fsrs` | 14 | `tests/analytics.test.js`, `tests/cards.test.js`, `tests/fsrs-fit.test.js`, `tests/fsrs.test.js`, `tests/progress.test.js` |
 | `fsrsFit` | 6 | `tests/fsrs-fit.test.js` |
-| `geometry` | 35 | `tests/geometry.test.js` |
-| `geometryPanel` | 9 | — |
+| `geometry` | 35 | `tests/feature-surfaces.test.js`, `tests/geometry.test.js` |
+| `geometryPanel` | 9 | `tests/feature-surfaces.test.js` |
 | `glossary` | 10 | `tests/glossary.test.js` |
 | `gradeAnswer` | 0 | `tests/grading.test.js`, `tests/matching.test.js`, `tests/numeric-grading.test.js`, `tests/question-types.test.js` |
 | `gradeAnswerDetailed` | 0 | `tests/numeric-grading.test.js`, `tests/question-types.test.js` |
 | `gradeLetter` | 0 | `tests/analytics.test.js` |
-| `graph3d` | 23 | `tests/graph-3d.test.js`, `tests/reference-advanced.test.js` |
+| `graph3d` | 23 | `tests/feature-surfaces.test.js`, `tests/graph-3d.test.js`, `tests/reference-advanced.test.js` |
 | `graph3dExport` | 3 | `tests/reference-advanced.test.js` |
-| `graph3dPanel` | 19 | — |
+| `graph3dPanel` | 19 | `tests/feature-surfaces.test.js` |
 | `graphAccessibility` | 5 | `tests/reference-tools.test.js` |
 | `graphComplex` | 4 | `tests/graph-complex.test.js` |
 | `graphExamples` | 3 | `tests/reference-tools.test.js` |
@@ -242,7 +242,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `masteryBandOf` | 0 | `tests/progress.test.js` |
 | `masteryPicker` | 15 | `tests/mastery-picker.test.js` |
 | `masteryScopes` | 0 | `tests/progress.test.js` |
-| `masteryTrendText` | 0 | — |
+| `masteryTrendText` | 0 | `tests/feature-surfaces.test.js` |
 | `masteryWindowDays` | 0 | `tests/analytics-embed.test.js`, `tests/progress.test.js` |
 | `matchFilters` | 0 | `tests/uncited-groups.test.js` |
 | `matchSets` | 0 | `tests/filters.test.js` |
@@ -250,11 +250,11 @@ the table and fails if a group, export count, command or citing test drifts.
 | `mathRendering` | 9 | `tests/math-rendering.test.js` |
 | `matrix` | 22 | `tests/matrix.test.js` |
 | `memoryOf` | 0 | `tests/progress.test.js` |
-| `mergeAuth` | 0 | — |
+| `mergeAuth` | 0 | `tests/feature-surfaces.test.js` |
 | `mixedQuestionAttempt` | 0 | `tests/mixed-review.test.js` |
 | `mochiExport` | 5 | `tests/mochi-export.test.js` |
 | `modelDiscovery` | 4 | `tests/model-discovery.test.js` |
-| `modelFromString` | 0 | — |
+| `modelFromString` | 0 | `tests/feature-surfaces.test.js` |
 | `normalizeDailyCap` | 0 | `tests/due-queue.test.js` |
 | `normalizeExamReadyPasses` | 0 | `tests/uncited-groups.test.js` |
 | `noteContext` | 7 | `tests/note-context.test.js` |
@@ -277,7 +277,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `parseNote` | 0 | `tests/adaptive-parity.test.js`, `tests/empty-state.test.js`, `tests/hints.test.js`, `tests/import.test.js`, `tests/note-quiz-clipboard.test.js`, `tests/quick-add.test.js`, `tests/transcript.test.js` |
 | `parseScheduleBlock` | 0 | `tests/calendar.test.js` |
 | `parseSections` | 0 | `tests/grading.test.js`, `tests/hints.test.js`, `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/needs-fixing.test.js`, `tests/question-types.test.js`, `tests/views.test.js` |
-| `partsToTurns` | 0 | — |
+| `partsToTurns` | 0 | `tests/feature-surfaces.test.js` |
 | `pauseQuickSession` | 0 | `tests/uncited-groups.test.js` |
 | `pdf` | 17 | `tests/cards-import.test.js`, `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/study-modules-3.test.js` |
 | `pdfAnnotationIndex` | 7 | `tests/study-modules-3.test.js` |
@@ -289,7 +289,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `pdfInkModal` | 2 | `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-reader-page-ops.test.js` |
 | `pickQuestion` | 0 | `tests/mastery-picker.test.js`, `tests/study-status.test.js` |
 | `plainCards` | 6 | `tests/plain-cards.test.js` |
-| `platformTriple` | 0 | — |
+| `platformTriple` | 0 | `tests/feature-surfaces.test.js` |
 | `pomodoro` | 16 | `tests/pomodoro.test.js` |
 | `practiceFullscreen` | 6 | `tests/practice-fullscreen.test.js` |
 | `practiceKeys` | 1 | `tests/practice-keys.test.js` |
@@ -316,13 +316,13 @@ the table and fails if a group, export count, command or citing test drifts.
 | `reminder` | 6 | `tests/os-notifications.test.js`, `tests/reminder.test.js` |
 | `renameFolderInSettings` | 0 | `tests/filters.test.js` |
 | `renameFolderPath` | 0 | `tests/filters.test.js` |
-| `renderAssignmentsSettings` | 0 | — |
-| `renderDailySettings` | 0 | — |
+| `renderAssignmentsSettings` | 0 | `tests/feature-surfaces.test.js` |
+| `renderDailySettings` | 0 | `tests/feature-surfaces.test.js` |
 | `renderDashboardEmbed` | 0 | `tests/analytics-embed.test.js` |
 | `renderMarkdownInto` | 0 | `tests/math-rendering.test.js`, `tests/stem-diagrams.test.js` |
-| `renderReferenceSettings` | 0 | — |
+| `renderReferenceSettings` | 0 | `tests/feature-surfaces.test.js` |
 | `renderSettingsTabs` | 0 | `tests/calendar.test.js` |
-| `replaceMyNotes` | 0 | — |
+| `replaceMyNotes` | 0 | `tests/feature-surfaces.test.js` |
 | `resultsExport` | 12 | `tests/practice-sheet.test.js`, `tests/results-export.test.js` |
 | `resumeQuickSession` | 0 | `tests/uncited-groups.test.js` |
 | `reviewCalendar` | 15 | `tests/review-calendar.test.js` |
@@ -384,7 +384,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `vaultSearch` | 8 | `tests/vault-search.test.js` |
 | `vaultTaskIndex` | 9 | `tests/vault-task-index.test.js` |
 | `vectorField` | 14 | `tests/reference-advanced.test.js` |
-| `vectorPanel` | 7 | — |
+| `vectorPanel` | 7 | `tests/feature-surfaces.test.js` |
 | `voiceMemo` | 12 | `tests/voice-memo.test.js` |
 | `weakSpot` | 4 | `tests/weak-spot.test.js` |
 | `weakestRow` | 0 | `tests/stats.test.js` |
@@ -551,51 +551,13 @@ the table and fails if a group, export count, command or citing test drifts.
 | `add-fields-all` | Add missing tracking properties to all question notes | `addMissingFields` | `tests/command-effects.test.js` |
 | `repair-review-history` | Repair review counters from history | `repairReviewHistory` | `tests/history.test.js` |
 
-## Gaps (43 groups, 0 commands)
+## Gaps (3 groups, 0 commands)
 
 Each entry is implemented in the bundle but has no test that names it. They are listed
-rather than claimed as covered, with the reason it is not separately tested.
+rather than claimed as covered, with the reason it is not separately tested. A group that
+backs a README feature claim is not allowed here: `tests/capability-inventory.test.js`
+fails unless every uncited group is on its three-item plumbing allowlist.
 
-- module `AgentEditReviewModal` (0 exports) — plumbing: a UI shell its caller opens; the routing that opens it is asserted in `tests/command-effects.test.js`.
-- module `AssignmentModal` (0 exports) — plumbing: a UI shell its caller opens; the routing that opens it is asserted in `tests/command-effects.test.js`.
-- module `CalculationPreviewModal` (0 exports) — plumbing: a UI shell its caller opens; the routing that opens it is asserted in `tests/command-effects.test.js`.
-- module `CardExtractModal` (0 exports) — plumbing: a UI shell its caller opens; the routing that opens it is asserted in `tests/command-effects.test.js`.
-- module `DocumentReviewModal` (0 exports) — plumbing: a UI shell its caller opens; the routing that opens it is asserted in `tests/command-effects.test.js`.
-- module `DueQueueModal` (0 exports) — plumbing: a UI shell its caller opens; the routing that opens it is asserted in `tests/command-effects.test.js`.
-- module `FocusLogModal` (0 exports) — plumbing: a UI shell its caller opens; the routing that opens it is asserted in `tests/command-effects.test.js`.
-- module `LocalEventModal` (0 exports) — plumbing: a UI shell its caller opens; the routing that opens it is asserted in `tests/command-effects.test.js`.
-- module `MAX_OPENCODE_MAJOR` (0 exports) — plumbing: an internal helper reached only through a tested path.
-- module `NoteReviewDock` (0 exports) — plumbing: a UI shell its caller opens; the routing that opens it is asserted in `tests/command-effects.test.js`.
-- module `OcrModal` (0 exports) — plumbing: a UI shell its caller opens; the routing that opens it is asserted in `tests/command-effects.test.js`.
-- module `PdfAnnotationModal` (0 exports) — plumbing: a UI shell its caller opens; the routing that opens it is asserted in `tests/command-effects.test.js`.
-- module `QuestionTrackerSettingTab` (0 exports) — plumbing: a UI shell its caller opens; the routing that opens it is asserted in `tests/command-effects.test.js`.
-- module `QuickAddModal` (0 exports) — plumbing: a UI shell its caller opens; the routing that opens it is asserted in `tests/command-effects.test.js`.
-- module `SpacedEverythingCaptureModal` (0 exports) — plumbing: a UI shell its caller opens; the routing that opens it is asserted in `tests/command-effects.test.js`.
-- module `StudyStatusModal` (0 exports) — plumbing: a UI shell its caller opens; the routing that opens it is asserted in `tests/command-effects.test.js`.
-- module `TranscriptPracticeModal` (0 exports) — plumbing: a UI shell its caller opens; the routing that opens it is asserted in `tests/command-effects.test.js`.
-- module `WeakSpotModal` (0 exports) — plumbing: a UI shell its caller opens; the routing that opens it is asserted in `tests/command-effects.test.js`.
-- module `WelcomeModal` (0 exports) — plumbing: a UI shell its caller opens; the routing that opens it is asserted in `tests/command-effects.test.js`.
-- module `analyticsEmbed` (11 exports) — plumbing: an internal helper reached only through a tested path.
-- module `apiTurns` (0 exports) — plumbing: an internal helper reached only through a tested path.
-- module `buildGradeSnapshot` (0 exports) — plumbing: an internal helper reached only through a tested path.
-- module `buildQuickQueue` (0 exports) — plumbing: an internal helper reached only through a tested path.
-- module `candidateAssetNames` (0 exports) — plumbing: an internal helper reached only through a tested path.
-- module `createQuickSession` (0 exports) — plumbing: an internal helper reached only through a tested path.
-- module `downloadFile` (0 exports) — plumbing: an internal helper reached only through a tested path.
-- module `extractArchive` (0 exports) — plumbing: an internal helper reached only through a tested path.
-- module `fillDefaults` (0 exports) — plumbing: an internal helper reached only through a tested path.
-- module `findBinaryIn` (0 exports) — plumbing: an internal helper reached only through a tested path.
-- module `friendlyApiError` (0 exports) — plumbing: an internal helper reached only through a tested path.
-- module `friendlyError` (0 exports) — plumbing: an internal helper reached only through a tested path.
-- module `geometryPanel` (9 exports) — plumbing: a UI shell its caller opens; the routing that opens it is asserted in `tests/command-effects.test.js`.
-- module `graph3dPanel` (19 exports) — plumbing: a UI shell its caller opens; the routing that opens it is asserted in `tests/command-effects.test.js`.
-- module `masteryTrendText` (0 exports) — plumbing: an internal helper reached only through a tested path.
-- module `mergeAuth` (0 exports) — plumbing: an internal helper reached only through a tested path.
-- module `modelFromString` (0 exports) — plumbing: an internal helper reached only through a tested path.
-- module `partsToTurns` (0 exports) — plumbing: an internal helper reached only through a tested path.
-- module `platformTriple` (0 exports) — plumbing: an internal helper reached only through a tested path.
-- module `renderAssignmentsSettings` (0 exports) — plumbing: an internal helper reached only through a tested path.
-- module `renderDailySettings` (0 exports) — plumbing: an internal helper reached only through a tested path.
-- module `renderReferenceSettings` (0 exports) — plumbing: an internal helper reached only through a tested path.
-- module `replaceMyNotes` (0 exports) — plumbing: an internal helper reached only through a tested path.
-- module `vectorPanel` (7 exports) — plumbing: a UI shell its caller opens; the routing that opens it is asserted in `tests/command-effects.test.js`.
+- module `downloadFile` (0 exports) — plumbing: wraps `requestUrl` and the vault write for the installer — its only effect is bytes reaching disk.
+- module `extractArchive` (0 exports) — plumbing: unpacks an already-downloaded archive into a temp directory; it keeps no state of its own.
+- module `findBinaryIn` (0 exports) — plumbing: probes candidate paths for an already-installed binary and returns the first that exists.

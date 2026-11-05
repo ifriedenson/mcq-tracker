@@ -141,7 +141,7 @@ const obsidian = {
       return this;
     }
     addToggle(cb) {
-      cb({ setValue() { return this; }, onChange() { return this; } });
+      cb({ setValue() { return this; }, setDisabled() { return this; }, onChange() { return this; } });
       return this;
     }
     addDropdown(cb) {
@@ -156,8 +156,12 @@ const obsidian = {
       cb({ setPlaceholder() { return this; }, setValue() { return this; }, onChange() { return this; } });
       return this;
     }
+    addExtraButton(cb) {
+      cb({ setIcon() { return this; }, setTooltip() { return this; }, onClick() { return this; } });
+      return this;
+    }
     addButton(cb) {
-      cb({ setButtonText() { return this; }, onClick() { return this; } });
+      cb({ setButtonText() { return this; }, setCta() { return this; }, setWarning() { return this; }, setIcon() { return this; }, setDisabled() { return this; }, addExtraButton(cb) { cb({ setIcon() { return this; }, onClick() { return this; } }); return this; }, onClick() { return this; } });
       return this;
     }
   },

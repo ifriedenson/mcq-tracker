@@ -47,6 +47,16 @@ const gapText = section(doc.match(/^## Gaps \(\d+ groups, \d+ commands\)$/m) ? d
 
 const cites = (group) => testFiles.filter((f) => testText[f].includes("T." + group));
 
+/**
+ * The only groups allowed to stay uncited. Each is an internal helper whose whole job
+ * is to move bytes or talk to the filesystem, so a test cannot assert a user-visible
+ * effect without re-implementing the boundary it wraps. A modal, dock, settings
+ * renderer, panel or feature helper is never plumbing: the test below fails if any
+ * group outside this list has no citing test, so advertising a feature without a
+ * proving test cannot be papered over with a reason string.
+ */
+const PLUMBING = ["downloadFile", "extractArchive", "findBinaryIn"];
+
 /** The callback a command row delegates to, read from the table itself. */
 function commandCallback(id) {
   const row = commandRows.find((line) => backticked(tableCells(line)[0])[0] === id);
@@ -133,6 +143,18 @@ test("the gaps section lists exactly the uncited groups, each with a reason, and
   assert.ok(header, "the gaps heading carries its counts");
   assert.equal(Number(header[1]), uncitedGroups.length, "the group gap count matches");
   assert.equal(Number(header[2]), uncitedCommands.length, "the command gap count matches");
+});
+
+test("only the named internal helpers may stay uncited", () => {
+  const uncited = Object.keys(T).sort().filter((group) => !cites(group).length);
+  const unexpected = uncited.filter((group) => !PLUMBING.includes(group));
+  assert.deepEqual(
+    unexpected,
+    [],
+    `these groups back user-visible behaviour and need a test that constructs them: ${unexpected.join(", ")}`
+  );
+  const stale = PLUMBING.filter((group) => !uncited.includes(group));
+  assert.deepEqual(stale, [], `these allowlisted helpers now have a citing test and must leave the allowlist: ${stale.join(", ")}`);
 });
 
 test("the summary counts match the tables", () => {
