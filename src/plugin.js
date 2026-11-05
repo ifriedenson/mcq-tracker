@@ -9904,6 +9904,9 @@ ${body}
     if (id === "next-cell" || id === "previous-cell" || id === "next-row") return Promise.resolve(this.moveTableCell(context, id));
     const at = tableEditor.cellAtLine(context.text, line, ch);
     if (!at) {
+      // Upstream's cursorIsInTableFormula offers evaluate-formulas on the TBLFM
+      // line, where there is no cell; the table is still the one above it.
+      if (id === "formulas") return this.updateTableFormulas(context.path, start, context.table);
       const message = "Put the cursor in one of the table rows first.";
       new Notice(message);
       return Promise.resolve({ ok: false, reason: "not-row", message });

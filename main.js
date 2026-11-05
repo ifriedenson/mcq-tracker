@@ -67442,6 +67442,9 @@ ${body}
     if (id === "next-cell" || id === "previous-cell" || id === "next-row") return Promise.resolve(this.moveTableCell(context, id));
     const at = tableEditor.cellAtLine(context.text, line, ch);
     if (!at) {
+      // Upstream's cursorIsInTableFormula offers evaluate-formulas on the TBLFM
+      // line, where there is no cell; the table is still the one above it.
+      if (id === "formulas") return this.updateTableFormulas(context.path, start, context.table);
       const message = "Put the cursor in one of the table rows first.";
       new Notice(message);
       return Promise.resolve({ ok: false, reason: "not-row", message });
@@ -101422,7 +101425,8 @@ function structureTable(table, action, row, column) {
   } else if (action === "row-insert-above") {
     if (!hasRow) return { ok: false, reason: "row", message: "That table row is no longer available." };
     if (rowCount >= MAX_TABLE_ROWS) return { ok: false, reason: "limit", message: `A table cannot have more than ${MAX_TABLE_ROWS} rows.` };
-    rows.splice(row, 0, new Array(columns).fill(""));
+    const at = row === 0 ? 1 : row;
+    rows.splice(at, 0, new Array(columns).fill(""));
   } else if (action === "column-insert-left") {
     if (!hasColumn) return { ok: false, reason: "column", message: "That table column is no longer available." };
     if (columns >= MAX_TABLE_COLUMNS) return { ok: false, reason: "limit", message: `A table cannot have more than ${MAX_TABLE_COLUMNS} columns.` };
@@ -101657,31 +101661,38 @@ function sortTable(table, column, direction) {
   if (table.rows.length < 2) {
     return { ok: false, reason: "no-rows", message: "A table needs at least one body row to sort." };
   }
-  const body = table.rows.slice(1).map((cells, index) => ({ cells, index, value: cells[column] || "" }));
-  if (!body.some((entry) => text(entry.value).trim() !== "")) {
+  const valueAt = (cells) => text(cells[column] || "");
+  const body = table.rows.slice(1).map((cells) => cells.slice());
+  if (!body.some((cells) => valueAt(cells) !== "")) {
     return { ok: false, reason: "empty", message: "This column has no values to sort." };
   }
-  body.sort((a, b) => {
-    const aBlank = text(a.value).trim() === "";
-    const bBlank = text(b.value).trim() === "";
-    if (aBlank !== bBlank) {
-      // Upstream treats an empty cell as the smallest value, so blanks lead an
-      // ascending sort and trail a descending one. Equal values keep source order.
-      const blankFirst = aBlank ? -1 : 1;
-      return direction === "asc" ? blankFirst : -blankFirst;
-    }
-    if (aBlank) return a.index - b.index;
-    const aNumber = sortableNumber(a.value);
-    const bNumber = sortableNumber(b.value);
-    let result = 0;
-    if (aNumber !== null && bNumber !== null) result = aNumber - bNumber;
-    else if (aNumber !== null) result = -1;
-    else if (bNumber !== null) result = 1;
-    else result = text(a.value).trim().localeCompare(text(b.value).trim(), undefined, { sensitivity: "base" });
-    if (result !== 0) result = direction === "asc" ? result : -result;
-    return result !== 0 ? result : a.index - b.index;
+  // Upstream decides numeric vs text once for the whole column, then strips
+  // Markdown emphasis from text cells and compares them case-sensitively.
+  const isNumber = (value) => /^\s*[-+]?((\d+(\.\d+)?)|(\d+\.)|(\.\d+))([eE][-+]?\d+)?\s*$/.test(value);
+  const notAllNums = body.some((cells) => {
+    const value = valueAt(cells);
+    return value !== "" && !isNumber(value);
   });
-  const rows = [table.rows[0].slice(), ...body.map((entry) => entry.cells.slice())];
+  body.sort((a, b) => {
+    const left = valueAt(a);
+    const right = valueAt(b);
+    if (left === "") return right === "" ? 0 : -1;
+    if (right === "") return 1;
+    if (notAllNums) {
+      const leftText = left.replace(/[*~_$]/g, "");
+      const rightText = right.replace(/[*~_$]/g, "");
+      if (leftText === rightText) return 0;
+      return leftText < rightText ? -1 : 1;
+    }
+    const leftNumber = parseFloat(left);
+    const rightNumber = parseFloat(right);
+    if (leftNumber === rightNumber) return 0;
+    return leftNumber < rightNumber ? -1 : 1;
+  });
+  // Upstream reverses the ascending result for a descending sort, so ties flip
+  // too and blanks trail a descending table.
+  if (direction === "desc") body.reverse();
+  const rows = [table.rows[0].slice(), ...body];
   const changed = rows.some((row, rowIndex) => row.some((value, columnIndex) => value !== table.rows[rowIndex][columnIndex]));
   return { ok: true, changed, table: { ...table, rows, header: rows[0].slice() } };
 }
@@ -101921,12 +101932,20 @@ function isFormulaLine(line) {
   return /^\s*(?:<!--\s*TBLFM:|#\+TBLFM:)/i.test(text(line));
 }
 
+/** Upstream's acceptsTableEdit ignores a table written under a `-tx-` marker. */
+function tableEditBlocked(markdown, table) {
+  if (!table || !Number.isInteger(table.start) || table.start < 1) return false;
+  const lines = text(markdown).split(/\r?\n/);
+  return lines[table.start - 1] === "-tx-";
+}
+
 /** The table whose lines, or attached TBLFM comments, cover a zero-based line. */
 function tableAtLine(markdown, line) {
   if (!Number.isInteger(line) || line < 0) return null;
   const source = text(markdown);
   const lines = source.split(/\r?\n/);
   for (const table of parseTables(source)) {
+    if (tableEditBlocked(source, table)) continue;
     if (line >= table.start && line <= table.end) return table;
     for (let i = table.end + 1; i < lines.length && i <= table.end + 4; i += 1) {
       if (!isFormulaLine(lines[i])) break;
@@ -102202,8 +102221,10 @@ function formatTableAt(markdown, line, options) {
 /** Re-renders every table in the note, from the bottom so line numbers stay valid. */
 function formatAllTables(markdown, options) {
   const source = text(markdown);
-  const tables = parseTables(source);
-  if (!tables.length) return { ok: false, reason: "none", message: "This note has no tables to format." };
+  const allTables = parseTables(source);
+  if (!allTables.length) return { ok: false, reason: "none", message: "This note has no tables to format." };
+  const tables = allTables.filter((table) => !tableEditBlocked(source, table));
+  if (!tables.length) return { ok: true, text: source, changed: false, tables: 0, skipped: allTables.length };
   let next = source;
   for (let index = tables.length - 1; index >= 0; index -= 1) {
     next = tableBlockUpdate(next, tables[index], tables[index], options).text;
@@ -102219,7 +102240,11 @@ function tableCsvFromTable(table, options) {
   const includeHeader = !(options && options.header === false);
   const delimiter = options && options.delimiter === "\t" ? "\t" : ",";
   const rows = includeHeader ? table.rows : table.rows.slice(1);
-  const csv = rows.map((row) => row.map((cell) => tableFormulas.csvCell(cell, delimiter)).join(delimiter)).join("\n") + "\n";
+  // Upstream's exportCSV joins raw cell text with tabs; comma output keeps our quoting
+  // and formula-injection guard because it is our own extension.
+  const csv = rows
+    .map((row) => row.map((cell) => (delimiter === "\t" ? text(cell) : tableFormulas.csvCell(cell, delimiter))).join(delimiter))
+    .join("\n") + "\n";
   return { ok: true, csv, header: includeHeader, delimiter };
 }
 

@@ -804,7 +804,7 @@ test("table sorting orders text case-insensitively and keeps ties stable", () =>
   const tieAsc = editor.updateTableSort(tieSource, 0, tieTable, 1, "asc");
   assert.deepEqual(editor.parseTables(tieAsc.text)[0].rows.slice(1).map((row) => row[0]), ["E", "B", "D", "A", "C"], "upstream treats the blank cell as the smallest value");
   const tieDesc = editor.updateTableSort(tieSource, 0, tieTable, 1, "desc");
-  assert.deepEqual(editor.parseTables(tieDesc.text)[0].rows.slice(1).map((row) => row[0]), ["A", "C", "B", "D", "E"]);
+  assert.deepEqual(editor.parseTables(tieDesc.text)[0].rows.slice(1).map((row) => row[0]), ["C", "A", "D", "B", "E"], "upstream reverses the ascending result, so ties flip and blanks trail");
 });
 
 test("sorting preserves CRLF and TBLFM comments immediately after the table", () => {
@@ -1217,7 +1217,7 @@ test("CSV export can join cells with tabs, as upstream does", () => {
   const tabs = editor.tableCsvFromTable(table, { delimiter: "\t" });
   assert.equal(tabs.ok, true);
   assert.equal(tabs.delimiter, "\t");
-  assert.equal(tabs.csv, "A\tB\n1\tx,y\n2\t\"say \"\"hi\"\"\"\n", "a comma needs no quoting, a quote does");
+  assert.equal(tabs.csv, "A\tB\n1\tx,y\n2\tsay \"hi\"\n", "upstream joins raw cell text with tabs and never quotes");
   const comma = editor.tableCsvFromTable(table);
   assert.equal(comma.csv.split("\n")[1], "1,\"x,y\"");
   const noHeader = editor.tableCsvFromTable(table, { header: false, delimiter: "\t" });

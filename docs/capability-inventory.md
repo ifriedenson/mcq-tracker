@@ -371,7 +371,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `svgSafety` | 1 | `tests/security-hardening.test.js`, `tests/security-inventory.test.js` |
 | `tableControls` | 2 | `tests/table-commands.test.js` |
 | `tableCsvModal` | 1 | `tests/table-commands.test.js` |
-| `tableEditor` | 59 | `tests/table-commands.test.js`, `tests/table-editor.test.js` |
+| `tableEditor` | 59 | `tests/advanced-tables-upstream.test.js`, `tests/table-commands.test.js`, `tests/table-editor.test.js` |
 | `tagTimer` | 26 | `tests/tag-timer.test.js` |
 | `tally` | 15 | `tests/tally.test.js` |
 | `taskTags` | 5 | `tests/task-tags.test.js` |

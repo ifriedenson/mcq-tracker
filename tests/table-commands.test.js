@@ -81,8 +81,9 @@ test("insert row above and insert column left keep the table rectangular", () =>
   assert.equal(left.table.rows.every((row) => row.length === 3), true);
 
   const header = editor.structureTable(table, "row-insert-above", 0, 0);
-  assert.deepEqual(header.table.rows[0], ["", ""], "a new row above row 0 becomes the header");
-  assert.deepEqual(header.table.rows[1], ["Term", "Meaning"]);
+  assert.deepEqual(header.table.rows[0], ["Term", "Meaning"], "the header stays first, as upstream's insertRow keeps it");
+  assert.deepEqual(header.table.rows[1], ["", ""], "a header-row insert becomes the first body row");
+  assert.deepEqual(header.table.rows[2], ["ATP", "Energy"]);
 
   assert.equal(editor.structureTable(table, "row-insert-above", 9, 0).ok, false);
   assert.equal(editor.structureTable(table, "column-insert-left", 1, 9).ok, false);
