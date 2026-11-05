@@ -69,7 +69,7 @@ or a licence/security rule deliberately excludes it.
 
 | Plugin | Status | What exists / what is missing |
 |---|---|---|
-| **Advanced Tables** | Covered | **1.234.0–1.260.0 cover the plugin's whole feature set:** in-place cell editing with Tab/Shift+Tab/Enter/Alt+Arrow navigation, row and column insert (above and below, left and right), delete and move, bold/italic/code/strikethrough, left/center/right/default alignment, body-row sorting in both directions, formula evaluation, CSV export with an optional header row, CSV/TSV import, transposing, a header toggle and a size readout. **1.260.0** adds the parts that used to exist only in the reading-view toolbar: 24 **Tables:** commands plus format-table, format-all-tables, next/previous cell, next row and move-cursor-out, a docked controls panel with a ribbon button, and settings for the Tab/Enter bindings, space padding and the ribbon button. Two differences are deliberate: formulas use the note's `TBLFM` comment syntax rather than `md-advanced-tables`' formula language, and Tab/Enter are handled in the rendered table and offered as editor commands instead of a CodeMirror keymap. Merged cells remain out of scope pending the owner's choice. |
+| **Advanced Tables** | Covered | **1.234.0–1.260.0 cover the plugin's whole feature set:** in-place cell editing with Tab/Shift+Tab/Enter/Alt+Arrow navigation, row and column insert (above and below, left and right), delete and move, bold/italic/code/strikethrough, left/center/right/default alignment, body-row sorting in both directions, formula evaluation, CSV export with an optional header row, CSV/TSV import, transposing, a header toggle and a size readout. **1.260.0** adds the parts that used to exist only in the reading-view toolbar: 24 **Tables:** commands plus format-table, format-all-tables, next/previous cell, next row and move-cursor-out, a docked controls panel with a ribbon button, and settings for the Tab/Enter bindings, space padding and the ribbon button. **1.261.0** closes the last two behaviour gaps: the evaluator reproduces upstream's documented formula examples (`;dt`, `;hm`, datetime and duration cells, `#+TBLFM:`, and a row-to-column range refused as upstream refuses it), with the existing `<!-- TBLFM: … -->` comment kept as the canonical form so current documents are unchanged, and Tab/Shift+Tab/Enter/Shift+Enter now navigate cells and rows inside a table in the Markdown source editor, gated by the same two settings. Merged cells remain out of scope pending the owner's choice. |
 | **Annotator** | Partial | PDF annotation index, PDF reader, ink, text marks, tags, annotation sidecar and the PDF editor cover PDF study. EPUB annotation is not an MCQ feature. |
 | **Code Runner** | Boundary | The plan's §11 security gate prohibits in-plugin code execution; no sandbox or language allow-list has been approved. No runner, Pyodide, shell or language runtime was added. |
 | **Copilot** | Boundary / Covered workflow | Copilot is AGPL-3.0, so its code cannot be copied into this MIT plugin. The original Study agent already provides note-grounded chat, local retrieval, provider selection, write review and undo. |
@@ -110,3 +110,25 @@ or a licence/security rule deliberately excludes it.
    full-data import instead of a bundled database.
 
 No plugin source, styles or data were copied for 1.239.0 or 1.240.0.
+
+## Advanced Tables, feature by feature
+
+One row per feature the upstream plugin and its library document, and what this
+plugin does for it. The formula rows are proved by
+`tests/table-formulas-upstream.test.js`, which runs the examples from
+upstream's own formula guide and compares the resulting table rows; the key rows
+are proved by the source-editor tests in `tests/table-commands.test.js`.
+
+| Upstream feature | Here | Status |
+|---|---|---|
+| Auto formatting | **Tables: format the table under the cursor** and **format every table in this note**, plus the **Pad cell width using spaces** setting; both re-render through `renderTable`, padding columns and keeping a valid delimiter row. | Matches |
+| Excel-like navigation (Tab, Shift+Tab, Enter between cells and rows) | In the Markdown source editor: Tab/Shift+Tab and Enter/Shift+Enter, gated by the two settings below, with Shift+Enter leaving the table from the header. In the rendered reading-view table: the same keys plus Alt+Arrow and Esc. On mobile: the **Tables:** commands and the docked panel. | Matches |
+| Spreadsheet formulas | `TBLFM` comments using upstream's references (`@1`, `$2`, `@<`/`@>`, `@I`, `@-1`, `$+2`), ranges (`@I..@-1`, `@2$2..@5$3`), arithmetic, comparisons, `if`, `sum`/`mean`/`count`/`min`/`max`, `round`/`abs`/`sqrt`, chaining with `::` and multiple lines, `;%.2f`, `;%d`, `;dt` and `;hm`, datetime and duration cells, and the `#+TBLFM:` line form. A row-to-column range is refused, as upstream documents. | Matches |
+| Add, remove and move columns and rows | Insert above and below, insert left and right, delete, and move in either direction, from the toolbar, the **Tables:** commands and the docked panel; the header cannot be deleted or moved and edge moves refuse. | Matches |
+| Column alignment (left, center, right) | Left, center, right and default, from the toolbar and commands; stored in the delimiter row. | Matches |
+| Sort rows by a specified column | Ascending and descending body-row sorting on the cursor's column, header fixed, numbers before text, blanks last, equal values stable. | Matches |
+| Export to CSV | **Tables: export as CSV** with an **Include table headers** switch, and one-step **CSV** copy from the toolbar; quoting, escaped pipes and formula-injection protection. | Matches |
+| Table controls sidebar | A docked **Advanced Tables** panel with Align, Move, Edit, Sort and formulas, and More groups, opened by a ribbon button or **Tables: open the table controls panel**. | Matches |
+| Command palette entries | 26 `Tables:` commands covering navigation, insertion, deletion, movement, alignment, sorting, formatting, formulas, CSV, transpose and the panel. | Matches |
+| Settings for padding, Tab and Enter, ribbon | **Pad cell width using spaces**, **Bind Tab to cell navigation**, **Bind Enter to row navigation** and **Show the table controls button** on the **Advanced Tables** settings page, beside the module switch. | Matches |
+| Works on Obsidian Mobile | The **Tables:** commands and docked panel need no physical Tab or keyboard, and the reading-view toolbar is always visible on touch. | Matches |

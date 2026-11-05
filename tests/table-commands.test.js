@@ -333,3 +333,124 @@ test("the docked panel draws every group and its buttons act on the table", asyn
   const parsed = editor.parseTables(ed.getValue())[0];
   assert.equal(parsed.columns, 1, "the panel's button deleted a column");
 });
+
+/* ---- source editor: Tab / Shift+Tab / Enter / Shift+Enter ---- */
+
+function keyEvent(key, shiftKey, kind) {
+  const inEditor = kind !== "outside";
+  return {
+    key,
+    shiftKey: shiftKey === true,
+    prevented: false,
+    stopped: false,
+    target: {
+      closest(selector) {
+        if (!inEditor) return null;
+        if (selector === ".cm-editor") return {};
+        if (selector === "td" || selector === "th") return kind === "cell" ? {} : null;
+        return null;
+      },
+    },
+    preventDefault() {
+      this.prevented = true;
+    },
+    stopPropagation() {
+      this.stopped = true;
+    },
+  };
+}
+
+async function keyPlugin(patch) {
+  const harness = await tablePlugin(NOTE, { line: 4, ch: 0 });
+  harness.plugin.settings.tableEditor = {
+    ...editor.normalizeTableEditorSettings({ enabled: true }),
+    ...(patch || {}),
+  };
+  return harness;
+}
+
+test("Tab moves to the next cell in the source editor", async () => {
+  const { plugin, editor: ed } = await keyPlugin();
+  const event = keyEvent("Tab");
+  assert.equal(plugin.onTableEditorKeydown(event), true);
+  assert.equal(event.prevented, true);
+  assert.equal(event.stopped, true);
+  const spans = editor.rowCellSpans(ed.getLine(4));
+  assert.deepEqual(ed.getCursor(), { line: 4, ch: spans[1].start });
+});
+
+test("Shift+Tab moves to the previous cell and Enter to the next row", async () => {
+  const { plugin, editor: ed } = await keyPlugin();
+  const spans = editor.rowCellSpans(ed.getLine(4));
+  ed.setCursor({ line: 4, ch: spans[1].start });
+  const back = keyEvent("Tab", true);
+  assert.equal(plugin.onTableEditorKeydown(back), true);
+  assert.deepEqual(ed.getCursor(), { line: 4, ch: spans[0].start });
+  const down = keyEvent("Enter");
+  assert.equal(plugin.onTableEditorKeydown(down), true);
+  const nextSpans = editor.rowCellSpans(ed.getLine(5));
+  assert.deepEqual(ed.getCursor(), { line: 5, ch: nextSpans[0].start });
+});
+
+test("Shift+Enter moves up a row and escapes from the header row", async () => {
+  const { plugin, editor: ed } = await keyPlugin();
+  ed.setCursor({ line: 5, ch: 0 });
+  const up = keyEvent("Enter", true);
+  assert.equal(plugin.onTableEditorKeydown(up), true);
+  assert.equal(ed.getCursor().line, 4);
+  ed.setCursor({ line: 2, ch: 0 });
+  const escape = keyEvent("Enter", true);
+  assert.equal(plugin.onTableEditorKeydown(escape), true);
+  assert.equal(escape.prevented, true);
+  assert.equal(ed.getCursor().line, 6);
+});
+
+test("the Tab and Enter settings turn their keys off without touching the editor", async () => {
+  const offTab = await keyPlugin({ bindTab: false });
+  const tab = keyEvent("Tab");
+  assert.equal(offTab.plugin.onTableEditorKeydown(tab), false);
+  assert.equal(tab.prevented, false);
+  assert.deepEqual(offTab.editor.getCursor(), { line: 4, ch: 0 });
+
+  const offEnter = await keyPlugin({ bindEnter: false });
+  const enter = keyEvent("Enter");
+  assert.equal(offEnter.plugin.onTableEditorKeydown(enter), false);
+  assert.equal(enter.prevented, false);
+  assert.deepEqual(offEnter.editor.getCursor(), { line: 4, ch: 0 });
+});
+
+test("the module switch and a cursor outside a table leave the keys alone", async () => {
+  const disabled = await keyPlugin({ enabled: false });
+  const event = keyEvent("Tab");
+  assert.equal(disabled.plugin.onTableEditorKeydown(event), false);
+  assert.equal(event.prevented, false);
+
+  const outside = await keyPlugin();
+  outside.editor.setCursor({ line: 0, ch: 0 });
+  const plain = keyEvent("Tab");
+  assert.equal(outside.plugin.onTableEditorKeydown(plain), false);
+  assert.equal(plain.prevented, false);
+  assert.deepEqual(outside.editor.getCursor(), { line: 0, ch: 0 });
+});
+
+test("a rendered table cell or a target outside the editor is not handled here", async () => {
+  const { plugin } = await keyPlugin();
+  assert.equal(plugin.onTableEditorKeydown(keyEvent("Tab", false, "cell")), false);
+  assert.equal(plugin.onTableEditorKeydown(keyEvent("Tab", false, "outside")), false);
+});
+
+test("navigation keeps the cursor on cells with escaped pipes and wide characters", () => {
+  const piped = "| Name | Value |\n| --- | --- |\n| a \\| b | c |";
+  const first = editor.nextCellTarget(piped, 2, 1);
+  const spans = editor.rowCellSpans(piped.split("\n")[2]);
+  assert.equal(first.ok, true);
+  assert.equal(first.ch, spans[1].start);
+  assert.equal(editor.previousCellTarget(piped, 2, first.ch).ch, spans[0].start);
+
+  const wide = "| 名前 | 値 |\n| --- | --- |\n| あ | い |";
+  const next = editor.nextCellTarget(wide, 2, 1);
+  const wideSpans = editor.rowCellSpans(wide.split("\n")[2]);
+  assert.equal(next.ok, true);
+  assert.equal(next.ch, wideSpans[1].start);
+  assert.equal(wide.split("\n")[2].slice(next.ch).trim(), "い |");
+});

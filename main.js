@@ -57903,6 +57903,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerEvent(this.app.metadataCache.on("changed", () => this.refreshNoteReviewDock()));
     if (typeof activeDocument !== "undefined" && activeDocument) {
       this.registerDomEvent(activeDocument, "keydown", (event) => this.noteReviewDock.onKey(event));
+      this.registerDomEvent(activeDocument, "keydown", (event) => this.onTableEditorKeydown(event), true);
     }
     this.ribbonButtons = {};
     this.ribbonAdded = {};
@@ -67423,6 +67424,71 @@ ${body}
     if (id === "transpose") return this.updateTableTranspose(context.path, start, context.table);
     if (id === "formulas") return this.updateTableFormulas(context.path, start, context.table);
     return Promise.resolve({ ok: false, reason: "action", message: "Unknown table action." });
+  }
+
+  /**
+   * Tab, Shift+Tab, Enter and Shift+Enter inside a Markdown source-editor table.
+   *
+   * Runs in the capture phase, before CodeMirror's own Tab handling, so the
+   * same keys indent and split lines normally when the cursor is outside a
+   * table or the matching setting is off. Rendered reading-view cells keep
+   * their own handler, so a target inside a `td`/`th` is left alone.
+   */
+  onTableEditorKeydown(event) {
+    if (!event || event.defaultPrevented === true) return false;
+    const settings = this.tableEditorSettings();
+    if (!settings.enabled) return false;
+    const key = str(event.key);
+    if (key !== "Tab" && key !== "Enter") return false;
+    if (event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return false;
+    if (key === "Tab" && settings.bindTab === false) return false;
+    if (key === "Enter" && settings.bindEnter === false) return false;
+    const target = event.target;
+    if (!target || typeof target.closest !== "function") return false;
+    if (!target.closest(".cm-editor")) return false;
+    if (target.closest("td") || target.closest("th")) return false;
+    const context = this.activeEditorContext();
+    if (!context) return false;
+    const editor = context.editor;
+    if (typeof editor.getCursor !== "function") return false;
+    if (typeof editor.somethingSelected === "function" && editor.somethingSelected()) return false;
+    const cursor = editor.getCursor();
+    if (!cursor || !Number.isInteger(cursor.line)) return false;
+    if (!tableEditor.tableAtLine(context.text, cursor.line)) return false;
+    const ch = Number.isInteger(cursor.ch) ? cursor.ch : 0;
+    const shifted = event.shiftKey === true;
+    let move;
+    if (key === "Tab") {
+      move = shifted
+        ? tableEditor.previousCellTarget(context.text, cursor.line, ch)
+        : tableEditor.nextCellTarget(context.text, cursor.line, ch);
+    } else if (shifted) {
+      move = tableEditor.previousRowTarget(context.text, cursor.line, ch);
+      if (!move.ok) {
+        event.preventDefault();
+        if (typeof event.stopPropagation === "function") event.stopPropagation();
+        this.escapeTable({ ...context, cursor });
+        return true;
+      }
+    } else {
+      move = tableEditor.nextRowTarget(context.text, cursor.line, ch);
+    }
+    if (!move || !move.ok) return false;
+    let appended = null;
+    if (move.append) {
+      appended = tableEditor.appendTableRow(context.text, cursor.line);
+      if (!appended.ok) return false;
+    }
+    event.preventDefault();
+    if (typeof event.stopPropagation === "function") event.stopPropagation();
+    if (!appended) {
+      if (typeof editor.setCursor === "function") editor.setCursor({ line: move.line, ch: move.ch });
+      return true;
+    }
+    Promise.resolve(this.writeTableResult(context, appended)).then(() => {
+      if (typeof editor.setCursor === "function") editor.setCursor({ line: appended.rowLine, ch: appended.column || 0 });
+    });
+    return true;
   }
 
   /** Tab, Shift+Tab and Enter inside the source editor; adds a row at the end. */
@@ -101704,7 +101770,7 @@ function toggleHeaderRow(table) {
 
 /** True when a line is a TBLFM comment attached to the table above it. */
 function isFormulaLine(line) {
-  return /^\s*TBLFM:/.test(text(line));
+  return /^\s*(?:<!--\s*TBLFM:|#\+TBLFM:)/i.test(text(line));
 }
 
 /** The table whose lines, or attached TBLFM comments, cover a zero-based line. */
@@ -101849,6 +101915,19 @@ function nextRowTarget(markdown, line, ch) {
     return { ok: true, line: targetLine, ch: target ? target.start : 0 };
   }
   return { ok: true, append: true, table: at.table, row: at.row, column: at.column, line, ch };
+}
+
+/** Same column on the previous row. */
+function previousRowTarget(markdown, line, ch) {
+  const source = text(markdown);
+  const at = cellAtLine(source, line, ch);
+  if (!at) return { ok: false, reason: "not-table", message: "The cursor is not in a table." };
+  if (at.row <= 0) return { ok: false, reason: "boundary", message: "The cursor is already in the first row." };
+  const lines = source.split(/\r?\n/);
+  const targetLine = tableRowLine(at.table, at.row - 1);
+  const spans = rowCellSpans(lines[targetLine]);
+  const target = spans[Math.min(at.column, Math.max(0, spans.length - 1))];
+  return { ok: true, line: targetLine, ch: target ? target.start : 0 };
 }
 
 /** The line just after the table (and its TBLFM comments), adding one if needed. */
@@ -102541,6 +102620,7 @@ module.exports = {
   parseTableBlock,
   parseTables,
   previousCellTarget,
+  previousRowTarget,
   renderTable,
   rowCellSpans,
   renderedHeader,
@@ -102581,7 +102661,7 @@ __defs["table-formulas"] = function (module, exports, require) {
  * uses eval, Function, a DOM or an Obsidian API.
  */
 
-const FORMULA_COMMENT = /^\s*<!--\s*TBLFM:\s*(.*?)\s*-->\s*$/i;
+const FORMULA_COMMENT = /^\s*(?:<!--\s*TBLFM:\s*(.*?)\s*-->|#\+TBLFM:\s*(.*?))\s*$/i;
 const MAX_FORMULA_LENGTH = 4000;
 const MAX_FORMULAS = 100;
 const MAX_RANGE_CELLS = 100000;
@@ -102612,11 +102692,63 @@ function unescapePipes(value) {
   return text(value).replace(/\\\|/g, "|");
 }
 
+const DATETIME_PATTERN = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/;
+const DURATION_PATTERN = /^([+-])?(\d{1,5}):([0-5]\d)(?::([0-5]\d))?$/;
+
+/** A datetime cell (`2023-07-12 10:00`) in milliseconds, read in local time. */
+function parseDateTime(raw) {
+  const match = DATETIME_PATTERN.exec(raw);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hours = Number(match[4] || 0);
+  const minutes = Number(match[5] || 0);
+  const seconds = Number(match[6] || 0);
+  if (month < 1 || month > 12 || day < 1 || day > 31 || hours > 23 || minutes > 59 || seconds > 59) return null;
+  const date = new Date(year, month - 1, day, hours, minutes, seconds, 0);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+  return date.getTime();
+}
+
+/** A duration cell (`02:10`, also a time of day such as `09:00`) in milliseconds. */
+function parseDuration(raw) {
+  const match = DURATION_PATTERN.exec(raw);
+  if (!match) return null;
+  const sign = match[1] === "-" ? -1 : 1;
+  const milliseconds = ((Number(match[2]) * 60 + Number(match[3])) * 60 + Number(match[4] || 0)) * 1000;
+  return sign * milliseconds;
+}
+
+/** Numbers, `YYYY-MM-DD HH:mm` datetimes and `hh:mm` durations, as milliseconds. */
 function numeric(value) {
   const raw = unescapePipes(value).trim();
   if (!raw) return 0;
   const number = Number(raw);
-  return Number.isFinite(number) ? number : NaN;
+  if (Number.isFinite(number)) return number;
+  const datetime = parseDateTime(raw);
+  if (datetime !== null) return datetime;
+  const duration = parseDuration(raw);
+  return duration === null ? NaN : duration;
+}
+
+function pad2(value) {
+  return String(value).padStart(2, "0");
+}
+
+/** `YYYY-MM-DD HH:mm` in local time, the shape upstream's `;dt` prints. */
+function formatDateTime(milliseconds) {
+  const date = new Date(milliseconds);
+  if (!Number.isFinite(date.getTime())) throw new Error("The result is not a datetime.");
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+}
+
+/** A signed `hh:mm` duration, the shape upstream's `;hm` prints. */
+function formatDuration(milliseconds) {
+  if (!Number.isFinite(milliseconds)) throw new Error("The result is not a duration.");
+  const sign = milliseconds < 0 ? "-" : "";
+  const minutes = Math.round(Math.abs(milliseconds) / 60000);
+  return `${sign}${pad2(Math.floor(minutes / 60))}:${pad2(minutes % 60)}`;
 }
 
 function formatNumber(value) {
@@ -102672,7 +102804,7 @@ function parseTableFormulas(lines, table) {
   while (index < lines.length) {
     const match = FORMULA_COMMENT.exec(lines[index]);
     if (!match) break;
-    const body = text(match[1]).trim();
+    const body = text(match[1] !== undefined ? match[1] : match[2]).trim();
     if (body.length > MAX_FORMULA_LENGTH) return fail(`A formula is longer than ${MAX_FORMULA_LENGTH} characters.`);
     try {
       formulas.push(...splitFormulas(body));
@@ -102798,6 +102930,9 @@ function expressionCell(table, reference, destinationRow, destinationColumn) {
 function expressionRange(table, reference, destinationRow, destinationColumn) {
   const first = reference.first;
   const second = reference.second;
+  if (second && ((first.rowOnly && second.columnOnly) || (first.columnOnly && second.rowOnly))) {
+    throw new Error("A range cannot go from a row to a column.");
+  }
   const firstRow = first.row ? resolveRow(first.row, destinationRow, table) : null;
   const secondRow = second.row ? resolveRow(second.row, destinationRow, table) : null;
   const firstColumn = first.column ? resolveColumn(first.column, destinationColumn, table) : null;
@@ -102812,6 +102947,9 @@ function expressionRange(table, reference, destinationRow, destinationColumn) {
 function destinationCells(table, reference) {
   const first = reference.first;
   const second = reference.second;
+  if (second && ((first.rowOnly && second.columnOnly) || (first.columnOnly && second.rowOnly))) {
+    throw new Error("A range cannot go from a row to a column.");
+  }
   const relative = (endpoint) => (endpoint.row && endpoint.row.kind === "relative") || (endpoint.column && endpoint.column.kind === "relative");
   if (relative(first) || (second && relative(second))) {
     throw new Error("The destination cannot use a relative reference.");
@@ -102851,7 +102989,9 @@ function parseDirective(value) {
     return { ok: true, directive: { kind: "fixed", digits } };
   }
   if (directive === "%d") return { ok: true, directive: { kind: "integer" } };
-  return fail(`Unsupported TBLFM format "${directive}". Use ;%.2f or ;%d.`);
+  if (directive === "dt") return { ok: true, directive: { kind: "datetime" } };
+  if (directive === "hm") return { ok: true, directive: { kind: "duration" } };
+  return fail(`Unsupported TBLFM format "${directive}". Use ;%.2f, ;%d, ;dt or ;hm.`);
 }
 
 function parseFormulaPart(value) {
@@ -102873,13 +103013,13 @@ function parseFormulaPart(value) {
 }
 
 function comparison(left, right, operator) {
-  const leftNumber = Number(left);
-  const rightNumber = Number(right);
-  const numeric = Number.isFinite(leftNumber) && Number.isFinite(rightNumber);
-  if (operator === "==") return numeric ? leftNumber === rightNumber : text(left) === text(right);
-  if (operator === "!=") return numeric ? leftNumber !== rightNumber : text(left) !== text(right);
-  const a = numeric ? leftNumber : text(left);
-  const b = numeric ? rightNumber : text(right);
+  const leftNumber = numeric(left);
+  const rightNumber = numeric(right);
+  const bothNumbers = Number.isFinite(leftNumber) && Number.isFinite(rightNumber);
+  if (operator === "==") return bothNumbers ? leftNumber === rightNumber : text(left) === text(right);
+  if (operator === "!=") return bothNumbers ? leftNumber !== rightNumber : text(left) !== text(right);
+  const a = bothNumbers ? leftNumber : text(left);
+  const b = bothNumbers ? rightNumber : text(right);
   if (operator === "<") return a < b;
   if (operator === ">") return a > b;
   if (operator === "<=") return a <= b;
@@ -103105,6 +103245,8 @@ function formatValue(value, directive) {
     const number = numeric(raw);
     if (!Number.isFinite(number)) throw new Error(`"${text(raw)}" cannot be formatted as a number.`);
     if (directive.kind === "integer") return String(Math.round(number));
+    if (directive.kind === "datetime") return formatDateTime(number);
+    if (directive.kind === "duration") return formatDuration(number);
     return number.toFixed(directive.digits);
   }
   if (typeof raw === "number") return formatNumber(raw);

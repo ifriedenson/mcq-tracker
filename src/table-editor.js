@@ -770,7 +770,7 @@ function toggleHeaderRow(table) {
 
 /** True when a line is a TBLFM comment attached to the table above it. */
 function isFormulaLine(line) {
-  return /^\s*TBLFM:/.test(text(line));
+  return /^\s*(?:<!--\s*TBLFM:|#\+TBLFM:)/i.test(text(line));
 }
 
 /** The table whose lines, or attached TBLFM comments, cover a zero-based line. */
@@ -915,6 +915,19 @@ function nextRowTarget(markdown, line, ch) {
     return { ok: true, line: targetLine, ch: target ? target.start : 0 };
   }
   return { ok: true, append: true, table: at.table, row: at.row, column: at.column, line, ch };
+}
+
+/** Same column on the previous row. */
+function previousRowTarget(markdown, line, ch) {
+  const source = text(markdown);
+  const at = cellAtLine(source, line, ch);
+  if (!at) return { ok: false, reason: "not-table", message: "The cursor is not in a table." };
+  if (at.row <= 0) return { ok: false, reason: "boundary", message: "The cursor is already in the first row." };
+  const lines = source.split(/\r?\n/);
+  const targetLine = tableRowLine(at.table, at.row - 1);
+  const spans = rowCellSpans(lines[targetLine]);
+  const target = spans[Math.min(at.column, Math.max(0, spans.length - 1))];
+  return { ok: true, line: targetLine, ch: target ? target.start : 0 };
 }
 
 /** The line just after the table (and its TBLFM comments), adding one if needed. */
@@ -1607,6 +1620,7 @@ module.exports = {
   parseTableBlock,
   parseTables,
   previousCellTarget,
+  previousRowTarget,
   renderTable,
   rowCellSpans,
   renderedHeader,

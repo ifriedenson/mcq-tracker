@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 390 groups, 2553 exports. **Commands:** 176. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 390 groups, 2554 exports. **Commands:** 176. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -371,7 +371,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `svgSafety` | 1 | `tests/security-hardening.test.js`, `tests/security-inventory.test.js` |
 | `tableControls` | 2 | `tests/table-commands.test.js` |
 | `tableCsvModal` | 1 | `tests/table-commands.test.js` |
-| `tableEditor` | 54 | `tests/table-commands.test.js`, `tests/table-editor.test.js` |
+| `tableEditor` | 55 | `tests/table-commands.test.js`, `tests/table-editor.test.js` |
 | `tagTimer` | 26 | `tests/tag-timer.test.js` |
 | `tally` | 15 | `tests/tally.test.js` |
 | `taskTags` | 5 | `tests/task-tags.test.js` |

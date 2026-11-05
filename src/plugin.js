@@ -365,6 +365,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerEvent(this.app.metadataCache.on("changed", () => this.refreshNoteReviewDock()));
     if (typeof activeDocument !== "undefined" && activeDocument) {
       this.registerDomEvent(activeDocument, "keydown", (event) => this.noteReviewDock.onKey(event));
+      this.registerDomEvent(activeDocument, "keydown", (event) => this.onTableEditorKeydown(event), true);
     }
     this.ribbonButtons = {};
     this.ribbonAdded = {};
@@ -9885,6 +9886,71 @@ ${body}
     if (id === "transpose") return this.updateTableTranspose(context.path, start, context.table);
     if (id === "formulas") return this.updateTableFormulas(context.path, start, context.table);
     return Promise.resolve({ ok: false, reason: "action", message: "Unknown table action." });
+  }
+
+  /**
+   * Tab, Shift+Tab, Enter and Shift+Enter inside a Markdown source-editor table.
+   *
+   * Runs in the capture phase, before CodeMirror's own Tab handling, so the
+   * same keys indent and split lines normally when the cursor is outside a
+   * table or the matching setting is off. Rendered reading-view cells keep
+   * their own handler, so a target inside a `td`/`th` is left alone.
+   */
+  onTableEditorKeydown(event) {
+    if (!event || event.defaultPrevented === true) return false;
+    const settings = this.tableEditorSettings();
+    if (!settings.enabled) return false;
+    const key = str(event.key);
+    if (key !== "Tab" && key !== "Enter") return false;
+    if (event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return false;
+    if (key === "Tab" && settings.bindTab === false) return false;
+    if (key === "Enter" && settings.bindEnter === false) return false;
+    const target = event.target;
+    if (!target || typeof target.closest !== "function") return false;
+    if (!target.closest(".cm-editor")) return false;
+    if (target.closest("td") || target.closest("th")) return false;
+    const context = this.activeEditorContext();
+    if (!context) return false;
+    const editor = context.editor;
+    if (typeof editor.getCursor !== "function") return false;
+    if (typeof editor.somethingSelected === "function" && editor.somethingSelected()) return false;
+    const cursor = editor.getCursor();
+    if (!cursor || !Number.isInteger(cursor.line)) return false;
+    if (!tableEditor.tableAtLine(context.text, cursor.line)) return false;
+    const ch = Number.isInteger(cursor.ch) ? cursor.ch : 0;
+    const shifted = event.shiftKey === true;
+    let move;
+    if (key === "Tab") {
+      move = shifted
+        ? tableEditor.previousCellTarget(context.text, cursor.line, ch)
+        : tableEditor.nextCellTarget(context.text, cursor.line, ch);
+    } else if (shifted) {
+      move = tableEditor.previousRowTarget(context.text, cursor.line, ch);
+      if (!move.ok) {
+        event.preventDefault();
+        if (typeof event.stopPropagation === "function") event.stopPropagation();
+        this.escapeTable({ ...context, cursor });
+        return true;
+      }
+    } else {
+      move = tableEditor.nextRowTarget(context.text, cursor.line, ch);
+    }
+    if (!move || !move.ok) return false;
+    let appended = null;
+    if (move.append) {
+      appended = tableEditor.appendTableRow(context.text, cursor.line);
+      if (!appended.ok) return false;
+    }
+    event.preventDefault();
+    if (typeof event.stopPropagation === "function") event.stopPropagation();
+    if (!appended) {
+      if (typeof editor.setCursor === "function") editor.setCursor({ line: move.line, ch: move.ch });
+      return true;
+    }
+    Promise.resolve(this.writeTableResult(context, appended)).then(() => {
+      if (typeof editor.setCursor === "function") editor.setCursor({ line: appended.rowLine, ch: appended.column || 0 });
+    });
+    return true;
   }
 
   /** Tab, Shift+Tab and Enter inside the source editor; adds a row at the end. */
