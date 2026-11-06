@@ -13,7 +13,7 @@ const { resolveApiKey } = require("./secret-keys");
 const { pendingGradeCounts } = require("./card-grade-queue");
 const { splitSourceContext } = require("./source-recall");
 const { formatInterval, intervalPreviews } = require("./interval-preview");
-const { cramIntervalLabel, cramPreviews } = require("./cram");
+const { cramIntervalLabel, cramPreviews, motherCramStart, motherCramTurn } = require("./cram");
 const { buildRetention } = require("./analytics");
 
 const REVIEW_KEYS = { "1": "again", "2": "hard", "3": "good", "4": "easy" };
@@ -81,7 +81,9 @@ class CardView extends ItemView {
     this.speechListening = false;
     this.speechError = "";
     this.cram = false;
-    this.session = { reviewed: 0, correct: 0, grades: { again: 0, hard: 0, good: 0, easy: 0 } };
+    this.mother = false;
+    this.motherTotal = 0;
+    this.session = { reviewed: 0, correct: 0, grades: { again: 0, hard: 0, good: 0, easy: 0 }, motherUnknown: 0 };
   }
 
   getViewType() {
@@ -151,9 +153,14 @@ class CardView extends ItemView {
     const t = ev && ev.target;
     if (t && /^(input|textarea|select)$/i.test(t.tagName || "")) return;
     if (ev.key === " " || ev.key === "Enter") {
-      if (this.current.answerMode && this.current.answerMode !== "flip") return;
+      if (!this.mother && this.current.answerMode && this.current.answerMode !== "flip") return;
       ev.preventDefault();
       if (!this.revealed) this.reveal();
+      return;
+    }
+    if (this.mother && this.revealed && (ev.key === "1" || ev.key === "2")) {
+      ev.preventDefault();
+      this.rateMother(ev.key === "2");
       return;
     }
     const grade = REVIEW_KEYS[ev.key];
@@ -429,9 +436,16 @@ class CardView extends ItemView {
     const cramStart = hero.createEl("button", { text: "Cram session", cls: "qt-cards-cram-start" });
     cramStart.disabled = !shown.length;
     cramStart.addEventListener("click", () => this.startReview("all", undefined, true));
+    const motherStart = hero.createEl("button", { text: "Mother cram", cls: "qt-cards-mother-start" });
+    motherStart.disabled = !shown.length;
+    motherStart.addEventListener("click", () => this.startReview("all", undefined, false, true));
     root.createDiv({
       cls: "qt-hint qt-cards-cram-hint",
       text: "Cram session ratings: Again 3m · Hard 5m · Good 10m · Easy 1d.",
+    });
+    root.createDiv({
+      cls: "qt-hint qt-cards-mother-hint",
+      text: "Mother cram loops every card until you know it, with only Know and Do not know. It never changes due dates.",
     });
 
     const tools = root.createDiv({ cls: "qt-row qt-cards-tools qt-toolbar" });
@@ -644,25 +658,27 @@ class CardView extends ItemView {
     ).open();
   }
 
-  startReview(order, only, cram) {
+  startReview(order, only, cram, mother) {
     const p = this.plugin;
-    this.cram = cram === true;
+    this.mother = mother === true;
+    this.cram = cram === true && !this.mother;
     this.previewSource = null;
     const pool = Array.isArray(only) ? only : p.filteredCards({ deck: this.deck, course: this.course });
     const queue = cardQueue(pool, {
       today: localDate(),
       now: new Date(),
       order: order || p.settings.cards.order,
-      limit: Array.isArray(only) ? Math.max(1, only.length) : this.cram ? pool.length : p.settings.cards.reviewLimit,
+      limit: Array.isArray(only) ? Math.max(1, only.length) : this.mother || this.cram ? pool.length : p.settings.cards.reviewLimit,
     });
     if (!queue.length) {
       new Notice("Nothing to review in this deck. Try another deck or review all cards.");
       return;
     }
-    this.queue = queue;
+    this.queue = this.mother ? motherCramStart(queue) : queue;
     this.index = 0;
     this.state = "review";
-    this.session = { reviewed: 0, correct: 0, grades: { again: 0, hard: 0, good: 0, easy: 0 } };
+    this.motherTotal = this.mother ? this.queue.length : 0;
+    this.session = { reviewed: 0, correct: 0, grades: { again: 0, hard: 0, good: 0, easy: 0 }, motherUnknown: 0 };
     this.showCard();
   }
 
@@ -670,11 +686,13 @@ class CardView extends ItemView {
   async reviewCard(card) {
     if (!card) return;
     this.cram = false;
+    this.mother = false;
+    this.motherTotal = 0;
     this.previewSource = null;
     this.queue = [card];
     this.index = 0;
     this.state = "review";
-    this.session = { reviewed: 0, correct: 0, grades: { again: 0, hard: 0, good: 0, easy: 0 } };
+    this.session = { reviewed: 0, correct: 0, grades: { again: 0, hard: 0, good: 0, easy: 0 }, motherUnknown: 0 };
     await this.showCard();
   }
 
@@ -696,7 +714,7 @@ class CardView extends ItemView {
     try {
       const text = await this.app.vault.cachedRead(card.file);
       this.current = { ...card, body: parseCardBody(text, card.fm) };
-      const queued = this.plugin.pendingCardGrades ? this.plugin.pendingCardGrades().find((entry) => entry.path === card.file.path) : null;
+      const queued = !this.mother && this.plugin.pendingCardGrades ? this.plugin.pendingCardGrades().find((entry) => entry.path === card.file.path) : null;
       this.pendingGrade = !!queued;
       this.pendingGradeId = queued ? queued.id : "";
     } catch (e) {
@@ -709,7 +727,7 @@ class CardView extends ItemView {
 
   /** Reuse one scheduler replay for every re-render of the same card. */
   previewsForCurrent() {
-    if (!this.current) return null;
+    if (!this.current || this.mother) return null;
     if (this.previewSource === this.current && this.previewCram === this.cram && this.previewValues) return this.previewValues;
     this.previewSource = this.current;
     this.previewCram = this.cram;
@@ -791,7 +809,7 @@ class CardView extends ItemView {
   }
 
   async rate(grade) {
-    if (this.busy || this.aiChecking || !this.current) return;
+    if (this.mother || this.busy || this.aiChecking || !this.current) return;
     this.busy = true;
     const card = this.current;
     const override = !!(this.verdict && this.suggestedGrade && grade !== this.suggestedGrade);
@@ -827,6 +845,25 @@ class CardView extends ItemView {
       this.busy = false;
       new Notice(str(e && e.message) || "Could not save this review.");
     }
+  }
+
+  /** One mother-cram turn. Practice only: no attempt, grade or due date is written. */
+  async rateMother(known) {
+    if (this.busy || !this.current) return;
+    this.busy = true;
+    const turn = motherCramTurn(this.queue, known === true);
+    if (!turn.card) {
+      this.busy = false;
+      return this.finish();
+    }
+    this.queue = turn.queue;
+    this.index = 0;
+    this.session.reviewed += 1;
+    if (turn.known) this.session.correct += 1;
+    else this.session.motherUnknown += 1;
+    this.busy = false;
+    if (!this.queue.length) return this.finish();
+    await this.showCard();
   }
 
   async setCurrentStudyStatus(status) {
@@ -877,9 +914,10 @@ class CardView extends ItemView {
     });
     top.createDiv({
       cls: "qt-cards-progress",
-      text: `${this.index + 1} / ${this.queue.length}`,
+      text: this.mother ? `Known ${this.motherTotal - this.queue.length} / ${this.motherTotal}` : `${this.index + 1} / ${this.queue.length}`,
     });
-    if (this.cram) top.createDiv({ cls: "qt-cards-cram-mode", text: "Cram · 3m / 5m / 10m / 1d" });
+    if (this.mother) top.createDiv({ cls: "qt-cards-mother-mode", text: "Mother cram · Know / Do not know" });
+    else if (this.cram) top.createDiv({ cls: "qt-cards-cram-mode", text: "Cram · 3m / 5m / 10m / 1d" });
     if (!this.current) {
       root.createDiv({ cls: "qt-hint", text: "Loading card…" });
       return;
@@ -906,7 +944,7 @@ class CardView extends ItemView {
     }
     this.md(card.body.front || "*This card has no front.*", front.createDiv({ cls: "qt-cards-term" }), card.file.path);
 
-    const mode = card.body.cardType === "image-occlusion" ? "flip" : card.answerMode || "flip";
+    const mode = this.mother ? "flip" : card.body.cardType === "image-occlusion" ? "flip" : card.answerMode || "flip";
     if (!this.revealed && mode !== "flip") {
       const typedWrap = root.createDiv({ cls: "qt-cards-typed-wrap" });
       typedWrap.createEl("label", { text: "Your answer (type or dictate)" });
@@ -952,7 +990,10 @@ class CardView extends ItemView {
     if (!this.revealed) {
       const show = root.createEl("button", { text: "Show answer", cls: "mod-cta qt-primary qt-cards-show" });
       show.addEventListener("click", () => this.reveal());
-      root.createDiv({ cls: "qt-hint", text: "Space or Enter also flips the card." });
+      root.createDiv({
+        cls: "qt-hint",
+        text: this.mother ? "Mother cram: flip the card, then choose Know or Do not know. Space or Enter flips." : "Space or Enter also flips the card.",
+      });
       return;
     }
 
@@ -1008,6 +1049,21 @@ class CardView extends ItemView {
       }
     }
 
+    if (this.mother) {
+      const ratings = root.createDiv({ cls: "qt-cards-ratings qt-cards-mother-ratings" });
+      const unknown = ratings.createEl("button", { text: "Do not know", cls: "qt-cards-rate qt-cards-rate-unknown" });
+      unknown.createSpan({ cls: "qt-cards-rate-key", text: "1" });
+      unknown.addEventListener("click", () => this.rateMother(false));
+      const know = ratings.createEl("button", { text: "Know", cls: "qt-cards-rate qt-cards-rate-know" });
+      know.createSpan({ cls: "qt-cards-rate-key", text: "2" });
+      know.addEventListener("click", () => this.rateMother(true));
+      root.createDiv({
+        cls: "qt-hint qt-cards-mother-hint",
+        text: "Do not know sends the card to the back of the loop. Practice only: this does not change due dates or review history.",
+      });
+      return;
+    }
+
     const ratings = root.createDiv({ cls: "qt-cards-ratings" });
     const previews = this.previewsForCurrent();
     const buttons = [
@@ -1057,15 +1113,22 @@ class CardView extends ItemView {
   renderSummary(root) {
     const s = this.session;
     const box = root.createDiv({ cls: "qt-onboard-card" });
-    box.createEl("h3", { text: this.cram ? "Cram session complete" : "Review complete" });
+    box.createEl("h3", { text: this.mother ? "Mother cram complete" : this.cram ? "Cram session complete" : "Review complete" });
     box.createDiv({
       cls: "qt-onboard-text",
-      text: `${s.reviewed} card${s.reviewed === 1 ? "" : "s"} reviewed · ${s.correct} recalled.`,
+      text: this.mother
+        ? `${this.motherTotal} card${this.motherTotal === 1 ? "" : "s"} cleared in ${s.reviewed} answer${s.reviewed === 1 ? "" : "s"}${s.motherUnknown ? ` · ${s.motherUnknown} marked Do not know along the way` : ""}.`
+        : `${s.reviewed} card${s.reviewed === 1 ? "" : "s"} reviewed · ${s.correct} recalled.`,
     });
     const row = box.createDiv({ cls: "qt-row" });
-    row.createEl("span", { cls: "qt-cards-summary", text: `Again ${s.grades.again} · Hard ${s.grades.hard} · Good ${s.grades.good} · Easy ${s.grades.easy}` });
-    const again = box.createEl("button", { text: this.cram ? "Cram again" : "Review again", cls: "mod-cta qt-primary" });
-    again.addEventListener("click", () => this.startReview("all", undefined, this.cram));
+    row.createEl("span", {
+      cls: "qt-cards-summary",
+      text: this.mother
+        ? `Known ${s.correct} · Do not know ${s.motherUnknown}`
+        : `Again ${s.grades.again} · Hard ${s.grades.hard} · Good ${s.grades.good} · Easy ${s.grades.easy}`,
+    });
+    const again = box.createEl("button", { text: this.mother ? "Mother cram again" : this.cram ? "Cram again" : "Review again", cls: "mod-cta qt-primary" });
+    again.addEventListener("click", () => this.startReview("all", undefined, this.cram, this.mother));
     const back = box.createEl("button", { text: "Back to decks" });
     back.addEventListener("click", () => {
       this.state = "browse";

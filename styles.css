@@ -4562,14 +4562,16 @@ body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tra
   font-size: 0.85rem;
 }
 
-.qt-cards-cram-mode {
+.qt-cards-cram-mode,
+.qt-cards-mother-mode {
   color: var(--text-accent);
   font-size: 0.8rem;
   font-weight: 600;
   white-space: nowrap;
 }
 
-.qt-cards-cram-hint {
+.qt-cards-cram-hint,
+.qt-cards-mother-hint {
   margin-top: 6px;
 }
 
@@ -4769,6 +4771,18 @@ body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tra
 
 .qt-cards-rate-good {
   border-color: var(--interactive-accent);
+}
+
+.qt-cards-rate-unknown {
+  border-color: var(--text-error);
+}
+
+.qt-cards-rate-know {
+  border-color: var(--interactive-accent);
+}
+
+.qt-cards-mother-ratings {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .qt-cards-summary {
@@ -10190,7 +10204,8 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 }
 
 .qt-cards-hero .qt-cards-start,
-.qt-cards-hero .qt-cards-cram-start {
+.qt-cards-hero .qt-cards-cram-start,
+.qt-cards-hero .qt-cards-mother-start {
   flex: 0 0 auto;
   min-height: 48px;
   width: auto;
@@ -10233,7 +10248,8 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   }
 
   .qt-cards-hero .qt-cards-start,
-  .qt-cards-hero .qt-cards-cram-start {
+  .qt-cards-hero .qt-cards-cram-start,
+  .qt-cards-hero .qt-cards-mother-start {
     min-width: 0;
     width: 100%;
   }

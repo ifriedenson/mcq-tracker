@@ -50,6 +50,26 @@ function cramPreviews() {
   };
 }
 
+/**
+ * Snapshot a mother-cram loop. Mother cram is practice only: it keeps no
+ * scheduler state, so the whole card list is the loop from the first turn.
+ */
+function motherCramStart(cards) {
+  return Array.isArray(cards) ? cards.slice() : [];
+}
+
+/**
+ * One binary mother-cram turn. A known card leaves the loop; an unknown card
+ * goes to the back. The returned card is the one that was just answered, and
+ * `queue` is the next loop state.
+ */
+function motherCramTurn(queue, known) {
+  const next = Array.isArray(queue) ? queue.slice() : [];
+  const card = next.length ? next.shift() : null;
+  if (card && known !== true) next.push(card);
+  return { card, queue: next, known: known === true };
+}
+
 module.exports = {
   CRAM_GRADES,
   CRAM_INTERVALS,
@@ -57,5 +77,7 @@ module.exports = {
   cramIntervalLabel,
   cramIntervalMinutes,
   cramPreviews,
+  motherCramStart,
+  motherCramTurn,
   normalizeCramGrade,
 };
