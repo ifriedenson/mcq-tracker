@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 396 groups, 2677 exports. **Commands:** 205. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 399 groups, 2681 exports. **Commands:** 206. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -36,6 +36,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `FocusLogModal` | 0 | `tests/feature-surfaces.test.js` |
 | `FolderFilterSuggest` | 0 | `tests/views.test.js` |
 | `FrqGraderModal` | 0 | `tests/frq-handwriting.test.js`, `tests/frq.test.js` |
+| `FrqImportPreviewModal` | 0 | `tests/frq-import.test.js` |
+| `FrqPdfPickerModal` | 0 | `tests/frq-import.test.js` |
 | `GLOBAL_TABS` | 3 | `tests/modules.test.js` |
 | `InsightsView` | 0 | `tests/study-plan.test.js`, `tests/views.test.js` |
 | `LocalEventModal` | 0 | `tests/feature-surfaces.test.js` |
@@ -204,7 +206,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `folderLabel` | 0 | `tests/filters.test.js` |
 | `friendlyApiError` | 0 | `tests/feature-surfaces.test.js` |
 | `friendlyError` | 0 | `tests/feature-surfaces.test.js` |
-| `frq` | 40 | `tests/frq-handwriting.test.js`, `tests/frq-review.test.js`, `tests/frq.test.js`, `tests/p1-knowledge.test.js` |
+| `frq` | 40 | `tests/frq-handwriting.test.js`, `tests/frq-import.test.js`, `tests/frq-review.test.js`, `tests/frq.test.js`, `tests/p1-knowledge.test.js` |
+| `frqImport` | 4 | `tests/frq-import.test.js` |
 | `fsrs` | 14 | `tests/analytics.test.js`, `tests/cards.test.js`, `tests/feature-engines.test.js`, `tests/fsrs-fit.test.js`, `tests/fsrs.test.js`, `tests/progress.test.js` |
 | `fsrsFit` | 6 | `tests/fsrs-fit.test.js` |
 | `fsrsTrain` | 11 | `tests/feature-engines.test.js` |
@@ -540,6 +543,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `open-ap-resources` | Open AP resources | `openApResources` | `tests/command-effects.test.js` |
 | `open-frq-grader` | AP: open free-response practice and grader | `openFrqGrader` | `tests/frq-review.test.js`, `tests/views.test.js` |
 | `new-frq-note` | AP: create a free-response note | `openNewFrqNote` | `tests/command-effects.test.js` |
+| `import-frq-pdf` | AP: import free-response questions from a PDF | `openFrqPdfImport` | `tests/frq-import.test.js` |
 | `new-card` | Create a flashcard or vocabulary card | `openNewCard` | `tests/plugin.test.js` |
 | `source-recall` | Create a source-anchored recall from selection | `openSourceRecall` | `tests/source-recall.test.js` |
 | `generate-cards` | Generate flashcards from this note or selection | `openCardGenerator` | `tests/card-generator.test.js` |

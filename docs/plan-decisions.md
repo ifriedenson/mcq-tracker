@@ -1,165 +1,132 @@
-# Plan decision sheet
+# Plan decision sheet — answered Nov 6, 2026
 
-`plan.md` (v1.277.0) has **93 checked roadmap rows, 7 `[~]` partial rows and 0
-unchecked rows**. The seven are listed here and again in the plan's **§B** table;
-every one is waiting on a single input from the owner — a visual or device pass,
-a provider decision, or a calibration fixture. Nothing here needs new code before
-you answer, and the ideas already decided against are in the plan's **§C**.
+`plan.md` (v1.278.0) now has **98 checked roadmap rows, 3 `[~]` partial rows
+and 0 unchecked rows**. The three partials are owner manual passes that are being
+run now. PDF→FRQ import shipped as a text-layer preview-then-create command;
+four former gates remain closed by decision: TTS/audio, pronunciation, the FRQ
+accuracy claim and pilot thresholds.
 
-Answer in place (edit this file) or in chat. Each section names the plan row it
-belongs to, the one decision, the options with a recommended default, and what
-closes once you choose. Option **A** is always the do-nothing-cost default, so
-"all A" is a valid answer that closes the plan without new dependencies.
-
-Closed in this pass: three OCR rows that were waiting on a licence review the
-plan had already answered (§11 E3). See [Closed in this pass](#closed-in-this-pass).
+The plan's **§B** table lists the three open passes; **§C** lists what was
+decided against. Nothing below needs another product decision before an agent
+can work, except the three passes that need a real window or device.
 
 ---
 
 ## 1. Math/chemistry rendering audit — `plan.md` row under **§5.16.1**
 
-**Decision:** who runs the visual pass in a real Obsidian window, and what counts as a pass.
+**Decision:** the owner is running the checklist now. The row stays `[~]` until
+the result is pasted into this file or chat; no visual pass is claimed yet.
 
-The renderer audit, golden tests, chemistry fallback and STEM blocks all shipped
-in 1.80.0 and 1.33.0-era work. What has never happened is looking at them in a
-running Obsidian window.
-
-- **A (recommended). You run the checklist once.** ~15 minutes: open
-  `docs/math-rendering-audit.md`, paste its samples into a scratch note, compare
-  against the goldens it names, report pass/fail per item. Closes the row with a
-  recorded result.
-- **B. A named tester runs it** and the result is pasted here. Same evidence, one
-  more person; needs the name recorded for accountability.
-- **C. Record "no visual claim" permanently** and close the row as declined. The
-  plugin keeps shipping; the README stops implying a visual pass.
-
-**Unblocks:** the row and §11 E1. No code follows in any option.
+Run `docs/math-rendering-audit.md` once: paste its samples into a scratch note,
+compare against the goldens it names, and report pass/fail per item. Closes §11
+E1 when the result arrives. No code follows.
 
 ## 2. Mobile audit on real devices — `plan.md` row under **§5.19**
 
-**Decision:** which hardware the mobile claim rests on.
-
-`docs/mobile-layout.md` describes what to check; no iPhone or Android device has
-ever run the plugin in this environment.
-
-- **A (recommended). One iOS and one Android device**, following that doc's list
-  (touch targets, day rail, keyboard dismissal, safe areas). Closes §11 E2.
-- **B. One platform only** — close the tested platform, keep the row open with
-  "Android unverified" written down, so nothing overclaims.
-- **C. Decline a mobile claim** and close the row as unsupported.
-
-**Unblocks:** the row and the E2 gate; mobile practice already ships.
+**Decision:** the owner is testing one iOS and one Android device now, following
+`docs/mobile-layout.md` (touch targets, day rail, keyboard dismissal, safe
+areas). The row stays `[~]` until both results are pasted. Closes §11 E2 when
+they arrive. Mobile practice already ships; no claim is made before the result.
 
 ## 3. README screenshots — `plan.md` row under **§10b**
 
-**Decision:** do the screenshots happen, or does the README drop that promise?
+**Decision:** the owner is capturing the four screenshots now (practice session,
+review dock, study dashboard, PDF reader). The row stays `[~]` until the images
+are supplied; filenames, folder, captions and README wiring follow. Closes the
+§10b growth refresh when the images arrive.
 
-README, docs and `samples/sample-vault` are done. Four screenshots are the only
-piece of the growth refresh outstanding, and they need a real window.
+## 4. Optional TTS / audio-only commute — **decided**
 
-- **A (recommended). You capture four** — practice session, review dock, study
-  dashboard, PDF reader — at any window size; I supply filenames, folder and
-  captions, and wire them into the README in a follow-up release.
-- **B. Drop screenshots from scope** and close the row; the README stays text-first.
-- **C. Leave it open** as the one known cosmetic gap.
+**Decision:** keep device speech only. Provider TTS, commute playback and mobile
+audio work are declined. Device-voice Read aloud with sentence highlighting
+stays as shipped. Closes §11 E5; no key, cost or privacy surface is added.
 
-**Unblocks:** the row and the §10b growth refresh.
+## 5. Pronunciation feedback — **decided**
 
-## 4. Optional TTS / audio-only commute — `plan.md` row under **§5.22.4**
+**Decision:** decline it. Language practice keeps typed answers and OS
+dictation; no audio capture or speech scoring is added. Closes §11 E5.
 
-**Decision:** provider speech, or device speech only (the current §11 decision 2 / E5).
+## 6. AP FRQ accuracy claim — **decided**
 
-Device voices already work; what is missing is a provider voice, commute playback
-and mobile audio validation.
+**Decision:** keep the explicit no-accuracy-claim. The rubric grader stays
+labelled an aid; no human-scored fixture set is built and no agreement number is
+claimed. Closes §11 E6.
 
-- **A (recommended). Keep device speech only** and close the row as decided. No
-  key, no cost, no new privacy surface.
-- **B. Approve a provider TTS** (name + key + expected cost). I would add one
-  adapter behind the existing BYOK service and the offline queue, plus an
-  audio-only commute mode; mobile audio still needs your device test first.
-- **C. A bundled offline engine** — rejected by §11 decision 2 on size, licence
-  and mobile packaging grounds; reviving it reopens that decision.
+## 7. Pilot go/no-go thresholds — **decided**
 
-**Unblocks:** the audio commute mode and §11 E5, if you pick B.
+**Decision:** no numeric threshold. The pilot stays "approved and shipped",
+never "validated". Closes §11 E6.
 
-## 5. Pronunciation feedback — `plan.md` row under **§5.22.4**
+## 8. PDF→FRQ import — **shipped**
 
-**Decision:** does scored pronunciation ship at all?
+**Decision:** shipped. The learner supplies a PDF containing free-response
+prompts and the scoring rubric, reviews the split in a preview, creates ordinary
+FRQ notes, types an answer, and the existing AI tutor grades against the rubric
+extracted from that PDF. The grader stays an aid; no accuracy claim is made.
 
-Needs audio capture plus a speech-scoring service, then real-device validation.
+Shipped scope:
 
-- **A (recommended). Decline it** and close the row; language practice keeps
-  typed answers and device dictation.
-- **B. Cloud speech scoring** (provider + key + cost + retention policy). Real
-  work: capture, scoring, per-phoneme feedback, and a mobile test before any claim.
-- **C. Local heuristic scoring** on a recording, with no accuracy claim, labelled
-  "self-check". Cheapest honest version; still needs microphone testing.
-
-**Unblocks:** §11 E5 and the language-learner slice, if you pick B or C.
-
-## 6. AP FRQ accuracy claim — `plan.md` row under **§5.20**
-
-**Decision:** do we ever claim grader accuracy, and against what fixtures?
-
-The rubric grader, partial credit, second pass, score history and study-plan feed
-all shipped in 1.97.0–1.101.0 for six courses. `docs/ap-frq-grader-spec.md` is the
-evaluation plan; no human-scored fixture set exists.
-
-- **A (recommended). Keep the explicit no-accuracy-claim** and close the row as
-  scope-complete. The grader stays labelled as an aid.
-- **B. You supply human-scored FRQs** (a realistic minimum is 30 per course across
-  the six approved courses, with official rubrics and a human total score). I then
-  build the fixture loader, run calibration and record agreement per criterion.
-- **C. Calibrate two courses only** and claim accuracy for those, naming them.
-
-**Unblocks:** the accuracy claim and §11 E6.
-
-## 7. Pilot go/no-go thresholds — the Phase 2b row in **§7**
-
-**Decision:** the numeric bar the pilot is judged against (same gate as 6, different question).
-
-- **A (recommended). No thresholds; keep the pilot label** and close the row. The
-  pilot stays "approved and shipped", never "validated".
-- **B. Adopt defaults I recommend:** mean absolute total-score error ≤ 1.0 point on
-  the 0–6 FRQ scale, ≥ 80% of criterion scores within ±1, and no course below the
-  bar; measured on the fixtures from question 6. Then a pass/fail is recordable.
-- **C. You set different numbers** — paste them and they replace B.
-
-**Unblocks:** the pilot verdict and §11 E6; requires 6 = B or C.
+- Add a command that picks a vault PDF (**AP: import free-response questions
+  from a PDF**) and exposes `importFrqPdf(file)` for other surfaces. Read the
+  text layer through `readPdfPages` in `src/pdf.js`. The import is text-layer
+  only: an image-only/scanned PDF is refused with a Notice and does not run
+  OCR or a vision call.
+- Implementation anchors: `splitFrqItems` in `src/frq-import.js` for the split,
+  `buildFrqNote` in `src/frq.js` and `createFrqNote` in `src/plugin.js` for the
+  note, and the existing FRQ grader for scoring.
+- Split the document into up to 60 candidate items from question numbering and
+  "question"/"free response"/"FRQ", "scoring guidelines"/"rubric"/"answer key"/
+  "points possible" headings, with a first-criterion fallback. Each item keeps
+  its prompt, rubric text, parsed criteria and points, source page/pages and
+  warnings; all text before the rubric (including a stimulus) belongs to the
+  prompt. An unrecognized rubric stays visible as invalid and is never replaced
+  with a preset.
+- Show a preview before writing: title, prompt, rubric text, page, course and
+  question type. The learner can edit the text, untick/drop an item, or cancel.
+  Drawing the preview writes nothing. On create, every selected item is parsed
+  and checked through `buildFrqNote` before the first write, so one invalid item
+  blocks the whole batch; name collisions use the existing unique-path helper.
+- Create ordinary FRQ notes through the existing note builder/parser under the
+  AP FRQs folder, so history, second pass, scheduler feed and the AI grader keep
+  working unchanged. Imported rubrics are marked `rubric_source: user`; no new
+  note schema.
+- Grade typed or OS-dictated answers through the existing rubric grader; no new
+  AI feature ID, provider or model allow-list entry.
+- Tests: `tests/frq-import.test.js` covers extraction/splitting, bullet and
+  table rubrics, missing rubric, empty text layer, a heading-less document,
+  preview-before-write, course selection, dropping an item, invalid-item refusal,
+  the picker/command and grading an imported note. No network.
+- Limits: no bundled exam content, no accuracy claim, no OCR/vision fallback in
+  this import, no PDF upload or stored copy, and no new dependency or note schema.
 
 ---
 
-## Adjacent owner questions (plan already carries them)
+## Adjacent owner questions — answered
 
-Not `[~]` rows, but they gate future work and can be answered in the same sitting.
-Each is a §11 decision item with its recommended default already written there.
-
-| ID | Question | Recommended | What it unlocks |
-|---|---|---|---|
-| O1 | Keep the name "MCQ Tracker" or rename the display (ID unchanged)? | A: keep name and ID, let the description carry breadth | Store listing, docs, brand |
-| O2 | Original AP/SAT sample packs, or link-only guidance? | A: no bundled content, link-only guidance | Onboarding packs |
-| O4 | Read-only tutor on phones, full agent desktop-only? | A: tutor-only mobile | Any mobile AI work |
-| O5 | FRQs on phones: dictated text only, or skipped? | A: voice-dictated text only | Mobile FRQ surface |
-| O9 | Compatibility promise for note formats? | A: indefinite, with migrations | Removal of any breaking change |
-| O10 | Maintain a BRAT beta channel? | A: yes, beta before stable | Rollout of risky features |
-| O11 | What signal justifies a standalone mobile app? | A: wait for a measured demand/retention signal | §10c track |
-| O12 | Who signs off `NOTICES.md` and copied-file review? | A: the owner signs each entry | Any third-party code reuse |
-| D5 | Hold Course / uni-calendar interop needs one sample note per plugin | A: stay on ICS | Read-only property mapping |
-| E11 | Community-directory relisting needs the dashboard review errors | A: leave the listing absent until then | Relisting |
+| ID | Question | Decision |
+|---|---|---|
+| O1 | Keep the name "MCQ Tracker" or rename? | Keep the name and plugin ID; the description carries the breadth |
+| O2 | Original AP/SAT sample packs, or link-only? | No bundled content; link-only guidance |
+| O4 | Tutor-only mobile, or full agent? | Tutor-only on phones; full OpenCode agent stays desktop-only |
+| O5 | FRQs on phones: dictated only, or skipped? | Typed or dictated answer text; no mobile rubric redesign |
+| O9 | Compatibility promise for note formats? | Indefinite, with explicit migrations |
+| O10 | Maintain a BRAT beta channel? | Stable releases only; no beta track |
+| O11 | What justifies a standalone mobile app? | Wait for a measured demand/retention signal; PWA test first if needed |
+| O12 | Who signs off `NOTICES.md` and copied-file review? | Agent drafts each entry; owner reviews the batch before release |
+| D5 | Hold Course / uni-calendar interop needs a sample note | Stay on ICS; no sample note supplied, no property mapping |
+| E11 | Community-directory relisting needs dashboard errors | Leave the listing absent until the errors are supplied |
+| O13 | Similarity/licence scan before distribution | Local scan run Nov 6, 2026: `jscpd` found 32 internal clones (426 lines, 0.62% of 291 files); `license-checker` reports one UNLICENSED package (the project root, which has no SPDX field); vendored pdf-lib and PDF++ are MIT. No external-code corpus or hosted service was available, so no external-copying result is claimed. |
 
 ## Closed in this pass
 
-Three rows stopped saying "the bundled OCR engine remains (licence review)",
-because §11 **E3** resolved that question on Nov 1, 2026: keep the opt-in BYOK
-vision path, state that no bundled engine exists, and leave offline image-only
-scans unsupported. The same §3.9.6 blocked row also carried PDF form filling,
-which **E4** reversed on Nov 4, 2026 and 1.218.0 shipped.
-
-| Plan row | Why it closes |
+| Plan row | Decision |
 |---|---|
-| AI summary and key terms for course notes (**§5.13**) | Shipped in 1.44.0; the only stated gap was the bundled engine, declined by E3 |
-| Paper scanner: photos to one PDF (**§5.13.1**) | Shipped in 1.46.0; same gap, same decision |
-| OCR for image-only scans (**§5.13.1**) | BYOK vision path, editable per-page text and the OCR note shipped; E3 makes "no bundled engine" the answer, not a gap |
+| Optional TTS/audio commute (§5.22.4) | Device speech only; provider TTS and commute playback declined |
+| Pronunciation feedback (§5.22.4) | Declined; no audio capture or scoring |
+| AP FRQ accuracy claim (§5.20) | No accuracy claim; grader stays an aid |
+| Pilot go/no-go thresholds (§7 Phase 2b) | No numeric bar; shipped is not validated |
 
-No code changed for these: the decision was already recorded, only the plan's
-wording still treated it as pending.
+The three OCR rows remain closed for the reasons recorded in the previous sheet:
+§11 E3 keeps the BYOK vision path and §11 E4 reversed the PDF-form gate. These
+gate decisions did not change code. The PDF→FRQ import shipped separately in
+§5.20.5; no implementation row remains open.

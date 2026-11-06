@@ -236,6 +236,8 @@ const apExamHistory = require("./ap-exam-history");
 const frq = require("./frq");
 const referenceSheets = require("./reference-sheets");
 const handwriting = require("./handwriting");
+const frqImport = require("./frq-import");
+const { FrqImportPreviewModal, FrqPdfPickerModal } = require("./frq-import-modal");
 const { FrqGraderModal, NewFrqNoteModal } = require("./frq-modal");
 const { StudyMatchModal } = require("./study-match-modal");
 const apResourceNotes = require("./ap-resource-notes");
@@ -491,6 +493,9 @@ QuestionTrackerPlugin.__test = {
   apResources,
   apExamHistory,
   frq,
+  frqImport,
+  FrqImportPreviewModal,
+  FrqPdfPickerModal,
   handwriting,
   referenceSheets,
   FrqGraderModal,

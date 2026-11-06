@@ -33050,6 +33050,402 @@ module.exports = {
 };
 };
 
+/* ---- src/frq-import.js ---- */
+__defs["frq-import"] = function (module, exports, require) {
+/*
+ * Turns the text layer of a free-response PDF into candidate items. This module
+ * is pure: it never reads a file, calls a model or writes a note. The preview
+ * modal is the only place a candidate becomes a note.
+ */
+const { parseRubric } = require("./frq");
+const { str } = require("./util");
+
+const MAX_PROMPT_CHARS = 20000;
+const MAX_RUBRIC_CHARS = 12000;
+const MAX_ITEMS = 60;
+
+const RUBRIC_HEADING = /^(?:#{1,6}\s*)?(?:scoring\s+(?:guidelines?|rubric|notes)|scoring|rubric|grading\s+(?:guidelines?|rubric)|answer\s+key|points?\s+(?:possible|available))\b/i;
+const QUESTION_LABEL = /^(?:#{1,6}\s*)?(?:question\s+|free[- ]response(?:\s+question)?\s*|frq\s*(?:#|no\.?)?\s*)(\d{1,2})\b/i;
+const NUMBERED_LABEL = /^(\d{1,2})\s*[.)]\s+\S/;
+
+function lineText(value) {
+  if (typeof value === "string") return value;
+  if (value && typeof value.text === "string") return value.text;
+  if (value && typeof value.s === "string") return value.s;
+  return "";
+}
+
+function pageEntries(pages) {
+  const entries = [];
+  for (const page of Array.isArray(pages) ? pages : []) {
+    const number = Math.max(0, Math.round(Number(page && page.n) || 0)) || entries.length + 1;
+    const source = Array.isArray(page && page.lines) && page.lines.length ? page.lines : str(page && page.text).split(/\r?\n/);
+    for (const raw of source) {
+      const text = lineText(raw).replace(/\r/g, "").trim();
+      if (!text) continue;
+      if (/^(?:go on to the next page|end of (?:the )?(?:exam|test)|©|copyright\b)/i.test(text)) continue;
+      entries.push({ text, page: number });
+    }
+  }
+  return entries;
+}
+
+function isQuestionStart(text) {
+  if (RUBRIC_HEADING.test(text)) return false;
+  return QUESTION_LABEL.test(text) || NUMBERED_LABEL.test(text);
+}
+
+function questionNumber(text) {
+  const labeled = QUESTION_LABEL.exec(text);
+  if (labeled) return Number(labeled[1]);
+  const numbered = NUMBERED_LABEL.exec(text);
+  return numbered ? Number(numbered[1]) : 0;
+}
+
+function stripQuestionLabel(text) {
+  return str(text)
+    .replace(/^#{1,6}\s*/, "")
+    .replace(/^(?:question\s+|free[- ]response(?:\s+question)?\s*|frq\s*(?:#|no\.?)?\s*)\d{1,2}\s*[.:)-]?\s*/i, "")
+    .replace(/^\d{1,2}\s*[.)]\s*/, "")
+    .trim();
+}
+
+function looksLikeRubricLine(text) {
+  if (RUBRIC_HEADING.test(text)) return true;
+  if (/^\s*[-*]\s*\[\s*\d+(?:\.\d+)?\s*\]/.test(text)) return true;
+  if (/^\s*\(\s*\d+(?:\.\d+)?\s*\)\s+\S/.test(text)) return true;
+  if (/^\s*\d+(?:\.\d+)?\s*(?:points?|pts)\b/i.test(text)) return true;
+  if (/\(\s*\d+(?:\.\d+)?\s*points?\s*\)/i.test(text)) return true;
+  if (/^\|\s*(?:criterion|criteria)\s*\|/i.test(text)) return true;
+  return false;
+}
+
+function cleanPrompt(lines) {
+  const out = [];
+  for (const line of lines) {
+    const text = str(line).trim();
+    if (!text) continue;
+    if (/^(?:go on to the next page|end of (?:the )?(?:exam|test))\b/i.test(text)) continue;
+    out.push(text);
+  }
+  return out.join("\n").trim().slice(0, MAX_PROMPT_CHARS);
+}
+
+function cleanRubric(lines) {
+  return lines.join("\n").trim().slice(0, MAX_RUBRIC_CHARS);
+}
+
+/**
+ * Split one document's pages into candidates. A question starts at a numbered
+ * FRQ label; its rubric starts at a scoring/rubric heading or, when no heading
+ * exists, at the first recognizable criterion line.
+ *
+ * Returns { items, warnings }. Every item has prompt, rubricText, criteria,
+ * page/pages and a `valid` flag; invalid items are not silently repaired with a
+ * preset rubric.
+ */
+function splitFrqItems(pages) {
+  const entries = pageEntries(pages);
+  const warnings = [];
+  if (!entries.length) return { items: [], warnings: ["No text layer was found in that PDF."] };
+
+  const starts = [];
+  entries.forEach((entry, index) => {
+    if (isQuestionStart(entry.text)) starts.push(index);
+  });
+  if (!starts.length) starts.push(0);
+  if (starts.length > MAX_ITEMS) warnings.push(`Only the first ${MAX_ITEMS} candidate items were kept.`);
+
+  const items = [];
+  for (let index = 0; index < Math.min(starts.length, MAX_ITEMS); index++) {
+    const start = starts[index];
+    const end = index + 1 < starts.length ? starts[index + 1] : entries.length;
+    const chunk = entries.slice(start, end);
+    if (!chunk.length) continue;
+
+    let rubricAt = chunk.findIndex((entry) => RUBRIC_HEADING.test(entry.text));
+    if (rubricAt < 0) {
+      const fallback = chunk.findIndex((entry) => looksLikeRubricLine(entry.text));
+      rubricAt = fallback > 0 ? fallback : -1;
+    }
+
+    const rubricHeading = rubricAt >= 0 && RUBRIC_HEADING.test(chunk[rubricAt].text);
+    const promptLines = rubricAt > 0 ? chunk.slice(0, rubricAt) : rubricAt === 0 ? [] : chunk;
+    const rubricLines = rubricAt >= 0 ? chunk.slice(rubricAt + (rubricHeading ? 1 : 0)) : [];
+    const number = questionNumber(chunk[0].text);
+    const firstPromptLine = promptLines.find((entry) => stripQuestionLabel(entry.text));
+    const fallbackTitle = firstPromptLine
+      ? stripQuestionLabel(firstPromptLine.text).split(/\n/)[0].replace(/\s+/g, " ").slice(0, 60)
+      : "";
+    const prompt = cleanPrompt(promptLines.map((entry) => stripQuestionLabel(entry.text)));
+    const rubricText = cleanRubric(rubricLines.map((entry) => entry.text));
+    const parsed = parseRubric(rubricText);
+    const itemWarnings = parsed.warnings.slice();
+    if (!prompt) itemWarnings.push("No prompt text was found for this item.");
+    if (!rubricText) itemWarnings.push("No rubric text was found for this item.");
+    else if (!parsed.criteria.length) itemWarnings.push("The rubric text did not contain recognizable criteria.");
+    const itemPages = [...new Set(chunk.map((entry) => entry.page))];
+    const title = number ? `Question ${number}` : fallbackTitle || `Imported FRQ ${items.length + 1}`;
+
+    items.push({
+      id: `frq-import-${items.length + 1}`,
+      title,
+      prompt,
+      rubricText,
+      criteria: parsed.criteria,
+      warnings: [...new Set(itemWarnings)],
+      valid: Boolean(prompt && parsed.criteria.length),
+      page: chunk[0].page,
+      pages: itemPages,
+    });
+  }
+
+  if (!items.length) warnings.push("No free-response prompts were found in that PDF.");
+  return { items, warnings };
+}
+
+module.exports = {
+  MAX_ITEMS,
+  MAX_PROMPT_CHARS,
+  MAX_RUBRIC_CHARS,
+  splitFrqItems,
+};
+};
+
+/* ---- src/frq-import-modal.js ---- */
+__defs["frq-import-modal"] = function (module, exports, require) {
+const { FuzzySuggestModal, Modal, Notice } = require("obsidian");
+const { FRQ_COURSES, buildFrqNote, parseRubric, presetsForCourse } = require("./frq");
+const { str } = require("./util");
+
+function criteriaText(criteria) {
+  return (criteria || [])
+    .map((criterion) => `- [${criterion.points}] ${criterion.label}${criterion.description ? `: ${criterion.description}` : ""}`)
+    .join("\n");
+}
+
+function itemTitle(item) {
+  return str(item.title).trim() || "Question";
+}
+
+/*
+ * The preview is the write boundary. Opening or redrawing this modal only
+ * reads candidate state; createFrqNote() is called from confirm() alone.
+ */
+class FrqImportPreviewModal extends Modal {
+  constructor(app, plugin, options) {
+    super(app);
+    this.plugin = plugin;
+    this.options = options || {};
+    this.source = str(this.options.source).trim();
+    this.warnings = Array.isArray(this.options.warnings) ? this.options.warnings.slice() : [];
+    this.items = (Array.isArray(this.options.items) ? this.options.items : []).map((item) => ({
+      ...item,
+      title: str(item.title).trim(),
+      prompt: str(item.prompt),
+      rubricText: str(item.rubricText) || criteriaText(item.criteria),
+      include: item.valid !== false,
+    }));
+    this.courseId = FRQ_COURSES[0].id;
+    this.kind = presetsForCourse(this.courseId)[0].id;
+    this.saving = false;
+    this.error = "";
+  }
+
+  onOpen() {
+    this.draw();
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+
+  selectedItems() {
+    return this.items.filter((item) => item.include);
+  }
+
+  draw() {
+    const root = this.contentEl;
+    root.empty();
+    root.createEl("h2", { text: "Import free-response questions from a PDF" });
+    root.createDiv({
+      cls: "qt-hint",
+      text: "Review the prompts and rubrics the PDF text layer produced. Edit anything the splitter got wrong, untick an item to discard it, then create the notes. Nothing is written before you press the create button.",
+    });
+    if (this.source) root.createDiv({ cls: "qt-hint", text: `Source: ${this.source}` });
+    for (const warning of this.warnings) root.createDiv({ cls: "qt-hint qt-frq-warning", text: warning });
+
+    const courseRow = root.createDiv({ cls: "qt-row" });
+    courseRow.createEl("label", { text: "Course for this batch" });
+    const course = courseRow.createEl("select", { cls: "dropdown" });
+    for (const item of FRQ_COURSES) course.createEl("option", { text: item.name, value: item.id });
+    course.value = this.courseId;
+    course.addEventListener("change", () => {
+      this.courseId = course.value;
+      this.kind = presetsForCourse(this.courseId)[0].id;
+      this.draw();
+    });
+
+    const kindRow = root.createDiv({ cls: "qt-row" });
+    kindRow.createEl("label", { text: "Question type" });
+    const kind = kindRow.createEl("select", { cls: "dropdown" });
+    for (const preset of presetsForCourse(this.courseId)) kind.createEl("option", { text: preset.label, value: preset.id });
+    kind.value = this.kind;
+    kind.addEventListener("change", () => {
+      this.kind = kind.value;
+    });
+
+    root.createDiv({
+      cls: "qt-hint",
+      text: "Imported rubrics are saved as your own user-supplied scoring guide. The plugin does not verify them against an official rubric.",
+    });
+    root.createDiv({ cls: "qt-hint", text: `${this.selectedItems().length} of ${this.items.length} item${this.items.length === 1 ? "" : "s"} selected.` });
+
+    this.items.forEach((item, index) => {
+      const card = root.createDiv({ cls: "qt-settings-card qt-frq-import-item" });
+      const head = card.createDiv({ cls: "qt-row qt-frq-import-head" });
+      const include = head.createEl("input", { type: "checkbox", attr: { "aria-label": `Include ${itemTitle(item)}` } });
+      include.checked = item.include;
+      include.addEventListener("change", () => {
+        item.include = include.checked;
+        this.draw();
+      });
+      head.createEl("strong", { text: itemTitle(item) });
+      head.createDiv({ cls: "qt-hint", text: item.page ? `page ${item.page}` : "" });
+
+      card.createEl("label", { text: "Title" });
+      const title = card.createEl("input", { type: "text", cls: "qt-modal-input" });
+      title.value = item.title;
+      title.addEventListener("input", () => {
+        item.title = title.value;
+      });
+
+      card.createEl("label", { text: "Prompt" });
+      const prompt = card.createEl("textarea", { cls: "qt-frq-answer", attr: { rows: "5" } });
+      prompt.value = item.prompt;
+      prompt.addEventListener("input", () => {
+        item.prompt = prompt.value;
+      });
+
+      card.createEl("label", { text: "Rubric" });
+      const rubric = card.createEl("textarea", { cls: "qt-frq-answer", attr: { rows: "6" } });
+      rubric.value = item.rubricText;
+      rubric.addEventListener("input", () => {
+        item.rubricText = rubric.value;
+      });
+      card.createDiv({ cls: "qt-hint", text: "One criterion per line: - [points] Name: what earns the point. A Markdown table with a points column also works." });
+      for (const warning of item.warnings || []) card.createDiv({ cls: "qt-hint qt-frq-warning", text: warning });
+
+      const controls = card.createDiv({ cls: "qt-row" });
+      controls.createEl("button", { text: "Discard", cls: "qt-link" }).addEventListener("click", () => {
+        item.include = false;
+        this.draw();
+      });
+      controls.createEl("span", { cls: "qt-hint", text: `Item ${index + 1}` });
+    });
+
+    if (this.error) root.createDiv({ cls: "qt-hint qt-frq-warning", text: this.error });
+
+    const actions = root.createDiv({ cls: "qt-row" });
+    actions.createEl("button", { text: "Cancel", cls: "qt-grow" }).addEventListener("click", () => this.close());
+    const count = this.selectedItems().length;
+    const create = actions.createEl("button", {
+      text: this.saving ? "Creating…" : `Create ${count} note${count === 1 ? "" : "s"}`,
+      cls: "mod-cta qt-grow",
+    });
+    create.disabled = this.saving || count === 0;
+    create.addEventListener("click", () => this.confirm());
+    root.createDiv({ cls: "qt-hint", text: "The notes use the ordinary FRQ note format, so the existing grader, second pass and attempt history work unchanged." });
+  }
+
+  /**
+   * Validate every selected item before writing any of them. Returns false and
+   * keeps the modal open when one item still needs a prompt, title or criterion.
+   */
+  async confirm() {
+    if (this.saving) return false;
+    const selected = this.selectedItems();
+    if (!selected.length) {
+      this.error = "Select at least one item, or cancel.";
+      this.draw();
+      return false;
+    }
+    const inputs = [];
+    for (const item of selected) {
+      const parsed = parseRubric(item.rubricText);
+      const label = itemTitle(item);
+      if (!str(item.title).trim() || !str(item.prompt).trim()) {
+        this.error = `${label} needs a title and a prompt.`;
+        this.draw();
+        return false;
+      }
+      if (!parsed.criteria.length) {
+        this.error = `${label} needs at least one recognizable rubric criterion.`;
+        this.draw();
+        return false;
+      }
+      const input = {
+        courseId: this.courseId,
+        kind: this.kind,
+        title: item.title,
+        prompt: item.prompt,
+        rubric: parsed.criteria,
+        rubricSource: "user",
+      };
+      if (!buildFrqNote(input)) {
+        this.error = `${label} could not be turned into an FRQ note.`;
+        this.draw();
+        return false;
+      }
+      inputs.push(input);
+    }
+
+    this.saving = true;
+    this.error = "";
+    this.draw();
+    try {
+      const created = [];
+      for (const input of inputs) created.push(await this.plugin.createFrqNote(input));
+      new Notice(`Created ${created.length} FRQ note${created.length === 1 ? "" : "s"} from ${this.source || "the PDF"}.`);
+      this.close();
+      if (typeof this.options.onDone === "function") this.options.onDone(created);
+      return true;
+    } catch (error) {
+      this.saving = false;
+      this.error = str(error && error.message ? error.message : error);
+      this.draw();
+      return false;
+    }
+  }
+}
+
+class FrqPdfPickerModal extends FuzzySuggestModal {
+  constructor(app, files, onChoose) {
+    super(app);
+    this.files = Array.isArray(files) ? files : [];
+    this.onChoose = typeof onChoose === "function" ? onChoose : null;
+    this.setPlaceholder("Choose a PDF with free-response questions and a rubric");
+  }
+
+  getItems() {
+    return this.files;
+  }
+
+  getItemText(file) {
+    return str(file && (file.path || file.name));
+  }
+
+  onChooseItem(file) {
+    if (this.onChoose) this.onChoose(file);
+  }
+}
+
+module.exports = {
+  FrqImportPreviewModal,
+  FrqPdfPickerModal,
+};
+};
+
 /* ---- src/frq-modal.js ---- */
 __defs["frq-modal"] = function (module, exports, require) {
 const { Modal, Notice } = require("obsidian");
@@ -59487,6 +59883,8 @@ const { attachFrontmatter, attachStudySlotFrontmatter, buildApResourceNote, deta
 const { HANDWRITING_SYSTEM, cleanHandwritingText, handwritingPrompt } = require("./handwriting");
 const { FRQ_ATTEMPT_FOLDER, FRQ_FOLDER, buildFrqAttemptNote, buildFrqNote, entryFromAttemptFrontmatter, frqCriterionWeakSpots, frqKnowledge, frqReviewEntry, frqReviewQueue, gradeFrqWithAi, isFrqNote, parseFrqNote, sortFrqAttempts, sourceFrontmatterUpdate, uniqueNotePath } = require("./frq");
 const { FrqGraderModal, NewFrqNoteModal } = require("./frq-modal");
+const { FrqImportPreviewModal, FrqPdfPickerModal } = require("./frq-import-modal");
+const { splitFrqItems } = require("./frq-import");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
 const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseFlashQuizText, parseGiftText, parseMarkdownQuiz, parseMarkdownTable, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizPortJson, parseQuizletPdf, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
@@ -59895,6 +60293,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-ap-resources", name: "Open AP resources", callback: () => this.openApResources() });
     this.addCommand({ id: "open-frq-grader", name: "AP: open free-response practice and grader", callback: () => this.openFrqGrader() });
     this.addCommand({ id: "new-frq-note", name: "AP: create a free-response note", callback: () => this.openNewFrqNote() });
+    this.addCommand({ id: "import-frq-pdf", name: "AP: import free-response questions from a PDF", callback: () => this.openFrqPdfImport() });
     this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary card", callback: () => this.openNewCard() });
     this.addCommand({ id: "source-recall", name: "Create a source-anchored recall from selection", callback: () => this.openSourceRecall() });
     this.addCommand({ id: "generate-cards", name: "Generate flashcards from this note or selection", callback: () => this.openCardGenerator() });
@@ -62856,6 +63255,67 @@ class QuestionTrackerPlugin extends Plugin {
     const modal = new NewFrqNoteModal(this.app, this, onDone);
     modal.open();
     return modal;
+  }
+
+  /**
+   * Chooses a vault PDF, reads its text layer and opens the preview. The PDF
+   * itself is not copied, uploaded or stored; only the notes the learner
+   * confirms are written.
+   */
+  openFrqPdfImport() {
+    if (this.moduleOff("reference")) {
+      new Notice("Turn on the Reference module under Settings, Global, Modules to import AP free-response questions.");
+      return null;
+    }
+    if (this.settings.reference.hideDuringTests !== false && this.timedTestRunning()) {
+      new Notice("AP tools are hidden while a timed test is running. Change this under Settings, Reference.");
+      return null;
+    }
+    const files = (this.app.vault.getFiles ? this.app.vault.getFiles() : [])
+      .filter((file) => /\.pdf$/i.test(str(file && (file.path || file.name))))
+      .sort((a, b) => str(a.path).localeCompare(str(b.path)));
+    if (!files.length) {
+      new Notice("No PDFs were found in this vault. Add the free-response PDF first.");
+      return null;
+    }
+    if (files.length === 1) return this.importFrqPdf(files[0]);
+    new FrqPdfPickerModal(this.app, files, (file) => this.importFrqPdf(file)).open();
+    return null;
+  }
+
+  /** Reads one PDF and opens the review-first import modal; returns that modal. */
+  async importFrqPdf(file, options) {
+    const opts = options || {};
+    if (this.moduleOff("reference")) {
+      new Notice("Turn on the Reference module under Settings, Global, Modules to import AP free-response questions.");
+      return null;
+    }
+    const path = str(file && (file.path || file.name));
+    if (!/\.pdf$/i.test(path)) {
+      new Notice("Choose a PDF file first.");
+      return null;
+    }
+    try {
+      const bytes = opts.bytes || (await this.app.vault.readBinary(file));
+      const reader = this.frqPdfReader || readPdfPages;
+      const read = await reader(bytes, str(opts.pages), () => {});
+      const split = splitFrqItems(read && read.pages);
+      if (!split.items.length) {
+        new Notice(split.warnings[0] || "No free-response prompts and rubrics were found in that PDF.");
+        return null;
+      }
+      const modal = new FrqImportPreviewModal(this.app, this, {
+        source: path,
+        items: split.items,
+        warnings: [...split.warnings, ...((read && read.warnings) || [])],
+        onDone: opts.onDone,
+      });
+      modal.open();
+      return modal;
+    } catch (error) {
+      new Notice(`I couldn't read that PDF: ${str(error && error.message ? error.message : error)}`);
+      return null;
+    }
   }
 
   /** Every user-supplied FRQ note, read through the normal note format. */
@@ -115784,6 +116244,8 @@ const apExamHistory = require("./ap-exam-history");
 const frq = require("./frq");
 const referenceSheets = require("./reference-sheets");
 const handwriting = require("./handwriting");
+const frqImport = require("./frq-import");
+const { FrqImportPreviewModal, FrqPdfPickerModal } = require("./frq-import-modal");
 const { FrqGraderModal, NewFrqNoteModal } = require("./frq-modal");
 const { StudyMatchModal } = require("./study-match-modal");
 const apResourceNotes = require("./ap-resource-notes");
@@ -116039,6 +116501,9 @@ QuestionTrackerPlugin.__test = {
   apResources,
   apExamHistory,
   frq,
+  frqImport,
+  FrqImportPreviewModal,
+  FrqPdfPickerModal,
   handwriting,
   referenceSheets,
   FrqGraderModal,

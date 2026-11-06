@@ -182,6 +182,8 @@ const { attachFrontmatter, attachStudySlotFrontmatter, buildApResourceNote, deta
 const { HANDWRITING_SYSTEM, cleanHandwritingText, handwritingPrompt } = require("./handwriting");
 const { FRQ_ATTEMPT_FOLDER, FRQ_FOLDER, buildFrqAttemptNote, buildFrqNote, entryFromAttemptFrontmatter, frqCriterionWeakSpots, frqKnowledge, frqReviewEntry, frqReviewQueue, gradeFrqWithAi, isFrqNote, parseFrqNote, sortFrqAttempts, sourceFrontmatterUpdate, uniqueNotePath } = require("./frq");
 const { FrqGraderModal, NewFrqNoteModal } = require("./frq-modal");
+const { FrqImportPreviewModal, FrqPdfPickerModal } = require("./frq-import-modal");
+const { splitFrqItems } = require("./frq-import");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
 const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseFlashQuizText, parseGiftText, parseMarkdownQuiz, parseMarkdownTable, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizPortJson, parseQuizletPdf, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
@@ -590,6 +592,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-ap-resources", name: "Open AP resources", callback: () => this.openApResources() });
     this.addCommand({ id: "open-frq-grader", name: "AP: open free-response practice and grader", callback: () => this.openFrqGrader() });
     this.addCommand({ id: "new-frq-note", name: "AP: create a free-response note", callback: () => this.openNewFrqNote() });
+    this.addCommand({ id: "import-frq-pdf", name: "AP: import free-response questions from a PDF", callback: () => this.openFrqPdfImport() });
     this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary card", callback: () => this.openNewCard() });
     this.addCommand({ id: "source-recall", name: "Create a source-anchored recall from selection", callback: () => this.openSourceRecall() });
     this.addCommand({ id: "generate-cards", name: "Generate flashcards from this note or selection", callback: () => this.openCardGenerator() });
@@ -3551,6 +3554,67 @@ class QuestionTrackerPlugin extends Plugin {
     const modal = new NewFrqNoteModal(this.app, this, onDone);
     modal.open();
     return modal;
+  }
+
+  /**
+   * Chooses a vault PDF, reads its text layer and opens the preview. The PDF
+   * itself is not copied, uploaded or stored; only the notes the learner
+   * confirms are written.
+   */
+  openFrqPdfImport() {
+    if (this.moduleOff("reference")) {
+      new Notice("Turn on the Reference module under Settings, Global, Modules to import AP free-response questions.");
+      return null;
+    }
+    if (this.settings.reference.hideDuringTests !== false && this.timedTestRunning()) {
+      new Notice("AP tools are hidden while a timed test is running. Change this under Settings, Reference.");
+      return null;
+    }
+    const files = (this.app.vault.getFiles ? this.app.vault.getFiles() : [])
+      .filter((file) => /\.pdf$/i.test(str(file && (file.path || file.name))))
+      .sort((a, b) => str(a.path).localeCompare(str(b.path)));
+    if (!files.length) {
+      new Notice("No PDFs were found in this vault. Add the free-response PDF first.");
+      return null;
+    }
+    if (files.length === 1) return this.importFrqPdf(files[0]);
+    new FrqPdfPickerModal(this.app, files, (file) => this.importFrqPdf(file)).open();
+    return null;
+  }
+
+  /** Reads one PDF and opens the review-first import modal; returns that modal. */
+  async importFrqPdf(file, options) {
+    const opts = options || {};
+    if (this.moduleOff("reference")) {
+      new Notice("Turn on the Reference module under Settings, Global, Modules to import AP free-response questions.");
+      return null;
+    }
+    const path = str(file && (file.path || file.name));
+    if (!/\.pdf$/i.test(path)) {
+      new Notice("Choose a PDF file first.");
+      return null;
+    }
+    try {
+      const bytes = opts.bytes || (await this.app.vault.readBinary(file));
+      const reader = this.frqPdfReader || readPdfPages;
+      const read = await reader(bytes, str(opts.pages), () => {});
+      const split = splitFrqItems(read && read.pages);
+      if (!split.items.length) {
+        new Notice(split.warnings[0] || "No free-response prompts and rubrics were found in that PDF.");
+        return null;
+      }
+      const modal = new FrqImportPreviewModal(this.app, this, {
+        source: path,
+        items: split.items,
+        warnings: [...split.warnings, ...((read && read.warnings) || [])],
+        onDone: opts.onDone,
+      });
+      modal.open();
+      return modal;
+    } catch (error) {
+      new Notice(`I couldn't read that PDF: ${str(error && error.message ? error.message : error)}`);
+      return null;
+    }
   }
 
   /** Every user-supplied FRQ note, read through the normal note format. */
