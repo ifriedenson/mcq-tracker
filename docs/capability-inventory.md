@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 414 groups, 2817 exports. **Commands:** 212. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 416 groups, 2832 exports. **Commands:** 214. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -26,7 +26,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `CardExtractModal` | 0 | `tests/feature-surfaces.test.js` |
 | `CardModal` | 0 | `tests/source-recall.test.js` |
 | `CardView` | 0 | `tests/card-cram.test.js`, `tests/card-learning.test.js`, `tests/card-mother-cram.test.js`, `tests/card-reveal.test.js`, `tests/card-speech.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/interval-preview.test.js`, `tests/mobile-module-layout.test.js`, `tests/source-recall.test.js`, `tests/study-status.test.js` |
-| `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/chat-panel-mentions.test.js`, `tests/diagnostics-gauge.test.js`, `tests/note-context.test.js`, `tests/quick-ask.test.js`, `tests/security-hardening.test.js`, `tests/skills-pricing.test.js`, `tests/think-first.test.js` |
+| `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/chat-panel-mentions.test.js`, `tests/diagnostics-gauge.test.js`, `tests/memory-export.test.js`, `tests/note-context.test.js`, `tests/quick-ask.test.js`, `tests/security-hardening.test.js`, `tests/skills-pricing.test.js`, `tests/think-first.test.js` |
 | `CourseOverviewModal` | 0 | `tests/core-values.test.js` |
 | `DEFAULT_SETTINGS` | 113 | `tests/grading.test.js` |
 | `DocumentReviewModal` | 0 | `tests/feature-surfaces.test.js` |
@@ -89,7 +89,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `agentEditReview` | 9 | `tests/agent-edit-review.test.js` |
 | `agentNote` | 2 | `tests/agent-view.test.js` |
 | `agentRetrieval` | 14 | `tests/agent-retrieval.test.js` |
-| `agentView` | 5 | `tests/agent-view.test.js`, `tests/chat-tabs-queue.test.js`, `tests/projects-cost.test.js`, `tests/quick-chat-bookmarks.test.js` |
+| `agentView` | 5 | `tests/agent-view.test.js`, `tests/chat-tabs-queue.test.js`, `tests/memory-export.test.js`, `tests/projects-cost.test.js`, `tests/quick-chat-bookmarks.test.js` |
 | `agentWriteGuard` | 3 | `tests/agent-write-guard.test.js` |
 | `aiContext` | 5 | `tests/ai-context.test.js` |
 | `aiReady` | 0 | `tests/empty-state.test.js` |
@@ -163,7 +163,9 @@ the table and fails if a group, export count, command or citing test drifts.
 | `chatBookmarks` | 17 | `tests/quick-chat-bookmarks.test.js` |
 | `chatBudget` | 6 | `tests/chat-budget.test.js`, `tests/chat-compact.test.js`, `tests/chat-panel-mentions.test.js`, `tests/diagnostics-gauge.test.js`, `tests/quick-chat-bookmarks.test.js` |
 | `chatCompact` | 9 | `tests/chat-compact.test.js` |
+| `chatExport` | 3 | `tests/memory-export.test.js` |
 | `chatHistory` | 5 | `tests/chat-history.test.js` |
+| `chatMemory` | 12 | `tests/memory-export.test.js` |
 | `chatMentions` | 17 | `tests/chat-mentions.test.js` |
 | `chatModels` | 13 | `tests/chat-models.test.js` |
 | `chatPricing` | 8 | `tests/projects-cost.test.js`, `tests/skills-pricing.test.js` |
@@ -584,6 +586,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `study-agent-skill` | Study agent: create a skill note | `createSkillNote` | `tests/skills-pricing.test.js` |
 | `study-agent-project` | Study agent: create a chat project | `promptChatProject` | `tests/projects-cost.test.js` |
 | `study-agent-cost` | Study agent: show this chat's cost estimate | `showChatCostEstimate` | `tests/projects-cost.test.js` |
+| `study-agent-memory` | Study agent: manage saved memory | `openMemoryModal` | `tests/memory-export.test.js` |
+| `study-agent-export` | Study agent: export a conversation as Markdown | `exportChatAsMarkdown` | `tests/memory-export.test.js` |
 | `study-agent-diagnostics` | Study agent: save diagnostics bundle | `saveDiagnosticsBundle` | `tests/diagnostics-gauge.test.js` |
 | `cards-rescan-plain` | Cards: rescan plain Markdown folder | `moduleOff` | `tests/frq-review.test.js`, `tests/plain-cards.test.js`, `tests/views.test.js` |
 | `export-cards` | Cards: export to Quizlet, Anki package, Anki text, Mochi, LearnKit, Kahoot, Blooket or Gimkit | `openCardExport` | `tests/command-effects.test.js` |

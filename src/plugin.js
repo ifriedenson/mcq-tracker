@@ -142,6 +142,8 @@ const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const diagnostics = require("./diagnostics");
 const chatSkills = require("./chat-skills");
 const chatPricing = require("./chat-pricing");
+const chatMemory = require("./chat-memory");
+const { ChatMemoryModal } = require("./chat-memory-modal");
 const { PdfImportModal } = require("./import-modal");
 const { readPdfPages, renderPdfPagesAsPng } = require("./pdf");
 const { CourseNotesModal, removeAiSummary } = require("./course-notes");
@@ -770,6 +772,20 @@ class QuestionTrackerPlugin extends Plugin {
       id: "study-agent-cost",
       name: "Study agent: show this chat's cost estimate",
       callback: () => this.showChatCostEstimate(),
+    });
+    this.addCommand({
+      id: "study-agent-memory",
+      name: "Study agent: manage saved memory",
+      callback: () => this.openMemoryModal(),
+    });
+    this.addCommand({
+      id: "study-agent-export",
+      name: "Study agent: export a conversation as Markdown",
+      callback: () =>
+        this.exportChatAsMarkdown().catch((e) => {
+          this.recordDiagnosticError("chat export", e);
+          new Notice(`Could not export the conversation: ${String((e && e.message) || e)}`, 8000);
+        }),
     });
     this.addCommand({
       id: "study-agent-diagnostics",
@@ -4118,6 +4134,69 @@ class QuestionTrackerPlugin extends Plugin {
       9000
     );
     return cost;
+  }
+
+  /** Open the local memory editor; facts stay in settings and on this device. */
+  openMemoryModal() {
+    if (!this.settings || !this.settings.ai) return null;
+    const modal = new ChatMemoryModal(this.app, this);
+    modal.open();
+    return modal;
+  }
+
+  /** Save one short fact after redaction. No file, network or provider call. */
+  rememberFact(text) {
+    const ai = this.settings && this.settings.ai;
+    if (!ai) return { ok: false, reason: "empty", facts: [] };
+    const result = chatMemory.addFact(ai.chatMemory, text, Date.now());
+    if (result.ok) {
+      ai.chatMemory = result.facts;
+      this.save();
+      this.refreshViews();
+      new Notice(`Saved a memory fact on this device: "${result.fact.text}"`, 7000);
+    } else {
+      new Notice(chatMemory.reasonText(result.reason), 6000);
+    }
+    return result;
+  }
+
+  updateMemoryFact(id, text) {
+    const ai = this.settings && this.settings.ai;
+    if (!ai) return { ok: false, reason: "missing", facts: [] };
+    const result = chatMemory.updateFact(ai.chatMemory, id, text, Date.now());
+    if (result.ok) {
+      ai.chatMemory = result.facts;
+      this.save();
+      this.refreshViews();
+      new Notice("Updated a memory fact on this device.", 5000);
+    } else {
+      new Notice(chatMemory.reasonText(result.reason), 6000);
+    }
+    return result;
+  }
+
+  removeMemoryFact(id) {
+    const ai = this.settings && this.settings.ai;
+    if (!ai) return false;
+    const before = chatMemory.normalizeFacts(ai.chatMemory);
+    const next = chatMemory.removeFact(ai.chatMemory, id);
+    ai.chatMemory = next;
+    this.save();
+    this.refreshViews();
+    const changed = next.length !== before.length;
+    if (changed) new Notice("Removed a memory fact.", 5000);
+    return changed;
+  }
+
+  /** Export the active conversation as Markdown through the existing Study agent view. */
+  async exportChatAsMarkdown() {
+    const view = await this.activateAgent();
+    if (!view || typeof view.exportChat !== "function") {
+      new Notice("The Study agent could not open. Nothing was exported.");
+      return null;
+    }
+    const tab = view.activeTab();
+    return view.exportChat(tab && tab.id);
   }
 
   openCardExport(options, onDone) {

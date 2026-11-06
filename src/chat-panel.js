@@ -18,6 +18,7 @@ const chatBookmarks = require("./chat-bookmarks");
 const chatCompact = require("./chat-compact");
 const chatQueue = require("./chat-queue");
 const chatPricing = require("./chat-pricing");
+const chatMemory = require("./chat-memory");
 
 function budgetRefusal(budget) {
   return `Nothing was sent: the estimated ${chatBudget.formatTokenCount(budget.tokens)}-token context is over the local ${chatBudget.formatTokenCount(budget.limit)}-token chat budget. Remove a mention or shorten the message.`;
@@ -52,6 +53,7 @@ class ChatPanel {
     this.includeSelection = false;
     this.includeMentions = false;
     this.includeSkills = false;
+    this.includeMemory = false;
     this.skills = [];
     this.skillBlock = "";
     this.skillWarnings = [];
@@ -466,6 +468,12 @@ class ChatPanel {
         this.refreshTokenFooter();
       });
     }
+    this.memoryChip = wrap.createEl("button", { cls: "qt-chip", text: "Include memory" });
+    this.memoryChip.addEventListener("click", () => {
+      this.includeMemory = !this.includeMemory;
+      this.paintContext();
+      this.refreshTokenFooter();
+    });
     this.mentionChipsEl = root.createDiv({ cls: "qt-chat-mentions" });
     root.createDiv({
       cls: "qt-hint",
@@ -479,6 +487,7 @@ class ChatPanel {
     if (this.selectionChip) this.selectionChip.toggleClass("is-selected", this.includeSelection);
     if (this.mentionChip) this.mentionChip.toggleClass("is-selected", this.includeMentions);
     if (this.skillChip) this.skillChip.toggleClass("is-selected", this.includeSkills);
+    if (this.memoryChip) this.memoryChip.toggleClass("is-selected", this.includeMemory);
   }
 
   mentionTargets() {
@@ -664,6 +673,7 @@ class ChatPanel {
       { label: "context", text: context },
       { label: "history", text: this.historyText() },
       { label: "skills", text: this.includeSkills ? this.skillBlock : "" },
+      { label: "memory", text: this.includeMemory ? chatMemory.factBlock(this.ai.chatMemory) : "" },
     ], { limit: chatBudget.CONTEXT_BUDGET_TOKENS });
   }
 
@@ -672,6 +682,10 @@ class ChatPanel {
     if (this.includeNote) labels.push("current note");
     if (this.includeSelection) labels.push("selection");
     if (this.includeSkills) labels.push(this.skills.length ? `${this.skills.length} skill${this.skills.length === 1 ? "" : "s"}` : "skills (none)");
+    if (this.includeMemory) {
+      const facts = chatMemory.normalizeFacts(this.ai.chatMemory);
+      labels.push(facts.length ? `${facts.length} memor${facts.length === 1 ? "y fact" : "y facts"}` : "memory (none)");
+    }
     for (const target of this.mentionTargets()) {
       labels.push(`${target.kind} ${target.path}${this.includeMentions ? "" : " (off)"}`);
     }
@@ -773,6 +787,19 @@ class ChatPanel {
       for (const warning of this.skillWarnings) {
         this.budgetEl.createDiv({ cls: "qt-chat-budget-warning", text: warning });
       }
+    }
+    if (this.includeMemory) {
+      const facts = chatMemory.normalizeFacts(this.ai.chatMemory);
+      const row = this.budgetEl.createDiv({ cls: "qt-row qt-small-row qt-chat-memory-line" });
+      row.createSpan({
+        text: facts.length
+          ? `Memory: ${facts.length} saved fact${facts.length === 1 ? "" : "s"} on this device.`
+          : "Memory: no saved facts yet.",
+      });
+      const manage = row.createEl("button", { text: "Manage" });
+      manage.addEventListener("click", () => {
+        if (typeof this.opts.onOpenMemory === "function") this.opts.onOpenMemory();
+      });
     }
     if (this.previewMissing.length) {
       this.budgetEl.createDiv({
@@ -1042,6 +1069,8 @@ class ChatPanel {
       const actions = item.createDiv({ cls: "qt-row qt-small-row qt-chat-library-actions" });
       const pin = actions.createEl("button", { text: row.pinned ? "Unpin" : "Pin" });
       pin.addEventListener("click", () => this.pinLibraryRow(row));
+      const exportButton = actions.createEl("button", { text: "Export" });
+      exportButton.addEventListener("click", () => this.exportLibraryRow(row));
       if (row.archived) {
         const restore = actions.createEl("button", { text: "Restore" });
         restore.addEventListener("click", () => this.restoreLibraryRow(row));
@@ -1109,6 +1138,16 @@ class ChatPanel {
     const current = typeof this.opts.getProject === "function" ? str(this.opts.getProject()) : "";
     if (!current || typeof this.opts.onRemoveProject !== "function") return;
     this.opts.onRemoveProject(current);
+    this.refreshLibrary();
+  }
+
+  async exportLibraryRow(row) {
+    if (this.busy || !row || typeof this.opts.onExportChat !== "function") return;
+    try {
+      await this.opts.onExportChat(row.id);
+    } catch (e) {
+      if (this.status) this.status.setText("That conversation could not be exported.");
+    }
     this.refreshLibrary();
   }
 
@@ -1506,7 +1545,7 @@ class ChatPanel {
       this.status.setText("OpenCode is working...");
       const body = {
         parts: [{ type: "text", text }],
-        system: this.opts.buildContext(ai.mode, currentNote, this.includeSkills ? this.skillBlock : ""),
+        system: this.opts.buildContext(ai.mode, currentNote, this.includeSkills ? this.skillBlock : "", this.includeMemory ? chatMemory.factBlock(this.ai.chatMemory) : ""),
       };
       const model = modelFromString(modelPlan.model);
       if (model) body.model = model;
@@ -1612,7 +1651,7 @@ class ChatPanel {
     };
     try {
       const system = [
-        this.opts.buildContext(agent ? "agent" : "tutor", currentNote, this.includeSkills ? this.skillBlock : ""),
+        this.opts.buildContext(agent ? "agent" : "tutor", currentNote, this.includeSkills ? this.skillBlock : "", this.includeMemory ? chatMemory.factBlock(this.ai.chatMemory) : ""),
         agent ? toolProtocol() : "",
       ]
         .filter(Boolean)

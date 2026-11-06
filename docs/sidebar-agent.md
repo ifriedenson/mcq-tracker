@@ -101,6 +101,19 @@ view does not stop the configured AI provider.
   the chat has stored messages, the footer also estimates the whole
   conversation from the same table, and **Study agent: show this chat's cost
   estimate** reports it from the palette. Both are estimates, not invoices.
+- **Remember a few facts locally.** Turn on **Include memory** to add short
+  facts saved on this device to the prompt. It is off by default; the footer
+  names the stored count or says none are saved, and the same footer's
+  **Manage** button opens the editor. **Study agent: manage saved memory** opens
+  it from the palette too: up to 50 facts of 240 characters, each addable,
+  editable and removable. Key-like text is redacted before a fact is saved or
+  shown, facts live only in the plugin settings, and an empty store adds no
+  block and no failure. This is a saved reference list, not transcript mining.
+- **Export a conversation.** Every conversation-library row has **Export**, and
+  **Study agent: export a conversation as Markdown** exports the open chat to
+  `Study agent chats` with title, model and project metadata plus one heading
+  per turn. It writes a normal vault note, never overwrites an earlier export,
+  redacts key-like text and creates no share link or upload.
 - **Group chats into projects.** The library has a **This chat** picker for the
   open conversation, a **Filter** picker for All / Unassigned / one project, a
   project name on each matching row, and **Remove project** to delete the label

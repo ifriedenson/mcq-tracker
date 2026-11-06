@@ -13,16 +13,16 @@ surfaces, so unfinished ideas are not disguised as checked work.
 §3.9.6 is the gate table, §3.10 is the licence allow-list, and
 [docs/plan-decisions.md](docs/plan-decisions.md) is the owner decision sheet.
 
-**Verified at this commit:** `node --test` → 2,329 tests pass, 0 fail;
-`npm run check` clean (no dynamic code across 327 source files, vendor guard,
-bundle up to date); `main.js` generated from 330 modules at 6,599,619 bytes.
+**Verified at this commit:** `node --test` → 2,336 tests pass, 0 fail;
+`npm run check` clean (no dynamic code across 330 source files, vendor guard,
+bundle up to date); `main.js` generated from 333 modules at 6,616,549 bytes.
 Re-run both before quoting these numbers.
 
 **Nov 6, 2026 working tree (no version bump):** Quick Ask, saved study
 commands, per-chat and per-command model overrides with visible fallback,
 local `/compact`, `@` note/folder mentions, a context/token/model footer, a
 searchable, pinned, archived conversation library, concurrent chat tabs, a
-cancelable queued-message strip, **Quick Chat**, **message bookmarks with chat links**, **vault skills**, **local chat projects**, **local per-send and per-conversation cost estimates**, a **compact context gauge** and a **local diagnostics bundle** ship in the source and bundle. Quick Ask sends only the selection or
+cancelable queued-message strip, **Quick Chat**, **message bookmarks with chat links**, **vault skills**, **local chat projects**, **opt-in local memory**, **per-conversation Markdown export**, **local per-send and per-conversation cost estimates**, a **compact context gauge** and a **local diagnostics bundle** ship in the source and bundle. Quick Ask sends only the selection or
 whole note explicitly chosen, offers seven study actions, and writes only on
 **Insert** or **Replace**. Saved `/commands` expand `{selection}`, `{note}` and
 `{path}` only when the chat already allows that context. Tabs keep independent
@@ -51,8 +51,8 @@ file is what made it unreadable; it now points instead.
 
 ## Handoff snapshot (updated Nov 6, 2026 at v1.281.0)
 
-- **State:** 0 unchecked core rows; Quick Chat, message bookmarks, Quick Ask, saved study commands, vault skills, chat projects and local cost estimates are in the Nov 6, 2026 working tree without a version bump; Mother cram and card answer dictation shipped; 3 `[~]` partials (the owner visual, device and screenshot passes now being run); four former gates decided on Nov 6, 2026 (§B).
-- **Newest feature:** The Nov 6, 2026 working tree adds **Quick Chat**, **message bookmarks with chat links**, **vault skills**, **local chat projects**, **local cost estimates** (per send and per conversation), a **compact context ring**, a **local diagnostics bundle**, **Quick Ask**, **saved study commands**, **`@` note/folder mentions**, a **context/token footer** and a **searchable, pinned, archived conversation library** without a release or version bump. In 1.281.0, **Mother cram** is the practice-only Cards loop
+- **State:** 0 unchecked core rows; Quick Chat, message bookmarks, Quick Ask, saved study commands, vault skills, chat projects, opt-in local memory, Markdown conversation export and local cost estimates are in the Nov 6, 2026 working tree without a version bump; Mother cram and card answer dictation shipped; 3 `[~]` partials (the owner visual, device and screenshot passes now being run); four former gates decided on Nov 6, 2026 (§B).
+- **Newest feature:** The Nov 6, 2026 working tree adds **Quick Chat**, **message bookmarks with chat links**, **vault skills**, **local chat projects**, **opt-in local memory**, **per-conversation Markdown export**, **local cost estimates** (per send and per conversation), a **compact context ring**, a **local diagnostics bundle**, **Quick Ask**, **saved study commands**, **`@` note/folder mentions**, a **context/token footer** and a **searchable, pinned, archived conversation library** without a release or version bump. In 1.281.0, **Mother cram** is the practice-only Cards loop
   in the current deck: flip the card, then choose **Do not know** (send it to the
   back) or **Know** (remove it) until the queue is empty. It writes no attempt,
   grade, history or due date. 1.280.0 added **cram sessions** with exact
@@ -1614,7 +1614,7 @@ an owner decision, or is outside this plugin's study identity.
 | Web-page context | Attach a URL and extract its content. | ⛔ Owner decision 5. |
 | Image context | Attach screenshots or figures to a chat. | ⛔ Vision exists only for OCR/handwriting, not general chat attachments. |
 | Miyo semantic search | Embedding-based vault retrieval. | ○ Lexical retrieval ships; embeddings are not enabled. |
-| Memory | Remember facts across chats. | ○ Saved conversations preserve history; there is no long-term memory store. |
+| Memory | Remember facts across chats. | ✅ Nov 6, 2026. An opt-in local store of at most 50 short facts (240 characters each) lives only in `settings.ai.chatMemory`; facts are editable in a modal, redacted before storage or display, and reach a prompt only while **Include memory** is on, with the footer naming the count or the empty state. **Study agent: manage saved memory** opens the editor. This is a saved reference list, not transcript mining or long-term memory. |
 | Study profile | Performance, due work and exams as context. | ✅ Three default-off aggregate toggles. |
 
 **C. Conversation management and productivity**
@@ -1625,7 +1625,7 @@ an owner decision, or is outside this plugin's study identity.
 | Rename and delete | Manage saved conversations. | ✅ |
 | New chat | Start clean without losing the old one. | ✅ |
 | Search conversations | Find an old thread by text. | ✅ Nov 6, 2026. Searches titles and message text across saved and archived chats. |
-| Export/share | Copy or export a conversation. | ◐ Copy per reply and save to Markdown; no dedicated export/share format. |
+| Export/share | Copy or export a conversation. | ✅ Nov 6, 2026. Copy per reply, **Save chat**, and a dedicated per-conversation Markdown export through the Vault adapter: each library row has **Export**, and **Study agent: export a conversation as Markdown** exports the open chat with title, model, project and a heading per turn. It never overwrites an earlier file and redacts key-like text. No hosted share link or upload. |
 | Per-chat model | Choose a model for this thread. | ✅ Nov 6, 2026. A **Chat model** selector stores `settings.ai.studyChatModel`; it survives archive, reload and resume, shows the effective model and source in the composer footer, and falls back visibly when the model is no longer available. |
 | Per-command model | Run a slash command on a chosen model. | ✅ Nov 6, 2026. Settings → AI → **Per-command model overrides** stores a bounded `settings.ai.commandModels` map; resolution is chat override → command override → global chat model, with unavailable models skipped and named in the footer. |
 | Token ring / context gauge | Show how full the context window is. | ✅ Nov 6, 2026. A compact ring and `~tokens / 12,000` label under the composer read the shipped `lastBudget` object, update after sends, refreshes and `/compact`, hide until the chat has a message or draft, and degrade silently when budget data is unavailable. They use the existing Obsidian colour variables and container-width rules. |

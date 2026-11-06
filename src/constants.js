@@ -112,6 +112,7 @@ const DEFAULT_SETTINGS = {
     chatSessions: [], // saved and open conversations, bounded by chat-sessions.js
     studyCommands: [], // reusable /commands; prompts may use {} or {selection}
     chatProjects: [], // named local groups of conversations; they bundle no files or prompts
+    chatMemory: [], // short user-saved facts, bounded and redacted by chat-memory.js
     studyChatProject: "", // project id for the active conversation, if any
     skillsFolder: "Study agent skills", // vault folder of user-authored skill notes
     commandModels: {}, // optional per-slash-command model overrides, keyed by command id
