@@ -111,7 +111,9 @@ const DEFAULT_SETTINGS = {
     studyChatTabOrder: 0, // stable order for open conversation tabs
     chatSessions: [], // saved and open conversations, bounded by chat-sessions.js
     studyCommands: [], // reusable /commands; prompts may use {} or {selection}
+    skillsFolder: "Study agent skills", // vault folder of user-authored skill notes
     commandModels: {}, // optional per-slash-command model overrides, keyed by command id
+    pricing: {}, // optional local model prices: { model: { input, output } } in USD per 1M tokens
     autoDeclined: false, // the user said no to the automatic OpenCode download: don't ask again until they press the button
     backend: "api", // desktop choice: "api" (default) or "opencode". Phones always use "api".
     api: { provider: "anthropic", baseUrl: "", model: "claude-sonnet-5-5", models: [], keys: {} },

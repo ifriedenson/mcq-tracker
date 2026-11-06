@@ -140,6 +140,7 @@ const { normalizeTextTimerSettings } = require("./text-timer");
 const { renderTextTimerBlock } = require("./text-timer-view");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const diagnostics = require("./diagnostics");
+const chatSkills = require("./chat-skills");
 const { PdfImportModal } = require("./import-modal");
 const { readPdfPages, renderPdfPagesAsPng } = require("./pdf");
 const { CourseNotesModal, removeAiSummary } = require("./course-notes");
@@ -746,6 +747,15 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-study-agent", name: "Study agent: open the sidebar", callback: () => this.activateAgent() });
     this.addCommand({ id: "ai-quick-ask", name: "AI: Quick Ask about the selection or note", callback: () => this.openQuickAsk() });
     this.addCommand({ id: "study-agent-quick-chat", name: "Study agent: Quick Chat", callback: () => this.openQuickChat() });
+    this.addCommand({
+      id: "study-agent-skill",
+      name: "Study agent: create a skill note",
+      callback: () =>
+        this.createSkillNote().catch((e) => {
+          this.recordDiagnosticError("skill", e);
+          new Notice(`Could not create the skill note: ${String((e && e.message) || e)}`, 8000);
+        }),
+    });
     this.addCommand({
       id: "study-agent-diagnostics",
       name: "Study agent: save diagnostics bundle",
@@ -4027,6 +4037,26 @@ class QuestionTrackerPlugin extends Plugin {
     await this.app.vault.create(path, bundle.markdown.endsWith("\n") ? bundle.markdown : `${bundle.markdown}\n`);
     new Notice(`Saved the diagnostics bundle to ${path}.`, 8000);
     return { path, ...bundle };
+  }
+
+  /** Create one user-authored skill note and open it; no AI or network call. */
+  async createSkillNote(name) {
+    const value = str(name).trim();
+    if (!value) {
+      new NameModal(this.app, "Name this skill", "", (next) => this.createSkillNote(next)).open();
+      return null;
+    }
+    const folder = chatSkills.normalizeSkillsFolder(this.settings.ai.skillsFolder);
+    await ensureFolder(this.app, folder);
+    const path = await this.uniqueVaultPath(`${folder}/${chatSkills.skillFileName(value)}`);
+    await this.app.vault.create(path, chatSkills.skillTemplate(value));
+    new Notice(`Created ${path}. Edit the note, then turn on Include skills in the Study agent.`, 9000);
+    try {
+      await this.app.workspace.openLinkText(path, "", false);
+    } catch (e) {
+      /* the note still exists if the workspace cannot focus it */
+    }
+    return path;
   }
 
   openCardExport(options, onDone) {

@@ -13,16 +13,16 @@ surfaces, so unfinished ideas are not disguised as checked work.
 §3.9.6 is the gate table, §3.10 is the licence allow-list, and
 [docs/plan-decisions.md](docs/plan-decisions.md) is the owner decision sheet.
 
-**Verified at this commit:** `node --test` → 2,317 tests pass, 0 fail;
-`npm run check` clean (no dynamic code across 324 source files, vendor guard,
-bundle up to date); `main.js` generated from 327 modules at 6,566,894 bytes.
+**Verified at this commit:** `node --test` → 2,323 tests pass, 0 fail;
+`npm run check` clean (no dynamic code across 326 source files, vendor guard,
+bundle up to date); `main.js` generated from 329 modules at 6,581,861 bytes.
 Re-run both before quoting these numbers.
 
 **Nov 6, 2026 working tree (no version bump):** Quick Ask, saved study
 commands, per-chat and per-command model overrides with visible fallback,
 local `/compact`, `@` note/folder mentions, a context/token/model footer, a
 searchable, pinned, archived conversation library, concurrent chat tabs, a
-cancelable queued-message strip, **Quick Chat**, **message bookmarks with chat links**, a **compact context gauge** and a **local diagnostics bundle** ship in the source and bundle. Quick Ask sends only the selection or
+cancelable queued-message strip, **Quick Chat**, **message bookmarks with chat links**, **vault skills**, a **local cost estimate**, a **compact context gauge** and a **local diagnostics bundle** ship in the source and bundle. Quick Ask sends only the selection or
 whole note explicitly chosen, offers seven study actions, and writes only on
 **Insert** or **Replace**. Saved `/commands` expand `{selection}`, `{note}` and
 `{path}` only when the chat already allows that context. Tabs keep independent
@@ -52,7 +52,7 @@ file is what made it unreadable; it now points instead.
 ## Handoff snapshot (updated Nov 6, 2026 at v1.281.0)
 
 - **State:** 0 unchecked core rows; Quick Chat, message bookmarks, Quick Ask and saved study commands are in the Nov 6, 2026 working tree without a version bump; Mother cram and card answer dictation shipped; 3 `[~]` partials (the owner visual, device and screenshot passes now being run); four former gates decided on Nov 6, 2026 (§B).
-- **Newest feature:** The Nov 6, 2026 working tree adds **Quick Chat**, **message bookmarks with chat links**, a **compact context ring**, a **local diagnostics bundle**, **Quick Ask**, **saved study commands**, **`@` note/folder mentions**, a **context/token footer** and a **searchable, pinned, archived conversation library** without a release or version bump. In 1.281.0, **Mother cram** is the practice-only Cards loop
+- **Newest feature:** The Nov 6, 2026 working tree adds **Quick Chat**, **message bookmarks with chat links**, **vault skills**, a **local cost estimate**, a **compact context ring**, a **local diagnostics bundle**, **Quick Ask**, **saved study commands**, **`@` note/folder mentions**, a **context/token footer** and a **searchable, pinned, archived conversation library** without a release or version bump. In 1.281.0, **Mother cram** is the practice-only Cards loop
   in the current deck: flip the card, then choose **Do not know** (send it to the
   back) or **Know** (remove it) until the queue is empty. It writes no attempt,
   grade, history or due date. 1.280.0 added **cram sessions** with exact
@@ -1583,14 +1583,14 @@ an owner decision, or is outside this plugin's study identity.
 | Ribbon and command-palette entry | Open chat or run an action. | ✅ Ribbon bot and `Study agent: open the sidebar`. |
 | Slash commands | Built-in and user-defined prompt shortcuts. | ✅ Built-in tutor commands and saved study commands. |
 | Projects | Group chats and context by project. | ○ Courses and study profile are context, but there is no project container for chats. |
-| Skills | Packaged instructions and resources an agent can load. | ○ Not built; no skills directory or loader. |
+| Skills | Packaged instructions and resources an agent can load. | ✅ Nov 6, 2026. **Include skills** loads enabled Markdown notes from the configurable **Study agent skills** vault folder, with optional `name`, `description` and `enabled` frontmatter. It is off by default, reads files only when the switch is on, caps 20 skills, 4,000 characters per skill and 8,000 in the prompt block, treats the notes as user instructions rather than vault data, and counts the block in the existing 12,000-token budget. **Study agent: create a skill note** creates and opens a starter note. |
 | Custom command editor | Create, edit and share reusable prompts. | ✅ Settings → AI → Study commands; no sharing/import format. |
 | Chat tabs | Several conversations open at once. | ✅ Nov 6, 2026. **New tab** mounts another `ChatPanel` with its own transcript, model override, token footer and queued messages; switching leaves an in-flight reply running, closing writes the conversation back to the existing library, and open tab ids/order are restored from `settings.ai.studyChat` plus `chatSessions`. **New chat** still archives and starts clean. |
 | Chat history, pins, archive | Browse, pin and archive conversations. | ✅ Nov 6, 2026. Saved conversations, rename, delete, new chat, pin/unpin and archive/restore; archived chats are hidden by default but stay searchable, and every flag persists in `settings.ai`. |
 | Chat links and bookmarks | Link to a message or bookmark it. | ✅ Nov 6, 2026. **Bookmark** appears on every user and assistant message; **Copy link** writes an `obsidian://mcq-tracker-chat` URL carrying the chat, role, index and content hash. Opening it restores that conversation and focuses the message. Bookmarks persist on the existing chat record (`settings.ai.studyChatBookmarks` or `chatSessions[].bookmarks`), and a deleted chat, role mismatch or trimmed message falls back to a content-hash search before a plain Notice. No parallel store. |
 | Queued messages | Queue a follow-up while a reply streams. | ✅ Nov 6, 2026. Send becomes **Queue** while a reply is streaming; a visible ordered strip supports per-item **Cancel**, drains one message at a time after the reply, and reuses the same model, mention, context and 12,000-token budget checks. The queue is stored with its conversation, survives tab switches and reload, still delivers after Stop or a provider error, and reports a refused queued send instead of swallowing it. |
 | `/compact` | Summarise a long conversation to save context. | ✅ Nov 6, 2026. `/compact` folds older Direct API turns into a bounded deterministic local summary, keeps the newest turns verbatim, writes through `settings.ai.studyChat`, and updates the token footer. It makes no provider call; a short chat reports that there is nothing old enough, recent turns that alone exceed the budget are refused, and OpenCode explains that its server owns the history. |
-| Plan proposals | Agent proposes a multi-step plan before acting. | ○ Agent proposals are per-write, not multi-step plans. |
+| Plan proposals | Agent proposes a multi-step plan before acting. | ○ Left open Nov 6, 2026: the existing agent already asks before each write, but a real multi-step plan has to be generated by the model, so it is not a node-local feature and was not faked with a fixed template. |
 | Background subagents / multi-agent | Delegated workers and several agents. | ⛔ Requires an external agent runtime and entitlements; no second runtime. |
 | Web viewer, YouTube and X tools | Fetch or browse remote content. | ⛔ Owner decision 5: no web lookup or off-device retrieval. |
 | Obsidian CLI tool | Drive Obsidian commands from chat. | ⛔ Shell/arbitrary command execution is excluded. |
@@ -1629,7 +1629,7 @@ an owner decision, or is outside this plugin's study identity.
 | Per-chat model | Choose a model for this thread. | ✅ Nov 6, 2026. A **Chat model** selector stores `settings.ai.studyChatModel`; it survives archive, reload and resume, shows the effective model and source in the composer footer, and falls back visibly when the model is no longer available. |
 | Per-command model | Run a slash command on a chosen model. | ✅ Nov 6, 2026. Settings → AI → **Per-command model overrides** stores a bounded `settings.ai.commandModels` map; resolution is chat override → command override → global chat model, with unavailable models skipped and named in the footer. |
 | Token ring / context gauge | Show how full the context window is. | ✅ Nov 6, 2026. A compact ring and `~tokens / 12,000` label under the composer read the shipped `lastBudget` object, update after sends, refreshes and `/compact`, hide until the chat has a message or draft, and degrade silently when budget data is unavailable. They use the existing Obsidian colour variables and container-width rules. |
-| Cost display | Show running session cost. | ○ Request and token caps exist; no price table or running cost. |
+| Cost display | Show running session cost. | ○ Nov 6, 2026: a per-send estimate now comes from the local **Local model pricing** table, and request/token caps exist; there is still no cumulative running session total, so the row stays open. |
 | Message actions | Copy, regenerate, retry, stop. | ✅ Copy, regenerate, retry and Stop/Esc. |
 | Streaming | Render tokens as they arrive. | ✅ Direct API SSE and OpenCode events. |
 | Queued follow-ups | Send while busy. | ✅ Nov 6, 2026. Send becomes **Queue** while a reply streams; a visible ordered strip supports **Cancel**, survives tab switch and reload, and drains one item at a time after the reply, Stop or a provider error. |
@@ -1661,7 +1661,7 @@ an owner decision, or is outside this plugin's study identity.
 | Per-feature model | Different models for chat, generation, grading, vision. | ✅ Settings → AI → Models and request limits. |
 | Fetch model list | Read the provider's available models. | ✅ Filtered to chat models and cached per provider/address. |
 | Reply/day/run caps | Bound spending. | ✅ Reply token cap, daily request cap, per-run cap. |
-| Cost estimate | Price a request before or after sending. | ○ Rough token estimate only; no price table. |
+| Cost estimate | Price a request before or after sending. | ✅ Nov 6, 2026. Settings → AI → **Local model pricing** accepts `model | USD per 1M input | USD per 1M output` lines and stores a bounded local map. The Study agent footer uses the effective model and the existing token estimate plus reply cap to show an estimated input/reply cost. It never fetches prices, never changes a request, and stays quiet when the model has no local price. |
 | Capability reporting | Say whether a backend supports images, JSON, tools or streaming. | ✅ Per-backend capability report. |
 | Test connection | One-word provider check. | ✅ |
 | Mobile support | Work on phones where the provider allows it. | ✅ Direct API; localhost and OpenCode are desktop-only. |
@@ -1690,7 +1690,7 @@ an owner decision, or is outside this plugin's study identity.
 | Inline diff in the editor | ○ Review modal only; no editor overlay. |
 | Artifact/canvas panel | ⛔ Separate product. |
 | Animated streaming caret | ◐ Streaming text; no caret animation promised. |
-| Token/cost footer | ✅ A per-conversation footer lists attachments and an estimated `~tokens / 12,000`; it warns from 80% and refuses an over-budget Send. No price estimate. |
+| Token/cost footer | ✅ A per-conversation footer lists attachments and an estimated `~tokens / 12,000`; it warns from 80% and refuses an over-budget Send. With **Local model pricing** set, it also shows an estimated input/reply cost in USD from the local table. No price list is fetched. |
 | Theme-token styling | ✅ Uses Obsidian CSS variables; no Copilot stylesheet. |
 
 **Boundary statement.** Copilot is AGPL-3.0. This inventory is a behavioural

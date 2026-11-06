@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 411 groups, 2786 exports. **Commands:** 209. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 413 groups, 2802 exports. **Commands:** 210. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -26,7 +26,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `CardExtractModal` | 0 | `tests/feature-surfaces.test.js` |
 | `CardModal` | 0 | `tests/source-recall.test.js` |
 | `CardView` | 0 | `tests/card-cram.test.js`, `tests/card-learning.test.js`, `tests/card-mother-cram.test.js`, `tests/card-reveal.test.js`, `tests/card-speech.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/interval-preview.test.js`, `tests/mobile-module-layout.test.js`, `tests/source-recall.test.js`, `tests/study-status.test.js` |
-| `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/chat-panel-mentions.test.js`, `tests/diagnostics-gauge.test.js`, `tests/note-context.test.js`, `tests/quick-ask.test.js`, `tests/security-hardening.test.js`, `tests/think-first.test.js` |
+| `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/chat-panel-mentions.test.js`, `tests/diagnostics-gauge.test.js`, `tests/note-context.test.js`, `tests/quick-ask.test.js`, `tests/security-hardening.test.js`, `tests/skills-pricing.test.js`, `tests/think-first.test.js` |
 | `CourseOverviewModal` | 0 | `tests/core-values.test.js` |
 | `DEFAULT_SETTINGS` | 113 | `tests/grading.test.js` |
 | `DocumentReviewModal` | 0 | `tests/feature-surfaces.test.js` |
@@ -166,7 +166,9 @@ the table and fails if a group, export count, command or citing test drifts.
 | `chatHistory` | 5 | `tests/chat-history.test.js` |
 | `chatMentions` | 17 | `tests/chat-mentions.test.js` |
 | `chatModels` | 13 | `tests/chat-models.test.js` |
+| `chatPricing` | 7 | `tests/skills-pricing.test.js` |
 | `chatSessions` | 13 | `tests/chat-sessions.test.js` |
+| `chatSkills` | 9 | `tests/skills-pricing.test.js` |
 | `chatStream` | 5 | `tests/chat-stream.test.js` |
 | `chooseRelease` | 0 | `tests/opencode-compat.test.js` |
 | `citations` | 11 | `tests/citations.test.js` |
@@ -578,6 +580,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `open-study-agent` | Study agent: open the sidebar | `activateAgent` | `tests/agent-view.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/quick-chat-bookmarks.test.js` |
 | `ai-quick-ask` | AI: Quick Ask about the selection or note | `openQuickAsk` | `tests/quick-ask.test.js` |
 | `study-agent-quick-chat` | Study agent: Quick Chat | `openQuickChat` | `tests/quick-chat-bookmarks.test.js` |
+| `study-agent-skill` | Study agent: create a skill note | `createSkillNote` | `tests/skills-pricing.test.js` |
 | `study-agent-diagnostics` | Study agent: save diagnostics bundle | `saveDiagnosticsBundle` | `tests/diagnostics-gauge.test.js` |
 | `cards-rescan-plain` | Cards: rescan plain Markdown folder | `moduleOff` | `tests/frq-review.test.js`, `tests/plain-cards.test.js`, `tests/views.test.js` |
 | `export-cards` | Cards: export to Quizlet, Anki package, Anki text, Mochi, LearnKit, Kahoot, Blooket or Gimkit | `openCardExport` | `tests/command-effects.test.js` |

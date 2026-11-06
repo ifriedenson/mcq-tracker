@@ -27,6 +27,8 @@ const { STUDY_MODE_LABELS, STUDY_SKIN_LABELS, normalizeStudyMode, normalizeStudy
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
 const { STARTER_STUDY_COMMANDS, parseStudyCommandsText, studyCommandsText } = require("./study-commands");
 const { commandModelsText, parseCommandModelsText } = require("./chat-models");
+const chatSkills = require("./chat-skills");
+const chatPricing = require("./chat-pricing");
 const { DEFAULT_THINK_FIRST_SECONDS, MAX_THINK_FIRST_SECONDS, MIN_THINK_FIRST_SECONDS, normalizeThinkFirstSeconds } = require("./think-first");
 const { normalizeAiContext } = require("./ai-context");
 const { AI_FEATURES, CAPABILITY_LABELS } = require("./ai-service");
@@ -821,6 +823,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           })
       );
     new Setting(containerEl)
+      .setName("Skills folder")
+      .setDesc("Vault folder of user-authored Study agent skill notes. Each enabled Markdown note can add bounded instructions while Include skills is on. Nothing is read until that switch is on.")
+      .addText((t) =>
+        t
+          .setPlaceholder(chatSkills.DEFAULT_SKILLS_FOLDER)
+          .setValue(ai.skillsFolder || chatSkills.DEFAULT_SKILLS_FOLDER)
+          .onChange(async (v) => {
+            ai.skillsFolder = chatSkills.normalizeSkillsFolder(v);
+            await this.plugin.save();
+            this.plugin.refreshViews();
+          })
+      );
+    new Setting(containerEl)
       .setName("Starter study commands")
       .setDesc("Replace the saved list with four examples you can edit. They cover explaining, quizzing, cards and common gaps.")
       .addButton((b) =>
@@ -1347,6 +1362,20 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       text: `${countText}. ${budget.cap ? `${Math.max(0, budget.cap - budget.used)} left under the daily cap.` : "No daily cap is set."} Counts are kept on this device only.`,
     });
     ai.features = ai.features && typeof ai.features === "object" ? ai.features : {};
+    ai.pricing = ai.pricing && typeof ai.pricing === "object" ? ai.pricing : {};
+    new Setting(containerEl)
+      .setName("Local model pricing")
+      .setDesc("Optional. One line per model: model | USD per 1M input tokens | USD per 1M output tokens. The footer uses this only for a local estimate; no price list is fetched and no request changes.")
+      .addTextArea((t) =>
+        t
+          .setPlaceholder("gpt-4o-mini | 0.15 | 0.60\nclaude-sonnet | 3 | 15")
+          .setValue(chatPricing.pricingText(ai.pricing))
+          .onChange(async (v) => {
+            ai.pricing = chatPricing.parsePricingText(v);
+            await this.plugin.save();
+            this.plugin.refreshViews();
+          })
+      );
     for (const feature of AI_FEATURES) {
       const saved = ai.features[feature.id] && typeof ai.features[feature.id] === "object" ? ai.features[feature.id] : (ai.features[feature.id] = { model: "" });
       const support = this.plugin.aiCapabilities();

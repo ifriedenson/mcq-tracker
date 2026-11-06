@@ -86,6 +86,18 @@ view does not stop the configured AI provider.
   settings, live chat-budget and model state, observed capability flags and
   recent local errors. Secrets and API keys are replaced before writing; it uses
   the normal Vault path and a Notice, with no network request or telemetry.
+- **Include user-authored skills.** Turn on **Include skills** to load
+  enabled Markdown notes from the configured **Study agent skills** folder.
+  Optional `name`, `description` and `enabled` frontmatter control each note;
+  the folder is read only while the switch is on, and the block is capped at
+  20 skills, 4,000 characters each and 8,000 characters total. Skill text is
+  labelled as user instructions, not vault data, and counts against the same
+  12,000-token budget. **Study agent: create a skill note** creates a starter
+  note in the folder.
+- **Estimate cost locally.** Optional **Local model pricing** in Settings → AI
+  takes `model | USD per 1M input | USD per 1M output` lines. The footer uses
+  the effective model, token estimate and reply cap to show an estimated USD
+  cost. No price list is fetched and an unknown model has no cost line.
 - **Compact a long chat.** Type `/compact` to fold older Direct API messages
   into one local summary and keep the newest turns verbatim. It writes through
   the existing conversation storage, updates the token estimate and makes no
@@ -138,6 +150,9 @@ editor/user entry points. `tests/chat-budget.test.js` and
 mention parsing, candidate ranking, missing targets and bounded resolution,
 `tests/chat-models.test.js` covers override precedence, unavailable-model
 fallback, OpenCode shape checking and command-map parsing,
+`tests/skills-pricing.test.js` covers skill parsing and disabled/missing
+notes, prompt and budget integration, local price parsing/estimation and the
+footer’s no-price state.
 `tests/diagnostics-gauge.test.js` covers the local bundle, fake-key redaction
 and no-network guard, plus gauge tracking and graceful hiding.
 `tests/chat-compact.test.js` covers the no-op, over-budget, recent-turn and

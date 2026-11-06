@@ -17,6 +17,7 @@ const chatModels = require("./chat-models");
 const chatBookmarks = require("./chat-bookmarks");
 const chatCompact = require("./chat-compact");
 const chatQueue = require("./chat-queue");
+const chatPricing = require("./chat-pricing");
 
 function budgetRefusal(budget) {
   return `Nothing was sent: the estimated ${chatBudget.formatTokenCount(budget.tokens)}-token context is over the local ${chatBudget.formatTokenCount(budget.limit)}-token chat budget. Remove a mention or shorten the message.`;
@@ -50,6 +51,10 @@ class ChatPanel {
     this.includeNote = false;
     this.includeSelection = false;
     this.includeMentions = false;
+    this.includeSkills = false;
+    this.skills = [];
+    this.skillBlock = "";
+    this.skillWarnings = [];
     this.currentNoteContext = "";
     this.previewContext = "";
     this.previewMissing = [];
@@ -446,6 +451,20 @@ class ChatPanel {
       this.paintContext();
       this.refreshContextPreview();
     });
+    if (typeof this.opts.loadSkills === "function") {
+      this.skillChip = wrap.createEl("button", { cls: "qt-chip", text: "Include skills" });
+      this.skillChip.addEventListener("click", async () => {
+        this.includeSkills = !this.includeSkills;
+        if (this.includeSkills) await this.refreshSkills();
+        else {
+          this.skills = [];
+          this.skillBlock = "";
+          this.skillWarnings = [];
+        }
+        this.paintContext();
+        this.refreshTokenFooter();
+      });
+    }
     this.mentionChipsEl = root.createDiv({ cls: "qt-chat-mentions" });
     root.createDiv({
       cls: "qt-hint",
@@ -458,6 +477,7 @@ class ChatPanel {
     if (this.noteChip) this.noteChip.toggleClass("is-selected", this.includeNote);
     if (this.selectionChip) this.selectionChip.toggleClass("is-selected", this.includeSelection);
     if (this.mentionChip) this.mentionChip.toggleClass("is-selected", this.includeMentions);
+    if (this.skillChip) this.skillChip.toggleClass("is-selected", this.includeSkills);
   }
 
   mentionTargets() {
@@ -531,6 +551,28 @@ class ChatPanel {
     }
     this.paintContext();
     if (this.mentionKey() !== this.lastMentionKey) this.refreshContextPreview();
+  }
+
+  /** Load the enabled skill notes on demand; an absent folder simply yields nothing. */
+  async refreshSkills() {
+    if (!this.includeSkills || typeof this.opts.loadSkills !== "function") {
+      this.skills = [];
+      this.skillBlock = "";
+      this.skillWarnings = [];
+      return { skills: [], block: "", warnings: [] };
+    }
+    try {
+      const result = await this.opts.loadSkills();
+      this.skills = Array.isArray(result && result.skills) ? result.skills : [];
+      this.skillBlock = str(result && result.block);
+      this.skillWarnings = Array.isArray(result && result.warnings) ? result.warnings : [];
+      return { skills: this.skills, block: this.skillBlock, warnings: this.skillWarnings };
+    } catch (e) {
+      this.skills = [];
+      this.skillBlock = "";
+      this.skillWarnings = [];
+      return { skills: [], block: "", warnings: [] };
+    }
   }
 
   async refreshContextPreview() {
@@ -620,6 +662,7 @@ class ChatPanel {
       { label: "message", text },
       { label: "context", text: context },
       { label: "history", text: this.historyText() },
+      { label: "skills", text: this.includeSkills ? this.skillBlock : "" },
     ], { limit: chatBudget.CONTEXT_BUDGET_TOKENS });
   }
 
@@ -627,6 +670,7 @@ class ChatPanel {
     const labels = [];
     if (this.includeNote) labels.push("current note");
     if (this.includeSelection) labels.push("selection");
+    if (this.includeSkills) labels.push(this.skills.length ? `${this.skills.length} skill${this.skills.length === 1 ? "" : "s"}` : "skills (none)");
     for (const target of this.mentionTargets()) {
       labels.push(`${target.kind} ${target.path}${this.includeMentions ? "" : " (off)"}`);
     }
@@ -696,6 +740,28 @@ class ChatPanel {
       cls: "qt-chat-budget-line",
       text: `${this.contextAttachmentLabels()} — ~${chatBudget.formatTokenCount(budget.tokens)} / ${chatBudget.formatTokenCount(budget.limit)} tokens`,
     });
+    const cost = chatPricing.estimateCost(
+      this.ai.pricing,
+      plan.model,
+      budget.tokens,
+      this.ai.limits && this.ai.limits.maxTokens
+    );
+    if (cost.ok) {
+      this.budgetEl.createDiv({
+        cls: "qt-chat-budget-line qt-chat-cost-line",
+        text: `Estimated cost: ${chatPricing.formatUsd(cost.total)} (${chatPricing.formatUsd(cost.inputCost)} input + up to ${chatPricing.formatUsd(cost.outputCost)} reply at local prices)`,
+      });
+    }
+    if (this.includeSkills) {
+      const names = this.skills.map((skill) => skill.name).filter(Boolean).join(", ");
+      this.budgetEl.createDiv({
+        cls: "qt-chat-budget-line qt-chat-skills-line",
+        text: names ? `Skills: ${names}` : "Skills: none found in the configured folder.",
+      });
+      for (const warning of this.skillWarnings) {
+        this.budgetEl.createDiv({ cls: "qt-chat-budget-warning", text: warning });
+      }
+    }
     if (this.previewMissing.length) {
       this.budgetEl.createDiv({
         cls: "qt-chat-budget-error",
@@ -724,6 +790,7 @@ class ChatPanel {
    * the whole send instead of quietly dropping context.
    */
   async prepareSendContext(message) {
+    if (this.includeSkills) await this.refreshSkills();
     let mention = chatMentions.emptyMentionResult();
     const targets = chatMentions.parseMentionTokens(message);
     if (targets.length && this.includeMentions) {
@@ -1344,7 +1411,7 @@ class ChatPanel {
       this.status.setText("OpenCode is working...");
       const body = {
         parts: [{ type: "text", text }],
-        system: this.opts.buildContext(ai.mode, currentNote),
+        system: this.opts.buildContext(ai.mode, currentNote, this.includeSkills ? this.skillBlock : ""),
       };
       const model = modelFromString(modelPlan.model);
       if (model) body.model = model;
@@ -1449,7 +1516,10 @@ class ChatPanel {
       this.draw();
     };
     try {
-      const system = [this.opts.buildContext(agent ? "agent" : "tutor", currentNote), agent ? toolProtocol() : ""]
+      const system = [
+        this.opts.buildContext(agent ? "agent" : "tutor", currentNote, this.includeSkills ? this.skillBlock : ""),
+        agent ? toolProtocol() : "",
+      ]
         .filter(Boolean)
         .join("\n\n");
       const reply = await this.view.plugin.aiChat(system, base, {
