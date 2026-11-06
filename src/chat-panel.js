@@ -15,6 +15,7 @@ const chatBudget = require("./chat-budget");
 const chatMentions = require("./chat-mentions");
 const chatModels = require("./chat-models");
 const chatCompact = require("./chat-compact");
+const chatQueue = require("./chat-queue");
 
 function budgetRefusal(budget) {
   return `Nothing was sent: the estimated ${chatBudget.formatTokenCount(budget.tokens)}-token context is over the local ${chatBudget.formatTokenCount(budget.limit)}-token chat budget. Remove a mention or shorten the message.`;
@@ -57,12 +58,15 @@ class ChatPanel {
     this.lastMentionKey = "";
     this.previewSeq = 0;
     this.lastBudget = null;
+    this.queue = chatQueue.normalizeQueue(opts.getQueue ? opts.getQueue() : []);
+    this.draining = false;
     this.libraryQuery = "";
     this.showArchived = false;
     this.build();
     if (this.view.plugin.backend() === "api") {
       this.turns = apiTurns(this.apiHistory());
       this.draw();
+      if (this.queue.length) Promise.resolve().then(() => this.drainQueue());
     } else if (this.ai.enabled && opts.getSessionId() && this.serverReady()) this.refresh();
   }
 
@@ -111,7 +115,7 @@ class ChatPanel {
     const waiting = this.ai.thinkFirst === true && remaining > 0;
     this.thinkFirstNote.toggleClass("qt-hidden", !waiting);
     this.thinkFirstNote.setText(waiting ? thinkFirstLabel(remaining) : "");
-    if (this.sendBtn) this.sendBtn.disabled = this.busy || waiting;
+    if (this.sendBtn) this.sendBtn.disabled = waiting;
     if (waiting) {
       this.thinkFirstStatus = true;
       if (this.status && !this.busy) this.status.setText(`Think first: ${Math.ceil(remaining / 1000)}s remaining.`);
@@ -120,6 +124,7 @@ class ChatPanel {
     if (this.thinkFirstStatus && this.status && !this.busy) this.status.setText("");
     this.thinkFirstStatus = false;
     this.stopThinkFirstTicker();
+    if (this.queue.length && !this.busy && !this.draining) this.drainQueue();
   }
 
   apiHistory() {
@@ -161,8 +166,7 @@ class ChatPanel {
     });
     this.renderModelSelect();
     this.modelSelect.addEventListener("change", () => {
-      this.ai.studyChatModel = chatModels.normalizeModel(this.modelSelect.value);
-      this.view.plugin.save();
+      this.setChatModel(chatModels.normalizeModel(this.modelSelect.value));
       this.refreshTokenFooter();
     });
     const nc = top.createEl("button", { text: "New chat" });
@@ -192,6 +196,8 @@ class ChatPanel {
     this.status = root.createDiv({ cls: "qt-hint" });
     this.thinkFirstNote = root.createDiv({ cls: "qt-hint qt-think-first qt-hidden", text: "" });
     this.mentionPicker = root.createDiv({ cls: "qt-chat-mention-picker qt-hidden" });
+    this.queueEl = root.createDiv({ cls: "qt-chat-queue qt-hidden" });
+    this.renderQueue();
 
     const row = root.createDiv({ cls: "qt-row" });
     this.input = row.createEl("textarea", {
@@ -262,6 +268,116 @@ class ChatPanel {
     this.renderModelSelect();
     this.refreshTokenFooter();
     this.draw();
+  }
+
+  chatModel() {
+    if (typeof this.opts.getModel === "function") return chatModels.normalizeModel(this.opts.getModel());
+    return chatModels.normalizeModel(this.ai.studyChatModel);
+  }
+
+  setChatModel(value) {
+    const model = chatModels.normalizeModel(value);
+    if (typeof this.opts.setModel === "function") this.opts.setModel(model);
+    else {
+      this.ai.studyChatModel = model;
+      this.view.plugin.save();
+    }
+  }
+
+  queueItems() {
+    return chatQueue.normalizeQueue(this.queue);
+  }
+
+  setQueue(next) {
+    this.queue = chatQueue.normalizeQueue(next);
+    if (typeof this.opts.saveQueue === "function") this.opts.saveQueue(this.queue.slice());
+    this.renderQueue();
+  }
+
+  renderQueue() {
+    if (!this.queueEl) return;
+    const rows = this.queueItems();
+    this.queueEl.empty();
+    this.queueEl.toggleClass("qt-hidden", !rows.length);
+    if (!rows.length) return;
+    this.queueEl.createDiv({
+      cls: "qt-chat-queue-title",
+      text: `Queued ${rows.length} message${rows.length === 1 ? "" : "s"} — sends after the current reply.`,
+    });
+    rows.forEach((text, index) => {
+      const item = this.queueEl.createDiv({ cls: "qt-chat-queue-item" });
+      item.createDiv({
+        cls: "qt-chat-queue-text",
+        text: text.length > 220 ? `${text.slice(0, 217).trimEnd()}...` : text,
+      });
+      const cancel = item.createEl("button", {
+        text: "Cancel",
+        attr: { "aria-label": `Cancel queued message ${index + 1}` },
+      });
+      cancel.addEventListener("click", () => this.removeQueued(index));
+    });
+  }
+
+  /** Queue a message while a reply is streaming; it is sent once the panel is idle. */
+  enqueue(text) {
+    const value = str(text).trim();
+    if (!value || !this.ai.enabled) return false;
+    if (this.queueItems().length >= chatQueue.MAX_QUEUE) {
+      if (this.status) this.status.setText(`The queue is full (${chatQueue.MAX_QUEUE} messages). Cancel one or wait for the reply to finish.`);
+      return false;
+    }
+    const next = chatQueue.enqueue(this.queue, value);
+    if (next.length === this.queueItems().length) return false;
+    this.setQueue(next);
+    if (this.input) this.input.value = "";
+    this.syncMentionChips();
+    this.refreshTokenFooter();
+    if (this.status) this.status.setText(`Queued. It will send after the current reply.`);
+    if (!this.busy && !this.draining) this.drainQueue();
+    return true;
+  }
+
+  removeQueued(index) {
+    const before = this.queueItems();
+    const next = chatQueue.removeAt(before, index);
+    if (next.length === before.length) return false;
+    this.setQueue(next);
+    if (this.status) this.status.setText("Removed the queued message.");
+    return true;
+  }
+
+  /**
+   * Send queued messages in order, one at a time. The item leaves the visible
+   * queue before its request starts; failures are reported and are not retried
+   * behind the user's back.
+   */
+  drainQueue() {
+    if (this.draining || this.busy || !this.ai.enabled) return;
+    if (this.thinkFirstRemaining() > 0) return;
+    const rows = this.queueItems();
+    if (!rows.length) return;
+    const text = rows[0];
+    this.draining = true;
+    this.setQueue(rows.slice(1));
+    Promise.resolve()
+      .then(() => this.send(text))
+      .then((started) => {
+        if (started === false) {
+          const message = `Queued message could not be sent: ${this.error || "the composer refused it"}. It was not retried.`;
+          this.error = message;
+          if (this.status) this.status.setText(message);
+          this.draw();
+        }
+      })
+      .catch((e) => {
+        this.error = `Queued message could not be sent: ${str(e && e.message ? e.message : e)}`;
+        if (this.status) this.status.setText(this.error);
+        this.draw();
+      })
+      .finally(() => {
+        this.draining = false;
+        if (!this.busy && this.queueItems().length) this.drainQueue();
+      });
   }
 
   currentRole() {
@@ -445,7 +561,7 @@ class ChatPanel {
         ? this.view.plugin.aiModelFor("chat")
         : str(this.ai.api && this.ai.api.model).trim() || str(this.ai.model).trim();
     return chatModels.resolveChatModel({
-      chatModel: this.ai.studyChatModel,
+      chatModel: this.chatModel(),
       commandModel: this.commandModelFor(draft),
       globalModel,
       availableModels: backend === "api" && this.ai.api ? this.ai.api.models : [],
@@ -465,7 +581,7 @@ class ChatPanel {
     return chatModels.modelChoices({
       globalModel,
       availableModels: backend === "api" && this.ai.api ? this.ai.api.models : [],
-      ownModel: this.ai.studyChatModel,
+      ownModel: this.chatModel(),
     });
   }
 
@@ -481,7 +597,7 @@ class ChatPanel {
     for (const model of this.chatModelChoices()) {
       select.createEl("option", { value: model, text: model });
     }
-    select.value = chatModels.normalizeModel(this.ai.studyChatModel);
+    select.value = this.chatModel();
   }
 
   historyText() {
@@ -628,8 +744,9 @@ class ChatPanel {
     this.busy = b;
     if (!this.sendBtn) return;
     this.stopBtn.toggleClass("qt-hidden", !b);
-    this.sendBtn.disabled = b || this.thinkFirstRemaining() > 0;
-    this.status.setText(b ? "Working..." : "");
+    this.sendBtn.disabled = this.thinkFirstRemaining() > 0;
+    this.sendBtn.setText(b ? "Queue" : "Send");
+    this.status.setText(b ? "Working... You can type a follow-up and queue it." : "");
   }
 
   /** Stop a Direct API reply mid-stream; the partial reply is kept once. */
@@ -658,6 +775,7 @@ class ChatPanel {
     this.setBusy(false);
     if (this.status) this.status.setText(partial ? "Stopped. The partial reply was kept." : "Stopped waiting for the reply.");
     this.draw();
+    if (this.queueItems().length) this.drainQueue();
   }
 
   /** The Stop button and Esc: cancel the current backend, keeping any partial reply. */
@@ -688,6 +806,7 @@ class ChatPanel {
     this.setBusy(false);
     if (this.status) this.status.setText("Stopped.");
     this.draw();
+    if (this.queueItems().length) this.drainQueue();
   }
 
   newChat() {
@@ -697,6 +816,7 @@ class ChatPanel {
       return;
     }
     this.opts.setSessionId("");
+    this.setQueue([]);
     this.apiHistory().length = 0;
     this.persistApiHistory();
     this.loadConversation([]);
@@ -1034,14 +1154,15 @@ class ChatPanel {
 
   async send(text) {
     text = str(text).trim();
-    if (!text || this.busy || !this.ai.enabled) return;
+    if (!text || !this.ai.enabled) return false;
+    if (this.busy) return this.enqueue(text);
     if (/^\/compact\b/i.test(text)) return this.compactChat();
 
     const modelPlan = this.modelPlan(text);
     const command = parseStudyCommand(text, this.studyCommands());
     if (command) {
       text = await this.resolveStudyCommand(text, command);
-      if (!text) return;
+      if (!text) return false;
     }
 
     const prepared = await this.prepareSendContext(text);
@@ -1049,7 +1170,7 @@ class ChatPanel {
       this.error = prepared.error;
       if (this.status) this.status.setText(prepared.error);
       this.draw();
-      return;
+      return false;
     }
 
     this.lastSent = text;
@@ -1058,7 +1179,7 @@ class ChatPanel {
     this.cancelled = false;
     if (this.thinkFirstRemaining() > 0) {
       this.refreshThinkFirst();
-      return;
+      return false;
     }
     if (this.opts.beforeSend) {
       try {
@@ -1080,7 +1201,7 @@ class ChatPanel {
       } catch (e) {
         this.error = `Could not prepare the agent edit review, so nothing was sent. ${str(e && e.message ? e.message : e)}`;
         this.draw();
-        return;
+        return false;
       }
     }
     const guard = ai.mode === "agent" && typeof plugin.snapshotProtectedState === "function" ? plugin.snapshotProtectedState() : null;
@@ -1180,7 +1301,9 @@ class ChatPanel {
           );
         }
       }
+      if (this.queueItems().length) this.drainQueue();
     }
+    return true;
   }
 
   async sendApi(text, currentNote, resend, model) {
@@ -1190,7 +1313,7 @@ class ChatPanel {
       if (this.status) this.status.setText(this.error);
       this.refreshTokenFooter();
       this.draw();
-      return;
+      return false;
     }
     this.error = "";
     this.input.value = "";
@@ -1263,6 +1386,8 @@ class ChatPanel {
         if (proposals.length) new AiToolReviewModal(this.view.app, this.view.plugin, proposals).open();
       }
     }
+    if (this.queueItems().length) this.drainQueue();
+    return true;
   }
 
   async checkProvider(oc) {

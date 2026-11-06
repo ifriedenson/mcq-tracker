@@ -88,7 +88,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `agentEditReview` | 9 | `tests/agent-edit-review.test.js` |
 | `agentNote` | 2 | `tests/agent-view.test.js` |
 | `agentRetrieval` | 14 | `tests/agent-retrieval.test.js` |
-| `agentView` | 5 | `tests/agent-view.test.js` |
+| `agentView` | 5 | `tests/agent-view.test.js`, `tests/chat-tabs-queue.test.js` |
 | `agentWriteGuard` | 3 | `tests/agent-write-guard.test.js` |
 | `aiContext` | 5 | `tests/ai-context.test.js` |
 | `aiReady` | 0 | `tests/empty-state.test.js` |

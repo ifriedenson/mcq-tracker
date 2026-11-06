@@ -37,6 +37,20 @@ view does not stop the configured AI provider.
 - **Stop.** OpenCode requests use the existing server abort. Direct API
   requests show **Stop** too: it stops waiting immediately and ignores the late
   reply, though the provider may still finish and bill the request.
+- **Queue a follow-up.** While a reply streams, Send becomes **Queue**. A
+  visible queue above the composer keeps submission order, **Cancel** removes
+  one item, and each remaining item goes through the same model, mention,
+  budget and injection path when the reply ends. The queue and its order
+  survive a tab switch and a reload; after Stop or a provider error the next
+  queued message still sends exactly once, and a refused queued message is
+  reported instead of silently retried.
+- **Open several conversations.** **New tab** opens another panel with its own
+  transcript, model selector, token footer and queue; switching leaves an
+  in-flight reply running. Closing a tab writes its conversation back to the
+  existing library, and open tabs plus their order are restored from the same
+  `settings.ai.studyChat` and `chatSessions` records on reload. **New chat**
+  keeps its archive-and-start-clean behaviour, and the library still lists
+  saved or closed conversations.
 - **Create cards safely.** Agent mode proposals continue through the plugin's
   existing tool-review window. Nothing is written to a note until the learner
   approves it.
@@ -104,7 +118,10 @@ fallback, OpenCode shape checking and command-map parsing,
 `tests/chat-compact.test.js` covers the no-op, over-budget, recent-turn and
 impossible-recent cases, and `tests/chat-panel-mentions.test.js` drives the
 switch, refusal, footer, picker, model selector, `/compact` and library
-controls end to end.
+controls end to end. `tests/chat-tabs-queue.test.js` covers tab history and
+model isolation across a reload, closing a tab back into the library, queue
+ordering and exactly-once delivery, cancel, tab-switch and reload persistence,
+and delivery after a provider error or Stop.
 
 ## Manual gate
 

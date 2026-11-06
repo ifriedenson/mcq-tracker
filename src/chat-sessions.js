@@ -10,6 +10,7 @@
  * action and never happens here.
  */
 const { normalizeChatHistory } = require("./chat-history");
+const chatQueue = require("./chat-queue");
 const { str } = require("./util");
 
 const MAX_SESSIONS = 20;
@@ -34,8 +35,11 @@ function normalizeSession(value) {
   const raw = value && typeof value === "object" ? value : {};
   const messages = normalizeChatHistory(raw.messages);
   const id = str(raw.id).trim();
-  if (!id || !messages.length) return null;
+  const open = raw.open === true;
+  // Open tabs may still be empty; completed library entries always have text.
+  if (!id || (!messages.length && !open)) return null;
   const updatedAt = Number(raw.updatedAt);
+  const tabOrder = Number(raw.tabOrder);
   return {
     id,
     title: str(raw.title).trim().slice(0, MAX_TITLE) || titleFromMessages(messages),
@@ -44,6 +48,9 @@ function normalizeSession(value) {
     sessionId: str(raw.sessionId).trim(),
     notePath: str(raw.notePath).trim(),
     model: str(raw.model).trim().slice(0, 200),
+    queue: chatQueue.normalizeQueue(raw.queue),
+    open,
+    tabOrder: Number.isFinite(tabOrder) && tabOrder >= 0 ? tabOrder : 0,
     pinned: raw.pinned === true,
     archived: raw.archived === true,
   };
@@ -141,6 +148,8 @@ function libraryRows(active, sessions, now, options) {
       model: str(active && active.model).trim(),
       pinned: active && active.pinned === true,
       archived: false,
+      open: active && active.open !== false,
+      queue: chatQueue.normalizeQueue(active && active.queue),
     });
   }
   for (const session of normalizeSessions(sessions)) {
@@ -157,6 +166,8 @@ function libraryRows(active, sessions, now, options) {
       model: session.model,
       pinned: session.pinned === true,
       archived: session.archived === true,
+      open: session.open,
+      queue: session.queue,
     });
   }
   rows.sort(

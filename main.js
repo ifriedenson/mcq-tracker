@@ -1432,7 +1432,19 @@ const { insertReplyIntoNote } = require("./agent-note");
 const { renderMarkdownInto } = require("./view-helpers");
 const { MAX_FILES, MAX_FILE_CHARS, excerptBlock, searchText, terms } = require("./agent-retrieval");
 const { chatFileName, normalizeChatHistory } = require("./chat-history");
+const chatQueue = require("./chat-queue");
 const { archiveSession, libraryRows, newChatId, normalizeSessions, removeSession, renameSession, setArchivedSession, setPinnedSession, titleFromMessages } = require("./chat-sessions");
+
+const MAX_TABS = 6;
+
+/** Keep the panel's history array identity while changing its contents. */
+function setTabMessages(tab, messages) {
+  const next = normalizeChatHistory(messages);
+  if (!Array.isArray(tab.messages)) tab.messages = [];
+  tab.messages.length = 0;
+  tab.messages.push(...next);
+  return tab.messages;
+}
 
 const VIEW_TYPE_AGENT = "question-tracker-agent";
 
@@ -1525,16 +1537,95 @@ class AgentView extends ItemView {
   renderChat() {
     if (!this.chatEl) return;
     this.chatEl.empty();
-    this.chatPanel = new ChatPanel(this, this.chatEl, {
-      title: "Study agent",
+    this.chatTabs = [];
+    this.activeTabId = "";
+    this.chatPanel = null;
+    this.tabBar = this.chatEl.createDiv({ cls: "qt-chat-tabs" });
+    this.chatPanelsEl = this.chatEl.createDiv({ cls: "qt-chat-tab-panels" });
+    this.restoreTabs();
+  }
+
+  /** The active conversation is stored in settings; open tabs share the same chatSessions store. */
+  readActiveTab() {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    if (!ai) return null;
+    let id = str(ai.studyChatId).trim();
+    let changed = false;
+    if (!id) {
+      id = newChatId();
+      ai.studyChatId = id;
+      changed = true;
+    }
+    const messages = normalizeChatHistory(ai.studyChat);
+    const order = Number(ai.studyChatTabOrder);
+    const record = {
+      id,
+      title: str(ai.studyChatTitle).trim(),
+      updatedAt: Number(ai.studyChatUpdatedAt) || 0,
+      messages,
+      model: str(ai.studyChatModel).trim(),
+      queue: chatQueue.normalizeQueue(ai.studyChatQueue),
+      sessionId: str(ai.sessionId).trim(),
+      pinned: ai.studyChatPinned === true,
+      archived: false,
+      open: true,
+      tabOrder: Number.isFinite(order) && order >= 0 ? order : 0,
+    };
+    if (changed) this.plugin.save();
+    return record;
+  }
+
+  restoreTabs() {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    if (!ai) return;
+    const active = this.readActiveTab();
+    const open = normalizeSessions(ai.chatSessions)
+      .filter((session) => session.open && session.id !== active.id)
+      .sort((a, b) => a.tabOrder - b.tabOrder || a.updatedAt - b.updatedAt)
+      .slice(0, MAX_TABS - 1);
+    this.activeTabId = active.id;
+    for (const record of [active, ...open]) {
+      const tab = this.makeTab(record, record.id === active.id);
+      this.chatTabs.push(tab);
+    }
+    this.setActiveTab(active.id, { initial: true });
+  }
+
+  makeTab(record, active) {
+    const tab = {
+      id: record.id,
+      title: str(record.title).trim(),
+      updatedAt: Number(record.updatedAt) || 0,
+      messages: normalizeChatHistory(record.messages),
+      model: str(record.model).trim(),
+      queue: chatQueue.normalizeQueue(record.queue),
+      sessionId: str(record.sessionId).trim(),
+      pinned: record.pinned === true,
+      archived: record.archived === true,
+      open: record.open !== false,
+      tabOrder: Number(record.tabOrder) || 0,
+      panel: null,
+      root: null,
+    };
+    const root = this.chatPanelsEl.createDiv({ cls: "qt-chat-tab-panel" });
+    root.toggleClass("qt-hidden", active !== true);
+    tab.root = root;
+    tab.panel = new ChatPanel(this, root, this.tabOptions(tab));
+    return tab;
+  }
+
+  tabOptions(tab) {
+    return {
+      title: tab.title || "Study agent",
       sourcePath: "",
-      getSessionId: () => this.plugin.settings.ai.sessionId,
-      setSessionId: (id) => {
-        this.plugin.settings.ai.sessionId = id;
-        this.plugin.save();
-      },
-      getApiHistory: () => this.getApiHistory(),
-      saveApiHistory: (history) => this.saveApiHistory(history),
+      getModel: () => tab.model,
+      setModel: (value) => this.updateTab(tab, { model: str(value).trim().slice(0, 200) }),
+      getQueue: () => tab.queue,
+      saveQueue: (queue) => this.updateTab(tab, { queue }),
+      getSessionId: () => tab.sessionId,
+      setSessionId: (id) => this.updateTab(tab, { sessionId: str(id).trim() }),
+      getApiHistory: () => tab.messages,
+      saveApiHistory: (history) => this.saveTabHistory(tab, history),
       getRole: () => this.plugin.settings.ai.tutorRole,
       setRole: (id) => {
         this.plugin.settings.ai.tutorRole = id;
@@ -1555,11 +1646,11 @@ class AgentView extends ItemView {
       onArchiveChat: (id) => this.archiveChat(id, true),
       onNewChat: () => this.startNewChat(),
       quick: [
-        { label: "Ask about this note", run: () => this.chatPanel.askAboutActiveNote() },
+        { label: "Ask about this note", run: () => tab.panel.askAboutActiveNote() },
         { label: "Summarize my notes", prompt: "Summarize the most important ideas in my notes and cite the notes you use." },
         { label: "Make cards", prompt: "Turn the key ideas in my notes into flashcards. Propose them for my review." },
       ],
-    });
+    };
   }
 
   buildContext(mode, currentNote) {
@@ -1579,8 +1670,13 @@ class AgentView extends ItemView {
     return parts.filter(Boolean).join("\n\n");
   }
 
-  /** The Direct API transcript, restored from settings so a reload keeps the chat. */
+  /** The active Direct API transcript, restored from settings so a reload keeps the chat. */
   getApiHistory() {
+    const tab = this.activeTab();
+    if (tab) {
+      this.apiHistory = tab.messages;
+      return this.apiHistory;
+    }
     if (!Array.isArray(this.apiHistory)) {
       const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
       this.apiHistory = normalizeChatHistory(ai ? ai.studyChat : []);
@@ -1589,6 +1685,11 @@ class AgentView extends ItemView {
   }
 
   saveApiHistory(history) {
+    const tab = this.activeTab();
+    if (tab) {
+      this.saveTabHistory(tab, history);
+      return;
+    }
     const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
     if (!ai) return;
     const messages = normalizeChatHistory(history);
@@ -1600,7 +1701,8 @@ class AgentView extends ItemView {
       ai.studyChatUpdatedAt = Date.now();
     }
     this.plugin.save();
-    if (this.chatPanel) this.chatPanel.refreshLibrary();
+    this.renderTabBar();
+    this.refreshLibraries();
   }
 
   /** The conversation in the panel right now. */
@@ -1613,7 +1715,9 @@ class AgentView extends ItemView {
       updatedAt: Number(ai.studyChatUpdatedAt) || 0,
       messages: normalizeChatHistory(ai.studyChat),
       model: str(ai.studyChatModel).trim(),
+      queue: chatQueue.normalizeQueue(ai.studyChatQueue),
       pinned: ai.studyChatPinned === true,
+      open: true,
     };
   }
 
@@ -1628,31 +1732,272 @@ class AgentView extends ItemView {
     });
   }
 
-  /**
-   * Move the active conversation into the archive, keeping its id. Archiving the
-   * same id twice replaces the older copy, so a conversation is never listed
-   * twice and never orphaned.
-   */
-  archiveActive(archived) {
+  activeTab() {
+    return (this.chatTabs || []).find((tab) => tab.id === this.activeTabId) || null;
+  }
+
+  tabById(id) {
+    const key = str(id).trim();
+    return (this.chatTabs || []).find((tab) => tab.id === key) || null;
+  }
+
+  nextTabOrder() {
+    return (this.chatTabs || []).reduce((max, tab) => Math.max(max, Number(tab.tabOrder) || 0), 0) + 1;
+  }
+
+  renderTabBar() {
+    if (!this.tabBar) return;
+    this.tabBar.empty();
+    for (const tab of this.chatTabs) {
+      const wrap = this.tabBar.createDiv({
+        cls: `qt-chat-tab${tab.id === this.activeTabId ? " is-active" : ""}`,
+      });
+      const label = tab.title || (tab.messages.length ? titleFromMessages(tab.messages) : "New chat");
+      const open = wrap.createEl("button", {
+        cls: "qt-chat-tab-open",
+        text: `${label}${tab.panel && tab.panel.busy ? " · streaming" : ""}${tab.queue.length ? ` · ${tab.queue.length} queued` : ""}`,
+        attr: { "aria-label": `Switch to ${label}` },
+      });
+      open.addEventListener("click", () => this.switchTab(tab.id));
+      const close = wrap.createEl("button", {
+        cls: "qt-chat-tab-close",
+        text: "×",
+        attr: { "aria-label": `Close ${label}` },
+      });
+      close.addEventListener("click", () => this.closeTab(tab.id));
+    }
+    const add = this.tabBar.createEl("button", {
+      cls: "qt-chat-tab-new",
+      text: "New tab",
+      attr: { "aria-label": "Open another conversation tab" },
+    });
+    add.disabled = this.chatTabs.length >= MAX_TABS;
+    add.addEventListener("click", () => this.newTab());
+  }
+
+  refreshLibraries() {
+    for (const tab of this.chatTabs || []) {
+      try {
+        tab.panel.refreshLibrary();
+      } catch (e) {
+        /* a closed tab may no longer have a library */
+      }
+    }
+  }
+
+  persistActiveTab(tab) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    if (!ai || !tab) return;
+    setTabMessages(tab, tab.messages);
+    ai.studyChat = tab.messages.slice();
+    ai.studyChatId = tab.id;
+    ai.studyChatTitle = str(tab.title).trim();
+    ai.studyChatUpdatedAt = Number(tab.updatedAt) || 0;
+    ai.studyChatPinned = tab.pinned === true;
+    ai.studyChatModel = str(tab.model).trim();
+    ai.studyChatQueue = chatQueue.normalizeQueue(tab.queue);
+    ai.studyChatTabOrder = Number(tab.tabOrder) || 0;
+    ai.sessionId = str(tab.sessionId).trim();
+    this.apiHistory = tab.messages;
+  }
+
+  saveTabRecord(tab, options) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    if (!ai || !tab || !tab.id) return false;
+    const opts = options && typeof options === "object" ? options : {};
+    if (tab.id === str(ai.studyChatId).trim()) {
+      if (str(ai.studyChatModel).trim()) tab.model = str(ai.studyChatModel).trim();
+      if (str(ai.studyChatTitle).trim()) tab.title = str(ai.studyChatTitle).trim();
+      if (Number(ai.studyChatUpdatedAt)) tab.updatedAt = Number(ai.studyChatUpdatedAt);
+      if (Array.isArray(ai.studyChatQueue) && ai.studyChatQueue.length) tab.queue = chatQueue.normalizeQueue(ai.studyChatQueue);
+    }
+    setTabMessages(tab, tab.messages);
+    ai.chatSessions = archiveSession(ai.chatSessions, {
+      id: tab.id,
+      title: str(tab.title).trim(),
+      updatedAt: Number(tab.updatedAt) || 0,
+      messages: tab.messages,
+      sessionId: str(tab.sessionId).trim(),
+      notePath: "",
+      model: str(tab.model).trim(),
+      queue: chatQueue.normalizeQueue(tab.queue),
+      pinned: tab.pinned === true,
+      archived: tab.archived === true,
+      open: opts.open === true ? true : false,
+      tabOrder: Number(tab.tabOrder) || 0,
+    });
+    return true;
+  }
+
+  updateTab(tab, changes) {
+    if (!tab) return false;
+    const next = changes && typeof changes === "object" ? changes : {};
+    if (Object.prototype.hasOwnProperty.call(next, "messages")) setTabMessages(tab, next.messages);
+    if (Object.prototype.hasOwnProperty.call(next, "queue")) tab.queue = chatQueue.normalizeQueue(next.queue);
+    if (Object.prototype.hasOwnProperty.call(next, "model")) tab.model = str(next.model).trim().slice(0, 200);
+    if (Object.prototype.hasOwnProperty.call(next, "sessionId")) tab.sessionId = str(next.sessionId).trim();
+    if (Object.prototype.hasOwnProperty.call(next, "title")) tab.title = str(next.title).replace(/\s+/g, " ").trim().slice(0, 80);
+    if (Object.prototype.hasOwnProperty.call(next, "updatedAt")) tab.updatedAt = Number(next.updatedAt) || 0;
+    if (Object.prototype.hasOwnProperty.call(next, "pinned")) tab.pinned = next.pinned === true;
+    if (Object.prototype.hasOwnProperty.call(next, "tabOrder")) tab.tabOrder = Number(next.tabOrder) || 0;
+    if (Object.prototype.hasOwnProperty.call(next, "archived")) tab.archived = next.archived === true;
+    if (Object.prototype.hasOwnProperty.call(next, "open")) tab.open = next.open === true;
+    if (this.activeTabId === tab.id) this.persistActiveTab(tab);
+    else this.saveTabRecord(tab, { open: tab.open !== false });
+    this.plugin.save();
+    this.renderTabBar();
+    this.refreshLibraries();
+    return true;
+  }
+
+  saveTabHistory(tab, history) {
+    if (!tab) return;
+    const messages = setTabMessages(tab, history);
+    if (messages.length) {
+      if (!str(tab.title).trim()) tab.title = titleFromMessages(messages);
+      tab.updatedAt = Date.now();
+    }
+    if (this.activeTabId === tab.id) {
+      this.persistActiveTab(tab);
+      if (tab.panel && !tab.panel.busy) tab.panel.loadConversation(messages);
+    } else {
+      this.saveTabRecord(tab, { open: tab.open !== false });
+    }
+    this.plugin.save();
+    this.renderTabBar();
+    this.refreshLibraries();
+  }
+
+  setActiveTab(id, options) {
+    const tab = this.tabById(id);
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    if (!tab || !ai) return false;
+    const opts = options && typeof options === "object" ? options : {};
+    const previous = this.activeTab();
+    if (previous && previous.id !== tab.id) previous.root.toggleClass("qt-hidden", true);
+    this.activeTabId = tab.id;
+    this.chatPanel = tab.panel;
+    tab.root.toggleClass("qt-hidden", false);
+    this.persistActiveTab(tab);
+    // The active tab is stored in the top-level fields, never duplicated in chatSessions.
+    ai.chatSessions = removeSession(ai.chatSessions, tab.id);
+    this.plugin.save();
+    this.renderTabBar();
+    tab.panel.refreshLibrary();
+    tab.panel.renderModelSelect();
+    tab.panel.refreshTokenFooter();
+    if (!opts.initial) this.refreshLibraries();
+    return true;
+  }
+
+  switchTab(id) {
+    const key = str(id).trim();
+    if (!key) return false;
+    if (key === this.activeTabId) return true;
+    const target = this.tabById(key);
+    const previous = this.activeTab();
+    if (!target) return false;
+    if (previous) this.saveTabRecord(previous, { open: true });
+    return this.setActiveTab(key);
+  }
+
+  newTab() {
     const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
     if (!ai) return false;
-    const messages = normalizeChatHistory(ai.studyChat);
-    if (!messages.length) return false;
-    const id = str(ai.studyChatId).trim() || newChatId();
-    ai.studyChatId = id;
-    ai.studyChatTitle = str(ai.studyChatTitle).trim() || titleFromMessages(messages);
-    ai.studyChatUpdatedAt = Number(ai.studyChatUpdatedAt) || Date.now();
-    ai.chatSessions = archiveSession(ai.chatSessions, {
-      id,
-      title: ai.studyChatTitle,
-      updatedAt: ai.studyChatUpdatedAt,
-      messages,
-      sessionId: str(ai.sessionId).trim(),
-      notePath: "",
-      model: str(ai.studyChatModel).trim(),
-      pinned: ai.studyChatPinned === true,
-      archived: archived === true,
-    });
+    if (this.chatTabs.length >= MAX_TABS) {
+      new Notice(`You can have at most ${MAX_TABS} conversation tabs open. Close one first.`, 6000);
+      return false;
+    }
+    const current = this.activeTab();
+    if (current) this.saveTabRecord(current, { open: true });
+    const record = {
+      id: newChatId(),
+      title: "",
+      updatedAt: 0,
+      messages: [],
+      model: "",
+      queue: [],
+      sessionId: "",
+      pinned: false,
+      archived: false,
+      open: true,
+      tabOrder: this.nextTabOrder(),
+    };
+    const tab = this.makeTab(record, false);
+    this.chatTabs.push(tab);
+    return this.setActiveTab(tab.id);
+  }
+
+  removeTabPanel(tab) {
+    if (!tab) return;
+    this.chatTabs = this.chatTabs.filter((item) => item.id !== tab.id);
+    try {
+      tab.panel.stopThinkFirstTicker();
+    } catch (e) {
+      /* the panel may have been closed already */
+    }
+    if (tab.root && typeof tab.root.remove === "function") tab.root.remove();
+    if (this.activeTabId === tab.id) {
+      this.activeTabId = "";
+      this.chatPanel = null;
+    }
+  }
+
+  openEmptyTab() {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    if (!ai) return false;
+    const record = {
+      id: newChatId(),
+      title: "",
+      updatedAt: 0,
+      messages: [],
+      model: "",
+      queue: [],
+      sessionId: "",
+      pinned: false,
+      archived: false,
+      open: true,
+      tabOrder: this.nextTabOrder(),
+    };
+    const tab = this.makeTab(record, false);
+    this.chatTabs.push(tab);
+    return this.setActiveTab(tab.id);
+  }
+
+  closeTab(id) {
+    const tab = this.tabById(id);
+    if (!tab) return false;
+    const wasActive = this.activeTabId === tab.id;
+    tab.open = false;
+    if (tab.queue.length && !tab.messages.length) {
+      new Notice("Closed the tab. Its queued messages could not be saved without a conversation.", 7000);
+    }
+    if (tab.messages.length || tab.queue.length) this.saveTabRecord(tab, { open: false });
+    else this.plugin.settings.ai.chatSessions = removeSession(this.plugin.settings.ai.chatSessions, tab.id);
+    this.removeTabPanel(tab);
+    if (wasActive) {
+      if (this.chatTabs.length) {
+        const next = this.chatTabs.slice().sort((a, b) => a.tabOrder - b.tabOrder)[0];
+        this.setActiveTab(next.id);
+      } else {
+        this.openEmptyTab();
+      }
+    } else {
+      this.plugin.save();
+      this.renderTabBar();
+      this.refreshLibraries();
+    }
+    return true;
+  }
+
+  /** Move the active conversation into the archive, keeping its id. */
+  archiveActive(archived) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    const tab = this.activeTab();
+    if (!ai || !tab || !tab.messages.length) return false;
+    if (!str(tab.title).trim()) tab.title = titleFromMessages(tab.messages);
+    tab.archived = archived === true;
+    this.saveTabRecord(tab, { open: false });
     this.plugin.save();
     return true;
   }
@@ -1661,49 +2006,44 @@ class AgentView extends ItemView {
   startNewChat() {
     const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
     if (!ai) return false;
-    this.archiveActive(false);
-    ai.studyChat = [];
-    ai.studyChatId = "";
-    ai.studyChatTitle = "";
-    ai.studyChatUpdatedAt = 0;
-    ai.studyChatPinned = false;
-    ai.studyChatModel = "";
-    ai.sessionId = "";
-    this.apiHistory = [];
-    this.plugin.save();
-    if (this.chatPanel) {
-      this.chatPanel.loadConversation([]);
-      this.chatPanel.refreshLibrary();
+    const current = this.activeTab();
+    if (current) {
+      if (current.queue.length && !current.messages.length) {
+        new Notice("Started a new chat. The previous tab had queued messages but no conversation to save them with.", 7000);
+      }
+      if (current.messages.length) this.saveTabRecord(current, { open: false });
+      this.removeTabPanel(current);
     }
-    return true;
+    return this.openEmptyTab();
   }
 
-  /** Continue an archived conversation: it moves (not copies) back into the panel. */
+  /** Continue an archived conversation: it moves (not copies) back into a tab. */
   resumeChat(id) {
     const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
     const key = str(id).trim();
     if (!ai || !key) return false;
+    const openTab = this.tabById(key);
+    if (openTab) return this.switchTab(key);
     if (key === str(ai.studyChatId).trim() && normalizeChatHistory(ai.studyChat).length) return true;
-    this.archiveActive();
     const record = normalizeSessions(ai.chatSessions).find((session) => session.id === key);
     if (!record) {
       this.plugin.save();
       return false;
     }
-    ai.chatSessions = removeSession(ai.chatSessions, key);
-    ai.studyChat = record.messages.slice();
-    ai.studyChatId = record.id;
-    ai.studyChatTitle = record.title;
-    ai.studyChatUpdatedAt = record.updatedAt || Date.now();
-    ai.studyChatPinned = record.pinned === true;
-    ai.studyChatModel = record.model || "";
-    ai.sessionId = record.sessionId || "";
-    this.apiHistory = record.messages.slice();
-    this.plugin.save();
-    if (this.chatPanel) {
-      this.chatPanel.loadConversation(record.messages);
-      this.chatPanel.refreshLibrary();
+    const current = this.activeTab();
+    if (current) {
+      if (current.messages.length) this.saveTabRecord(current, { open: false });
+      this.removeTabPanel(current);
     }
+    ai.chatSessions = removeSession(ai.chatSessions, key);
+    const tab = this.makeTab({
+      ...record,
+      archived: false,
+      open: true,
+      tabOrder: this.nextTabOrder(),
+    }, false);
+    this.chatTabs.push(tab);
+    this.setActiveTab(tab.id);
     return true;
   }
 
@@ -1713,14 +2053,23 @@ class AgentView extends ItemView {
     const key = str(id).trim();
     const next = str(title).replace(/\s+/g, " ").trim().slice(0, 80);
     if (!ai || !key || !next) return false;
-    if (isActiveChatId(ai, key)) {
-      ai.studyChatTitle = next;
-      ai.studyChatUpdatedAt = Date.now();
+    const tab = this.tabById(key);
+    if (tab || isActiveChatId(ai, key)) {
+      if (tab) {
+        tab.title = next;
+        tab.updatedAt = Date.now();
+        if (this.activeTabId === tab.id) this.persistActiveTab(tab);
+        else this.saveTabRecord(tab, { open: tab.open !== false });
+      } else {
+        ai.studyChatTitle = next;
+        ai.studyChatUpdatedAt = Date.now();
+      }
     } else {
       ai.chatSessions = renameSession(ai.chatSessions, key, next);
     }
     this.plugin.save();
-    if (this.chatPanel) this.chatPanel.refreshLibrary();
+    this.renderTabBar();
+    this.refreshLibraries();
     return true;
   }
 
@@ -1729,21 +2078,49 @@ class AgentView extends ItemView {
     const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
     const key = str(id).trim();
     if (!ai || !key) return false;
-    if (isActiveChatId(ai, key)) {
-      ai.studyChat = [];
-      ai.studyChatId = "";
-      ai.studyChatTitle = "";
-      ai.studyChatUpdatedAt = 0;
-      ai.studyChatPinned = false;
-      ai.studyChatModel = "";
-      ai.sessionId = "";
-      this.apiHistory = [];
-      if (this.chatPanel) this.chatPanel.loadConversation([]);
+    const tab = this.tabById(key);
+    const active = isActiveChatId(ai, key);
+    if (tab || active) {
+      if (tab) {
+        if (tab.queue.length && tab.panel) tab.panel.setQueue([]);
+        this.removeTabPanel(tab);
+      }
+      ai.chatSessions = removeSession(ai.chatSessions, key);
+      if (active) {
+        this.persistActiveTab({
+          id: "",
+          messages: [],
+          title: "",
+          updatedAt: 0,
+          pinned: false,
+          model: "",
+          queue: [],
+          sessionId: "",
+          tabOrder: this.nextTabOrder(),
+        });
+        // Remove the deleted conversation's top-level fields before choosing a tab.
+        ai.studyChat = [];
+        ai.studyChatId = "";
+        ai.studyChatTitle = "";
+        ai.studyChatUpdatedAt = 0;
+        ai.studyChatPinned = false;
+        ai.studyChatModel = "";
+        ai.studyChatQueue = [];
+        ai.sessionId = "";
+        this.apiHistory = [];
+        if (this.chatTabs.length) {
+          const next = this.chatTabs.slice().sort((a, b) => a.tabOrder - b.tabOrder)[0];
+          this.setActiveTab(next.id);
+        } else {
+          this.openEmptyTab();
+        }
+      }
     } else {
       ai.chatSessions = removeSession(ai.chatSessions, key);
     }
     this.plugin.save();
-    if (this.chatPanel) this.chatPanel.refreshLibrary();
+    this.renderTabBar();
+    this.refreshLibraries();
     return true;
   }
 
@@ -1752,13 +2129,21 @@ class AgentView extends ItemView {
     const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
     const key = str(id).trim();
     if (!ai || !key) return false;
-    if (isActiveChatId(ai, key)) {
-      ai.studyChatPinned = pinned === true;
+    const tab = this.tabById(key);
+    if (tab || isActiveChatId(ai, key)) {
+      if (tab) {
+        tab.pinned = pinned === true;
+        if (this.activeTabId === tab.id) this.persistActiveTab(tab);
+        else this.saveTabRecord(tab, { open: tab.open !== false });
+      } else {
+        ai.studyChatPinned = pinned === true;
+      }
     } else {
       ai.chatSessions = setPinnedSession(ai.chatSessions, key, pinned);
     }
     this.plugin.save();
-    if (this.chatPanel) this.chatPanel.refreshLibrary();
+    this.renderTabBar();
+    this.refreshLibraries();
     return true;
   }
 
@@ -1767,23 +2152,36 @@ class AgentView extends ItemView {
     const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
     const key = str(id).trim();
     if (!ai || !key) return false;
-    if (isActiveChatId(ai, key)) {
+    const tab = this.tabById(key);
+    if (tab || isActiveChatId(ai, key)) {
       if (archived !== true) return false;
-      if (!this.archiveActive(true)) return false;
-      ai.studyChat = [];
-      ai.studyChatId = "";
-      ai.studyChatTitle = "";
-      ai.studyChatUpdatedAt = 0;
-      ai.studyChatPinned = false;
-      ai.studyChatModel = "";
-      ai.sessionId = "";
-      this.apiHistory = [];
-      if (this.chatPanel) this.chatPanel.loadConversation([]);
+      if (tab) {
+        tab.archived = true;
+        tab.open = false;
+        if (tab.messages.length) this.saveTabRecord(tab, { open: false });
+        else ai.chatSessions = removeSession(ai.chatSessions, key);
+        const wasActive = this.activeTabId === tab.id;
+        this.removeTabPanel(tab);
+        if (wasActive) {
+          ai.chatSessions = removeSession(ai.chatSessions, key);
+          // The archived record must stay in chatSessions after the tab is removed.
+          if (tab.messages.length) this.saveTabRecord(tab, { open: false });
+          if (this.chatTabs.length) {
+            const next = this.chatTabs.slice().sort((a, b) => a.tabOrder - b.tabOrder)[0];
+            this.setActiveTab(next.id);
+          } else {
+            this.openEmptyTab();
+          }
+        }
+      } else {
+        ai.chatSessions = setArchivedSession(ai.chatSessions, key, true);
+      }
     } else {
       ai.chatSessions = setArchivedSession(ai.chatSessions, key, archived === true);
     }
     this.plugin.save();
-    if (this.chatPanel) this.chatPanel.refreshLibrary();
+    this.renderTabBar();
+    this.refreshLibraries();
     return true;
   }
 
@@ -24196,6 +24594,7 @@ const chatBudget = require("./chat-budget");
 const chatMentions = require("./chat-mentions");
 const chatModels = require("./chat-models");
 const chatCompact = require("./chat-compact");
+const chatQueue = require("./chat-queue");
 
 function budgetRefusal(budget) {
   return `Nothing was sent: the estimated ${chatBudget.formatTokenCount(budget.tokens)}-token context is over the local ${chatBudget.formatTokenCount(budget.limit)}-token chat budget. Remove a mention or shorten the message.`;
@@ -24238,12 +24637,15 @@ class ChatPanel {
     this.lastMentionKey = "";
     this.previewSeq = 0;
     this.lastBudget = null;
+    this.queue = chatQueue.normalizeQueue(opts.getQueue ? opts.getQueue() : []);
+    this.draining = false;
     this.libraryQuery = "";
     this.showArchived = false;
     this.build();
     if (this.view.plugin.backend() === "api") {
       this.turns = apiTurns(this.apiHistory());
       this.draw();
+      if (this.queue.length) Promise.resolve().then(() => this.drainQueue());
     } else if (this.ai.enabled && opts.getSessionId() && this.serverReady()) this.refresh();
   }
 
@@ -24292,7 +24694,7 @@ class ChatPanel {
     const waiting = this.ai.thinkFirst === true && remaining > 0;
     this.thinkFirstNote.toggleClass("qt-hidden", !waiting);
     this.thinkFirstNote.setText(waiting ? thinkFirstLabel(remaining) : "");
-    if (this.sendBtn) this.sendBtn.disabled = this.busy || waiting;
+    if (this.sendBtn) this.sendBtn.disabled = waiting;
     if (waiting) {
       this.thinkFirstStatus = true;
       if (this.status && !this.busy) this.status.setText(`Think first: ${Math.ceil(remaining / 1000)}s remaining.`);
@@ -24301,6 +24703,7 @@ class ChatPanel {
     if (this.thinkFirstStatus && this.status && !this.busy) this.status.setText("");
     this.thinkFirstStatus = false;
     this.stopThinkFirstTicker();
+    if (this.queue.length && !this.busy && !this.draining) this.drainQueue();
   }
 
   apiHistory() {
@@ -24342,8 +24745,7 @@ class ChatPanel {
     });
     this.renderModelSelect();
     this.modelSelect.addEventListener("change", () => {
-      this.ai.studyChatModel = chatModels.normalizeModel(this.modelSelect.value);
-      this.view.plugin.save();
+      this.setChatModel(chatModels.normalizeModel(this.modelSelect.value));
       this.refreshTokenFooter();
     });
     const nc = top.createEl("button", { text: "New chat" });
@@ -24373,6 +24775,8 @@ class ChatPanel {
     this.status = root.createDiv({ cls: "qt-hint" });
     this.thinkFirstNote = root.createDiv({ cls: "qt-hint qt-think-first qt-hidden", text: "" });
     this.mentionPicker = root.createDiv({ cls: "qt-chat-mention-picker qt-hidden" });
+    this.queueEl = root.createDiv({ cls: "qt-chat-queue qt-hidden" });
+    this.renderQueue();
 
     const row = root.createDiv({ cls: "qt-row" });
     this.input = row.createEl("textarea", {
@@ -24443,6 +24847,116 @@ class ChatPanel {
     this.renderModelSelect();
     this.refreshTokenFooter();
     this.draw();
+  }
+
+  chatModel() {
+    if (typeof this.opts.getModel === "function") return chatModels.normalizeModel(this.opts.getModel());
+    return chatModels.normalizeModel(this.ai.studyChatModel);
+  }
+
+  setChatModel(value) {
+    const model = chatModels.normalizeModel(value);
+    if (typeof this.opts.setModel === "function") this.opts.setModel(model);
+    else {
+      this.ai.studyChatModel = model;
+      this.view.plugin.save();
+    }
+  }
+
+  queueItems() {
+    return chatQueue.normalizeQueue(this.queue);
+  }
+
+  setQueue(next) {
+    this.queue = chatQueue.normalizeQueue(next);
+    if (typeof this.opts.saveQueue === "function") this.opts.saveQueue(this.queue.slice());
+    this.renderQueue();
+  }
+
+  renderQueue() {
+    if (!this.queueEl) return;
+    const rows = this.queueItems();
+    this.queueEl.empty();
+    this.queueEl.toggleClass("qt-hidden", !rows.length);
+    if (!rows.length) return;
+    this.queueEl.createDiv({
+      cls: "qt-chat-queue-title",
+      text: `Queued ${rows.length} message${rows.length === 1 ? "" : "s"} — sends after the current reply.`,
+    });
+    rows.forEach((text, index) => {
+      const item = this.queueEl.createDiv({ cls: "qt-chat-queue-item" });
+      item.createDiv({
+        cls: "qt-chat-queue-text",
+        text: text.length > 220 ? `${text.slice(0, 217).trimEnd()}...` : text,
+      });
+      const cancel = item.createEl("button", {
+        text: "Cancel",
+        attr: { "aria-label": `Cancel queued message ${index + 1}` },
+      });
+      cancel.addEventListener("click", () => this.removeQueued(index));
+    });
+  }
+
+  /** Queue a message while a reply is streaming; it is sent once the panel is idle. */
+  enqueue(text) {
+    const value = str(text).trim();
+    if (!value || !this.ai.enabled) return false;
+    if (this.queueItems().length >= chatQueue.MAX_QUEUE) {
+      if (this.status) this.status.setText(`The queue is full (${chatQueue.MAX_QUEUE} messages). Cancel one or wait for the reply to finish.`);
+      return false;
+    }
+    const next = chatQueue.enqueue(this.queue, value);
+    if (next.length === this.queueItems().length) return false;
+    this.setQueue(next);
+    if (this.input) this.input.value = "";
+    this.syncMentionChips();
+    this.refreshTokenFooter();
+    if (this.status) this.status.setText(`Queued. It will send after the current reply.`);
+    if (!this.busy && !this.draining) this.drainQueue();
+    return true;
+  }
+
+  removeQueued(index) {
+    const before = this.queueItems();
+    const next = chatQueue.removeAt(before, index);
+    if (next.length === before.length) return false;
+    this.setQueue(next);
+    if (this.status) this.status.setText("Removed the queued message.");
+    return true;
+  }
+
+  /**
+   * Send queued messages in order, one at a time. The item leaves the visible
+   * queue before its request starts; failures are reported and are not retried
+   * behind the user's back.
+   */
+  drainQueue() {
+    if (this.draining || this.busy || !this.ai.enabled) return;
+    if (this.thinkFirstRemaining() > 0) return;
+    const rows = this.queueItems();
+    if (!rows.length) return;
+    const text = rows[0];
+    this.draining = true;
+    this.setQueue(rows.slice(1));
+    Promise.resolve()
+      .then(() => this.send(text))
+      .then((started) => {
+        if (started === false) {
+          const message = `Queued message could not be sent: ${this.error || "the composer refused it"}. It was not retried.`;
+          this.error = message;
+          if (this.status) this.status.setText(message);
+          this.draw();
+        }
+      })
+      .catch((e) => {
+        this.error = `Queued message could not be sent: ${str(e && e.message ? e.message : e)}`;
+        if (this.status) this.status.setText(this.error);
+        this.draw();
+      })
+      .finally(() => {
+        this.draining = false;
+        if (!this.busy && this.queueItems().length) this.drainQueue();
+      });
   }
 
   currentRole() {
@@ -24626,7 +25140,7 @@ class ChatPanel {
         ? this.view.plugin.aiModelFor("chat")
         : str(this.ai.api && this.ai.api.model).trim() || str(this.ai.model).trim();
     return chatModels.resolveChatModel({
-      chatModel: this.ai.studyChatModel,
+      chatModel: this.chatModel(),
       commandModel: this.commandModelFor(draft),
       globalModel,
       availableModels: backend === "api" && this.ai.api ? this.ai.api.models : [],
@@ -24646,7 +25160,7 @@ class ChatPanel {
     return chatModels.modelChoices({
       globalModel,
       availableModels: backend === "api" && this.ai.api ? this.ai.api.models : [],
-      ownModel: this.ai.studyChatModel,
+      ownModel: this.chatModel(),
     });
   }
 
@@ -24662,7 +25176,7 @@ class ChatPanel {
     for (const model of this.chatModelChoices()) {
       select.createEl("option", { value: model, text: model });
     }
-    select.value = chatModels.normalizeModel(this.ai.studyChatModel);
+    select.value = this.chatModel();
   }
 
   historyText() {
@@ -24809,8 +25323,9 @@ class ChatPanel {
     this.busy = b;
     if (!this.sendBtn) return;
     this.stopBtn.toggleClass("qt-hidden", !b);
-    this.sendBtn.disabled = b || this.thinkFirstRemaining() > 0;
-    this.status.setText(b ? "Working..." : "");
+    this.sendBtn.disabled = this.thinkFirstRemaining() > 0;
+    this.sendBtn.setText(b ? "Queue" : "Send");
+    this.status.setText(b ? "Working... You can type a follow-up and queue it." : "");
   }
 
   /** Stop a Direct API reply mid-stream; the partial reply is kept once. */
@@ -24839,6 +25354,7 @@ class ChatPanel {
     this.setBusy(false);
     if (this.status) this.status.setText(partial ? "Stopped. The partial reply was kept." : "Stopped waiting for the reply.");
     this.draw();
+    if (this.queueItems().length) this.drainQueue();
   }
 
   /** The Stop button and Esc: cancel the current backend, keeping any partial reply. */
@@ -24869,6 +25385,7 @@ class ChatPanel {
     this.setBusy(false);
     if (this.status) this.status.setText("Stopped.");
     this.draw();
+    if (this.queueItems().length) this.drainQueue();
   }
 
   newChat() {
@@ -24878,6 +25395,7 @@ class ChatPanel {
       return;
     }
     this.opts.setSessionId("");
+    this.setQueue([]);
     this.apiHistory().length = 0;
     this.persistApiHistory();
     this.loadConversation([]);
@@ -25215,14 +25733,15 @@ class ChatPanel {
 
   async send(text) {
     text = str(text).trim();
-    if (!text || this.busy || !this.ai.enabled) return;
+    if (!text || !this.ai.enabled) return false;
+    if (this.busy) return this.enqueue(text);
     if (/^\/compact\b/i.test(text)) return this.compactChat();
 
     const modelPlan = this.modelPlan(text);
     const command = parseStudyCommand(text, this.studyCommands());
     if (command) {
       text = await this.resolveStudyCommand(text, command);
-      if (!text) return;
+      if (!text) return false;
     }
 
     const prepared = await this.prepareSendContext(text);
@@ -25230,7 +25749,7 @@ class ChatPanel {
       this.error = prepared.error;
       if (this.status) this.status.setText(prepared.error);
       this.draw();
-      return;
+      return false;
     }
 
     this.lastSent = text;
@@ -25239,7 +25758,7 @@ class ChatPanel {
     this.cancelled = false;
     if (this.thinkFirstRemaining() > 0) {
       this.refreshThinkFirst();
-      return;
+      return false;
     }
     if (this.opts.beforeSend) {
       try {
@@ -25261,7 +25780,7 @@ class ChatPanel {
       } catch (e) {
         this.error = `Could not prepare the agent edit review, so nothing was sent. ${str(e && e.message ? e.message : e)}`;
         this.draw();
-        return;
+        return false;
       }
     }
     const guard = ai.mode === "agent" && typeof plugin.snapshotProtectedState === "function" ? plugin.snapshotProtectedState() : null;
@@ -25361,7 +25880,9 @@ class ChatPanel {
           );
         }
       }
+      if (this.queueItems().length) this.drainQueue();
     }
+    return true;
   }
 
   async sendApi(text, currentNote, resend, model) {
@@ -25371,7 +25892,7 @@ class ChatPanel {
       if (this.status) this.status.setText(this.error);
       this.refreshTokenFooter();
       this.draw();
-      return;
+      return false;
     }
     this.error = "";
     this.input.value = "";
@@ -25444,6 +25965,8 @@ class ChatPanel {
         if (proposals.length) new AiToolReviewModal(this.view.app, this.view.plugin, proposals).open();
       }
     }
+    if (this.queueItems().length) this.drainQueue();
+    return true;
   }
 
   async checkProvider(oc) {
@@ -25535,6 +26058,57 @@ module.exports = {
 };
 };
 
+/* ---- src/chat-queue.js ---- */
+__defs["chat-queue"] = function (module, exports, require) {
+/*
+ * Pending study-agent messages. A queue is an ordered list of plain strings,
+ * stored with the conversation that owns it. This module only normalizes and
+ * edits the list; ChatPanel owns delivery and AgentView owns persistence.
+ */
+
+const MAX_QUEUE = 20;
+const MAX_QUEUE_CHARS = 8000;
+
+function normalizeQueue(value) {
+  const rows = [];
+  for (const item of Array.isArray(value) ? value : []) {
+    const text = String(item && typeof item === "object" ? item.text : item)
+      .trim()
+      .slice(0, MAX_QUEUE_CHARS);
+    if (!text) continue;
+    rows.push(text);
+    if (rows.length >= MAX_QUEUE) break;
+  }
+  return rows;
+}
+
+function enqueue(queue, text) {
+  const value = String(text === undefined || text === null ? "" : text)
+    .trim()
+    .slice(0, MAX_QUEUE_CHARS);
+  const rows = normalizeQueue(queue);
+  if (!value || rows.length >= MAX_QUEUE) return rows;
+  rows.push(value);
+  return rows;
+}
+
+function removeAt(queue, index) {
+  const rows = normalizeQueue(queue);
+  const at = Number(index);
+  if (!Number.isInteger(at) || at < 0 || at >= rows.length) return rows;
+  rows.splice(at, 1);
+  return rows;
+}
+
+module.exports = {
+  MAX_QUEUE,
+  MAX_QUEUE_CHARS,
+  enqueue,
+  normalizeQueue,
+  removeAt,
+};
+};
+
 /* ---- src/chat-sessions.js ---- */
 __defs["chat-sessions"] = function (module, exports, require) {
 /*
@@ -25548,6 +26122,7 @@ __defs["chat-sessions"] = function (module, exports, require) {
  * action and never happens here.
  */
 const { normalizeChatHistory } = require("./chat-history");
+const chatQueue = require("./chat-queue");
 const { str } = require("./util");
 
 const MAX_SESSIONS = 20;
@@ -25572,8 +26147,11 @@ function normalizeSession(value) {
   const raw = value && typeof value === "object" ? value : {};
   const messages = normalizeChatHistory(raw.messages);
   const id = str(raw.id).trim();
-  if (!id || !messages.length) return null;
+  const open = raw.open === true;
+  // Open tabs may still be empty; completed library entries always have text.
+  if (!id || (!messages.length && !open)) return null;
   const updatedAt = Number(raw.updatedAt);
+  const tabOrder = Number(raw.tabOrder);
   return {
     id,
     title: str(raw.title).trim().slice(0, MAX_TITLE) || titleFromMessages(messages),
@@ -25582,6 +26160,9 @@ function normalizeSession(value) {
     sessionId: str(raw.sessionId).trim(),
     notePath: str(raw.notePath).trim(),
     model: str(raw.model).trim().slice(0, 200),
+    queue: chatQueue.normalizeQueue(raw.queue),
+    open,
+    tabOrder: Number.isFinite(tabOrder) && tabOrder >= 0 ? tabOrder : 0,
     pinned: raw.pinned === true,
     archived: raw.archived === true,
   };
@@ -25679,6 +26260,8 @@ function libraryRows(active, sessions, now, options) {
       model: str(active && active.model).trim(),
       pinned: active && active.pinned === true,
       archived: false,
+      open: active && active.open !== false,
+      queue: chatQueue.normalizeQueue(active && active.queue),
     });
   }
   for (const session of normalizeSessions(sessions)) {
@@ -25695,6 +26278,8 @@ function libraryRows(active, sessions, now, options) {
       model: session.model,
       pinned: session.pinned === true,
       archived: session.archived === true,
+      open: session.open,
+      queue: session.queue,
     });
   }
   rows.sort(
@@ -26838,7 +27423,9 @@ const DEFAULT_SETTINGS = {
     studyChatUpdatedAt: 0, // epoch ms, used for the newest-first library order
     studyChatPinned: false, // pinned conversations sort first in the library
     studyChatModel: "", // optional model override for the active chat
-    chatSessions: [], // archived conversations, bounded by chat-sessions.js
+    studyChatQueue: [], // messages waiting for the active chat's reply to finish
+    studyChatTabOrder: 0, // stable order for open conversation tabs
+    chatSessions: [], // saved and open conversations, bounded by chat-sessions.js
     studyCommands: [], // reusable /commands; prompts may use {} or {selection}
     commandModels: {}, // optional per-slash-command model overrides, keyed by command id
     autoDeclined: false, // the user said no to the automatic OpenCode download: don't ask again until they press the button

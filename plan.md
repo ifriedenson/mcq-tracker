@@ -13,19 +13,23 @@ surfaces, so unfinished ideas are not disguised as checked work.
 §3.9.6 is the gate table, §3.10 is the licence allow-list, and
 [docs/plan-decisions.md](docs/plan-decisions.md) is the owner decision sheet.
 
-**Verified at this commit:** `node --test` → 2,304 tests pass, 0 fail;
-`npm run check` clean (no dynamic code across 320 source files, vendor guard,
-bundle up to date); `main.js` generated from 323 modules at 6,505,531 bytes.
+**Verified at this commit:** `node --test` → 2,311 tests pass, 0 fail;
+`npm run check` clean (no dynamic code across 321 source files, vendor guard,
+bundle up to date); `main.js` generated from 324 modules at 6,526,456 bytes.
 Re-run both before quoting these numbers.
 
 **Nov 6, 2026 working tree (no version bump):** Quick Ask, saved study
 commands, per-chat and per-command model overrides with visible fallback,
-local `/compact`, `@` note/folder mentions, a context/token/model footer and a
-searchable, pinned, archived conversation library ship in the source and bundle. Quick Ask sends only the selection or
+local `/compact`, `@` note/folder mentions, a context/token/model footer, a
+searchable, pinned, archived conversation library, concurrent chat tabs and a
+cancelable queued-message strip ship in the source and bundle. Quick Ask sends only the selection or
 whole note explicitly chosen, offers seven study actions, and writes only on
 **Insert** or **Replace**. Saved `/commands` expand `{selection}`, `{note}` and
-`{path}` only when the chat already allows that context. The clean-room Copilot
-inventory is §5.18.1; no AGPL code, prompt or stylesheet was used.
+`{path}` only when the chat already allows that context. Tabs keep independent
+history, model, footer and queue state in the existing chat storage; queued
+follow-ups drain exactly once after the active reply, Stop or error. The
+clean-room Copilot inventory is §5.18.1; no AGPL code, prompt or stylesheet was
+used.
 
 **How to read this file.**
 
@@ -102,7 +106,7 @@ closed decisions; see [docs/plan-decisions.md](docs/plan-decisions.md).
 | **Study workspace** | 32 per-tool settings pages plus a Global index, and the workspace tabs (Cornell, lecture log, goals, Feynman, Recall Scheduler, topic planner, Study Flow, Subject Manager, quiz index, course hub, tasks, annotations, Deep Notes, Retention, Vocabulary, Quiz Maker, SFC cards, CBT, SAT math, Read aloud, lecture notes, bookmarks, Feynman AI, PDF annotations, scheduler fitting, study map, vault search, card archive, study nudge, reading library, course templates), writing-session count, vault task index and tag rename, opt-in Web browser | `src/study-tool-settings.js`, `src/settings-global.js`, `src/study-workspace*.js`, `src/vault-task-index.js`, `src/web-browser*.js` |
 | **Advanced Tables** | Upstream 0.23.2 parity: draft completion, cell editing and Tab/Enter navigation in reading and source views, row/column insert/delete/move, formatting and alignment, TBLFM formulas (datetime and duration aware), CSV/TSV import, transpose, header toggle, stable body-row sorting, merged cells, controls panel | `src/table-editor.js`, `src/table-formulas.js`, `src/table-controls-view.js`, `src/table-csv-modal.js` |
 | **Canvas** | Six clean-room slices: Canvas ⇄ Markdown, map walking and auto-layout, kanban columns, auto-link, query groups, presentations | `src/canvas-*.js` |
-| **Quality** | 2,304-test suite, capability and security inventories re-derived by tests, dynamic-code lint, vendor guard, one release note per version, licence audit and `NOTICES.md` | `tests/`, `docs/capability-inventory.md`, `docs/security-inventory.md`, `scripts/` |
+| **Quality** | 2,311-test suite, capability and security inventories re-derived by tests, dynamic-code lint, vendor guard, one release note per version, licence audit and `NOTICES.md` | `tests/`, `docs/capability-inventory.md`, `docs/security-inventory.md`, `scripts/` |
 
 ## B. Partial rows (3) — owner manual passes still open
 
@@ -1572,10 +1576,10 @@ an owner decision, or is outside this plugin's study identity.
 | Projects | Group chats and context by project. | ○ Courses and study profile are context, but there is no project container for chats. |
 | Skills | Packaged instructions and resources an agent can load. | ○ Not built; no skills directory or loader. |
 | Custom command editor | Create, edit and share reusable prompts. | ✅ Settings → AI → Study commands; no sharing/import format. |
-| Chat tabs | Several conversations open at once. | ○ One active conversation plus a saved list. |
+| Chat tabs | Several conversations open at once. | ✅ Nov 6, 2026. **New tab** mounts another `ChatPanel` with its own transcript, model override, token footer and queued messages; switching leaves an in-flight reply running, closing writes the conversation back to the existing library, and open tab ids/order are restored from `settings.ai.studyChat` plus `chatSessions`. **New chat** still archives and starts clean. |
 | Chat history, pins, archive | Browse, pin and archive conversations. | ✅ Nov 6, 2026. Saved conversations, rename, delete, new chat, pin/unpin and archive/restore; archived chats are hidden by default but stay searchable, and every flag persists in `settings.ai`. |
 | Chat links and bookmarks | Link to a message or bookmark it. | ○ Not built. |
-| Queued messages | Queue a follow-up while a reply streams. | ○ Stop and retry ship; queueing does not. |
+| Queued messages | Queue a follow-up while a reply streams. | ✅ Nov 6, 2026. Send becomes **Queue** while a reply is streaming; a visible ordered strip supports per-item **Cancel**, drains one message at a time after the reply, and reuses the same model, mention, context and 12,000-token budget checks. The queue is stored with its conversation, survives tab switches and reload, still delivers after Stop or a provider error, and reports a refused queued send instead of swallowing it. |
 | `/compact` | Summarise a long conversation to save context. | ✅ Nov 6, 2026. `/compact` folds older Direct API turns into a bounded deterministic local summary, keeps the newest turns verbatim, writes through `settings.ai.studyChat`, and updates the token footer. It makes no provider call; a short chat reports that there is nothing old enough, recent turns that alone exceed the budget are refused, and OpenCode explains that its server owns the history. |
 | Plan proposals | Agent proposes a multi-step plan before acting. | ○ Agent proposals are per-write, not multi-step plans. |
 | Background subagents / multi-agent | Delegated workers and several agents. | ⛔ Requires an external agent runtime and entitlements; no second runtime. |

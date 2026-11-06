@@ -1889,6 +1889,99 @@
   max-height: 50vh;
 }
 
+/* Open study-agent conversations. One panel stays mounted per tab. */
+.qt-chat-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.qt-chat-tab {
+  display: inline-flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  overflow: hidden;
+}
+
+.qt-chat-tab.is-active {
+  border-color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
+}
+
+.qt-chat-tab-open {
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.qt-chat-tab.is-active .qt-chat-tab-open {
+  font-weight: var(--font-semibold, 600);
+}
+
+.qt-chat-tab-close {
+  border: 0;
+  border-left: 1px solid var(--background-modifier-border);
+  border-radius: 0;
+  background: transparent;
+  padding-inline: 6px;
+}
+
+.qt-chat-tab-new {
+  flex: 0 0 auto;
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-chat-tab-panel.qt-hidden {
+  display: none;
+}
+
+/* Messages waiting for the streaming reply to finish. */
+.qt-chat-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0;
+  padding: 6px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+}
+
+.qt-chat-queue-title {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-chat-queue-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.qt-chat-queue-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-chat-queue-item button {
+  flex: 0 0 auto;
+  min-height: 28px;
+  font-size: var(--font-ui-smaller);
+}
+
 .qt-agent-chat .qt-save-note {
   margin-top: 6px;
   min-height: 36px;
