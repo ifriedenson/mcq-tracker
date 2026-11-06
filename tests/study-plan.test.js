@@ -9,6 +9,16 @@ const plan = T.studyPlan;
 
 const Q = (path, fm) => ({ file: { path }, fm: Object.assign({ answer: "A" }, fm) });
 const EXAM = { summary: "Biology - Final Exam", dateKey: "2026-11-05", course: "Biology", dtstart: new Date(2026, 10, 5) };
+// The plugin reads the real clock, so its exam has to stay ahead of it; the pure
+// planner tests above keep the fixed EXAM and their own `today`.
+const dayKey = (offset) => {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+const soonDate = dayKey(5);
+const SOON = { summary: "Biology - Final Exam", dateKey: soonDate, course: "Biology", dtstart: new Date(`${soonDate}T09:00:00`) };
 
 test("study plan: days, due, weak skill and readiness evidence", () => {
   const questions = [
@@ -45,7 +55,7 @@ test("study plan: a plugin plan scopes to the exam course and starts Quick Pract
   const plugin = new QT(app);
   await plugin.onload();
   plugin.calendarEnabled = () => true;
-  plugin.calendarEvents = () => [EXAM];
+  plugin.calendarEvents = () => [SOON];
   plugin.calls = [];
   plugin.startQuickPractice = async (opts) => plugin.calls.push(opts);
   plugin.settings.calendar.courses = [{ name: "Biology", code: "", folder: "", color: "", semester: "", instructor: "", credits: 3, totalTopics: 4 }];

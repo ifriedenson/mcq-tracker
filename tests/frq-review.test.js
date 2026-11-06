@@ -133,8 +133,12 @@ test("frq review: a due prompt joins the exam study plan", async () => {
   await plugin.onload();
   plugin.moduleOff = () => false;
   plugin.calendarEnabled = () => true;
+  // The plugin scopes plans against the real clock, so the exam must be ahead of it.
+  const soon = new Date();
+  soon.setDate(soon.getDate() + 5);
+  const soonKey = `${soon.getFullYear()}-${String(soon.getMonth() + 1).padStart(2, "0")}-${String(soon.getDate()).padStart(2, "0")}`;
   plugin.calendarEvents = () => [
-    { summary: "Biology - Final Exam", dateKey: "2026-11-05", course: "Biology", dtstart: new Date(2026, 10, 5) },
+    { summary: "Biology - Final Exam", dateKey: soonKey, course: "Biology", dtstart: soon },
   ];
   const plan = plugin.studyPlan();
   assert.equal(plan.frqTotal, 1);
