@@ -1623,7 +1623,7 @@ an owner decision, or is outside this plugin's study identity.
 | Cost display | Show running session cost. | ○ Request and token caps exist; no price table or running cost. |
 | Message actions | Copy, regenerate, retry, stop. | ✅ Copy, regenerate, retry and Stop/Esc. |
 | Streaming | Render tokens as they arrive. | ✅ Direct API SSE and OpenCode events. |
-| Queued follow-ups | Send while busy. | ○ |
+| Queued follow-ups | Send while busy. | ✅ Nov 6, 2026. Send becomes **Queue** while a reply streams; a visible ordered strip supports **Cancel**, survives tab switch and reload, and drains one item at a time after the reply, Stop or a provider error. |
 
 **D. Agent, tools and safety**
 
@@ -1671,8 +1671,8 @@ an owner decision, or is outside this plugin's study identity.
 | Diff card with Apply / Cancel | ✅ Adopted for agent proposals. |
 | Status cards for tool calls | ◐ Plain proposal/status text, not Copilot's card components. |
 | Token ring / context gauge | ○ Not adopted. |
-| Queued-message tray | ○ Not adopted. |
-| Pinned chats, tabs and archive | ◐ Pins and archive are adopted; chat tabs are not. |
+| Queued-message tray | ✅ Nov 6, 2026. Adopted as a visible ordered queue strip above the composer with per-item **Cancel**. |
+| Pinned chats, tabs and archive | ✅ Nov 6, 2026. Pins and archive are adopted, and **New tab** keeps several mounted conversations with independent history, model, footer and queue state. |
 | Slash-command popover | ✅ A datalist/dropdown inserts saved commands; built-in commands are documented. |
 | Command palette with search | ✅ Native Obsidian command palette; no custom palette. |
 | Empty state with suggested study actions | ◐ Quick actions exist; no rotating suggestion cards. |
