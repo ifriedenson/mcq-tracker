@@ -12612,3 +12612,73 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 .qt-study-commands {
   margin-top: 2px;
 }
+
+.qt-chat-library-row.is-archived button.qt-chat-library-open {
+  opacity: 0.7;
+  font-style: italic;
+}
+.qt-chat-library-actions {
+  margin: 0 0 2px 8px;
+  gap: 4px;
+}
+.qt-chat-library-actions button {
+  font-size: var(--font-ui-smaller);
+}
+.qt-chat-mentions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 0;
+}
+.qt-chat-mention {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 1px 4px 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  font-size: var(--font-ui-smaller);
+}
+.qt-chat-mention > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qt-chat-mention button {
+  padding: 0 4px;
+  background: transparent;
+  box-shadow: none;
+}
+.qt-chat-mention-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 4px;
+  margin: 4px 0;
+}
+.qt-chat-mention-option {
+  text-align: left;
+}
+.qt-chat-budget {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  margin: 2px 0 4px;
+}
+.qt-chat-budget.is-warn {
+  color: var(--text-warning);
+}
+.qt-chat-budget.is-over {
+  color: var(--text-error);
+}
+.qt-chat-budget-error {
+  color: var(--text-error);
+}
+.qt-chat-budget-warning {
+  color: var(--text-warning);
+}

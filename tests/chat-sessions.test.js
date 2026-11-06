@@ -68,3 +68,35 @@ test("conversation title: first question, one line, truncated with an ellipsis",
   assert.match(long, /\.\.\.$/);
   assert.equal(sessions.titleFromMessages([]), "New chat");
 });
+
+test("conversation archive: pinned chats lead and archived chats are hidden until shown or searched", () => {
+  const active = { id: "active-1", title: "Active", updatedAt: 400, messages: messages("Active") };
+  const saved = [
+    { ...session("old", "Old question", 50), archived: true },
+    { ...session("new", "New question", 300), pinned: true },
+    session("mid", "Mid question", 200),
+  ];
+
+  assert.deepEqual(sessions.libraryRows(active, saved, 400).map((row) => row.id), ["new", "active-1", "mid"]);
+  const shown = sessions.libraryRows(active, saved, 400, { includeArchived: true });
+  assert.deepEqual(shown.map((row) => row.id), ["new", "active-1", "mid", "old"]);
+  assert.equal(shown.find((row) => row.id === "old").archived, true);
+
+  const searched = sessions.libraryRows(active, saved, 400, { query: "old question" });
+  assert.deepEqual(searched.map((row) => row.id), ["old"], "a search still finds an archived chat");
+  assert.equal(searched[0].archived, true);
+  assert.equal(sessions.libraryRows(active, saved, 400, { query: "nothing here" }).length, 0);
+});
+
+test("conversation archive: pin and archived flags change without touching messages or titles", () => {
+  const list = sessions.setPinnedSession([session("a", "Alpha", 1), session("b", "Beta", 2)], "a", true);
+  assert.equal(list.find((row) => row.id === "a").pinned, true);
+  assert.deepEqual(list.find((row) => row.id === "a").messages, messages("Alpha"));
+  assert.equal(list.find((row) => row.id === "b").pinned, false);
+
+  const archived = sessions.setArchivedSession(list, "b", true);
+  assert.equal(archived.find((row) => row.id === "b").archived, true);
+  assert.equal(archived.find((row) => row.id === "b").title, "Beta");
+  assert.equal(sessions.setArchivedSession(archived, "missing", true).find((row) => row.id === "b").archived, true);
+  assert.equal(sessions.setPinnedSession(archived, "a", false).find((row) => row.id === "a").pinned, false);
+});

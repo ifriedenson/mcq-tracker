@@ -43,6 +43,8 @@ function normalizeSession(value) {
     messages,
     sessionId: str(raw.sessionId).trim(),
     notePath: str(raw.notePath).trim(),
+    pinned: raw.pinned === true,
+    archived: raw.archived === true,
   };
 }
 
@@ -68,6 +70,24 @@ function archiveSession(sessions, record) {
   return normalizeSessions([session, ...rest]);
 }
 
+/** Set the pinned flag without touching messages, title or timestamps. */
+function setPinnedSession(sessions, id, pinned) {
+  const key = str(id).trim();
+  if (!key) return normalizeSessions(sessions);
+  return normalizeSessions(
+    normalizeSessions(sessions).map((session) => (session.id === key ? { ...session, pinned: pinned === true } : session))
+  );
+}
+
+/** Set the archived flag. Archived chats remain in storage and remain searchable. */
+function setArchivedSession(sessions, id, archived) {
+  const key = str(id).trim();
+  if (!key) return normalizeSessions(sessions);
+  return normalizeSessions(
+    normalizeSessions(sessions).map((session) => (session.id === key ? { ...session, archived: archived === true } : session))
+  );
+}
+
 function removeSession(sessions, id) {
   const key = str(id).trim();
   return normalizeSessions(sessions).filter((session) => session.id !== key);
@@ -91,16 +111,25 @@ function formatWhen(value) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+function sessionMatches(session, query) {
+  if (!query) return true;
+  if (session.title.toLowerCase().includes(query)) return true;
+  return session.messages.some((message) => str(message.content).toLowerCase().includes(query));
+}
+
 /**
- * Rows for the panel. The active conversation is included while it has
- * messages; an archived row is never also the active row because resuming
- * removes it from the archive.
+ * Rows for the panel. Pinned chats lead. Archived chats are hidden by default,
+ * but a search deliberately includes them so they can be found and restored.
+ * The active conversation is never also an archived row.
  */
-function libraryRows(active, sessions, now) {
+function libraryRows(active, sessions, now, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const query = str(opts.query).trim().toLowerCase();
+  const includeArchived = opts.includeArchived === true;
   const rows = [];
   const messages = normalizeChatHistory(active && active.messages);
   const activeId = str(active && active.id).trim();
-  if (messages.length) {
+  if (messages.length && sessionMatches({ title: str(active && active.title), messages }, query)) {
     rows.push({
       id: activeId || "active",
       title: str(active && active.title).trim().slice(0, MAX_TITLE) || titleFromMessages(messages),
@@ -108,10 +137,14 @@ function libraryRows(active, sessions, now) {
       when: formatWhen(active && active.updatedAt),
       messages,
       active: true,
+      pinned: active && active.pinned === true,
+      archived: false,
     });
   }
   for (const session of normalizeSessions(sessions)) {
     if (activeId && session.id === activeId) continue;
+    if (session.archived && !includeArchived && !query) continue;
+    if (!sessionMatches(session, query)) continue;
     rows.push({
       id: session.id,
       title: session.title,
@@ -119,9 +152,17 @@ function libraryRows(active, sessions, now) {
       when: formatWhen(session.updatedAt),
       messages: session.messages,
       active: false,
+      pinned: session.pinned === true,
+      archived: session.archived === true,
     });
   }
-  rows.sort((a, b) => b.updatedAt - a.updatedAt || Number(b.active) - Number(a.active) || a.title.localeCompare(b.title));
+  rows.sort(
+    (a, b) =>
+      Number(b.pinned) - Number(a.pinned) ||
+      b.updatedAt - a.updatedAt ||
+      Number(b.active) - Number(a.active) ||
+      a.title.localeCompare(b.title)
+  );
   return rows;
 }
 
@@ -136,5 +177,7 @@ module.exports = {
   normalizeSessions,
   removeSession,
   renameSession,
+  setArchivedSession,
+  setPinnedSession,
   titleFromMessages,
 };

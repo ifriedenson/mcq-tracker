@@ -15,9 +15,15 @@ const { insertReplyIntoNote } = require("./agent-note");
 const { renderMarkdownInto } = require("./view-helpers");
 const { MAX_FILES, MAX_FILE_CHARS, excerptBlock, searchText, terms } = require("./agent-retrieval");
 const { chatFileName, normalizeChatHistory } = require("./chat-history");
-const { archiveSession, libraryRows, newChatId, normalizeSessions, removeSession, renameSession, titleFromMessages } = require("./chat-sessions");
+const { archiveSession, libraryRows, newChatId, normalizeSessions, removeSession, renameSession, setArchivedSession, setPinnedSession, titleFromMessages } = require("./chat-sessions");
 
 const VIEW_TYPE_AGENT = "question-tracker-agent";
+
+/** The active row's id is "active" until the first reply assigns a real id. */
+function isActiveChatId(ai, key) {
+  const active = str(ai && ai.studyChatId).trim();
+  return active ? key === active : key === "active";
+}
 
 /** Local, read-only vault search. Every hit carries its note path, line range and passage. */
 async function searchVault(app, query, limit) {
@@ -124,10 +130,12 @@ class AgentView extends ItemView {
       onSaveNote: (text) => this.insertReply(text),
       saveNoteLabel: "Insert into active note",
       onSaveChat: (markdown) => this.saveChat(markdown),
-      getLibrary: () => this.getLibrary(),
+      getLibrary: (options) => this.getLibrary(options),
       onResumeChat: (id) => this.resumeChat(id),
       onRenameChat: (id, title) => this.renameChat(id, title),
       onDeleteChat: (id) => this.deleteChat(id),
+      onPinChat: (id, pinned) => this.pinChat(id, pinned),
+      onArchiveChat: (id) => this.archiveChat(id, true),
       onNewChat: () => this.startNewChat(),
       quick: [
         { label: "Ask about this note", run: () => this.chatPanel.askAboutActiveNote() },
@@ -187,14 +195,19 @@ class AgentView extends ItemView {
       title: str(ai.studyChatTitle).trim(),
       updatedAt: Number(ai.studyChatUpdatedAt) || 0,
       messages: normalizeChatHistory(ai.studyChat),
+      pinned: ai.studyChatPinned === true,
     };
   }
 
-  /** Saved conversations and the active one, newest first. */
-  getLibrary() {
+  /** Saved conversations and the active one. Search includes archived chats. */
+  getLibrary(options) {
     const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
     if (!ai) return [];
-    return libraryRows(this.activeConversation(), ai.chatSessions, Date.now());
+    const opts = options && typeof options === "object" ? options : {};
+    return libraryRows(this.activeConversation(), ai.chatSessions, Date.now(), {
+      query: opts.query,
+      includeArchived: opts.includeArchived,
+    });
   }
 
   /**
@@ -202,7 +215,7 @@ class AgentView extends ItemView {
    * same id twice replaces the older copy, so a conversation is never listed
    * twice and never orphaned.
    */
-  archiveActive() {
+  archiveActive(archived) {
     const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
     if (!ai) return false;
     const messages = normalizeChatHistory(ai.studyChat);
@@ -218,6 +231,8 @@ class AgentView extends ItemView {
       messages,
       sessionId: str(ai.sessionId).trim(),
       notePath: "",
+      pinned: ai.studyChatPinned === true,
+      archived: archived === true,
     });
     this.plugin.save();
     return true;
@@ -227,11 +242,12 @@ class AgentView extends ItemView {
   startNewChat() {
     const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
     if (!ai) return false;
-    this.archiveActive();
+    this.archiveActive(false);
     ai.studyChat = [];
     ai.studyChatId = "";
     ai.studyChatTitle = "";
     ai.studyChatUpdatedAt = 0;
+    ai.studyChatPinned = false;
     ai.sessionId = "";
     this.apiHistory = [];
     this.plugin.save();
@@ -259,6 +275,7 @@ class AgentView extends ItemView {
     ai.studyChatId = record.id;
     ai.studyChatTitle = record.title;
     ai.studyChatUpdatedAt = record.updatedAt || Date.now();
+    ai.studyChatPinned = record.pinned === true;
     ai.sessionId = record.sessionId || "";
     this.apiHistory = record.messages.slice();
     this.plugin.save();
@@ -275,7 +292,7 @@ class AgentView extends ItemView {
     const key = str(id).trim();
     const next = str(title).replace(/\s+/g, " ").trim().slice(0, 80);
     if (!ai || !key || !next) return false;
-    if (key === str(ai.studyChatId).trim()) {
+    if (isActiveChatId(ai, key)) {
       ai.studyChatTitle = next;
       ai.studyChatUpdatedAt = Date.now();
     } else {
@@ -291,16 +308,56 @@ class AgentView extends ItemView {
     const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
     const key = str(id).trim();
     if (!ai || !key) return false;
-    if (key === str(ai.studyChatId).trim()) {
+    if (isActiveChatId(ai, key)) {
       ai.studyChat = [];
       ai.studyChatId = "";
       ai.studyChatTitle = "";
       ai.studyChatUpdatedAt = 0;
+      ai.studyChatPinned = false;
       ai.sessionId = "";
       this.apiHistory = [];
       if (this.chatPanel) this.chatPanel.loadConversation([]);
     } else {
       ai.chatSessions = removeSession(ai.chatSessions, key);
+    }
+    this.plugin.save();
+    if (this.chatPanel) this.chatPanel.refreshLibrary();
+    return true;
+  }
+
+  /** Pin or unpin the active or a saved conversation. */
+  pinChat(id, pinned) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    const key = str(id).trim();
+    if (!ai || !key) return false;
+    if (isActiveChatId(ai, key)) {
+      ai.studyChatPinned = pinned === true;
+    } else {
+      ai.chatSessions = setPinnedSession(ai.chatSessions, key, pinned);
+    }
+    this.plugin.save();
+    if (this.chatPanel) this.chatPanel.refreshLibrary();
+    return true;
+  }
+
+  /** Archive a chat. Archiving the active chat also starts a clean conversation. */
+  archiveChat(id, archived) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    const key = str(id).trim();
+    if (!ai || !key) return false;
+    if (isActiveChatId(ai, key)) {
+      if (archived !== true) return false;
+      if (!this.archiveActive(true)) return false;
+      ai.studyChat = [];
+      ai.studyChatId = "";
+      ai.studyChatTitle = "";
+      ai.studyChatUpdatedAt = 0;
+      ai.studyChatPinned = false;
+      ai.sessionId = "";
+      this.apiHistory = [];
+      if (this.chatPanel) this.chatPanel.loadConversation([]);
+    } else {
+      ai.chatSessions = setArchivedSession(ai.chatSessions, key, archived === true);
     }
     this.plugin.save();
     if (this.chatPanel) this.chatPanel.refreshLibrary();

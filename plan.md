@@ -13,13 +13,14 @@ surfaces, so unfinished ideas are not disguised as checked work.
 §3.9.6 is the gate table, §3.10 is the licence allow-list, and
 [docs/plan-decisions.md](docs/plan-decisions.md) is the owner decision sheet.
 
-**Verified at this commit:** `node --test` → 2,267 tests pass, 0 fail;
-`npm run check` clean (no dynamic code across 316 source files, vendor guard,
-bundle up to date); `main.js` generated from 319 modules at 6,457,408 bytes.
+**Verified at this commit:** `node --test` → 2,287 tests pass, 0 fail;
+`npm run check` clean (no dynamic code across 318 source files, vendor guard,
+bundle up to date); `main.js` generated from 321 modules at 6,488,580 bytes.
 Re-run both before quoting these numbers.
 
-**Nov 6, 2026 working tree (no version bump):** Quick Ask and saved study
-commands ship in the source and bundle. Quick Ask sends only the selection or
+**Nov 6, 2026 working tree (no version bump):** Quick Ask, saved study
+commands, `@` note/folder mentions, a context/token footer and a searchable,
+pinned, archived conversation library ship in the source and bundle. Quick Ask sends only the selection or
 whole note explicitly chosen, offers seven study actions, and writes only on
 **Insert** or **Replace**. Saved `/commands` expand `{selection}`, `{note}` and
 `{path}` only when the chat already allows that context. The clean-room Copilot
@@ -42,7 +43,7 @@ file is what made it unreadable; it now points instead.
 ## Handoff snapshot (updated Nov 6, 2026 at v1.281.0)
 
 - **State:** 0 unchecked core rows; Quick Ask and saved study commands are in the Nov 6, 2026 working tree without a version bump; Mother cram and card answer dictation shipped; 3 `[~]` partials (the owner visual, device and screenshot passes now being run); four former gates decided on Nov 6, 2026 (§B).
-- **Newest feature:** The Nov 6, 2026 working tree adds **Quick Ask** and **saved study commands** without a release or version bump. In 1.281.0, **Mother cram** is the practice-only Cards loop
+- **Newest feature:** The Nov 6, 2026 working tree adds **Quick Ask**, **saved study commands**, **`@` note/folder mentions**, a **context/token footer** and a **searchable, pinned, archived conversation library** without a release or version bump. In 1.281.0, **Mother cram** is the practice-only Cards loop
   in the current deck: flip the card, then choose **Do not know** (send it to the
   back) or **Know** (remove it) until the queue is empty. It writes no attempt,
   grade, history or due date. 1.280.0 added **cram sessions** with exact
@@ -65,7 +66,10 @@ file is what made it unreadable; it now points instead.
 No tracked core implementation row is open. The Nov 6, 2026 working tree adds
 **Quick Ask** and **saved study commands**: selection or whole-note context,
 seven actions, follow-ups, copy/insert/replace, and `/name` prompts with
-context that obeys the chat's existing switches. The Copilot inventory's Next
+context that obeys the chat's existing switches. The same tree adds explicit
+`@` note/folder mentions with bounded, switch-respecting injection, a
+context/token footer that warns on overrun, and a conversation library with
+search, pins, archive and restore persisted in `settings.ai`. The Copilot inventory's Next
 rows are explicit follow-ups, not unchecked rows. 1.281.0 adds **Mother cram**, a practice-only
 Cards loop with exactly two choices after the flip: **Do not know** sends the
 card to the back, **Know** removes it, and the session ends when every card is
@@ -91,13 +95,13 @@ closed decisions; see [docs/plan-decisions.md](docs/plan-decisions.md).
 | **Import and interop** | `.apkg` import/export, two-way AnkiConnect, CouchDB sync, Quizlet/Kahoot/Blooket/Gimkit CSV, Moodle GIFT and XML, QTI, Mochi, CrowdAnki, LearnKit, Markdown tables, study bundle export/import, portable card archive, service exports (Evernote, Keep, Notion, Airtable, Bear, Roam, HTML) | `src/apkg*.js`, `src/anki-connect.js`, `src/couchdb-sync.js`, `src/cards-import.js`, `src/importer.js`, `src/qti-archive.js`, `src/study-bundle*.js`, `src/service-import.js` |
 | **Markdown blocks** | `mcq-quiz` inline blocks (choice, slider, text, weights, bands), `quiz-definition`/`playable-quiz` partial credit, `quiz-maker`, `quizport`, `sfc-cards`, `spaced-quiz`, `simple-note-quiz`, `tally`, `text-timer`, `tag-timer`, `study-map`, `sat-math`, `mindmap`, local `chem`/`biology`/`circuit` diagram blocks | `src/quiz-block.js`, `src/quiz-maker.js`, `src/quizport-view.js`, `src/sfc-cards.js`, `src/tally*.js`, `src/text-timer*.js`, `src/study-map.js`, `src/sat-math.js`, `src/mindmap.js`, `src/stem-diagrams.js` |
 | **Courses, calendar, grades** | Course registry with identity/aliases, ICS import and filtered export, month grid and daily timeline, exams and countdowns, study blocks in free gaps, assignments/tasks/grades, course health, course templates, course notes, local recurring events, lecture log, Time blocks (Day/Week/Grid/Timeline, drag/resize, routines, backlog, project files, tags, subject colours, daily-note sync) | `src/course-*.js`, `src/calendar-*.js`, `src/assignments*.js`, `src/exams.js`, `src/local-events*.js`, `src/time-blocks.js`, `src/study-workspace-view.js` |
-| **AI (optional)** | Direct API presets (OpenAI-compatible, Anthropic, Qwen/DashScope, Ollama, LM Studio, llama.cpp, Jan), OpenCode chat, streaming with Stop/Regenerate/Retry, tutor roles and slash commands, inline Quick Ask, saved study commands, passage retrieval with citations, conversation library, write guards with diff-confirm and undo journal, quiz generation with blind verification and distractor checks, AP FRQ rubric grader with second pass and history, Feynman feedback, PDF passage Q&A, offline local-model guide | `src/api-client.js`, `src/ai-*.js`, `src/agent-*.js`, `src/chat-*.js`, `src/quick-ask*.js`, `src/study-commands.js`, `src/opencode-*.js`, `src/quiz-generator*.js`, `src/frq*.js`, `src/feynman-ai.js`, `src/reading-companion.js`, `src/local-models.js` |
+| **AI (optional)** | Direct API presets (OpenAI-compatible, Anthropic, Qwen/DashScope, Ollama, LM Studio, llama.cpp, Jan), OpenCode chat, streaming with Stop/Regenerate/Retry, tutor roles and slash commands, inline Quick Ask, saved study commands, `@` note/folder mentions, a context/token footer, a searchable conversation library with pins and archive, passage retrieval with citations, write guards with diff-confirm and undo journal, quiz generation with blind verification and distractor checks, AP FRQ rubric grader with second pass and history, Feynman feedback, PDF passage Q&A, offline local-model guide | `src/api-client.js`, `src/ai-*.js`, `src/agent-*.js`, `src/chat-*.js`, `src/quick-ask*.js`, `src/study-commands.js`, `src/opencode-*.js`, `src/quiz-generator*.js`, `src/frq*.js`, `src/feynman-ai.js`, `src/reading-companion.js`, `src/local-models.js` |
 | **Documents and ingestion** | PDF annotator (ink, highlights, quotes, notes, tags, searchable index, digest export, deep links), PDF page/form editor on vendored pdf-lib (rotate, reorder, insert, duplicate, delete, merge, extract, split, live forms, links, bookmarks, 20-step undo), continuous reader, embedded PDF++, EPUB annotations and reader, paper scanner, document import (`.pptx`/`.pptm`/`.ppsx`/`.docx`/`.docm`/`.odt`/`.odp`/HTML/Markdown), BYOK vision OCR with editable page text, lecture-note compiler, transcript import, audio bookmarks | `src/pdf*.js`, `src/epub*.js`, `src/paper-scanner.js`, `src/documents.js`, `src/ocr*.js`, `src/lecture-compiler.js`, `src/transcript*.js`, `vendor/pdf-lib.js`, `vendor/pdf-plus.js` |
 | **Reference and STEM** | Graph with implicit, polar, parametric, 3D, sliders, regression, table, summation and complex modes; calculator, calculus, geometry, matrix/vector fields; constants and formula sheets; unit circle, trig identities, codon table, Punnett square; periodic-table data; local SMILES renderer; math-rendering audit and goldens; polynomial equivalence and numeric grading; computed-answer verification | `src/graph-*.js`, `src/calculator.js`, `src/calculus.js`, `src/geometry*.js`, `src/matrix.js`, `src/vector-*.js`, `src/reference-*.js`, `src/smiles.js`, `src/math-rendering.js`, `src/polynomial.js`, `src/numeric-grading.js` |
 | **Study workspace** | 32 per-tool settings pages plus a Global index, and the workspace tabs (Cornell, lecture log, goals, Feynman, Recall Scheduler, topic planner, Study Flow, Subject Manager, quiz index, course hub, tasks, annotations, Deep Notes, Retention, Vocabulary, Quiz Maker, SFC cards, CBT, SAT math, Read aloud, lecture notes, bookmarks, Feynman AI, PDF annotations, scheduler fitting, study map, vault search, card archive, study nudge, reading library, course templates), writing-session count, vault task index and tag rename, opt-in Web browser | `src/study-tool-settings.js`, `src/settings-global.js`, `src/study-workspace*.js`, `src/vault-task-index.js`, `src/web-browser*.js` |
 | **Advanced Tables** | Upstream 0.23.2 parity: draft completion, cell editing and Tab/Enter navigation in reading and source views, row/column insert/delete/move, formatting and alignment, TBLFM formulas (datetime and duration aware), CSV/TSV import, transpose, header toggle, stable body-row sorting, merged cells, controls panel | `src/table-editor.js`, `src/table-formulas.js`, `src/table-controls-view.js`, `src/table-csv-modal.js` |
 | **Canvas** | Six clean-room slices: Canvas ⇄ Markdown, map walking and auto-layout, kanban columns, auto-link, query groups, presentations | `src/canvas-*.js` |
-| **Quality** | 2,267-test suite, capability and security inventories re-derived by tests, dynamic-code lint, vendor guard, one release note per version, licence audit and `NOTICES.md` | `tests/`, `docs/capability-inventory.md`, `docs/security-inventory.md`, `scripts/` |
+| **Quality** | 2,287-test suite, capability and security inventories re-derived by tests, dynamic-code lint, vendor guard, one release note per version, licence audit and `NOTICES.md` | `tests/`, `docs/capability-inventory.md`, `docs/security-inventory.md`, `scripts/` |
 
 ## B. Partial rows (3) — owner manual passes still open
 
@@ -1497,7 +1501,7 @@ This saves cost, works offline for easy cases, and keeps latency low.
 - Side-panel chat on desktop; full-screen chat on mobile. ✅ 1.90.0
 - Inline Quick Ask on selected text. ✅ Nov 6, 2026
 - Slash commands and user-defined prompts. ✅ study commands; built-in `/guide`, `/quiz`, `/confuse`, `/gap`, `/predict`, `/feynman`, `/mock`.
-- Floating Quick Chat, chat tabs, pins and archive. ○ not built; see §5.18.1.
+- Floating Quick Chat and chat tabs. ○ not built; pins and archive shipped Nov 6, 2026 — see §5.18.1.
 
 **Context the user can toggle on (visible and per-chat)**
 - Current note and selection.
@@ -1568,7 +1572,7 @@ an owner decision, or is outside this plugin's study identity.
 | Skills | Packaged instructions and resources an agent can load. | ○ Not built; no skills directory or loader. |
 | Custom command editor | Create, edit and share reusable prompts. | ✅ Settings → AI → Study commands; no sharing/import format. |
 | Chat tabs | Several conversations open at once. | ○ One active conversation plus a saved list. |
-| Chat history, pins, archive | Browse, pin and archive conversations. | ◐ Saved conversations, rename, delete and new chat; no pins or archive view. |
+| Chat history, pins, archive | Browse, pin and archive conversations. | ✅ Nov 6, 2026. Saved conversations, rename, delete, new chat, pin/unpin and archive/restore; archived chats are hidden by default but stay searchable, and every flag persists in `settings.ai`. |
 | Chat links and bookmarks | Link to a message or bookmark it. | ○ Not built. |
 | Queued messages | Queue a follow-up while a reply streams. | ○ Stop and retry ship; queueing does not. |
 | `/compact` | Summarise a long conversation to save context. | ○ Not built. |
@@ -1587,8 +1591,8 @@ an owner decision, or is outside this plugin's study identity.
 |---|---|---|
 | Current note | Add the open note explicitly. | ✅ Per-chat switch, 6,000-character cap, frontmatter removed. |
 | Selection | Add only the selected text. | ✅ Per-chat switch, 2,000-character cap; Quick Ask uses it directly. |
-| `@` note and folder mentions | Address vault content precisely. | ○ Local search covers discovery; there is no mention picker. |
-| Context chips / source list | Show what is attached before sending. | ◐ The toggles are visible and search results are cited; there is no chip row. |
+| `@` note and folder mentions | Address vault content precisely. | ✅ Nov 6, 2026. The `@` picker inserts `@[[path]]` for a note or folder; content is read at send time only while the chat's Mentions switch is on. At most 8 targets, 6,000 characters per note and 12,000 total; a missing target refuses the send and a large note is truncated with a visible warning. |
+| Context chips / source list | Show what is attached before sending. | ✅ Mention chips name each draft target, and the context footer lists the current note, selection, mentions, slash command and history with an estimated token count. Citations stay clickable. |
 | Local vault search | Retrieve relevant passages with citations. | ✅ Bounded lexical search, `[[path#L12]]` citations. |
 | Full-vault index | Opt into paths-only file context. | ✅ Opt-in and off by default. |
 | Relevant Notes sidebar | A persistent list of related notes. | ✅ Search results are clickable and cited; not a separate persistent pane. |
@@ -1606,7 +1610,7 @@ an owner decision, or is outside this plugin's study identity.
 | Save and resume | Persist a transcript and reopen it. | ✅ Save chat and a saved-conversation list; newest 40 messages, 8,000 characters each. |
 | Rename and delete | Manage saved conversations. | ✅ |
 | New chat | Start clean without losing the old one. | ✅ |
-| Search conversations | Find an old thread by text. | ○ List only, no full-text search. |
+| Search conversations | Find an old thread by text. | ✅ Nov 6, 2026. Searches titles and message text across saved and archived chats. |
 | Export/share | Copy or export a conversation. | ◐ Copy per reply and save to Markdown; no dedicated export/share format. |
 | Per-chat model | Choose a model for this thread. | ◐ Model is chosen per feature in settings, not per chat. |
 | Token ring / context gauge | Show how full the context window is. | ○ Token estimate and caps exist; no ring or per-thread gauge. |
@@ -1662,7 +1666,7 @@ an owner decision, or is outside this plugin's study identity.
 | Status cards for tool calls | ◐ Plain proposal/status text, not Copilot's card components. |
 | Token ring / context gauge | ○ Not adopted. |
 | Queued-message tray | ○ Not adopted. |
-| Pinned chats, tabs and archive | ○ Not adopted. |
+| Pinned chats, tabs and archive | ◐ Pins and archive are adopted; chat tabs are not. |
 | Slash-command popover | ✅ A datalist/dropdown inserts saved commands; built-in commands are documented. |
 | Command palette with search | ✅ Native Obsidian command palette; no custom palette. |
 | Empty state with suggested study actions | ◐ Quick actions exist; no rotating suggestion cards. |
@@ -1671,7 +1675,7 @@ an owner decision, or is outside this plugin's study identity.
 | Inline diff in the editor | ○ Review modal only; no editor overlay. |
 | Artifact/canvas panel | ⛔ Separate product. |
 | Animated streaming caret | ◐ Streaming text; no caret animation promised. |
-| Token/cost footer | ○ Counters exist, no footer. |
+| Token/cost footer | ✅ A per-conversation footer lists attachments and an estimated `~tokens / 12,000`; it warns from 80% and refuses an over-budget Send. No price estimate. |
 | Theme-token styling | ✅ Uses Obsidian CSS variables; no Copilot stylesheet. |
 
 **Boundary statement.** Copilot is AGPL-3.0. This inventory is a behavioural
@@ -1680,9 +1684,10 @@ hosted viewers, Excalidraw, MCP, web retrieval or a self-hosted control plane
 cannot be delivered by copying code and are marked ⛔ or ○ above. The owner's
 "all features" goal is therefore met as an inventory; literal feature parity
 would require separate product decisions and, for AGPL code, a different
-licence. The next implementable Copilot-shaped slices, in order, are: `@` note
-mentions, chat search/pins, a context/token footer, per-command model settings,
-and a floating Quick Chat. None is silently claimed as shipped.
+licence. The `@` mention picker, chat search/pins/archive and the context/token footer
+shipped on Nov 6, 2026. The next implementable Copilot-shaped slices are
+per-command model settings and a floating Quick Chat. None is silently claimed
+as shipped.
 
 ---
 

@@ -737,3 +737,47 @@ test("study agent library: the active conversation and list survive reopening th
   assert.match(app.files.find((file) => file.path === firstPath).text, /Chat one/);
   assert.match(app.files.find((file) => file.path === secondPath).text, /Chat two/);
 });
+
+test("study agent library: pinned and archived chats survive a reload and stay searchable", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.ai.enabled = true;
+  plugin.settings.ai.backend = "api";
+  const view = new a.AgentView({ app }, plugin);
+  view.contentEl = makeDom().root;
+  await view.onOpen();
+
+  view.saveApiHistory([
+    { role: "user", content: "Alpha question" },
+    { role: "assistant", content: "Alpha answer" },
+  ]);
+  const alphaId = plugin.settings.ai.studyChatId;
+  view.startNewChat();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  view.saveApiHistory([
+    { role: "user", content: "Beta question" },
+    { role: "assistant", content: "Beta answer" },
+  ]);
+  const betaId = plugin.settings.ai.studyChatId;
+  view.startNewChat();
+
+  assert.equal(view.pinChat(alphaId, true), true);
+  assert.equal(view.archiveChat(betaId, true), true);
+  assert.deepEqual(view.getLibrary().map((row) => row.id), [alphaId], "the archived chat is hidden by default");
+  assert.deepEqual(view.getLibrary({ query: "beta" }).map((row) => row.id), [betaId], "a search finds the archived chat");
+  assert.equal(view.getLibrary({ query: "beta" })[0].archived, true);
+
+  const reloadedPlugin = new QT(app);
+  reloadedPlugin.saved = JSON.parse(JSON.stringify(plugin.saved));
+  await reloadedPlugin.onload();
+  const reloadedView = new a.AgentView({ app }, reloadedPlugin);
+  reloadedView.contentEl = makeDom().root;
+  await reloadedView.onOpen();
+
+  const rows = reloadedView.getLibrary({ includeArchived: true });
+  assert.equal(rows.find((row) => row.id === alphaId).pinned, true);
+  assert.equal(rows.find((row) => row.id === betaId).archived, true);
+  assert.deepEqual(reloadedView.getLibrary({ query: "Beta" }).map((row) => row.id), [betaId]);
+  assert.equal(reloadedView.getLibrary().some((row) => row.id === betaId), false);
+});

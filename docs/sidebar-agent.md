@@ -45,6 +45,19 @@ view does not stop the configured AI provider.
   path. `{selection}`, `{note}` and `{path}` are filled only when the chat's
   existing context switches allow that text, and an unknown `/word` is sent
   literally. Commands are capped at 40 entries of 2,000 characters.
+- **Mention a note or folder.** Type `@` in the composer or press the **@**
+  button; the picker inserts `@[[path]]`. The target is resolved at send time
+  only while **Include mentioned notes** is on. Up to eight mentions, 6,000
+  characters per note and 12,000 in total; truncation is reported and a deleted
+  target refuses the send instead of silently dropping context.
+- **See what will be sent.** The footer under the composer names the current
+  note, selection, mentioned notes and folders, slash command and history, and
+  estimates tokens against a local 12,000-token budget, warning at 80% and
+  refusing an over-budget Send before any request.
+- **Find, pin and archive conversations.** Search saved and archived chats by
+  title or message text; pin a chat to keep it first; archive hides it from the
+  default list while keeping it searchable and restorable. Everything lives in
+  the existing `settings.ai` storage and survives reopening.
 - **Quick Ask from the editor.** Select text and choose **Quick Ask** (or the
   command) to open the compact panel. It sends only the selected text or the
   whole active note, whichever is switched on, and can copy, insert, replace or
@@ -69,7 +82,11 @@ action. `tests/note-context.test.js` and `tests/think-first.test.js` cover the
 shared note context, provider, countdown, stop/cancel and error paths reused by
 the panel. `tests/quick-ask.test.js` covers Quick Ask privacy, actions,
 replacement safety, command parsing and round-trip, slash expansion and the
-editor/user entry points.
+editor/user entry points. `tests/chat-budget.test.js` and
+`tests/chat-mentions.test.js` cover the estimate, warning and overrun states,
+mention parsing, candidate ranking, missing targets and bounded resolution,
+and `tests/chat-panel-mentions.test.js` drives the switch, refusal, footer,
+picker and library controls end to end.
 
 ## Manual gate
 

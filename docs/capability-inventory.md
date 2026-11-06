@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 404 groups, 2714 exports. **Commands:** 207. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 406 groups, 2739 exports. **Commands:** 207. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -26,7 +26,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `CardExtractModal` | 0 | `tests/feature-surfaces.test.js` |
 | `CardModal` | 0 | `tests/source-recall.test.js` |
 | `CardView` | 0 | `tests/card-cram.test.js`, `tests/card-learning.test.js`, `tests/card-mother-cram.test.js`, `tests/card-reveal.test.js`, `tests/card-speech.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/interval-preview.test.js`, `tests/mobile-module-layout.test.js`, `tests/source-recall.test.js`, `tests/study-status.test.js` |
-| `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/note-context.test.js`, `tests/quick-ask.test.js`, `tests/security-hardening.test.js`, `tests/think-first.test.js` |
+| `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/chat-panel-mentions.test.js`, `tests/note-context.test.js`, `tests/quick-ask.test.js`, `tests/security-hardening.test.js`, `tests/think-first.test.js` |
 | `CourseOverviewModal` | 0 | `tests/core-values.test.js` |
 | `DEFAULT_SETTINGS` | 113 | `tests/grading.test.js` |
 | `DocumentReviewModal` | 0 | `tests/feature-surfaces.test.js` |
@@ -159,8 +159,10 @@ the table and fails if a group, export count, command or citing test drifts.
 | `cardsExtract` | 13 | `tests/cards-extract.test.js`, `tests/flashcard-generate.test.js` |
 | `cardsImport` | 39 | `tests/cards-import.test.js`, `tests/quizlet-pdf-fixtures.test.js`, `tests/spaced-quiz.test.js` |
 | `cbtExam` | 7 | `tests/cbt-exam.test.js` |
+| `chatBudget` | 6 | `tests/chat-budget.test.js`, `tests/chat-panel-mentions.test.js` |
 | `chatHistory` | 5 | `tests/chat-history.test.js` |
-| `chatSessions` | 11 | `tests/chat-sessions.test.js` |
+| `chatMentions` | 17 | `tests/chat-mentions.test.js` |
+| `chatSessions` | 13 | `tests/chat-sessions.test.js` |
 | `chatStream` | 5 | `tests/chat-stream.test.js` |
 | `chooseRelease` | 0 | `tests/opencode-compat.test.js` |
 | `citations` | 11 | `tests/citations.test.js` |

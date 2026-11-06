@@ -104,6 +104,7 @@ const DEFAULT_SETTINGS = {
     studyChatId: "", // id of the active conversation, so archiving resumes it rather than copying it
     studyChatTitle: "", // user-visible title of the active conversation
     studyChatUpdatedAt: 0, // epoch ms, used for the newest-first library order
+    studyChatPinned: false, // pinned conversations sort first in the library
     chatSessions: [], // archived conversations, bounded by chat-sessions.js
     studyCommands: [], // reusable /commands; prompts may use {} or {selection}
     autoDeclined: false, // the user said no to the automatic OpenCode download: don't ask again until they press the button

@@ -1432,9 +1432,15 @@ const { insertReplyIntoNote } = require("./agent-note");
 const { renderMarkdownInto } = require("./view-helpers");
 const { MAX_FILES, MAX_FILE_CHARS, excerptBlock, searchText, terms } = require("./agent-retrieval");
 const { chatFileName, normalizeChatHistory } = require("./chat-history");
-const { archiveSession, libraryRows, newChatId, normalizeSessions, removeSession, renameSession, titleFromMessages } = require("./chat-sessions");
+const { archiveSession, libraryRows, newChatId, normalizeSessions, removeSession, renameSession, setArchivedSession, setPinnedSession, titleFromMessages } = require("./chat-sessions");
 
 const VIEW_TYPE_AGENT = "question-tracker-agent";
+
+/** The active row's id is "active" until the first reply assigns a real id. */
+function isActiveChatId(ai, key) {
+  const active = str(ai && ai.studyChatId).trim();
+  return active ? key === active : key === "active";
+}
 
 /** Local, read-only vault search. Every hit carries its note path, line range and passage. */
 async function searchVault(app, query, limit) {
@@ -1541,10 +1547,12 @@ class AgentView extends ItemView {
       onSaveNote: (text) => this.insertReply(text),
       saveNoteLabel: "Insert into active note",
       onSaveChat: (markdown) => this.saveChat(markdown),
-      getLibrary: () => this.getLibrary(),
+      getLibrary: (options) => this.getLibrary(options),
       onResumeChat: (id) => this.resumeChat(id),
       onRenameChat: (id, title) => this.renameChat(id, title),
       onDeleteChat: (id) => this.deleteChat(id),
+      onPinChat: (id, pinned) => this.pinChat(id, pinned),
+      onArchiveChat: (id) => this.archiveChat(id, true),
       onNewChat: () => this.startNewChat(),
       quick: [
         { label: "Ask about this note", run: () => this.chatPanel.askAboutActiveNote() },
@@ -1604,14 +1612,19 @@ class AgentView extends ItemView {
       title: str(ai.studyChatTitle).trim(),
       updatedAt: Number(ai.studyChatUpdatedAt) || 0,
       messages: normalizeChatHistory(ai.studyChat),
+      pinned: ai.studyChatPinned === true,
     };
   }
 
-  /** Saved conversations and the active one, newest first. */
-  getLibrary() {
+  /** Saved conversations and the active one. Search includes archived chats. */
+  getLibrary(options) {
     const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
     if (!ai) return [];
-    return libraryRows(this.activeConversation(), ai.chatSessions, Date.now());
+    const opts = options && typeof options === "object" ? options : {};
+    return libraryRows(this.activeConversation(), ai.chatSessions, Date.now(), {
+      query: opts.query,
+      includeArchived: opts.includeArchived,
+    });
   }
 
   /**
@@ -1619,7 +1632,7 @@ class AgentView extends ItemView {
    * same id twice replaces the older copy, so a conversation is never listed
    * twice and never orphaned.
    */
-  archiveActive() {
+  archiveActive(archived) {
     const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
     if (!ai) return false;
     const messages = normalizeChatHistory(ai.studyChat);
@@ -1635,6 +1648,8 @@ class AgentView extends ItemView {
       messages,
       sessionId: str(ai.sessionId).trim(),
       notePath: "",
+      pinned: ai.studyChatPinned === true,
+      archived: archived === true,
     });
     this.plugin.save();
     return true;
@@ -1644,11 +1659,12 @@ class AgentView extends ItemView {
   startNewChat() {
     const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
     if (!ai) return false;
-    this.archiveActive();
+    this.archiveActive(false);
     ai.studyChat = [];
     ai.studyChatId = "";
     ai.studyChatTitle = "";
     ai.studyChatUpdatedAt = 0;
+    ai.studyChatPinned = false;
     ai.sessionId = "";
     this.apiHistory = [];
     this.plugin.save();
@@ -1676,6 +1692,7 @@ class AgentView extends ItemView {
     ai.studyChatId = record.id;
     ai.studyChatTitle = record.title;
     ai.studyChatUpdatedAt = record.updatedAt || Date.now();
+    ai.studyChatPinned = record.pinned === true;
     ai.sessionId = record.sessionId || "";
     this.apiHistory = record.messages.slice();
     this.plugin.save();
@@ -1692,7 +1709,7 @@ class AgentView extends ItemView {
     const key = str(id).trim();
     const next = str(title).replace(/\s+/g, " ").trim().slice(0, 80);
     if (!ai || !key || !next) return false;
-    if (key === str(ai.studyChatId).trim()) {
+    if (isActiveChatId(ai, key)) {
       ai.studyChatTitle = next;
       ai.studyChatUpdatedAt = Date.now();
     } else {
@@ -1708,16 +1725,56 @@ class AgentView extends ItemView {
     const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
     const key = str(id).trim();
     if (!ai || !key) return false;
-    if (key === str(ai.studyChatId).trim()) {
+    if (isActiveChatId(ai, key)) {
       ai.studyChat = [];
       ai.studyChatId = "";
       ai.studyChatTitle = "";
       ai.studyChatUpdatedAt = 0;
+      ai.studyChatPinned = false;
       ai.sessionId = "";
       this.apiHistory = [];
       if (this.chatPanel) this.chatPanel.loadConversation([]);
     } else {
       ai.chatSessions = removeSession(ai.chatSessions, key);
+    }
+    this.plugin.save();
+    if (this.chatPanel) this.chatPanel.refreshLibrary();
+    return true;
+  }
+
+  /** Pin or unpin the active or a saved conversation. */
+  pinChat(id, pinned) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    const key = str(id).trim();
+    if (!ai || !key) return false;
+    if (isActiveChatId(ai, key)) {
+      ai.studyChatPinned = pinned === true;
+    } else {
+      ai.chatSessions = setPinnedSession(ai.chatSessions, key, pinned);
+    }
+    this.plugin.save();
+    if (this.chatPanel) this.chatPanel.refreshLibrary();
+    return true;
+  }
+
+  /** Archive a chat. Archiving the active chat also starts a clean conversation. */
+  archiveChat(id, archived) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    const key = str(id).trim();
+    if (!ai || !key) return false;
+    if (isActiveChatId(ai, key)) {
+      if (archived !== true) return false;
+      if (!this.archiveActive(true)) return false;
+      ai.studyChat = [];
+      ai.studyChatId = "";
+      ai.studyChatTitle = "";
+      ai.studyChatUpdatedAt = 0;
+      ai.studyChatPinned = false;
+      ai.sessionId = "";
+      this.apiHistory = [];
+      if (this.chatPanel) this.chatPanel.loadConversation([]);
+    } else {
+      ai.chatSessions = setArchivedSession(ai.chatSessions, key, archived === true);
     }
     this.plugin.save();
     if (this.chatPanel) this.chatPanel.refreshLibrary();
@@ -23355,6 +23412,73 @@ module.exports = {
 };
 };
 
+/* ---- src/chat-budget.js ---- */
+__defs["chat-budget"] = function (module, exports, require) {
+/*
+ * Local, estimated chat context budget.
+ *
+ * The provider sees the system prompt, the transcript, the current question and
+ * any attached note text. This module estimates that cost at four characters per
+ * token and refuses a request above a conservative local ceiling. It is a guard,
+ * not a promise about a model's real context window or bill.
+ */
+const { str } = require("./util");
+
+const CHARS_PER_TOKEN = 4;
+const CONTEXT_BUDGET_TOKENS = 12000;
+const WARN_RATIO = 0.8;
+
+function estimateTokens(value) {
+  return Math.ceil(str(value).length / CHARS_PER_TOKEN);
+}
+
+function formatTokenCount(value) {
+  const number = Math.max(0, Math.floor(Number(value) || 0));
+  return String(number).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+/**
+ * parts: [{ label, text }]. Returns the total, a per-part breakdown and one of
+ * ok / warn / over. `over` is the only state that must refuse a request.
+ */
+function budgetState(parts, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const limit = Math.max(1, Math.floor(Number(opts.limit) || CONTEXT_BUDGET_TOKENS));
+  const rows = [];
+  let chars = 0;
+  for (const part of Array.isArray(parts) ? parts : []) {
+    const label = str(part && part.label).trim() || "context";
+    const text = str(part && part.text);
+    const partChars = text.length;
+    chars += partChars;
+    rows.push({ label, chars: partChars, tokens: estimateTokens(text) });
+  }
+  const tokens = Math.ceil(chars / CHARS_PER_TOKEN);
+  const ratio = tokens / limit;
+  const over = tokens > limit;
+  const warn = !over && ratio >= WARN_RATIO;
+  return {
+    tokens,
+    limit,
+    chars,
+    ratio,
+    over,
+    warn,
+    level: over ? "over" : warn ? "warn" : "ok",
+    parts: rows,
+  };
+}
+
+module.exports = {
+  CHARS_PER_TOKEN,
+  CONTEXT_BUDGET_TOKENS,
+  WARN_RATIO,
+  budgetState,
+  estimateTokens,
+  formatTokenCount,
+};
+};
+
 /* ---- src/chat-history.js ---- */
 __defs["chat-history"] = function (module, exports, require) {
 /*
@@ -23420,6 +23544,318 @@ module.exports = {
 };
 };
 
+/* ---- src/chat-mentions.js ---- */
+__defs["chat-mentions"] = function (module, exports, require) {
+/*
+ * Explicit @ note and folder mentions for the study agent.
+ *
+ * A mention is written as `@[[path]]` (folders keep their trailing slash). It is
+ * only a reference in the message: nothing is read until the chat resolves the
+ * targets, and the panel resolves them only when its Mentions switch is on.
+ * Resolution is bounded, reports missing or truncated targets, and labels the
+ * content as untrusted study material.
+ */
+const { str } = require("./util");
+
+const MAX_MENTION_TARGETS = 8;
+const MAX_FOLDER_NOTES = 12;
+const MAX_MENTION_NOTE_CHARS = 6000;
+const MAX_MENTION_TOTAL_CHARS = 12000;
+const MAX_MENTION_CANDIDATES = 12;
+const MAX_MENTION_PATH = 300;
+
+function normalizePath(value) {
+  let path = str(value)
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^\.\/+/, "")
+    .replace(/\/{2,}/g, "/");
+  if (!path || path.length > MAX_MENTION_PATH || /[\u0000-\u001f]/.test(path)) return "";
+  const folder = path.endsWith("/");
+  path = path.replace(/\/+$/, "");
+  if (!path) return "";
+  const parts = path.split("/");
+  if (parts.some((part) => !part || part === "." || part === "..")) return "";
+  return folder ? `${path}/` : path;
+}
+
+function normalizeMention(value) {
+  const raw = value && typeof value === "object" ? value : { path: value };
+  const path = normalizePath(raw.path);
+  if (!path) return null;
+  const kind = raw.kind === "folder" || path.endsWith("/") ? "folder" : "note";
+  return {
+    kind,
+    path: path.replace(/\/+$/, ""),
+    label: kind === "folder" ? path : path,
+  };
+}
+
+function mentionToken(value) {
+  const target = normalizeMention(value);
+  if (!target) return "";
+  return `@[[${target.path}${target.kind === "folder" ? "/" : ""}]]`;
+}
+
+/** Unique targets written in the message, in message order. */
+function parseMentionTokens(text) {
+  const out = [];
+  const seen = new Set();
+  const source = str(text);
+  const re = /@\[\[([^\]\r\n]+)\]\]/g;
+  let match;
+  while ((match = re.exec(source))) {
+    const target = normalizeMention(match[1]);
+    if (!target) continue;
+    const key = `${target.kind}:${target.path}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(target);
+    if (out.length >= MAX_MENTION_TARGETS) break;
+  }
+  return out;
+}
+
+/** The partial `@query` immediately before the caret, if any. */
+function mentionQueryAt(text, caret) {
+  const source = str(text);
+  const at = Number.isFinite(Number(caret)) ? Math.max(0, Math.min(source.length, Number(caret))) : source.length;
+  const before = source.slice(0, at);
+  const match = /(^|[\s(])@([^@\s[\]\r\n]*)$/.exec(before);
+  if (!match) return null;
+  const query = match[2];
+  return { start: at - query.length - 1, end: at, query };
+}
+
+/** Replace the partial @query with a complete token, or append it. */
+function insertMentionToken(text, start, end, target) {
+  const source = str(text);
+  const token = mentionToken(target);
+  if (!token) return source;
+  if (parseMentionTokens(source).some((item) => {
+    const wanted = normalizeMention(target);
+    return wanted && item.kind === wanted.kind && item.path === wanted.path;
+  })) {
+    return source;
+  }
+  const from = Math.max(0, Math.min(source.length, Number(start) || 0));
+  const to = Math.max(from, Math.min(source.length, Number(end) || from));
+  const before = source.slice(0, from);
+  const after = source.slice(to);
+  const spacer = before && !/\s$/.test(before) ? " " : "";
+  const suffix = after && !/^\s/.test(after) ? " " : "";
+  return `${before}${spacer}${token}${suffix}${after}`;
+}
+
+/** Remove every instance of one mention and tidy doubled spaces. */
+function removeMentionToken(text, target) {
+  const wanted = normalizeMention(target);
+  if (!wanted) return str(text);
+  const token = mentionToken(wanted).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return str(text)
+    .replace(new RegExp(`\\s*${token}\\s*`, "g"), " ")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function scorePath(path, query) {
+  if (!query) return 0;
+  const value = path.toLowerCase();
+  if (value === query) return 100;
+  if (value.endsWith(`/${query}`)) return 80;
+  if (value.startsWith(query)) return 60;
+  if (value.includes(`/${query}`)) return 40;
+  if (value.includes(query)) return 20;
+  return -1;
+}
+
+/**
+ * Note and folder choices for the @ picker. `files` and `folders` are vault
+ * paths; folders are derived by the caller or supplied by a vault adapter.
+ */
+function mentionCandidates(files, folders, query, limit) {
+  const q = str(query).toLowerCase().replace(/^@/, "").trim();
+  const cap = Math.max(1, Math.min(MAX_MENTION_CANDIDATES, Math.floor(Number(limit) || MAX_MENTION_CANDIDATES)));
+  const notePaths = new Set();
+  for (const file of Array.isArray(files) ? files : []) {
+    const path = normalizePath(file);
+    if (path && !path.endsWith("/") && /\.md$/i.test(path)) notePaths.add(path);
+  }
+  const folderPaths = new Set();
+  for (const folder of Array.isArray(folders) ? folders : []) {
+    const path = normalizePath(folder);
+    if (path) folderPaths.add(path.replace(/\/+$/, ""));
+  }
+  for (const path of notePaths) {
+    const parts = path.split("/");
+    for (let i = 1; i < parts.length; i += 1) folderPaths.add(parts.slice(0, i).join("/"));
+  }
+  const rows = [];
+  for (const path of notePaths) {
+    const score = scorePath(path, q);
+    if (score >= 0) rows.push({ kind: "note", path, label: path.replace(/\.md$/i, ""), detail: "note", score });
+  }
+  for (const path of folderPaths) {
+    const score = scorePath(`${path}/`, q);
+    if (score >= 0) rows.push({ kind: "folder", path, label: `${path}/`, detail: "folder", score });
+  }
+  rows.sort((a, b) => b.score - a.score || a.path.length - b.path.length || a.path.localeCompare(b.path));
+  return rows.slice(0, cap).map(({ score, ...row }) => row);
+}
+
+function emptyMentionResult() {
+  return { entries: [], missing: [], warnings: [], chars: 0, block: "" };
+}
+
+/**
+ * Resolve targets through injected IO:
+ *   readNote(path) -> text (throws when unavailable)
+ *   listNotes(folder) -> paths (throws when unavailable)
+ * Missing targets are reported, never silently replaced. Every note is capped
+ * individually and the whole attachment is capped as well.
+ */
+async function resolveMentions(targets, io) {
+  const readNote = io && typeof io.readNote === "function" ? io.readNote : null;
+  const listNotes = io && typeof io.listNotes === "function" ? io.listNotes : null;
+  const result = emptyMentionResult();
+  const wanted = [];
+  const seen = new Set();
+  for (const value of Array.isArray(targets) ? targets : []) {
+    const target = normalizeMention(value);
+    if (!target) continue;
+    const key = `${target.kind}:${target.path}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    wanted.push(target);
+    if (wanted.length >= MAX_MENTION_TARGETS) break;
+  }
+  if (wanted.length > MAX_MENTION_TARGETS) result.warnings.push(`Only the first ${MAX_MENTION_TARGETS} mentions are attached.`);
+
+  const readOne = async (path, via) => {
+    if (result.chars >= MAX_MENTION_TOTAL_CHARS) {
+      result.warnings.push(`The attached-note limit is ${MAX_MENTION_TOTAL_CHARS.toLocaleString()} characters; remaining notes were skipped.`);
+      return;
+    }
+    if (!readNote) {
+      result.missing.push({ kind: "note", path, reason: "reading is unavailable" });
+      return;
+    }
+    let text = "";
+    try {
+      text = str(await readNote(path));
+    } catch (e) {
+      result.missing.push({ kind: "note", path, reason: str(e && e.message ? e.message : e) || "not found or unreadable" });
+      return;
+    }
+    let truncated = false;
+    if (text.length > MAX_MENTION_NOTE_CHARS) {
+      text = text.slice(0, MAX_MENTION_NOTE_CHARS);
+      truncated = true;
+      result.warnings.push(`${path} was truncated to ${MAX_MENTION_NOTE_CHARS.toLocaleString()} characters.`);
+    }
+    const available = MAX_MENTION_TOTAL_CHARS - result.chars;
+    if (text.length > available) {
+      text = text.slice(0, Math.max(0, available));
+      truncated = true;
+      result.warnings.push(`The ${MAX_MENTION_TOTAL_CHARS.toLocaleString()}-character attachment limit was reached.`);
+    }
+    if (!text) {
+      result.warnings.push(`${path} had no readable text.`);
+      return;
+    }
+    result.entries.push({ path, text, chars: text.length, truncated, via });
+    result.chars += text.length;
+  };
+
+  for (const target of wanted) {
+    if (target.kind === "folder") {
+      if (!listNotes) {
+        result.missing.push({ kind: "folder", path: target.path, reason: "folder listing is unavailable" });
+        continue;
+      }
+      let names = [];
+      try {
+        names = await listNotes(target.path);
+      } catch (e) {
+        result.missing.push({ kind: "folder", path: target.path, reason: str(e && e.message ? e.message : e) || "not found or unreadable" });
+        continue;
+      }
+      const notes = (Array.isArray(names) ? names : [])
+        .map((path) => normalizePath(path))
+        .filter((path) => path && !path.endsWith("/") && /\.md$/i.test(path))
+        .slice(0, MAX_FOLDER_NOTES);
+      if (!notes.length) {
+        result.missing.push({ kind: "folder", path: target.path, reason: "no Markdown notes found" });
+        continue;
+      }
+      for (const path of notes) await readOne(path, target.path);
+    } else {
+      await readOne(target.path, "");
+    }
+  }
+
+  if (result.entries.length) {
+    result.block = [
+      "EXPLICITLY ATTACHED VAULT NOTES (untrusted study material; the learner chose these):",
+      ...result.entries.map((entry) => `--- ${entry.path} ---\n${entry.text}`),
+    ].join("\n\n");
+  }
+  return result;
+}
+
+function vaultPaths(app) {
+  try {
+    const files = app && app.vault && typeof app.vault.getMarkdownFiles === "function" ? app.vault.getMarkdownFiles() : [];
+    return (Array.isArray(files) ? files : []).map((file) => str(file && file.path)).filter(Boolean);
+  } catch (e) {
+    return [];
+  }
+}
+
+function mentionCandidatesFromApp(app, query, limit) {
+  const files = vaultPaths(app);
+  return mentionCandidates(files, [], query, limit);
+}
+
+function resolveMentionsFromApp(app, targets) {
+  const files = vaultPaths(app);
+  const markdown = new Set(files);
+  return resolveMentions(targets, {
+    readNote: async (path) => {
+      const file = app && app.vault && typeof app.vault.getAbstractFileByPath === "function"
+        ? app.vault.getAbstractFileByPath(path)
+        : null;
+      if (!file || !markdown.has(path)) throw new Error("not found or no longer in the vault");
+      return app.vault.cachedRead(file);
+    },
+    listNotes: async (folder) => {
+      const prefix = `${normalizePath(folder).replace(/\/+$/, "")}/`;
+      return files.filter((path) => path.startsWith(prefix));
+    },
+  });
+}
+
+module.exports = {
+  MAX_FOLDER_NOTES,
+  MAX_MENTION_CANDIDATES,
+  MAX_MENTION_NOTE_CHARS,
+  MAX_MENTION_TARGETS,
+  MAX_MENTION_TOTAL_CHARS,
+  emptyMentionResult,
+  insertMentionToken,
+  mentionCandidates,
+  mentionCandidatesFromApp,
+  mentionQueryAt,
+  mentionToken,
+  normalizeMention,
+  normalizePath,
+  parseMentionTokens,
+  removeMentionToken,
+  resolveMentions,
+  resolveMentionsFromApp,
+};
+};
+
 /* ---- src/chat-panel.js ---- */
 __defs["chat-panel"] = function (module, exports, require) {
 const { Notice } = require("obsidian");
@@ -23434,6 +23870,12 @@ const { AgentEditReviewModal } = require("./agent-edit-review-modal");
 const { AiToolReviewModal } = require("./ai-tool-review-modal");
 const { toolProtocol } = require("./ai-tools");
 const { chatMarkdown } = require("./chat-history");
+const chatBudget = require("./chat-budget");
+const chatMentions = require("./chat-mentions");
+
+function budgetRefusal(budget) {
+  return `Nothing was sent: the estimated ${chatBudget.formatTokenCount(budget.tokens)}-token context is over the local ${chatBudget.formatTokenCount(budget.limit)}-token chat budget. Remove a mention or shorten the message.`;
+}
 
 function toolsForMode(mode, agentShell) {
   if (mode === "tutor") return { edit: false, write: false, patch: false, bash: false };
@@ -23462,7 +23904,18 @@ class ChatPanel {
     this.cancelled = false;
     this.includeNote = false;
     this.includeSelection = false;
+    this.includeMentions = false;
     this.currentNoteContext = "";
+    this.previewContext = "";
+    this.previewMissing = [];
+    this.previewWarnings = [];
+    this.mentionResult = null;
+    this.mentionRange = null;
+    this.lastMentionKey = "";
+    this.previewSeq = 0;
+    this.lastBudget = null;
+    this.libraryQuery = "";
+    this.showArchived = false;
     this.build();
     if (this.view.plugin.backend() === "api") {
       this.turns = apiTurns(this.apiHistory());
@@ -23585,6 +24038,7 @@ class ChatPanel {
     this.transcript = root.createDiv({ cls: "qt-chat" });
     this.status = root.createDiv({ cls: "qt-hint" });
     this.thinkFirstNote = root.createDiv({ cls: "qt-hint qt-think-first qt-hidden", text: "" });
+    this.mentionPicker = root.createDiv({ cls: "qt-chat-mention-picker qt-hidden" });
 
     const row = root.createDiv({ cls: "qt-row" });
     this.input = row.createEl("textarea", {
@@ -23600,6 +24054,20 @@ class ChatPanel {
       if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
       e.preventDefault();
       this.send(this.input.value);
+    });
+    this.atBtn = row.createEl("button", { text: "@", attr: { "aria-label": "Attach a note or folder", title: "Attach a note or folder" } });
+    this.atBtn.addEventListener("click", () => {
+      const prefix = this.input.value && !/\s$/.test(this.input.value) ? " " : "";
+      this.input.value = `${this.input.value}${prefix}@`;
+      this.mentionRange = { start: this.input.value.length - 1, end: this.input.value.length };
+      this.openMentionPicker("");
+    });
+    this.input.addEventListener("input", () => {
+      const before = chatMentions.mentionQueryAt(this.input.value, this.input.value.length);
+      if (before) this.openMentionPicker(before.query, before.start, before.end);
+      else this.closeMentionPicker();
+      this.syncMentionChips();
+      this.refreshTokenFooter();
     });
     this.sendBtn = row.createEl("button", { text: "Send", cls: "mod-cta" });
     this.sendBtn.addEventListener("click", () => this.send(this.input.value));
@@ -23633,6 +24101,10 @@ class ChatPanel {
         saved.value = "";
       });
     }
+    this.budgetEl = root.createDiv({ cls: "qt-chat-budget" });
+    this.syncMentionChips();
+    this.refreshTokenFooter();
+    this.refreshContextPreview();
     this.startThinkFirst();
     this.draw();
   }
@@ -23668,25 +24140,35 @@ class ChatPanel {
     );
   }
 
-  /** Per-chat context switches. Nothing is read or sent while both are off. */
+  /** Per-chat context switches. Nothing is read or sent while they are off. */
   renderContextToggles(root) {
-    if (!this.opts.readNoteContext) return;
     const wrap = root.createDiv({ cls: "qt-chips qt-chat-context" });
-    this.noteChip = wrap.createEl("button", { cls: "qt-chip", text: "Include current note" });
-    this.selectionChip = wrap.createEl("button", { cls: "qt-chip", text: "Include selection" });
-    this.noteChip.addEventListener("click", () => {
-      this.includeNote = !this.includeNote;
-      this.currentNoteContext = "";
+    if (this.opts.readNoteContext) {
+      this.noteChip = wrap.createEl("button", { cls: "qt-chip", text: "Include current note" });
+      this.selectionChip = wrap.createEl("button", { cls: "qt-chip", text: "Include selection" });
+      this.noteChip.addEventListener("click", () => {
+        this.includeNote = !this.includeNote;
+        this.currentNoteContext = "";
+        this.paintContext();
+        this.refreshContextPreview();
+      });
+      this.selectionChip.addEventListener("click", () => {
+        this.includeSelection = !this.includeSelection;
+        this.currentNoteContext = "";
+        this.paintContext();
+        this.refreshContextPreview();
+      });
+    }
+    this.mentionChip = wrap.createEl("button", { cls: "qt-chip", text: "Include mentioned notes" });
+    this.mentionChip.addEventListener("click", () => {
+      this.includeMentions = !this.includeMentions;
       this.paintContext();
+      this.refreshContextPreview();
     });
-    this.selectionChip.addEventListener("click", () => {
-      this.includeSelection = !this.includeSelection;
-      this.currentNoteContext = "";
-      this.paintContext();
-    });
+    this.mentionChipsEl = root.createDiv({ cls: "qt-chat-mentions" });
     root.createDiv({
       cls: "qt-hint",
-      text: "Off by default. Note text and selected text are sent only while their switch is on, and notes are treated as untrusted data.",
+      text: "Off by default. Note text, selection and mentioned notes are sent only while their switch is on. Mentions are explicitly chosen with @ and are treated as untrusted data.",
     });
     this.paintContext();
   }
@@ -23694,6 +24176,215 @@ class ChatPanel {
   paintContext() {
     if (this.noteChip) this.noteChip.toggleClass("is-selected", this.includeNote);
     if (this.selectionChip) this.selectionChip.toggleClass("is-selected", this.includeSelection);
+    if (this.mentionChip) this.mentionChip.toggleClass("is-selected", this.includeMentions);
+  }
+
+  mentionTargets() {
+    return chatMentions.parseMentionTokens(this.input ? this.input.value : "");
+  }
+
+  mentionKey() {
+    return this.mentionTargets().map((target) => `${target.kind}:${target.path}`).join("|");
+  }
+
+  addMention(target) {
+    if (!this.input || !target) return;
+    const range = this.mentionRange && Number.isFinite(Number(this.mentionRange.start))
+      ? this.mentionRange
+      : { start: this.input.value.length, end: this.input.value.length };
+    this.input.value = chatMentions.insertMentionToken(this.input.value, range.start, range.end, target);
+    this.mentionRange = null;
+    this.includeMentions = true;
+    this.closeMentionPicker();
+    this.paintContext();
+    this.syncMentionChips();
+    this.refreshContextPreview();
+    if (this.input.focus) this.input.focus();
+  }
+
+  openMentionPicker(query, start, end) {
+    if (!this.mentionPicker) return;
+    this.mentionRange = {
+      start: Number.isFinite(Number(start)) ? Number(start) : this.input.value.length,
+      end: Number.isFinite(Number(end)) ? Number(end) : this.input.value.length,
+    };
+    this.mentionPicker.toggleClass("qt-hidden", false);
+    this.mentionPicker.empty();
+    this.mentionPicker.createDiv({
+      cls: "qt-hint",
+      text: "Choose a note or folder. Only the items you pick are attached; the Mentions switch stays visible above.",
+    });
+    const candidates = chatMentions.mentionCandidatesFromApp(this.view.app, query, 12);
+    if (!candidates.length) {
+      this.mentionPicker.createDiv({ cls: "qt-hint", text: "No matching notes or folders. Keep typing after @ to narrow the list." });
+      return;
+    }
+    for (const candidate of candidates) {
+      const button = this.mentionPicker.createEl("button", {
+        text: `${candidate.kind === "folder" ? "Folder" : "Note"}: ${candidate.label}`,
+        cls: "qt-chat-mention-option",
+      });
+      button.addEventListener("click", () => this.addMention(candidate));
+    }
+  }
+
+  closeMentionPicker() {
+    if (this.mentionPicker) this.mentionPicker.toggleClass("qt-hidden", true);
+  }
+
+  syncMentionChips() {
+    if (!this.mentionChipsEl) return;
+    const targets = this.mentionTargets();
+    this.mentionChipsEl.empty();
+    this.mentionChipsEl.toggleClass("qt-hidden", !targets.length);
+    for (const target of targets) {
+      const chip = this.mentionChipsEl.createEl("span", { cls: "qt-chat-mention" });
+      chip.createEl("span", { text: `${target.kind === "folder" ? "Folder" : "Note"}: ${target.path}` });
+      const remove = chip.createEl("button", { text: "×", attr: { "aria-label": `Remove mention ${target.path}` } });
+      remove.addEventListener("click", () => {
+        this.input.value = chatMentions.removeMentionToken(this.input.value, target);
+        if (!this.mentionTargets().length) this.includeMentions = false;
+        this.syncMentionChips();
+        this.refreshContextPreview();
+      });
+    }
+    this.paintContext();
+    if (this.mentionKey() !== this.lastMentionKey) this.refreshContextPreview();
+  }
+
+  async refreshContextPreview() {
+    const seq = ++this.previewSeq;
+    let note = "";
+    if (this.opts.readNoteContext && (this.includeNote || this.includeSelection)) {
+      try {
+        const raw = await this.opts.readNoteContext();
+        note = buildCurrentNoteContext(raw, { note: this.includeNote, selection: this.includeSelection });
+      } catch (e) {
+        note = "";
+      }
+    }
+    let result = chatMentions.emptyMentionResult();
+    const targets = this.mentionTargets();
+    if (targets.length && this.includeMentions) {
+      try {
+        result = await chatMentions.resolveMentionsFromApp(this.view.app, targets);
+      } catch (e) {
+        result = { ...chatMentions.emptyMentionResult(), missing: targets.map((target) => ({ ...target, reason: "could not be read" })) };
+      }
+    }
+    if (seq !== this.previewSeq) return;
+    this.lastMentionKey = targets.map((target) => `${target.kind}:${target.path}`).join("|");
+    this.mentionResult = result;
+    this.previewContext = [note, result.block].filter(Boolean).join("\n\n");
+    this.previewMissing = result.missing;
+    this.previewWarnings = result.warnings;
+    this.paintContext();
+    this.refreshTokenFooter();
+  }
+
+  historyText() {
+    if (this.view.plugin.backend() === "api") return this.apiHistory().map((message) => message.content).join("\n");
+    return this.turns.map((turn) => turn.texts.join("\n")).join("\n");
+  }
+
+  budgetFor(text, context) {
+    return chatBudget.budgetState([
+      { label: "message", text },
+      { label: "context", text: context },
+      { label: "history", text: this.historyText() },
+    ], { limit: chatBudget.CONTEXT_BUDGET_TOKENS });
+  }
+
+  contextAttachmentLabels() {
+    const labels = [];
+    if (this.includeNote) labels.push("current note");
+    if (this.includeSelection) labels.push("selection");
+    for (const target of this.mentionTargets()) {
+      labels.push(`${target.kind} ${target.path}${this.includeMentions ? "" : " (off)"}`);
+    }
+    const draft = str(this.input && this.input.value).trim();
+    if (/^\/[a-z0-9][a-z0-9-]*\b/i.test(draft)) labels.push(draft.split(/\s/)[0]);
+    const history = this.view.plugin.backend() === "api" ? this.apiHistory().length : this.turns.length;
+    if (history) labels.push(`${history} history message${history === 1 ? "" : "s"}`);
+    return labels.length ? labels.join(" · ") : "No extra context";
+  }
+
+  refreshTokenFooter() {
+    if (!this.budgetEl) return;
+    const draft = str(this.input && this.input.value);
+    const budget = this.budgetFor(draft, this.previewContext);
+    this.lastBudget = budget;
+    this.budgetEl.empty();
+    this.budgetEl.toggleClass("is-warn", budget.warn);
+    this.budgetEl.toggleClass("is-over", budget.over);
+    this.budgetEl.createDiv({
+      cls: "qt-chat-budget-line",
+      text: `${this.contextAttachmentLabels()} — ~${chatBudget.formatTokenCount(budget.tokens)} / ${chatBudget.formatTokenCount(budget.limit)} tokens`,
+    });
+    if (this.previewMissing.length) {
+      this.budgetEl.createDiv({
+        cls: "qt-chat-budget-error",
+        text: `Not attached: ${this.previewMissing.map((item) => `${item.kind} ${item.path} (${item.reason})`).join(", ")}`,
+      });
+    }
+    for (const warning of this.previewWarnings) {
+      this.budgetEl.createDiv({ cls: "qt-chat-budget-warning", text: warning });
+    }
+    if (budget.over) {
+      this.budgetEl.createDiv({
+        cls: "qt-chat-budget-error",
+        text: "Over the local chat budget. Remove an attachment or shorten the message; Send will be refused.",
+      });
+    } else if (budget.warn) {
+      this.budgetEl.createDiv({
+        cls: "qt-chat-budget-warning",
+        text: "Approaching the local chat budget. The next long attachment may be refused.",
+      });
+    }
+  }
+
+  /**
+   * Resolve the mentions written in the outgoing message and check the local
+   * budget before any request. A missing target or an over-budget chat refuses
+   * the whole send instead of quietly dropping context.
+   */
+  async prepareSendContext(message) {
+    let mention = chatMentions.emptyMentionResult();
+    const targets = chatMentions.parseMentionTokens(message);
+    if (targets.length && this.includeMentions) {
+      try {
+        mention = await chatMentions.resolveMentionsFromApp(this.view.app, targets);
+      } catch (e) {
+        mention = {
+          ...chatMentions.emptyMentionResult(),
+          missing: targets.map((target) => ({ ...target, reason: "could not be read" })),
+        };
+      }
+      this.mentionResult = mention;
+      this.previewMissing = mention.missing;
+      this.previewWarnings = mention.warnings;
+      this.lastMentionKey = targets.map((target) => `${target.kind}:${target.path}`).join("|");
+    }
+    if (mention.missing.length) {
+      const names = mention.missing
+        .map((item) => `${item.kind === "folder" ? "folder" : "note"} ${item.path} (${item.reason})`)
+        .join(", ");
+      return {
+        ok: false,
+        context: "",
+        mention,
+        error: `Nothing was sent: ${names} is no longer available. Remove that mention or restore it, then try again.`,
+      };
+    }
+    const note = this.opts.readNoteContext && (this.includeNote || this.includeSelection)
+      ? await this.prepareContext()
+      : "";
+    const context = [note, mention.block].filter(Boolean).join("\n\n");
+    const budget = this.budgetFor(message, context);
+    this.lastBudget = budget;
+    this.refreshTokenFooter();
+    if (budget.over) return { ok: false, context, mention, budget, error: budgetRefusal(budget) };
+    return { ok: true, context, mention, budget };
   }
 
   async prepareContext() {
@@ -23814,7 +24505,23 @@ class ChatPanel {
   renderLibrary(root) {
     if (typeof this.opts.getLibrary !== "function") return;
     this.libraryWrap = root.createDiv({ cls: "qt-chat-library" });
-    this.libraryWrap.createDiv({ cls: "qt-hint", text: "Conversations (newest first)" });
+    this.libraryWrap.createDiv({ cls: "qt-hint", text: "Conversations (pinned first, then newest)" });
+    const searchRow = this.libraryWrap.createDiv({ cls: "qt-row qt-small-row" });
+    this.librarySearch = searchRow.createEl("input", {
+      type: "text",
+      attr: { "aria-label": "Search conversations", placeholder: "Search conversations" },
+    });
+    this.librarySearch.addEventListener("input", () => {
+      this.libraryQuery = str(this.librarySearch.value);
+      this.refreshLibrary();
+    });
+    this.archivedToggle = searchRow.createEl("button", { cls: "qt-chip", text: "Show archived" });
+    this.archivedToggle.addEventListener("click", () => {
+      this.showArchived = !this.showArchived;
+      this.archivedToggle.toggleClass("is-selected", this.showArchived);
+      this.archivedToggle.setText(this.showArchived ? "Hide archived" : "Show archived");
+      this.refreshLibrary();
+    });
     this.libraryList = this.libraryWrap.createDiv({ cls: "qt-chat-library-list" });
     const row = this.libraryWrap.createDiv({ cls: "qt-row qt-small-row" });
     this.libraryTitle = row.createEl("input", {
@@ -23833,22 +24540,57 @@ class ChatPanel {
     const rows = this.libraryRows();
     this.libraryList.empty?.();
     if (!rows.length) {
-      this.libraryList.createDiv({ cls: "qt-hint", text: "No saved conversations yet." });
+      this.libraryList.createDiv({
+        cls: "qt-hint",
+        text: str(this.libraryQuery).trim() ? "No conversation matches that search." : "No saved conversations yet.",
+      });
       return;
     }
     for (const row of rows) {
-      const item = this.libraryList.createDiv({ cls: `qt-chat-library-row${row.active ? " is-active" : ""}` });
+      const item = this.libraryList.createDiv({
+        cls: `qt-chat-library-row${row.active ? " is-active" : ""}${row.archived ? " is-archived" : ""}`,
+      });
       const open = item.createEl("button", {
         cls: "qt-chat-library-open",
-        text: `${row.title}${row.when ? ` — ${row.when}` : ""}`,
+        text: `${row.pinned ? "Pinned · " : ""}${row.title}${row.when ? ` — ${row.when}` : ""}${row.archived ? " (archived)" : ""}`,
       });
       open.addEventListener("click", () => this.openLibraryRow(row));
+      const actions = item.createDiv({ cls: "qt-row qt-small-row qt-chat-library-actions" });
+      const pin = actions.createEl("button", { text: row.pinned ? "Unpin" : "Pin" });
+      pin.addEventListener("click", () => this.pinLibraryRow(row));
+      if (row.archived) {
+        const restore = actions.createEl("button", { text: "Restore" });
+        restore.addEventListener("click", () => this.restoreLibraryRow(row));
+      } else {
+        const archive = actions.createEl("button", { text: "Archive" });
+        archive.addEventListener("click", () => this.archiveLibraryRow(row));
+      }
     }
+  }
+
+  pinLibraryRow(row) {
+    if (this.busy || !row || typeof this.opts.onPinChat !== "function") return;
+    this.opts.onPinChat(row.id, !row.pinned);
+    this.refreshLibrary();
+  }
+
+  archiveLibraryRow(row) {
+    if (this.busy || !row || typeof this.opts.onArchiveChat !== "function") return;
+    this.opts.onArchiveChat(row.id);
+    this.refreshLibrary();
+  }
+
+  restoreLibraryRow(row) {
+    if (this.busy || !row || typeof this.opts.onResumeChat !== "function") return;
+    this.opts.onResumeChat(row.id);
+    this.refreshLibrary();
   }
 
   libraryRows() {
     try {
-      const rows = typeof this.opts.getLibrary === "function" ? this.opts.getLibrary() : [];
+      const rows = typeof this.opts.getLibrary === "function"
+        ? this.opts.getLibrary({ query: this.libraryQuery, includeArchived: this.showArchived })
+        : [];
       return Array.isArray(rows) ? rows : [];
     } catch (e) {
       return [];
@@ -23955,11 +24697,18 @@ class ChatPanel {
     this.error = "";
     this.lastSent = value;
     if (this.view.plugin.backend() === "api") {
+      const prepared = await this.prepareSendContext(value);
+      if (!prepared.ok) {
+        this.error = prepared.error;
+        if (this.status) this.status.setText(prepared.error);
+        this.draw();
+        return;
+      }
       const hist = this.apiHistory();
       while (hist.length && hist[hist.length - 1].role !== "user") hist.pop();
       this.turns = apiTurns(hist);
       this.persistApiHistory();
-      return this.sendApi(value, "", true);
+      return this.sendApi(value, prepared.context, true);
     }
     return this.send(value);
   }
@@ -24031,6 +24780,14 @@ class ChatPanel {
       if (!text) return;
     }
 
+    const prepared = await this.prepareSendContext(text);
+    if (!prepared.ok) {
+      this.error = prepared.error;
+      if (this.status) this.status.setText(prepared.error);
+      this.draw();
+      return;
+    }
+
     this.lastSent = text;
     this.streamText = "";
     this.keepPartial = "";
@@ -24046,7 +24803,7 @@ class ChatPanel {
         /* retrieval is best effort; the chat request still goes through */
       }
     }
-    const currentNote = await this.prepareContext();
+    const currentNote = prepared.context;
     if (this.view.plugin.backend() === "api") return this.sendApi(text, currentNote);
     const plugin = this.view.plugin;
     const ai = this.ai;
@@ -24065,6 +24822,7 @@ class ChatPanel {
     const guard = ai.mode === "agent" && typeof plugin.snapshotProtectedState === "function" ? plugin.snapshotProtectedState() : null;
     this.error = "";
     this.input.value = "";
+    this.syncMentionChips();
     this.pending = text;
     this.setBusy(true);
     this.draw();
@@ -24162,8 +24920,17 @@ class ChatPanel {
   }
 
   async sendApi(text, currentNote, resend) {
+    const budget = this.budgetFor(text, currentNote);
+    if (budget.over) {
+      this.error = budgetRefusal(budget);
+      if (this.status) this.status.setText(this.error);
+      this.refreshTokenFooter();
+      this.draw();
+      return;
+    }
     this.error = "";
     this.input.value = "";
+    this.syncMentionChips();
     this.pending = text;
     const token = (this.apiCancelToken = (this.apiCancelToken || 0) + 1);
     const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -24368,6 +25135,8 @@ function normalizeSession(value) {
     messages,
     sessionId: str(raw.sessionId).trim(),
     notePath: str(raw.notePath).trim(),
+    pinned: raw.pinned === true,
+    archived: raw.archived === true,
   };
 }
 
@@ -24393,6 +25162,24 @@ function archiveSession(sessions, record) {
   return normalizeSessions([session, ...rest]);
 }
 
+/** Set the pinned flag without touching messages, title or timestamps. */
+function setPinnedSession(sessions, id, pinned) {
+  const key = str(id).trim();
+  if (!key) return normalizeSessions(sessions);
+  return normalizeSessions(
+    normalizeSessions(sessions).map((session) => (session.id === key ? { ...session, pinned: pinned === true } : session))
+  );
+}
+
+/** Set the archived flag. Archived chats remain in storage and remain searchable. */
+function setArchivedSession(sessions, id, archived) {
+  const key = str(id).trim();
+  if (!key) return normalizeSessions(sessions);
+  return normalizeSessions(
+    normalizeSessions(sessions).map((session) => (session.id === key ? { ...session, archived: archived === true } : session))
+  );
+}
+
 function removeSession(sessions, id) {
   const key = str(id).trim();
   return normalizeSessions(sessions).filter((session) => session.id !== key);
@@ -24416,16 +25203,25 @@ function formatWhen(value) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+function sessionMatches(session, query) {
+  if (!query) return true;
+  if (session.title.toLowerCase().includes(query)) return true;
+  return session.messages.some((message) => str(message.content).toLowerCase().includes(query));
+}
+
 /**
- * Rows for the panel. The active conversation is included while it has
- * messages; an archived row is never also the active row because resuming
- * removes it from the archive.
+ * Rows for the panel. Pinned chats lead. Archived chats are hidden by default,
+ * but a search deliberately includes them so they can be found and restored.
+ * The active conversation is never also an archived row.
  */
-function libraryRows(active, sessions, now) {
+function libraryRows(active, sessions, now, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const query = str(opts.query).trim().toLowerCase();
+  const includeArchived = opts.includeArchived === true;
   const rows = [];
   const messages = normalizeChatHistory(active && active.messages);
   const activeId = str(active && active.id).trim();
-  if (messages.length) {
+  if (messages.length && sessionMatches({ title: str(active && active.title), messages }, query)) {
     rows.push({
       id: activeId || "active",
       title: str(active && active.title).trim().slice(0, MAX_TITLE) || titleFromMessages(messages),
@@ -24433,10 +25229,14 @@ function libraryRows(active, sessions, now) {
       when: formatWhen(active && active.updatedAt),
       messages,
       active: true,
+      pinned: active && active.pinned === true,
+      archived: false,
     });
   }
   for (const session of normalizeSessions(sessions)) {
     if (activeId && session.id === activeId) continue;
+    if (session.archived && !includeArchived && !query) continue;
+    if (!sessionMatches(session, query)) continue;
     rows.push({
       id: session.id,
       title: session.title,
@@ -24444,9 +25244,17 @@ function libraryRows(active, sessions, now) {
       when: formatWhen(session.updatedAt),
       messages: session.messages,
       active: false,
+      pinned: session.pinned === true,
+      archived: session.archived === true,
     });
   }
-  rows.sort((a, b) => b.updatedAt - a.updatedAt || Number(b.active) - Number(a.active) || a.title.localeCompare(b.title));
+  rows.sort(
+    (a, b) =>
+      Number(b.pinned) - Number(a.pinned) ||
+      b.updatedAt - a.updatedAt ||
+      Number(b.active) - Number(a.active) ||
+      a.title.localeCompare(b.title)
+  );
   return rows;
 }
 
@@ -24461,6 +25269,8 @@ module.exports = {
   normalizeSessions,
   removeSession,
   renameSession,
+  setArchivedSession,
+  setPinnedSession,
   titleFromMessages,
 };
 };
@@ -25577,6 +26387,7 @@ const DEFAULT_SETTINGS = {
     studyChatId: "", // id of the active conversation, so archiving resumes it rather than copying it
     studyChatTitle: "", // user-visible title of the active conversation
     studyChatUpdatedAt: 0, // epoch ms, used for the newest-first library order
+    studyChatPinned: false, // pinned conversations sort first in the library
     chatSessions: [], // archived conversations, bounded by chat-sessions.js
     studyCommands: [], // reusable /commands; prompts may use {} or {selection}
     autoDeclined: false, // the user said no to the automatic OpenCode download: don't ask again until they press the button
@@ -117978,6 +118789,8 @@ QuestionTrackerPlugin.__test = {
   chatHistory: require("./chat-history"),
   chatStream: require("./chat-stream"),
   chatSessions: require("./chat-sessions"),
+  chatBudget: require("./chat-budget"),
+  chatMentions: require("./chat-mentions"),
   localModels: require("./local-models"),
   readingCompanion: require("./reading-companion"),
   tutorPresets,
