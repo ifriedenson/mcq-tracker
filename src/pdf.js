@@ -409,7 +409,8 @@ async function readPdfPageText(buf, pageNumber) {
     const width = Math.max(1, viewport.width);
     const height = Math.max(1, viewport.height);
     const items = [];
-    for (const item of content.items) {
+    for (let index = 0; index < content.items.length; index++) {
+      const item = content.items[index];
       if (!item || typeof item.str !== "string" || !item.str.trim() || !item.transform) continue;
       const t = matMul(viewport.transform, item.transform);
       const fontHeight = Math.hypot(t[2], t[3]) || 10;
@@ -417,6 +418,7 @@ async function readPdfPageText(buf, pageNumber) {
       const x = Math.max(0, Math.min(width, t[4]));
       const top = Math.max(0, Math.min(height, t[5] - fontHeight));
       items.push({
+        i: index,
         s: item.str,
         x: Math.max(0, Math.min(1, x / width)),
         y: Math.max(0, Math.min(1, top / height)),

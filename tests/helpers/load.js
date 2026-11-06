@@ -62,9 +62,10 @@ class MarkdownRenderChild extends Base {
   }
 }
 class Plugin extends Base {
-  constructor(app) {
+  constructor(app, manifest) {
     super();
     this.app = app;
+    this.manifest = manifest;
     this.commands = [];
     this.events = [];
     this.views = {};

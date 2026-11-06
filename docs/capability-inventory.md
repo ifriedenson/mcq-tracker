@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 394 groups, 2655 exports. **Commands:** 205. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 396 groups, 2677 exports. **Commands:** 205. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -28,7 +28,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `CardView` | 0 | `tests/card-learning.test.js`, `tests/card-reveal.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/interval-preview.test.js`, `tests/mobile-module-layout.test.js`, `tests/source-recall.test.js`, `tests/study-status.test.js` |
 | `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/note-context.test.js`, `tests/security-hardening.test.js`, `tests/think-first.test.js` |
 | `CourseOverviewModal` | 0 | `tests/core-values.test.js` |
-| `DEFAULT_SETTINGS` | 112 | `tests/grading.test.js` |
+| `DEFAULT_SETTINGS` | 113 | `tests/grading.test.js` |
 | `DocumentReviewModal` | 0 | `tests/feature-surfaces.test.js` |
 | `DueQueueModal` | 0 | `tests/feature-surfaces.test.js` |
 | `EpubReaderModal` | 0 | `tests/epub.test.js` |
@@ -51,7 +51,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `OpenCodeManager` | 0 | `tests/opencode-compat.test.js` |
 | `PdfAnnotationModal` | 0 | `tests/feature-surfaces.test.js` |
 | `PdfImportModal` | 0 | `tests/empty-state.test.js`, `tests/import-source.test.js`, `tests/views.test.js` |
-| `PdfInkModal` | 0 | `tests/pdf-ink.test.js` |
+| `PdfInkModal` | 0 | `tests/pdf-backlinks.test.js`, `tests/pdf-ink.test.js` |
 | `PomodoroView` | 0 | `tests/mobile-module-layout.test.js`, `tests/pomodoro-view.test.js` |
 | `PracticeView` | 0 | `tests/closed-book.test.js`, `tests/empty-state.test.js`, `tests/exam-ready.test.js`, `tests/hints.test.js`, `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/mobile-practice.test.js`, `tests/modules.test.js`, `tests/needs-fixing.test.js`, `tests/practice-fullscreen.test.js`, `tests/practice-keys.test.js`, `tests/study-modes.test.js`, `tests/study-skin.test.js`, `tests/study-status.test.js`, `tests/views.test.js` |
 | `QUICK_COUNT_OPTIONS` | 3 | `tests/uncited-groups.test.js` |
@@ -284,16 +284,18 @@ the table and fails if a group, export count, command or citing test drifts.
 | `parseSections` | 0 | `tests/grading.test.js`, `tests/hints.test.js`, `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/needs-fixing.test.js`, `tests/question-types.test.js`, `tests/views.test.js` |
 | `partsToTurns` | 0 | `tests/feature-surfaces.test.js` |
 | `pauseQuickSession` | 0 | `tests/uncited-groups.test.js` |
-| `pdf` | 17 | `tests/cards-import.test.js`, `tests/feature-engines.test.js`, `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-deep-link.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-latex.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/study-modules-3.test.js` |
+| `pdf` | 17 | `tests/cards-import.test.js`, `tests/feature-engines.test.js`, `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-backlinks.test.js`, `tests/pdf-deep-link.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-latex.test.js`, `tests/pdf-plus-boot.test.js`, `tests/pdf-plus.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/study-modules-3.test.js` |
 | `pdfAnnotationIndex` | 7 | `tests/study-modules-3.test.js` |
 | `pdfAnnotations` | 22 | `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-deep-link.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/study-modules-3.test.js` |
 | `pdfAnnotatorSidebar` | 8 | `tests/pdf-annotator-sidebar.test.js` |
-| `pdfDeepLink` | 6 | `tests/feature-engines.test.js`, `tests/pdf-deep-link.test.js` |
-| `pdfEditor` | 56 | `tests/pdf-editor-window.test.js`, `tests/pdf-reader-page-ops.test.js` |
-| `pdfEditorModal` | 3 | `tests/pdf-editor-window.test.js` |
-| `pdfInk` | 27 | `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-reader-page-ops.test.js` |
-| `pdfInkModal` | 2 | `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-reader-page-ops.test.js` |
+| `pdfBacklinks` | 11 | `tests/pdf-backlinks.test.js` |
+| `pdfDeepLink` | 8 | `tests/feature-engines.test.js`, `tests/pdf-backlinks.test.js`, `tests/pdf-deep-link.test.js` |
+| `pdfEditor` | 56 | `tests/pdf-editor-window.test.js`, `tests/pdf-plus-boot.test.js`, `tests/pdf-reader-page-ops.test.js` |
+| `pdfEditorModal` | 3 | `tests/pdf-editor-window.test.js`, `tests/pdf-plus-boot.test.js` |
+| `pdfInk` | 27 | `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-backlinks.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-plus-boot.test.js`, `tests/pdf-reader-page-ops.test.js` |
+| `pdfInkModal` | 2 | `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-plus-boot.test.js`, `tests/pdf-reader-page-ops.test.js` |
 | `pdfLatex` | 6 | `tests/feature-engines.test.js`, `tests/pdf-latex.test.js` |
+| `pdfPlus` | 8 | `tests/pdf-plus-boot.test.js`, `tests/pdf-plus.test.js` |
 | `pickQuestion` | 0 | `tests/mastery-picker.test.js`, `tests/study-status.test.js` |
 | `plainCards` | 6 | `tests/plain-cards.test.js` |
 | `platformTriple` | 0 | `tests/feature-surfaces.test.js` |

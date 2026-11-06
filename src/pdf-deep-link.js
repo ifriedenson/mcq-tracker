@@ -25,6 +25,27 @@ function round6(n) {
   return Math.round(n * 1e6) / 1e6;
 }
 
+/** A PDF++ text selection (`beginIndex,beginOffset,endIndex,endOffset`), or "". */
+function normalizeSelection(value) {
+  const text = str(value).trim();
+  if (!text) return "";
+  const match = /^(\d{1,7}),(\d{1,6}),(\d{1,7}),(\d{1,6})$/.exec(text);
+  if (!match) return "";
+  const beginIndex = Number(match[1]);
+  const beginOffset = Number(match[2]);
+  const endIndex = Number(match[3]);
+  const endOffset = Number(match[4]);
+  if (beginIndex > endIndex) return "";
+  if (beginIndex === endIndex && beginOffset > endOffset) return "";
+  return `${beginIndex},${beginOffset},${endIndex},${endOffset}`;
+}
+
+/** A safe PDF++ highlight colour name, lower-cased, or "". */
+function normalizeColor(value) {
+  const text = str(value).trim().toLowerCase();
+  return /^[a-z][a-z0-9_-]{0,23}$/.test(text) ? text : "";
+}
+
 /** A rectangle as page fractions, or null when it is not one. */
 function normalizeRect(rect) {
   if (!rect || typeof rect !== "object") return null;
@@ -73,12 +94,18 @@ function formatPdfDeepLink(pdfPath, page, options) {
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(anchor)) return "";
     parts.push(`annotation=${anchor}`);
   }
+  const selection = normalizeSelection(opts.selection);
+  if (str(opts.selection).trim() && !selection) return "";
+  if (selection) parts.push(`selection=${selection}`);
   const rect = normalizeRect(opts.rect);
   if (rect) parts.push(`${RECT_PARAM}=${rect.x},${rect.y},${rect.width},${rect.height}`);
+  const color = normalizeColor(opts.color);
+  if (str(opts.color).trim() && !color) return "";
+  if (color) parts.push(`color=${color}`);
   return `[[${safePath}#${parts.join("&")}]]`;
 }
 
-const EMPTY = Object.freeze({ path: "", page: 0, annotation: "", rect: null, valid: false });
+const EMPTY = Object.freeze({ path: "", page: 0, annotation: "", selection: "", color: "", rect: null, valid: false });
 
 /** Read a link back into its parts; `valid` is false for anything unusable. */
 function parsePdfDeepLink(link) {
@@ -97,10 +124,12 @@ function parsePdfDeepLink(link) {
   if (!Number.isFinite(page) || page < 1 || page > MAX_PAGE) return { ...EMPTY };
   const anchor = params.get("annotation") || "";
   const annotation = /^[A-Za-z0-9_-]{1,64}$/.test(anchor) ? anchor : "";
+  const selection = normalizeSelection(params.get("selection"));
+  const color = normalizeColor(params.get("color"));
   const raw = str(params.get(RECT_PARAM)).split(",");
   const rect =
     raw.length === 4 ? normalizeRect({ x: raw[0], y: raw[1], width: raw[2], height: raw[3] }) : null;
-  return { path, page, annotation, rect, valid: true };
+  return { path, page, annotation, selection, color, rect, valid: true };
 }
 
 /** A sentence a reader or sidebar can show for a parsed link. */
@@ -112,14 +141,18 @@ function describePdfDeepLink(parsed) {
     ? `, selection ${Math.round(link.rect.width * 100)}% × ${Math.round(link.rect.height * 100)}% at ${Math.round(link.rect.x * 100)}%, ${Math.round(link.rect.y * 100)}%`
     : "";
   const anchor = link.annotation ? `, annotation ${link.annotation}` : "";
-  return `${name} page ${link.page}${anchor}${area}`;
+  const text = link.selection ? `, text range ${link.selection}` : "";
+  const color = link.color ? `, ${link.color}` : "";
+  return `${name} page ${link.page}${anchor}${text}${area}${color}`;
 }
 
 module.exports = {
   MAX_PAGE,
   describePdfDeepLink,
   formatPdfDeepLink,
+  normalizeColor,
   normalizeRect,
+  normalizeSelection,
   parsePdfDeepLink,
   unionRect,
 };

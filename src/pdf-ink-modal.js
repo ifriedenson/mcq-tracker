@@ -2,6 +2,8 @@
 const { Modal, Notice, Setting, TFile } = require("obsidian");
 const { readPdfPageText, renderPdfPagesAsPng } = require("./pdf");
 const { annotationLink, annotationsMarkdown, hashBytes, parseAnnotationFile, removeAnnotation, sidecarPathFor, upsertAnnotation } = require("./pdf-annotations");
+const { formatPdfDeepLink } = require("./pdf-deep-link");
+const { backlinkAreasFor, backlinkSummary, selectionFromArea } = require("./pdf-backlinks");
 const { INK_COLORS, INK_COLOR_HEX, INK_TOOLS, MARK_STYLES, MAX_INK_POINTS, areaAt, boxAt, clamp, drawInkSegment, drawInkStrokes, drawMarks, eraseStrokesAt, normalizeHighlightArea, normalizeHighlightAreas, normalizeInkStroke, normalizeInkStrokes, normalizeTextBox, normalizeTextBoxes, textInArea } = require("./pdf-ink");
 const { renderSidebar, rowPage, selectionBounds, sidebarRows, tagInput } = require("./pdf-annotator-sidebar");
 const { pageTextFromItems } = require("./reading-companion");
@@ -88,6 +90,7 @@ class TextBoxPromptModal extends Modal {
     this.onDone = onDone || (() => {});
     this.textEl = null;
     this.copyStatusEl = null;
+    this.linkStatusEl = null;
   }
 
   onOpen() {
@@ -107,6 +110,13 @@ class TextBoxPromptModal extends Modal {
         .addEventListener("click", () => this.copySelectedText());
       this.copyStatusEl = el.createDiv({ cls: "qt-hint" });
     }
+    if (this.options.linkToCopy) {
+      const linkRow = el.createDiv({ cls: "qt-row qt-pdf-ink-actions" });
+      linkRow
+        .createEl("button", { text: "Copy selection link", cls: "qt-grow" })
+        .addEventListener("click", () => this.copyLink());
+      this.linkStatusEl = el.createDiv({ cls: "qt-hint" });
+    }
     this.textEl = el.createEl("textarea", { cls: "qt-pdf-ink-textarea" });
     this.textEl.rows = 5;
     this.textEl.value = this.options.text || "";
@@ -123,6 +133,23 @@ class TextBoxPromptModal extends Modal {
     const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
     cancel.addEventListener("click", () => this.close());
     this.textEl.focus();
+  }
+
+  async copyLink() {
+    const link = String(this.options.linkToCopy || "");
+    if (!link) return false;
+    try {
+      if (typeof navigator === "undefined" || !navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
+        throw new Error("Clipboard unavailable");
+      }
+      await navigator.clipboard.writeText(link);
+      if (this.linkStatusEl) this.linkStatusEl.setText("Copied " + link);
+      return true;
+    } catch (error) {
+      if (this.linkStatusEl) this.linkStatusEl.setText("Could not copy the link in this view.");
+      new Notice("Could not copy the selection link. Copy it from the reader toolbar instead.");
+      return false;
+    }
   }
 
   async copySelectedText() {
@@ -217,9 +244,32 @@ class PdfInkModal extends Modal {
     this.objectUrls = [];
     this.formFields = [];
     this.formLayers = new Map();
+    this.backlinkRows = [];
+    this.backlinkHighlights = new Map();
+    this.backlinkCount = 0;
+    this.lastSelection = null;
+    this.pdfPlusClaimed = false;
+  }
+
+  /** This reader owns the PDF UI while it is open, so the embedded PDF++ host pauses. */
+  claimPdfPlus() {
+    if (this.pdfPlusClaimed) return;
+    this.pdfPlusClaimed = true;
+    if (this.plugin && typeof this.plugin.beginMcqPdfUi === "function") {
+      Promise.resolve(this.plugin.beginMcqPdfUi()).catch(() => {});
+    }
+  }
+
+  releasePdfPlus() {
+    if (!this.pdfPlusClaimed) return;
+    this.pdfPlusClaimed = false;
+    if (this.plugin && typeof this.plugin.endMcqPdfUi === "function") {
+      Promise.resolve(this.plugin.endMcqPdfUi()).catch(() => {});
+    }
   }
 
   onOpen() {
+    this.claimPdfPlus();
     this.modalEl.addClass("qt-pdf-ink-modal");
     const last = this.plugin.pdfLastPage ? this.plugin.pdfLastPage(this.pdfPath) : 0;
     if (last > 0 && this.page === 1) this.page = last;
@@ -237,6 +287,7 @@ class PdfInkModal extends Modal {
   }
 
   onClose() {
+    this.releasePdfPlus();
     this.loadToken++;
     if (this.dirty) this.save().catch(() => {});
     for (const url of this.objectUrls.concat(this.objectUrl ? [this.objectUrl] : [])) {
@@ -342,7 +393,7 @@ class PdfInkModal extends Modal {
     el.createEl("h3", { text: "Draw on a PDF" });
     el.createEl("p", {
       cls: "setting-item-description",
-      text: "Pen, highlighter, text-box and highlight edits are saved in the PDF's annotation sidecar. They are stored as page coordinates, so they stay in place at any zoom or on another device. Quoted highlights and page notes remain available in Add a PDF annotation.",
+      text: "Pen, highlighter, text-box and highlight edits are saved in the PDF's annotation sidecar. Markdown links to this PDF are painted as colored highlight backlinks, and a text selection can be copied as one. Everything is stored as page coordinates, so it stays in place at any zoom or on another device.",
     });
 
     const files = this.pdfFiles();
@@ -419,6 +470,8 @@ class PdfInkModal extends Modal {
     saveClose.addEventListener("click", () => this.save({ close: true }));
     const copyLink = actions.createEl("button", { text: "Copy page link", cls: "qt-grow" });
     copyLink.addEventListener("click", () => this.copyPageLink());
+    const copySelection = actions.createEl("button", { text: "Copy selection link", cls: "qt-grow" });
+    copySelection.addEventListener("click", () => this.copySelectionLink());
     const exportNotes = actions.createEl("button", { text: "Export notes", cls: "qt-grow" });
     exportNotes.addEventListener("click", () => this.exportNotes());
     const askPage = actions.createEl("button", { text: "Ask AI about this page", cls: "qt-grow" });
@@ -495,10 +548,13 @@ class PdfInkModal extends Modal {
         }
         if (token !== this.loadToken) return;
       }
+      await this.loadBacklinks();
+      if (token !== this.loadToken) return;
       this.applyPageAnnotations(this.page);
       this.redrawAll();
       const warning = this.savedHash && this.savedHash !== hash ? " The PDF changed since its annotations were saved; check that the page still matches." : "";
-      this.setStatus(`${this.total} page${this.total === 1 ? "" : "s"} ready. Scroll or jump, then draw and Save.${warning}`);
+      const backlinks = this.backlinkCount ? ` ${this.backlinkCount} backlink highlight${this.backlinkCount === 1 ? "" : "s"} from notes.` : "";
+      this.setStatus(`${this.total} page${this.total === 1 ? "" : "s"} ready. Scroll or jump, then draw and Save.${warning}${backlinks}`);
       if (this.plugin.rememberPdfPage) this.plugin.rememberPdfPage(this.pdfPath, this.page);
     } catch (e) {
       if (token === this.loadToken) this.setStatus(e && e.message ? e.message : String(e));
@@ -546,6 +602,29 @@ class PdfInkModal extends Modal {
     }
     this.applyPageAnnotations(this.page);
     this.redrawAll();
+  }
+
+  /** Reads Markdown PDF links and maps them onto the current pages. */
+  async loadBacklinks() {
+    this.backlinkRows = [];
+    this.backlinkHighlights = new Map();
+    this.backlinkCount = 0;
+    if (!this.plugin || typeof this.plugin.pdfBacklinkRows !== "function") return [];
+    let rows = [];
+    try {
+      rows = await this.plugin.pdfBacklinkRows(this.pdfPath);
+    } catch (e) {
+      rows = [];
+    }
+    this.backlinkRows = Array.isArray(rows) ? rows : [];
+    for (const row of this.backlinkRows) {
+      const page = Math.max(1, Math.round(Number(row.page) || 1));
+      const areas = backlinkAreasFor(row, this.pageTexts.get(page) || []);
+      if (!areas.length) continue;
+      this.backlinkHighlights.set(page, (this.backlinkHighlights.get(page) || []).concat(areas));
+      this.backlinkCount += areas.length;
+    }
+    return this.backlinkRows;
   }
 
   /** Builds one wrap, image and overlay canvas for every page in the document. */
@@ -780,6 +859,7 @@ class PdfInkModal extends Modal {
     const height = canvas.height;
     const layer = this.pageLayer(page);
     ctx.clearRect(0, 0, width, height);
+    drawMarks(ctx, this.backlinkHighlights.get(Number(page)) || [], width, height);
     drawMarks(ctx, layer.highlights, width, height);
     for (const quote of layer.quotes) drawMarks(ctx, quote.areas, width, height);
     if (Number(page) === Number(this.page) && this.highlightDraft) drawMarks(ctx, [this.highlightDraft], width, height);
@@ -865,8 +945,13 @@ class PdfInkModal extends Modal {
           this.redraw();
           return;
         }
+        const full = selectionFromArea(this.textItems, rect);
+        this.lastSelection = full && full.selection ? { ...full, page: this.page, color: this.color } : null;
+        const link = this.lastSelection
+          ? formatPdfDeepLink(this.pdfPath, this.page, { selection: this.lastSelection.selection, color: this.color })
+          : "";
         const preview = picked.quote.split("\n").join(" ").slice(0, 160);
-        new TextBoxPromptModal(this.app, { title: "Note on this quote", text: "", hint: preview, copyText: picked.quote, tags: [] }, (value, tagsText) => {
+        new TextBoxPromptModal(this.app, { title: "Note on this quote", text: "", hint: preview, copyText: picked.quote, linkToCopy: link, tags: [] }, (value, tagsText) => {
           this.saveQuote({ quote: picked.quote, areas: picked.areas, note: value, color: this.color, tags: tagInput(tagsText) });
         }).open();
         this.redraw();
@@ -885,10 +970,63 @@ class PdfInkModal extends Modal {
       }).open();
       return;
     }
+    const backlink = this.backlinkAt(endPoint);
+    if (backlink) {
+      this.openBacklink(backlink);
+      this.redraw();
+      return;
+    }
     const hit = areaAt(this.highlights, endPoint);
     if (hit) this.editHighlightNote(hit);
     else this.setStatus(selecting ? "Drag across text to quote it." : "Drag across an area to mark it.");
     this.redraw();
+  }
+
+  /** The backlink under a click, if any. */
+  backlinkAt(point) {
+    for (const area of this.backlinkHighlights.get(Number(this.page)) || []) {
+      if (
+        point[0] >= area.x &&
+        point[0] <= area.x + area.width &&
+        point[1] >= area.y &&
+        point[1] <= area.y + area.height
+      ) {
+        return area.backlink;
+      }
+    }
+    return null;
+  }
+
+  async openBacklink(row) {
+    if (!row || !this.plugin || typeof this.plugin.openPdfBacklink !== "function") return false;
+    const opened = await this.plugin.openPdfBacklink(row);
+    this.setStatus(opened ? "Opened " + backlinkSummary(row) + "." : "Could not open " + backlinkSummary(row) + ".");
+    return opened;
+  }
+
+  /** Copies a PDF++-compatible link for the last text selection. */
+  async copySelectionLink() {
+    const selection = this.lastSelection;
+    if (!selection || selection.page !== Number(this.page) || !selection.selection) {
+      this.setStatus("Drag across text with Select text first, then copy the selection link.");
+      return false;
+    }
+    const link = formatPdfDeepLink(this.pdfPath, this.page, { selection: selection.selection, color: this.color });
+    if (!link) {
+      this.setStatus("That selection could not be turned into a link.");
+      return false;
+    }
+    try {
+      if (typeof navigator === "undefined" || !navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
+        throw new Error("Clipboard unavailable");
+      }
+      await navigator.clipboard.writeText(link);
+      this.setStatus("Copied " + link);
+      return true;
+    } catch (e) {
+      this.setStatus("Could not copy " + link + " in this view.");
+      return false;
+    }
   }
 
   /** Quotes are their own annotations, saved as soon as the note is confirmed. */

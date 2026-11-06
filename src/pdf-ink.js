@@ -305,16 +305,18 @@ function drawMarks(ctx, areas, width, height) {
     const areaWidth = Math.max(1, area.width * width);
     const areaHeight = Math.max(1, area.height * height);
     const color = INK_COLOR_HEX[area.color] || INK_COLOR_HEX.yellow;
-    const style = MARK_STYLES.includes(area.style) ? area.style : "highlight";
+    const style = area.style === "backlink" ? "backlink" : MARK_STYLES.includes(area.style) ? area.style : "highlight";
     ctx.save();
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
-    if (style === "highlight") {
-      ctx.globalAlpha = 0.28;
+    if (style === "highlight" || style === "backlink") {
+      ctx.globalAlpha = style === "backlink" ? 0.34 : 0.28;
       ctx.fillRect(x, y, areaWidth, areaHeight);
-      ctx.globalAlpha = 0.9;
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x, y, areaWidth, areaHeight);
+      if (style === "highlight") {
+        ctx.globalAlpha = 0.9;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, y, areaWidth, areaHeight);
+      }
     } else if (style === "box") {
       ctx.globalAlpha = 0.95;
       ctx.lineWidth = Math.max(1.5, areaHeight * 0.06);

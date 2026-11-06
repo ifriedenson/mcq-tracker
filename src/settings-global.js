@@ -142,6 +142,16 @@ function renderModules(containerEl, plugin, redisplay, openModule) {
   new Setting(containerEl).setName("Global options").setHeading();
 
   new Setting(containerEl)
+    .setName("Embedded PDF++ tools")
+    .setDesc("Run the full MIT-licensed PDF++ 0.40.31 native PDF viewer integration: backlink highlights, color palette, outline/page-label/embed tools, PDF editing and page composer, external-app sync, Vim keys, and PDF++'s own settings tab. It uses its own namespaced settings inside MCQ Tracker.")
+    .addToggle((t) =>
+      t.setValue(plugin.pdfPlusEnabled()).onChange(async (v) => {
+        await plugin.setPdfPlusEnabled(v);
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("AI features")
     .setDesc("Ask AI on the result screen, the AI assistant, and document import. Off by default: nothing is sent anywhere until this is on. Choose the provider under MCQ Tracker, AI.")
     .addToggle((t) =>

@@ -196,6 +196,7 @@ const DEFAULT_SETTINGS = {
   audioBookmarks: { enabled: true, entries: [] }, // timestamp bookmarks and chapters for audio attachments
   feynmanAi: { enabled: true }, // optional AI second opinion on a completed Feynman explanation (uses the existing AI settings)
   pdfAnnotationIndex: { enabled: true, folder: "", limit: 200 }, // read-only index of PDF annotation sidecars
+  pdfPlus: { enabled: true, data: null }, // full MIT-licensed PDF++ 0.40.31 native-viewer subsystem
   reference: Object.assign({}, DEFAULT_REFERENCE_SETTINGS), // optional local formula sheet and unit converter
   assignments: Object.assign({}, DEFAULT_ASSIGNMENT_SETTINGS, {
     categories: DEFAULT_ASSIGNMENT_SETTINGS.categories.map((category) => ({ ...category })),

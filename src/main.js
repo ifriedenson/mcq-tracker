@@ -77,6 +77,7 @@ const geometryPanel = require("./geometry-panel");
 const fsrsTrain = require("./fsrs-train");
 const mindmap = require("./mindmap");
 const pdfDeepLink = require("./pdf-deep-link");
+const pdfBacklinks = require("./pdf-backlinks");
 const pdfLatex = require("./pdf-latex");
 const graph3d = require("./graph-3d");
 const graph3dPanel = require("./graph-3d-panel");
@@ -354,6 +355,8 @@ QuestionTrackerPlugin.__test = {
   fsrsTrain,
   mindmap,
   pdfDeepLink,
+  pdfBacklinks,
+  pdfPlus: require("./pdf-plus"),
   pdfLatex,
   graph3d,
   graph3dPanel,
