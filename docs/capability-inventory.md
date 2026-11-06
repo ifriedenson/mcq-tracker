@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 399 groups, 2681 exports. **Commands:** 206. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 400 groups, 2688 exports. **Commands:** 206. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -25,7 +25,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `CalendarView` | 0 | `tests/calendar.test.js`, `tests/term-calendar.test.js` |
 | `CardExtractModal` | 0 | `tests/feature-surfaces.test.js` |
 | `CardModal` | 0 | `tests/source-recall.test.js` |
-| `CardView` | 0 | `tests/card-learning.test.js`, `tests/card-reveal.test.js`, `tests/card-speech.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/interval-preview.test.js`, `tests/mobile-module-layout.test.js`, `tests/source-recall.test.js`, `tests/study-status.test.js` |
+| `CardView` | 0 | `tests/card-cram.test.js`, `tests/card-learning.test.js`, `tests/card-reveal.test.js`, `tests/card-speech.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/interval-preview.test.js`, `tests/mobile-module-layout.test.js`, `tests/source-recall.test.js`, `tests/study-status.test.js` |
 | `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/note-context.test.js`, `tests/security-hardening.test.js`, `tests/think-first.test.js` |
 | `CourseOverviewModal` | 0 | `tests/core-values.test.js` |
 | `DEFAULT_SETTINGS` | 113 | `tests/grading.test.js` |
@@ -111,7 +111,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `apiTurns` | 0 | `tests/feature-surfaces.test.js` |
 | `apkg` | 7 | `tests/apkg.test.js`, `tests/security-hardening.test.js` |
 | `apkgExport` | 6 | `tests/apkg.test.js` |
-| `applyAttempt` | 0 | `tests/card-learning.test.js`, `tests/cards.test.js`, `tests/exam-schedule.test.js`, `tests/fsrs-fit.test.js`, `tests/fsrs.test.js`, `tests/grading.test.js`, `tests/history.test.js`, `tests/leech.test.js`, `tests/needs-fixing.test.js`, `tests/note-review-dock.test.js`, `tests/p1-knowledge.test.js`, `tests/parameterized.test.js`, `tests/scheduler-fit.test.js`, `tests/sm2.test.js` |
+| `applyAttempt` | 0 | `tests/card-cram.test.js`, `tests/card-learning.test.js`, `tests/cards.test.js`, `tests/exam-schedule.test.js`, `tests/fsrs-fit.test.js`, `tests/fsrs.test.js`, `tests/grading.test.js`, `tests/history.test.js`, `tests/leech.test.js`, `tests/needs-fixing.test.js`, `tests/note-review-dock.test.js`, `tests/p1-knowledge.test.js`, `tests/parameterized.test.js`, `tests/scheduler-fit.test.js`, `tests/sm2.test.js` |
 | `applySkip` | 0 | `tests/adaptive-parity.test.js`, `tests/history.test.js` |
 | `assertExtractedTree` | 0 | `tests/security-hardening.test.js` |
 | `assignments` | 48 | `tests/assignments.test.js`, `tests/core-values.test.js` |
@@ -153,7 +153,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `cardGradingAi` | 6 | `tests/card-grading-ai.test.js` |
 | `cardPreview` | 0 | `tests/couchdb-sync.test.js` |
 | `cardWriteDiff` | 2 | `tests/card-write-diff.test.js` |
-| `cards` | 46 | `tests/card-learning.test.js`, `tests/card-reveal.test.js`, `tests/card-scheduler-explorer.test.js`, `tests/card-speech.test.js`, `tests/cards-extract.test.js`, `tests/cards-import.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/fsrs-fit.test.js`, `tests/mobile-module-layout.test.js`, `tests/plain-cards.test.js`, `tests/quizlet-pdf-fixtures.test.js`, `tests/sm2.test.js`, `tests/source-recall.test.js`, `tests/spaced-quiz.test.js`, `tests/study-status.test.js` |
+| `cards` | 46 | `tests/card-cram.test.js`, `tests/card-learning.test.js`, `tests/card-reveal.test.js`, `tests/card-scheduler-explorer.test.js`, `tests/card-speech.test.js`, `tests/cards-extract.test.js`, `tests/cards-import.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/fsrs-fit.test.js`, `tests/mobile-module-layout.test.js`, `tests/plain-cards.test.js`, `tests/quizlet-pdf-fixtures.test.js`, `tests/sm2.test.js`, `tests/source-recall.test.js`, `tests/spaced-quiz.test.js`, `tests/study-status.test.js` |
 | `cardsExtract` | 13 | `tests/cards-extract.test.js`, `tests/flashcard-generate.test.js` |
 | `cardsImport` | 39 | `tests/cards-import.test.js`, `tests/quizlet-pdf-fixtures.test.js`, `tests/spaced-quiz.test.js` |
 | `cbtExam` | 7 | `tests/cbt-exam.test.js` |
@@ -173,6 +173,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `courseHealth` | 5 | `tests/core-values.test.js`, `tests/study-modules-2.test.js`, `tests/study-workspace-health.test.js` |
 | `courseNotes` | 11 | `tests/course-notes.test.js` |
 | `courseTemplates` | 12 | `tests/course-templates.test.js` |
+| `cram` | 7 | `tests/card-cram.test.js` |
 | `createQuickSession` | 0 | `tests/feature-surfaces.test.js` |
 | `dailyQuiz` | 14 | `tests/daily-quiz-freeze.test.js`, `tests/daily-quiz.test.js` |
 | `distractorQuality` | 5 | `tests/distractor-quality.test.js` |
@@ -198,7 +199,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `findAnswerKey` | 0 | `tests/question-types.test.js` |
 | `findBinaryIn` | 0 | — |
 | `findDuplicateIds` | 0 | `tests/import.test.js` |
-| `fmtDate` | 0 | `tests/cards.test.js`, `tests/practice-sheet.test.js`, `tests/results-export.test.js`, `tests/uncited-groups.test.js` |
+| `fmtDate` | 0 | `tests/card-cram.test.js`, `tests/cards.test.js`, `tests/practice-sheet.test.js`, `tests/results-export.test.js`, `tests/uncited-groups.test.js` |
 | `fmtDateTime` | 0 | `tests/uncited-groups.test.js` |
 | `fmtPct` | 0 | `tests/stats.test.js` |
 | `focus` | 15 | `tests/focus.test.js`, `tests/tag-timer.test.js` |
@@ -239,7 +240,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `indexOfficialIds` | 0 | `tests/import.test.js` |
 | `inferMode` | 0 | `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/question-types.test.js` |
 | `intervalPreview` | 4 | `tests/interval-preview.test.js` |
-| `isDue` | 0 | `tests/study-status.test.js` |
+| `isDue` | 0 | `tests/card-cram.test.js`, `tests/study-status.test.js` |
 | `isExamReady` | 0 | `tests/exam-ready.test.js` |
 | `learnkit` | 6 | `tests/learnkit.test.js` |
 | `lectureCompiler` | 6 | `tests/study-modules-2.test.js` |

@@ -7,7 +7,7 @@
  * handles both and no separate database is needed.
  */
 const { str } = require("./util");
-const { isDue } = require("./filters");
+const { isDue, nextReviewTime } = require("./filters");
 const { isStudyable } = require("./study-status");
 const { ANSWER_MODES, GRADING_STRICTNESS, normalizeAnswerMode, normalizeStrictness, parseVariants } = require("./card-grading");
 const { DEFAULT_ANKI_CONNECT, normalizeAnkiConnect } = require("./anki-connect");
@@ -660,36 +660,42 @@ function cardAttempt(grade, seconds) {
 function cardQueue(cards, options) {
   const opts = options || {};
   const today = opts.today || "";
+  const now = opts.now instanceof Date && !isNaN(opts.now.getTime()) ? opts.now : undefined;
   const deck = lower(opts.deck);
   const course = lower(opts.course);
   let pool = (cards || []).filter((c) => {
     if (deck && deck !== "all" && lower(c.deck) !== deck) return false;
     if (course && course !== "all" && lower(c.course) !== course) return false;
     if (!isStudyable(c.fm, today)) return false;
-    return opts.order === "all" || isDue(c.fm, today) || !Number(c.fm.attempts);
+    return opts.order === "all" || isDue(c.fm, today, now) || !Number(c.fm.attempts);
   });
-  const rank = (c) => (isDue(c.fm, today) ? 0 : !Number(c.fm.attempts) ? 1 : 2);
+  const rank = (c) => (isDue(c.fm, today, now) ? 0 : !Number(c.fm.attempts) ? 1 : 2);
   pool = pool.slice().sort((a, b) => {
     const r = rank(a) - rank(b);
     if (r) return r;
-    if (rank(a) === 0) return str(a.fm.next_review).localeCompare(str(b.fm.next_review));
+    if (rank(a) === 0) {
+      const at = nextReviewTime(a.fm);
+      const bt = nextReviewTime(b.fm);
+      if (at !== null && bt !== null && at !== bt) return at - bt;
+      return str(a.fm.next_review).localeCompare(str(b.fm.next_review));
+    }
     return str(a.fm.card_id).localeCompare(str(b.fm.card_id)) || a.file.path.localeCompare(b.file.path);
   });
   const limit = Math.max(1, Math.min(100, Math.round(Number(opts.limit) || 20)));
   return pool.slice(0, limit);
 }
 
-function cardStats(cards, today) {
+function cardStats(cards, today, now) {
   const list = Array.isArray(cards) ? cards : [];
   return {
     total: list.length,
-    due: list.filter((c) => isStudyable(c.fm, today) && isDue(c.fm, today)).length,
+    due: list.filter((c) => isStudyable(c.fm, today) && isDue(c.fm, today, now)).length,
     fresh: list.filter((c) => isStudyable(c.fm, today) && !Number(c.fm.attempts)).length,
   };
 }
 
 /** Configured decks plus decks discovered in notes, with per-deck counts. */
-function deckSummary(cards, settings, today) {
+function deckSummary(cards, settings, today, now) {
   const map = new Map();
   const ensure = (name) => {
     const key = lower(name);
@@ -711,7 +717,7 @@ function deckSummary(cards, settings, today) {
     const row = ensure(card.deck || "Unsorted");
     row.total++;
     if (!isStudyable(card.fm, today)) continue;
-    if (isDue(card.fm, today)) row.due++;
+    if (isDue(card.fm, today, now)) row.due++;
     if (!Number(card.fm.attempts)) row.fresh++;
   }
   return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));

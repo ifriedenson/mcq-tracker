@@ -16402,7 +16402,7 @@ __defs["cards"] = function (module, exports, require) {
  * handles both and no separate database is needed.
  */
 const { str } = require("./util");
-const { isDue } = require("./filters");
+const { isDue, nextReviewTime } = require("./filters");
 const { isStudyable } = require("./study-status");
 const { ANSWER_MODES, GRADING_STRICTNESS, normalizeAnswerMode, normalizeStrictness, parseVariants } = require("./card-grading");
 const { DEFAULT_ANKI_CONNECT, normalizeAnkiConnect } = require("./anki-connect");
@@ -17055,36 +17055,42 @@ function cardAttempt(grade, seconds) {
 function cardQueue(cards, options) {
   const opts = options || {};
   const today = opts.today || "";
+  const now = opts.now instanceof Date && !isNaN(opts.now.getTime()) ? opts.now : undefined;
   const deck = lower(opts.deck);
   const course = lower(opts.course);
   let pool = (cards || []).filter((c) => {
     if (deck && deck !== "all" && lower(c.deck) !== deck) return false;
     if (course && course !== "all" && lower(c.course) !== course) return false;
     if (!isStudyable(c.fm, today)) return false;
-    return opts.order === "all" || isDue(c.fm, today) || !Number(c.fm.attempts);
+    return opts.order === "all" || isDue(c.fm, today, now) || !Number(c.fm.attempts);
   });
-  const rank = (c) => (isDue(c.fm, today) ? 0 : !Number(c.fm.attempts) ? 1 : 2);
+  const rank = (c) => (isDue(c.fm, today, now) ? 0 : !Number(c.fm.attempts) ? 1 : 2);
   pool = pool.slice().sort((a, b) => {
     const r = rank(a) - rank(b);
     if (r) return r;
-    if (rank(a) === 0) return str(a.fm.next_review).localeCompare(str(b.fm.next_review));
+    if (rank(a) === 0) {
+      const at = nextReviewTime(a.fm);
+      const bt = nextReviewTime(b.fm);
+      if (at !== null && bt !== null && at !== bt) return at - bt;
+      return str(a.fm.next_review).localeCompare(str(b.fm.next_review));
+    }
     return str(a.fm.card_id).localeCompare(str(b.fm.card_id)) || a.file.path.localeCompare(b.file.path);
   });
   const limit = Math.max(1, Math.min(100, Math.round(Number(opts.limit) || 20)));
   return pool.slice(0, limit);
 }
 
-function cardStats(cards, today) {
+function cardStats(cards, today, now) {
   const list = Array.isArray(cards) ? cards : [];
   return {
     total: list.length,
-    due: list.filter((c) => isStudyable(c.fm, today) && isDue(c.fm, today)).length,
+    due: list.filter((c) => isStudyable(c.fm, today) && isDue(c.fm, today, now)).length,
     fresh: list.filter((c) => isStudyable(c.fm, today) && !Number(c.fm.attempts)).length,
   };
 }
 
 /** Configured decks plus decks discovered in notes, with per-deck counts. */
-function deckSummary(cards, settings, today) {
+function deckSummary(cards, settings, today, now) {
   const map = new Map();
   const ensure = (name) => {
     const key = lower(name);
@@ -17106,7 +17112,7 @@ function deckSummary(cards, settings, today) {
     const row = ensure(card.deck || "Unsorted");
     row.total++;
     if (!isStudyable(card.fm, today)) continue;
-    if (isDue(card.fm, today)) row.due++;
+    if (isDue(card.fm, today, now)) row.due++;
     if (!Number(card.fm.attempts)) row.fresh++;
   }
   return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
@@ -21438,6 +21444,7 @@ const { ItemView, Notice, setIcon } = require("obsidian");
 const { VIEW_TYPE_CARDS } = require("./constants");
 const { localDate, str } = require("./util");
 const { CARD_TYPE_LABELS, cardQueue, cardStats, courseOptions, deckSummary, parseCardBody, revealAnimationClass } = require("./cards");
+const { isDue, nextReviewTime } = require("./filters");
 const { CardModal } = require("./card-modal");
 const { renderMarkdownInto } = require("./view-helpers");
 const { gradeTypedAnswer } = require("./card-grading");
@@ -21447,6 +21454,7 @@ const { resolveApiKey } = require("./secret-keys");
 const { pendingGradeCounts } = require("./card-grade-queue");
 const { splitSourceContext } = require("./source-recall");
 const { formatInterval, intervalPreviews } = require("./interval-preview");
+const { cramIntervalLabel, cramPreviews } = require("./cram");
 const { buildRetention } = require("./analytics");
 
 const REVIEW_KEYS = { "1": "again", "2": "hard", "3": "good", "4": "easy" };
@@ -21508,10 +21516,12 @@ class CardView extends ItemView {
     this.previewSource = null;
     this.previewValues = null;
     this.previewBuilds = 0;
+    this.previewCram = false;
     this.speechFactory = null; // tests and hosts can inject a recognition boundary
     this.speechRecognition = null;
     this.speechListening = false;
     this.speechError = "";
+    this.cram = false;
     this.session = { reviewed: 0, correct: 0, grades: { again: 0, hard: 0, good: 0, easy: 0 } };
   }
 
@@ -21807,8 +21817,9 @@ class CardView extends ItemView {
   renderBrowse(root) {
     const p = this.plugin;
     const today = localDate();
+    const now = new Date();
     const all = p.getCards();
-    const stats = cardStats(all, today);
+    const stats = cardStats(all, today, now);
     const shown = p.filteredCards({ deck: this.deck, course: this.course });
     const pending = p.pendingCardGrades ? p.pendingCardGrades() : [];
     const pendingByPath = pendingGradeCounts(pending);
@@ -21830,7 +21841,7 @@ class CardView extends ItemView {
       return;
     }
 
-    const dueHere = shown.filter((c) => !Number(c.fm.attempts) || str(c.fm.next_review).slice(0, 10) <= today).length;
+    const dueHere = shown.filter((c) => !Number(c.fm.attempts) || isDue(c.fm, today, now)).length;
     const hero = root.createDiv({ cls: "qt-cards-hero" });
     const heroCopy = hero.createDiv({ cls: "qt-cards-hero-copy" });
     heroCopy.createDiv({ cls: "qt-cards-hero-kicker", text: dueHere ? "Review queue" : shown.length ? "Card library" : "Filtered view" });
@@ -21856,7 +21867,13 @@ class CardView extends ItemView {
     });
     start.disabled = !shown.length;
     start.addEventListener("click", () => this.startReview(dueHere ? "due" : "all"));
-
+    const cramStart = hero.createEl("button", { text: "Cram session", cls: "qt-cards-cram-start" });
+    cramStart.disabled = !shown.length;
+    cramStart.addEventListener("click", () => this.startReview("all", undefined, true));
+    root.createDiv({
+      cls: "qt-hint qt-cards-cram-hint",
+      text: "Cram session ratings: Again 3m · Hard 5m · Good 10m · Easy 1d.",
+    });
 
     const tools = root.createDiv({ cls: "qt-row qt-cards-tools qt-toolbar" });
     const add = tools.createEl("button", { text: "New card", cls: "mod-cta" });
@@ -21904,7 +21921,12 @@ class CardView extends ItemView {
     const list = root.createDiv({ cls: "qt-cards-list" });
     const preview = shown
       .slice()
-      .sort((a, b) => str(a.fm.next_review).localeCompare(str(b.fm.next_review)) || a.file.path.localeCompare(b.file.path))
+      .sort((a, b) => {
+        const at = nextReviewTime(a.fm);
+        const bt = nextReviewTime(b.fm);
+        if (at !== null && bt !== null && at !== bt) return at - bt;
+        return str(a.fm.next_review).localeCompare(str(b.fm.next_review)) || a.file.path.localeCompare(b.file.path);
+      })
       .slice(0, 12);
     for (const card of preview) {
       const row = list.createDiv({ cls: "qt-cards-row" });
@@ -21915,7 +21937,7 @@ class CardView extends ItemView {
       main.createDiv({ cls: "qt-cards-row-meta", text: bits.join(" · ") });
       const queued = pendingByPath.get(card.file.path) || 0;
       if (queued) row.createSpan({ cls: "qt-cards-pending-badge", text: queued > 1 ? `Pending ${queued}` : "Pending grade" });
-      const due = !Number(card.fm.attempts) ? "New" : str(card.fm.next_review).slice(0, 10) <= today ? "Due" : `Due ${str(card.fm.next_review).slice(0, 10)}`;
+      const due = !Number(card.fm.attempts) ? "New" : isDue(card.fm, today, now) ? "Due" : `Due ${str(card.fm.next_review).slice(0, 10)}`;
       row.createSpan({ cls: `qt-cards-due${due === "Due" ? " is-due" : ""}`, text: due });
       const action = row.createEl("button", { text: queued ? "Review" : "Open", cls: "qt-link" });
       action.addEventListener("click", () =>
@@ -21960,7 +21982,7 @@ class CardView extends ItemView {
   }
 
   renderDeckPicker(root, cards, today) {
-    const decks = deckSummary(cards, this.plugin.settings, today);
+    const decks = deckSummary(cards, this.plugin.settings, today, new Date());
     const wrap = root.createDiv({ cls: "qt-cards-filter" });
     wrap.createSpan({ cls: "qt-cards-filter-label", text: "Deck" });
     const chips = wrap.createDiv({ cls: "qt-chips" });
@@ -22063,13 +22085,16 @@ class CardView extends ItemView {
     ).open();
   }
 
-  startReview(order, only) {
+  startReview(order, only, cram) {
     const p = this.plugin;
+    this.cram = cram === true;
+    this.previewSource = null;
     const pool = Array.isArray(only) ? only : p.filteredCards({ deck: this.deck, course: this.course });
     const queue = cardQueue(pool, {
       today: localDate(),
+      now: new Date(),
       order: order || p.settings.cards.order,
-      limit: Array.isArray(only) ? Math.max(1, only.length) : p.settings.cards.reviewLimit,
+      limit: Array.isArray(only) ? Math.max(1, only.length) : this.cram ? pool.length : p.settings.cards.reviewLimit,
     });
     if (!queue.length) {
       new Notice("Nothing to review in this deck. Try another deck or review all cards.");
@@ -22085,6 +22110,8 @@ class CardView extends ItemView {
   /** Start a one-card review from the unified due queue. */
   async reviewCard(card) {
     if (!card) return;
+    this.cram = false;
+    this.previewSource = null;
     this.queue = [card];
     this.index = 0;
     this.state = "review";
@@ -22124,10 +22151,13 @@ class CardView extends ItemView {
   /** Reuse one scheduler replay for every re-render of the same card. */
   previewsForCurrent() {
     if (!this.current) return null;
-    if (this.previewSource === this.current && this.previewValues) return this.previewValues;
+    if (this.previewSource === this.current && this.previewCram === this.cram && this.previewValues) return this.previewValues;
     this.previewSource = this.current;
+    this.previewCram = this.cram;
     this.previewBuilds += 1;
-    this.previewValues = intervalPreviews(this.current.fm, this.current.deck, this.plugin.settings, new Date());
+    this.previewValues = this.cram
+      ? cramPreviews()
+      : intervalPreviews(this.current.fm, this.current.deck, this.plugin.settings, new Date());
     return this.previewValues;
   }
 
@@ -22207,18 +22237,21 @@ class CardView extends ItemView {
     const card = this.current;
     const override = !!(this.verdict && this.suggestedGrade && grade !== this.suggestedGrade);
     try {
-      const extra = this.verdict
-        ? {
-            typedAnswer: this.typedAnswer,
-            verdict: this.verdict.verdict,
-            matchedBy: this.verdict.matchedBy,
-            verdictOverride: override,
-            gradedBy: this.pendingGrade ? "self" : this.verdict.gradedBy || "deterministic",
-            gradeStatus: this.pendingGrade ? "self" : "graded",
-            gradeConfidence: this.verdict.confidence,
-            gradeFeedback: this.verdict.reason,
-          }
-        : null;
+      const extra = {
+        ...(this.verdict
+          ? {
+              typedAnswer: this.typedAnswer,
+              verdict: this.verdict.verdict,
+              matchedBy: this.verdict.matchedBy,
+              verdictOverride: override,
+              gradedBy: this.pendingGrade ? "self" : this.verdict.gradedBy || "deterministic",
+              gradeStatus: this.pendingGrade ? "self" : "graded",
+              gradeConfidence: this.verdict.confidence,
+              gradeFeedback: this.verdict.reason,
+            }
+          : {}),
+        cram: this.cram,
+      };
       const summary = await this.plugin.recordCardReview(card, grade, 0, extra);
       if (this.pendingGrade && this.pendingGradeId) this.plugin.discardPendingCardGrade(this.pendingGradeId);
       if (summary && summary.queued) {
@@ -22287,6 +22320,7 @@ class CardView extends ItemView {
       cls: "qt-cards-progress",
       text: `${this.index + 1} / ${this.queue.length}`,
     });
+    if (this.cram) top.createDiv({ cls: "qt-cards-cram-mode", text: "Cram · 3m / 5m / 10m / 1d" });
     if (!this.current) {
       root.createDiv({ cls: "qt-hint", text: "Loading card…" });
       return;
@@ -22429,7 +22463,7 @@ class CardView extends ItemView {
       if (this.aiChecking) b.disabled = true;
       b.createSpan({ cls: "qt-cards-rate-key", text: key });
       if (previews && previews[grade] !== null && previews[grade] !== undefined) {
-        b.createSpan({ cls: "qt-cards-rate-interval", text: formatInterval(previews[grade]) });
+        b.createSpan({ cls: "qt-cards-rate-interval", text: this.cram ? cramIntervalLabel(grade) : formatInterval(previews[grade]) });
       }
       b.addEventListener("click", () => this.rate(grade));
     }
@@ -22450,7 +22484,9 @@ class CardView extends ItemView {
           ? "The AI grade is pending. Rate the card yourself now, or leave it and it will be graded later."
           : this.verdict
             ? `Suggested rating: ${GRADE_LABELS[this.suggestedGrade] || "Good"}. Choose another rating to record an override.`
-            : "Rate how well you recalled it. 1 = again, 4 = easy.",
+            : this.cram
+              ? "Cram timing: Again 3m · Hard 5m · Good 10m · Easy 1d."
+              : "Rate how well you recalled it. 1 = again, 4 = easy.",
     });
   }
 
@@ -22462,15 +22498,15 @@ class CardView extends ItemView {
   renderSummary(root) {
     const s = this.session;
     const box = root.createDiv({ cls: "qt-onboard-card" });
-    box.createEl("h3", { text: "Review complete" });
+    box.createEl("h3", { text: this.cram ? "Cram session complete" : "Review complete" });
     box.createDiv({
       cls: "qt-onboard-text",
       text: `${s.reviewed} card${s.reviewed === 1 ? "" : "s"} reviewed · ${s.correct} recalled.`,
     });
     const row = box.createDiv({ cls: "qt-row" });
     row.createEl("span", { cls: "qt-cards-summary", text: `Again ${s.grades.again} · Hard ${s.grades.hard} · Good ${s.grades.good} · Easy ${s.grades.easy}` });
-    const again = box.createEl("button", { text: "Review again", cls: "mod-cta qt-primary" });
-    again.addEventListener("click", () => this.startReview("all"));
+    const again = box.createEl("button", { text: this.cram ? "Cram again" : "Review again", cls: "mod-cta qt-primary" });
+    again.addEventListener("click", () => this.startReview("all", undefined, this.cram));
     const back = box.createEl("button", { text: "Back to decks" });
     back.addEventListener("click", () => {
       this.state = "browse";
@@ -25762,6 +25798,7 @@ const SYNC_FIELDS = [
   "last_attempt_id",
   "history",
   "next_review",
+  "next_review_at",
   "scheduler",
   "srs",
   "sm2",
@@ -27270,6 +27307,70 @@ module.exports = {
   safeFileName,
   templateChoices,
   templateVariables,
+};
+};
+
+/* ---- src/cram.js ---- */
+__defs["cram"] = function (module, exports, require) {
+/*
+ * Cram sessions use compressed review times instead of the normal ladder,
+ * SM-2 or FSRS intervals. The values are minutes, so the attempt writer can
+ * store an exact due timestamp while cards without a cram timestamp keep the
+ * existing date-only scheduling behaviour.
+ */
+const CRAM_INTERVALS = Object.freeze({
+  again: 3,
+  hard: 5,
+  good: 10,
+  easy: 1440,
+});
+const CRAM_GRADES = Object.freeze(["again", "hard", "good", "easy"]);
+
+function normalizeCramGrade(value) {
+  const grade = String(value === undefined || value === null ? "" : value).trim().toLowerCase();
+  return CRAM_GRADES.includes(grade) ? grade : "";
+}
+
+function cramIntervalMinutes(grade) {
+  return CRAM_INTERVALS[normalizeCramGrade(grade)] || 0;
+}
+
+/** Exact due time for a cram rating, or null for an unknown grade. */
+function cramDueAt(now, grade) {
+  const minutes = cramIntervalMinutes(grade);
+  if (!minutes) return null;
+  const at = now instanceof Date && !isNaN(now.getTime()) ? new Date(now.getTime()) : new Date();
+  return new Date(at.getTime() + minutes * 60000);
+}
+
+/** Compact label used on the rating buttons. */
+function cramIntervalLabel(grade) {
+  const minutes = cramIntervalMinutes(grade);
+  if (!minutes) return "";
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes === 1440) return "1d";
+  if (minutes % 1440 === 0) return `${minutes / 1440}d`;
+  return `${Math.round(minutes / 60)}h`;
+}
+
+/** The same shape as intervalPreviews, but in minutes for a cram session. */
+function cramPreviews() {
+  return {
+    again: CRAM_INTERVALS.again,
+    hard: CRAM_INTERVALS.hard,
+    good: CRAM_INTERVALS.good,
+    easy: CRAM_INTERVALS.easy,
+  };
+}
+
+module.exports = {
+  CRAM_GRADES,
+  CRAM_INTERVALS,
+  cramDueAt,
+  cramIntervalLabel,
+  cramIntervalMinutes,
+  cramPreviews,
+  normalizeCramGrade,
 };
 };
 
@@ -31722,9 +31823,29 @@ const { FILTER_FIELDS } = require("./constants");
 const { isStudyable } = require("./study-status");
 const { pickAdaptiveQuestion } = require("./mastery-picker");
 
-function isDue(fm, today) {
-  if (!isStudyable(fm, today)) return false;
-  return Number(fm.attempts) > 0 && !!fm.next_review && str(fm.next_review).slice(0, 10) <= today;
+/** Exact due moment for a card with a cram timestamp, otherwise end of its review day. */
+function nextReviewTime(fm) {
+  const exact = fm && fm.next_review_at;
+  if (exact) {
+    const at = exact instanceof Date ? exact : new Date(str(exact));
+    if (!isNaN(at.getTime())) return at.getTime();
+  }
+  const day = str(fm && fm.next_review).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const at = new Date(`${day}T23:59:59.999`);
+  return isNaN(at.getTime()) ? null : at.getTime();
+}
+
+function isDue(fm, today, now) {
+  if (!isStudyable(fm, today) || !(Number(fm.attempts) > 0)) return false;
+  if (fm.next_review_at) {
+    const at = nextReviewTime(fm);
+    if (at !== null) {
+      const ref = now instanceof Date && !isNaN(now.getTime()) ? now.getTime() : Date.now();
+      return at <= ref;
+    }
+  }
+  return !!fm.next_review && str(fm.next_review).slice(0, 10) <= today;
 }
 
 const MODE_PRED = {
@@ -31970,6 +32091,7 @@ function pickQuestion(pool, mode, today, recent, rnd, all) {
 
 module.exports = {
   isDue,
+  nextReviewTime,
   MODE_PRED,
   weightOf,
   adaptiveWeight,
@@ -47350,6 +47472,7 @@ module.exports = { NoteReviewModal };
 /* ---- src/notes.js ---- */
 __defs["notes"] = function (module, exports, require) {
 const { addDays, fmtDate, fmtDateTime, fmtDateTimeSec, str } = require("./util");
+const { cramDueAt } = require("./cram");
 const { appendHistory, applyNeedsFixing, hasAttemptId, setAttemptErrorType } = require("./history");
 const { DEFAULT_SETTINGS, TRACKING_DEFAULTS } = require("./constants");
 const { reviewNote } = require("./fsrs");
@@ -47566,6 +47689,8 @@ function applyAttempt(fm, a, intervals, options) {
       attempts: Number(fm.attempts) || 0,
       correctCount: Number(fm.correct_count) || 0,
       nextReview: str(fm.next_review),
+      nextReviewAt: str(fm.next_review_at),
+      cram: !!str(fm.next_review_at),
       examCap: null,
       target: Number(fm.target_seconds) || 0,
       scheduler: ["fsrs", "sm2"].includes(fm.scheduler) ? fm.scheduler : "ladder",
@@ -47607,6 +47732,8 @@ function applyAttempt(fm, a, intervals, options) {
         ? prev
         : prev + 1
       : 0;
+  const cram = opts.cram === true && !!grade;
+  const cramDue = cram ? cramDueAt(a.now, grade) : null;
   // Leech handling is opt-in and separate from the ladder: consecutive misses
   // mark the note, a correct answer clears it, and suspending is optional.
   const leechThreshold = Math.max(0, Math.min(50, Math.round(Number(opts.leechThreshold) || 0)));
@@ -47701,18 +47828,30 @@ function applyAttempt(fm, a, intervals, options) {
   const needsFixing = !a.correct ? applyNeedsFixing(fm, a.now, opts.needsFixingDays) : null;
   if (opts.reviewUpdated) fm.review_updated = str(opts.reviewUpdated);
   const sameDay = isSameDayReview(grade, opts.sameDayReviews);
-  const scheduledReview = sameDay
-    ? fmtDate(a.now)
-    : fsrsReview
-      ? fsrsReview.nextReview
-      : sm2Review
-        ? sm2Review.nextReview
-        : fmtDate(addDays(a.now, days));
+  const scheduledReview = cramDue
+    ? fmtDate(cramDue)
+    : sameDay
+      ? fmtDate(a.now)
+      : fsrsReview
+        ? fsrsReview.nextReview
+        : sm2Review
+          ? sm2Review.nextReview
+          : fmtDate(addDays(a.now, days));
   const examCap = applyExamCap(fm, scheduledReview, opts.examCap, a.now);
-  fm.next_review = examCap ? examCap.date : scheduledReview;
+  fm.next_review = cramDue ? fmtDate(cramDue) : examCap ? examCap.date : scheduledReview;
+  if (cramDue) fm.next_review_at = cramDue.toISOString();
+  else delete fm.next_review_at;
   // Scheduler-fit reads this property. It is the scheduler's interval, not the
   // exam-capped due date, so compression does not distort the recall buckets.
-  const intervalDays = sameDay ? 0 : fsrsReview ? fsrsReview.days : sm2Review ? sm2Review.days : days;
+  const intervalDays = cramDue
+    ? Math.max(0, cramDue.getTime() - a.now.getTime()) / 86400000
+    : sameDay
+      ? 0
+      : fsrsReview
+        ? fsrsReview.days
+        : sm2Review
+          ? sm2Review.days
+          : days;
   fm.interval = Math.max(0, Math.round(Number(intervalDays) || 0));
   if (fsrsReview) {
     fm.srs = fsrsReview.srs;
@@ -47747,6 +47886,8 @@ function applyAttempt(fm, a, intervals, options) {
     attempts: fm.attempts,
     correctCount: fm.correct_count,
     nextReview: fm.next_review,
+    nextReviewAt: str(fm.next_review_at),
+    cram: !!cramDue,
     examCap,
     target: Number(fm.target_seconds) || 0,
     scheduler: fsrsReview ? "fsrs" : sm2Review ? "sm2" : "ladder",
@@ -68092,15 +68233,18 @@ ${body}
 
   /** Write one card review through the same scheduler and offline outbox as questions. */
   recordCardReview(card, grade, seconds, extra) {
+    const opts = extra || {};
+    const now = opts.now instanceof Date && !isNaN(opts.now.getTime()) ? opts.now : new Date();
     return this.recordAttempt(card.file, {
       ...cardAttempt(grade, seconds),
-      ...(extra || {}),
-      deck: (extra && extra.deck) || card.deck || (card.fm && card.fm.deck) || "",
-      course: (extra && extra.course) || card.course || (card.fm && card.fm.course) || "",
+      ...opts,
+      deck: opts.deck || card.deck || (card.fm && card.fm.deck) || "",
+      course: opts.course || card.course || (card.fm && card.fm.course) || "",
       reviewUpdated: new Date().toISOString(),
       sameDayReviews: this.settings.cards.sameDayReviews === true,
       adaptiveFrequency: this.settings.cards.adaptiveFrequency === true,
-      now: new Date(),
+      cram: opts.cram === true,
+      now,
     });
   }
 
@@ -69600,6 +69744,7 @@ ${body}
       needsFixingDays: this.settings.needsFixing ? NEEDS_FIXING_DAYS : 0,
       sameDayReviews: attempt.sameDayReviews === true,
       adaptiveFrequency: attempt.adaptiveFrequency === true,
+      cram: attempt.cram === true,
     };
 
     // Build the result the UI should show before touching the note. If the write
@@ -69697,6 +69842,7 @@ ${body}
               sm2: sched.sm2,
               sameDayReviews: attempt.sameDayReviews === true,
               adaptiveFrequency: attempt.adaptiveFrequency === true,
+              cram: attempt.cram === true,
               attemptId: entry.id,
               historyLimit: this.settings.historyLimit,
               leechThreshold: this.settings.leechThreshold,
@@ -116348,6 +116494,7 @@ const settingsGlobal = require("./settings-global");
 const readingLibrary = require("./reading-library");
 const cornell = require("./cornell");
 const intervalPreview = require("./interval-preview");
+const cram = require("./cram");
 const contextRetrieval = require("./context-retrieval");
 const { StudyToolsView } = require("./study-tools-view");
 const studyWorkspace = require("./study-workspace");
@@ -116622,6 +116769,7 @@ QuestionTrackerPlugin.__test = {
   studyMap,
   vaultSearch,
   intervalPreview,
+  cram,
   contextRetrieval,
   simpleFlashcards,
   quizBlock,

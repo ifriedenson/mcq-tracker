@@ -8159,15 +8159,18 @@ ${body}
 
   /** Write one card review through the same scheduler and offline outbox as questions. */
   recordCardReview(card, grade, seconds, extra) {
+    const opts = extra || {};
+    const now = opts.now instanceof Date && !isNaN(opts.now.getTime()) ? opts.now : new Date();
     return this.recordAttempt(card.file, {
       ...cardAttempt(grade, seconds),
-      ...(extra || {}),
-      deck: (extra && extra.deck) || card.deck || (card.fm && card.fm.deck) || "",
-      course: (extra && extra.course) || card.course || (card.fm && card.fm.course) || "",
+      ...opts,
+      deck: opts.deck || card.deck || (card.fm && card.fm.deck) || "",
+      course: opts.course || card.course || (card.fm && card.fm.course) || "",
       reviewUpdated: new Date().toISOString(),
       sameDayReviews: this.settings.cards.sameDayReviews === true,
       adaptiveFrequency: this.settings.cards.adaptiveFrequency === true,
-      now: new Date(),
+      cram: opts.cram === true,
+      now,
     });
   }
 
@@ -9667,6 +9670,7 @@ ${body}
       needsFixingDays: this.settings.needsFixing ? NEEDS_FIXING_DAYS : 0,
       sameDayReviews: attempt.sameDayReviews === true,
       adaptiveFrequency: attempt.adaptiveFrequency === true,
+      cram: attempt.cram === true,
     };
 
     // Build the result the UI should show before touching the note. If the write
@@ -9764,6 +9768,7 @@ ${body}
               sm2: sched.sm2,
               sameDayReviews: attempt.sameDayReviews === true,
               adaptiveFrequency: attempt.adaptiveFrequency === true,
+              cram: attempt.cram === true,
               attemptId: entry.id,
               historyLimit: this.settings.historyLimit,
               leechThreshold: this.settings.leechThreshold,

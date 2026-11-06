@@ -42,6 +42,7 @@ const SYNC_FIELDS = [
   "last_attempt_id",
   "history",
   "next_review",
+  "next_review_at",
   "scheduler",
   "srs",
   "sm2",

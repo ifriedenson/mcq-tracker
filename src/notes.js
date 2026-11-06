@@ -1,5 +1,6 @@
 "use strict";
 const { addDays, fmtDate, fmtDateTime, fmtDateTimeSec, str } = require("./util");
+const { cramDueAt } = require("./cram");
 const { appendHistory, applyNeedsFixing, hasAttemptId, setAttemptErrorType } = require("./history");
 const { DEFAULT_SETTINGS, TRACKING_DEFAULTS } = require("./constants");
 const { reviewNote } = require("./fsrs");
@@ -216,6 +217,8 @@ function applyAttempt(fm, a, intervals, options) {
       attempts: Number(fm.attempts) || 0,
       correctCount: Number(fm.correct_count) || 0,
       nextReview: str(fm.next_review),
+      nextReviewAt: str(fm.next_review_at),
+      cram: !!str(fm.next_review_at),
       examCap: null,
       target: Number(fm.target_seconds) || 0,
       scheduler: ["fsrs", "sm2"].includes(fm.scheduler) ? fm.scheduler : "ladder",
@@ -257,6 +260,8 @@ function applyAttempt(fm, a, intervals, options) {
         ? prev
         : prev + 1
       : 0;
+  const cram = opts.cram === true && !!grade;
+  const cramDue = cram ? cramDueAt(a.now, grade) : null;
   // Leech handling is opt-in and separate from the ladder: consecutive misses
   // mark the note, a correct answer clears it, and suspending is optional.
   const leechThreshold = Math.max(0, Math.min(50, Math.round(Number(opts.leechThreshold) || 0)));
@@ -351,18 +356,30 @@ function applyAttempt(fm, a, intervals, options) {
   const needsFixing = !a.correct ? applyNeedsFixing(fm, a.now, opts.needsFixingDays) : null;
   if (opts.reviewUpdated) fm.review_updated = str(opts.reviewUpdated);
   const sameDay = isSameDayReview(grade, opts.sameDayReviews);
-  const scheduledReview = sameDay
-    ? fmtDate(a.now)
-    : fsrsReview
-      ? fsrsReview.nextReview
-      : sm2Review
-        ? sm2Review.nextReview
-        : fmtDate(addDays(a.now, days));
+  const scheduledReview = cramDue
+    ? fmtDate(cramDue)
+    : sameDay
+      ? fmtDate(a.now)
+      : fsrsReview
+        ? fsrsReview.nextReview
+        : sm2Review
+          ? sm2Review.nextReview
+          : fmtDate(addDays(a.now, days));
   const examCap = applyExamCap(fm, scheduledReview, opts.examCap, a.now);
-  fm.next_review = examCap ? examCap.date : scheduledReview;
+  fm.next_review = cramDue ? fmtDate(cramDue) : examCap ? examCap.date : scheduledReview;
+  if (cramDue) fm.next_review_at = cramDue.toISOString();
+  else delete fm.next_review_at;
   // Scheduler-fit reads this property. It is the scheduler's interval, not the
   // exam-capped due date, so compression does not distort the recall buckets.
-  const intervalDays = sameDay ? 0 : fsrsReview ? fsrsReview.days : sm2Review ? sm2Review.days : days;
+  const intervalDays = cramDue
+    ? Math.max(0, cramDue.getTime() - a.now.getTime()) / 86400000
+    : sameDay
+      ? 0
+      : fsrsReview
+        ? fsrsReview.days
+        : sm2Review
+          ? sm2Review.days
+          : days;
   fm.interval = Math.max(0, Math.round(Number(intervalDays) || 0));
   if (fsrsReview) {
     fm.srs = fsrsReview.srs;
@@ -397,6 +414,8 @@ function applyAttempt(fm, a, intervals, options) {
     attempts: fm.attempts,
     correctCount: fm.correct_count,
     nextReview: fm.next_review,
+    nextReviewAt: str(fm.next_review_at),
+    cram: !!cramDue,
     examCap,
     target: Number(fm.target_seconds) || 0,
     scheduler: fsrsReview ? "fsrs" : sm2Review ? "sm2" : "ladder",

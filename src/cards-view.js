@@ -3,6 +3,7 @@ const { ItemView, Notice, setIcon } = require("obsidian");
 const { VIEW_TYPE_CARDS } = require("./constants");
 const { localDate, str } = require("./util");
 const { CARD_TYPE_LABELS, cardQueue, cardStats, courseOptions, deckSummary, parseCardBody, revealAnimationClass } = require("./cards");
+const { isDue, nextReviewTime } = require("./filters");
 const { CardModal } = require("./card-modal");
 const { renderMarkdownInto } = require("./view-helpers");
 const { gradeTypedAnswer } = require("./card-grading");
@@ -12,6 +13,7 @@ const { resolveApiKey } = require("./secret-keys");
 const { pendingGradeCounts } = require("./card-grade-queue");
 const { splitSourceContext } = require("./source-recall");
 const { formatInterval, intervalPreviews } = require("./interval-preview");
+const { cramIntervalLabel, cramPreviews } = require("./cram");
 const { buildRetention } = require("./analytics");
 
 const REVIEW_KEYS = { "1": "again", "2": "hard", "3": "good", "4": "easy" };
@@ -73,10 +75,12 @@ class CardView extends ItemView {
     this.previewSource = null;
     this.previewValues = null;
     this.previewBuilds = 0;
+    this.previewCram = false;
     this.speechFactory = null; // tests and hosts can inject a recognition boundary
     this.speechRecognition = null;
     this.speechListening = false;
     this.speechError = "";
+    this.cram = false;
     this.session = { reviewed: 0, correct: 0, grades: { again: 0, hard: 0, good: 0, easy: 0 } };
   }
 
@@ -372,8 +376,9 @@ class CardView extends ItemView {
   renderBrowse(root) {
     const p = this.plugin;
     const today = localDate();
+    const now = new Date();
     const all = p.getCards();
-    const stats = cardStats(all, today);
+    const stats = cardStats(all, today, now);
     const shown = p.filteredCards({ deck: this.deck, course: this.course });
     const pending = p.pendingCardGrades ? p.pendingCardGrades() : [];
     const pendingByPath = pendingGradeCounts(pending);
@@ -395,7 +400,7 @@ class CardView extends ItemView {
       return;
     }
 
-    const dueHere = shown.filter((c) => !Number(c.fm.attempts) || str(c.fm.next_review).slice(0, 10) <= today).length;
+    const dueHere = shown.filter((c) => !Number(c.fm.attempts) || isDue(c.fm, today, now)).length;
     const hero = root.createDiv({ cls: "qt-cards-hero" });
     const heroCopy = hero.createDiv({ cls: "qt-cards-hero-copy" });
     heroCopy.createDiv({ cls: "qt-cards-hero-kicker", text: dueHere ? "Review queue" : shown.length ? "Card library" : "Filtered view" });
@@ -421,7 +426,13 @@ class CardView extends ItemView {
     });
     start.disabled = !shown.length;
     start.addEventListener("click", () => this.startReview(dueHere ? "due" : "all"));
-
+    const cramStart = hero.createEl("button", { text: "Cram session", cls: "qt-cards-cram-start" });
+    cramStart.disabled = !shown.length;
+    cramStart.addEventListener("click", () => this.startReview("all", undefined, true));
+    root.createDiv({
+      cls: "qt-hint qt-cards-cram-hint",
+      text: "Cram session ratings: Again 3m · Hard 5m · Good 10m · Easy 1d.",
+    });
 
     const tools = root.createDiv({ cls: "qt-row qt-cards-tools qt-toolbar" });
     const add = tools.createEl("button", { text: "New card", cls: "mod-cta" });
@@ -469,7 +480,12 @@ class CardView extends ItemView {
     const list = root.createDiv({ cls: "qt-cards-list" });
     const preview = shown
       .slice()
-      .sort((a, b) => str(a.fm.next_review).localeCompare(str(b.fm.next_review)) || a.file.path.localeCompare(b.file.path))
+      .sort((a, b) => {
+        const at = nextReviewTime(a.fm);
+        const bt = nextReviewTime(b.fm);
+        if (at !== null && bt !== null && at !== bt) return at - bt;
+        return str(a.fm.next_review).localeCompare(str(b.fm.next_review)) || a.file.path.localeCompare(b.file.path);
+      })
       .slice(0, 12);
     for (const card of preview) {
       const row = list.createDiv({ cls: "qt-cards-row" });
@@ -480,7 +496,7 @@ class CardView extends ItemView {
       main.createDiv({ cls: "qt-cards-row-meta", text: bits.join(" · ") });
       const queued = pendingByPath.get(card.file.path) || 0;
       if (queued) row.createSpan({ cls: "qt-cards-pending-badge", text: queued > 1 ? `Pending ${queued}` : "Pending grade" });
-      const due = !Number(card.fm.attempts) ? "New" : str(card.fm.next_review).slice(0, 10) <= today ? "Due" : `Due ${str(card.fm.next_review).slice(0, 10)}`;
+      const due = !Number(card.fm.attempts) ? "New" : isDue(card.fm, today, now) ? "Due" : `Due ${str(card.fm.next_review).slice(0, 10)}`;
       row.createSpan({ cls: `qt-cards-due${due === "Due" ? " is-due" : ""}`, text: due });
       const action = row.createEl("button", { text: queued ? "Review" : "Open", cls: "qt-link" });
       action.addEventListener("click", () =>
@@ -525,7 +541,7 @@ class CardView extends ItemView {
   }
 
   renderDeckPicker(root, cards, today) {
-    const decks = deckSummary(cards, this.plugin.settings, today);
+    const decks = deckSummary(cards, this.plugin.settings, today, new Date());
     const wrap = root.createDiv({ cls: "qt-cards-filter" });
     wrap.createSpan({ cls: "qt-cards-filter-label", text: "Deck" });
     const chips = wrap.createDiv({ cls: "qt-chips" });
@@ -628,13 +644,16 @@ class CardView extends ItemView {
     ).open();
   }
 
-  startReview(order, only) {
+  startReview(order, only, cram) {
     const p = this.plugin;
+    this.cram = cram === true;
+    this.previewSource = null;
     const pool = Array.isArray(only) ? only : p.filteredCards({ deck: this.deck, course: this.course });
     const queue = cardQueue(pool, {
       today: localDate(),
+      now: new Date(),
       order: order || p.settings.cards.order,
-      limit: Array.isArray(only) ? Math.max(1, only.length) : p.settings.cards.reviewLimit,
+      limit: Array.isArray(only) ? Math.max(1, only.length) : this.cram ? pool.length : p.settings.cards.reviewLimit,
     });
     if (!queue.length) {
       new Notice("Nothing to review in this deck. Try another deck or review all cards.");
@@ -650,6 +669,8 @@ class CardView extends ItemView {
   /** Start a one-card review from the unified due queue. */
   async reviewCard(card) {
     if (!card) return;
+    this.cram = false;
+    this.previewSource = null;
     this.queue = [card];
     this.index = 0;
     this.state = "review";
@@ -689,10 +710,13 @@ class CardView extends ItemView {
   /** Reuse one scheduler replay for every re-render of the same card. */
   previewsForCurrent() {
     if (!this.current) return null;
-    if (this.previewSource === this.current && this.previewValues) return this.previewValues;
+    if (this.previewSource === this.current && this.previewCram === this.cram && this.previewValues) return this.previewValues;
     this.previewSource = this.current;
+    this.previewCram = this.cram;
     this.previewBuilds += 1;
-    this.previewValues = intervalPreviews(this.current.fm, this.current.deck, this.plugin.settings, new Date());
+    this.previewValues = this.cram
+      ? cramPreviews()
+      : intervalPreviews(this.current.fm, this.current.deck, this.plugin.settings, new Date());
     return this.previewValues;
   }
 
@@ -772,18 +796,21 @@ class CardView extends ItemView {
     const card = this.current;
     const override = !!(this.verdict && this.suggestedGrade && grade !== this.suggestedGrade);
     try {
-      const extra = this.verdict
-        ? {
-            typedAnswer: this.typedAnswer,
-            verdict: this.verdict.verdict,
-            matchedBy: this.verdict.matchedBy,
-            verdictOverride: override,
-            gradedBy: this.pendingGrade ? "self" : this.verdict.gradedBy || "deterministic",
-            gradeStatus: this.pendingGrade ? "self" : "graded",
-            gradeConfidence: this.verdict.confidence,
-            gradeFeedback: this.verdict.reason,
-          }
-        : null;
+      const extra = {
+        ...(this.verdict
+          ? {
+              typedAnswer: this.typedAnswer,
+              verdict: this.verdict.verdict,
+              matchedBy: this.verdict.matchedBy,
+              verdictOverride: override,
+              gradedBy: this.pendingGrade ? "self" : this.verdict.gradedBy || "deterministic",
+              gradeStatus: this.pendingGrade ? "self" : "graded",
+              gradeConfidence: this.verdict.confidence,
+              gradeFeedback: this.verdict.reason,
+            }
+          : {}),
+        cram: this.cram,
+      };
       const summary = await this.plugin.recordCardReview(card, grade, 0, extra);
       if (this.pendingGrade && this.pendingGradeId) this.plugin.discardPendingCardGrade(this.pendingGradeId);
       if (summary && summary.queued) {
@@ -852,6 +879,7 @@ class CardView extends ItemView {
       cls: "qt-cards-progress",
       text: `${this.index + 1} / ${this.queue.length}`,
     });
+    if (this.cram) top.createDiv({ cls: "qt-cards-cram-mode", text: "Cram · 3m / 5m / 10m / 1d" });
     if (!this.current) {
       root.createDiv({ cls: "qt-hint", text: "Loading card…" });
       return;
@@ -994,7 +1022,7 @@ class CardView extends ItemView {
       if (this.aiChecking) b.disabled = true;
       b.createSpan({ cls: "qt-cards-rate-key", text: key });
       if (previews && previews[grade] !== null && previews[grade] !== undefined) {
-        b.createSpan({ cls: "qt-cards-rate-interval", text: formatInterval(previews[grade]) });
+        b.createSpan({ cls: "qt-cards-rate-interval", text: this.cram ? cramIntervalLabel(grade) : formatInterval(previews[grade]) });
       }
       b.addEventListener("click", () => this.rate(grade));
     }
@@ -1015,7 +1043,9 @@ class CardView extends ItemView {
           ? "The AI grade is pending. Rate the card yourself now, or leave it and it will be graded later."
           : this.verdict
             ? `Suggested rating: ${GRADE_LABELS[this.suggestedGrade] || "Good"}. Choose another rating to record an override.`
-            : "Rate how well you recalled it. 1 = again, 4 = easy.",
+            : this.cram
+              ? "Cram timing: Again 3m · Hard 5m · Good 10m · Easy 1d."
+              : "Rate how well you recalled it. 1 = again, 4 = easy.",
     });
   }
 
@@ -1027,15 +1057,15 @@ class CardView extends ItemView {
   renderSummary(root) {
     const s = this.session;
     const box = root.createDiv({ cls: "qt-onboard-card" });
-    box.createEl("h3", { text: "Review complete" });
+    box.createEl("h3", { text: this.cram ? "Cram session complete" : "Review complete" });
     box.createDiv({
       cls: "qt-onboard-text",
       text: `${s.reviewed} card${s.reviewed === 1 ? "" : "s"} reviewed · ${s.correct} recalled.`,
     });
     const row = box.createDiv({ cls: "qt-row" });
     row.createEl("span", { cls: "qt-cards-summary", text: `Again ${s.grades.again} · Hard ${s.grades.hard} · Good ${s.grades.good} · Easy ${s.grades.easy}` });
-    const again = box.createEl("button", { text: "Review again", cls: "mod-cta qt-primary" });
-    again.addEventListener("click", () => this.startReview("all"));
+    const again = box.createEl("button", { text: this.cram ? "Cram again" : "Review again", cls: "mod-cta qt-primary" });
+    again.addEventListener("click", () => this.startReview("all", undefined, this.cram));
     const back = box.createEl("button", { text: "Back to decks" });
     back.addEventListener("click", () => {
       this.state = "browse";

@@ -4562,6 +4562,17 @@ body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tra
   font-size: 0.85rem;
 }
 
+.qt-cards-cram-mode {
+  color: var(--text-accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.qt-cards-cram-hint {
+  margin-top: 6px;
+}
+
 .qt-cards-box {
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
@@ -10178,11 +10189,15 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   margin-top: 4px;
 }
 
-.qt-cards-hero .qt-cards-start {
+.qt-cards-hero .qt-cards-start,
+.qt-cards-hero .qt-cards-cram-start {
   flex: 0 0 auto;
   min-height: 48px;
-  min-width: 220px;
   width: auto;
+}
+
+.qt-cards-hero .qt-cards-start {
+  min-width: 220px;
 }
 
 .qt-cards-filters {
@@ -10217,7 +10232,8 @@ body.is-mobile .qt-screen .qt-local-events-tab {
     padding: 14px 16px;
   }
 
-  .qt-cards-hero .qt-cards-start {
+  .qt-cards-hero .qt-cards-start,
+  .qt-cards-hero .qt-cards-cram-start {
     min-width: 0;
     width: 100%;
   }

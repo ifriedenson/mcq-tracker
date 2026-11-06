@@ -4,9 +4,29 @@ const { FILTER_FIELDS } = require("./constants");
 const { isStudyable } = require("./study-status");
 const { pickAdaptiveQuestion } = require("./mastery-picker");
 
-function isDue(fm, today) {
-  if (!isStudyable(fm, today)) return false;
-  return Number(fm.attempts) > 0 && !!fm.next_review && str(fm.next_review).slice(0, 10) <= today;
+/** Exact due moment for a card with a cram timestamp, otherwise end of its review day. */
+function nextReviewTime(fm) {
+  const exact = fm && fm.next_review_at;
+  if (exact) {
+    const at = exact instanceof Date ? exact : new Date(str(exact));
+    if (!isNaN(at.getTime())) return at.getTime();
+  }
+  const day = str(fm && fm.next_review).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const at = new Date(`${day}T23:59:59.999`);
+  return isNaN(at.getTime()) ? null : at.getTime();
+}
+
+function isDue(fm, today, now) {
+  if (!isStudyable(fm, today) || !(Number(fm.attempts) > 0)) return false;
+  if (fm.next_review_at) {
+    const at = nextReviewTime(fm);
+    if (at !== null) {
+      const ref = now instanceof Date && !isNaN(now.getTime()) ? now.getTime() : Date.now();
+      return at <= ref;
+    }
+  }
+  return !!fm.next_review && str(fm.next_review).slice(0, 10) <= today;
 }
 
 const MODE_PRED = {
@@ -252,6 +272,7 @@ function pickQuestion(pool, mode, today, recent, rnd, all) {
 
 module.exports = {
   isDue,
+  nextReviewTime,
   MODE_PRED,
   weightOf,
   adaptiveWeight,
