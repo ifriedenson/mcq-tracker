@@ -14,6 +14,7 @@ const { chatMarkdown } = require("./chat-history");
 const chatBudget = require("./chat-budget");
 const chatMentions = require("./chat-mentions");
 const chatModels = require("./chat-models");
+const chatBookmarks = require("./chat-bookmarks");
 const chatCompact = require("./chat-compact");
 const chatQueue = require("./chat-queue");
 
@@ -59,6 +60,8 @@ class ChatPanel {
     this.previewSeq = 0;
     this.lastBudget = null;
     this.queue = chatQueue.normalizeQueue(opts.getQueue ? opts.getQueue() : []);
+    this.bookmarks = chatBookmarks.normalizeBookmarks(opts.getBookmarks ? opts.getBookmarks() : []);
+    this.turnEls = [];
     this.draining = false;
     this.libraryQuery = "";
     this.showArchived = false;
@@ -824,6 +827,7 @@ class ChatPanel {
 
   /** Replace the transcript without touching the stored history (the caller owns it). */
   loadConversation(messages) {
+    this.refreshBookmarks();
     this.turns = apiTurns(Array.isArray(messages) ? messages : []);
     this.pending = "";
     this.error = "";
@@ -1152,6 +1156,68 @@ class ChatPanel {
     return true;
   }
 
+  /** Reload the owning tab's bookmark list after a resume or reload. */
+  refreshBookmarks() {
+    this.bookmarks = chatBookmarks.normalizeBookmarks(
+      typeof this.opts.getBookmarks === "function" ? this.opts.getBookmarks() : []
+    );
+    return this.bookmarks;
+  }
+
+  /** Bookmark or unbookmark one displayed message, persisting through the tab. */
+  toggleBookmark(index, turn) {
+    const bookmark = chatBookmarks.makeBookmark(turn, index);
+    if (!bookmark) return null;
+    const wasSaved = chatBookmarks.isBookmarked(this.bookmarks, bookmark);
+    this.bookmarks = chatBookmarks.toggleBookmark(this.bookmarks, bookmark);
+    if (typeof this.opts.saveBookmarks === "function") this.opts.saveBookmarks(this.bookmarks.slice());
+    if (this.status) this.status.setText(wasSaved ? "Bookmark removed." : "Bookmarked. Copy link to reopen this message later.");
+    this.sig = "";
+    this.draw();
+    return this.bookmarks;
+  }
+
+  /** Persist a bookmark if needed, then copy its conversation/message URI. */
+  async copyBookmarkLink(index, turn) {
+    const bookmark = chatBookmarks.makeBookmark(turn, index);
+    if (!bookmark) return false;
+    if (!chatBookmarks.isBookmarked(this.bookmarks, bookmark)) {
+      this.bookmarks = chatBookmarks.toggleBookmark(this.bookmarks, bookmark);
+      if (typeof this.opts.saveBookmarks === "function") this.opts.saveBookmarks(this.bookmarks.slice());
+      this.sig = "";
+      this.draw();
+    }
+    const link = typeof this.opts.bookmarkLink === "function" ? this.opts.bookmarkLink(bookmark) : "";
+    if (!link) {
+      if (this.status) this.status.setText("This conversation cannot be linked yet.");
+      return false;
+    }
+    await this.copyText(link);
+    if (this.status) this.status.setText("Bookmark link copied. Paste it anywhere to jump back to this message.");
+    return true;
+  }
+
+  /** Scroll to and briefly highlight one message (used when a bookmark link opens). */
+  focusMessage(index) {
+    const el = this.turnEls[index];
+    if (!el) {
+      if (this.status) this.status.setText("That message is no longer in this conversation.");
+      return false;
+    }
+    if (typeof el.scrollIntoView === "function") el.scrollIntoView({ block: "center" });
+    if (typeof el.addClass === "function") el.addClass("is-bookmark-jump");
+    if (typeof activeWindow !== "undefined" && activeWindow && typeof activeWindow.setTimeout === "function") {
+      activeWindow.setTimeout(() => {
+        try {
+          if (el && typeof el.removeClass === "function") el.removeClass("is-bookmark-jump");
+        } catch (e) {
+          /* the panel may have been redrawn */
+        }
+      }, 3500);
+    }
+    return true;
+  }
+
   async send(text) {
     text = str(text).trim();
     if (!text || !this.ai.enabled) return false;
@@ -1331,6 +1397,7 @@ class ChatPanel {
     const base = hist.concat(resend && last && last.role === "user" ? [] : [{ role: "user", content: text }]);
     let proposals = [];
     let partial = "";
+    let stoppedNote = "";
     const onDelta = (delta) => {
       if (token !== this.apiCancelToken) return;
       const chunk = str(delta);
@@ -1365,6 +1432,7 @@ class ChatPanel {
       if (token !== this.apiCancelToken) return;
       const stopped = e && (e.name === "AbortError" || (controller && controller.signal && controller.signal.aborted));
       const kept = partial.trim();
+      stoppedNote = stopped ? (kept ? "Stopped. The partial reply was kept." : "Stopped.") : "";
       if (kept) {
         if (!resend) hist.push({ role: "user", content: text });
         else if (!hist.length || hist[hist.length - 1].role !== "user") hist.push({ role: "user", content: text });
@@ -1375,12 +1443,12 @@ class ChatPanel {
       this.pending = "";
       this.streamText = "";
       this.error = stopped ? "" : friendlyApiError(e);
-      if (stopped && this.status) this.status.setText(kept ? "Stopped. The partial reply was kept." : "Stopped.");
       if (!stopped && !kept) this.input.value = text;
     } finally {
       if (token === this.apiCancelToken) {
         this.streamingController = null;
         this.setBusy(false);
+        if (stoppedNote && this.status) this.status.setText(stoppedNote);
         this.turns = apiTurns(hist);
         this.draw();
         if (proposals.length) new AiToolReviewModal(this.view.app, this.view.plugin, proposals).open();
@@ -1427,17 +1495,36 @@ class ChatPanel {
 
   draw() {
     if (!this.transcript) return;
-    const sig = JSON.stringify([this.turns, this.pending, this.error, this.busy, this.streamText]);
+    const sig = JSON.stringify([this.turns, this.pending, this.error, this.busy, this.streamText, this.bookmarks]);
     if (sig === this.sig) return;
     this.sig = sig;
     const box = this.transcript;
     box.empty();
-    for (const t of this.turns) {
+    this.turnEls = [];
+    const lastAssistant = [...this.turns].reverse().find((turn) => turn.role === "assistant");
+    this.turns.forEach((t, index) => {
       const b = box.createDiv({ cls: `qt-msg is-${t.role}` });
+      this.turnEls[index] = b;
       for (const text of t.texts) this.view.md(text, b.createDiv({ cls: "qt-msg-text" }), this.opts.sourcePath || "");
       for (const line of t.tools) b.createDiv({ cls: "qt-tool", text: line });
-      if (t.role === "assistant" && t.texts.length && !this.busy) {
-        const actions = b.createDiv({ cls: "qt-msg-actions" });
+      const bookmark = chatBookmarks.makeBookmark(t, index);
+      const assistantActions = t.role === "assistant" && t.texts.length && !this.busy;
+      if (!bookmark && !assistantActions) return;
+      const actions = b.createDiv({ cls: "qt-msg-actions" });
+      if (bookmark) {
+        const saved = chatBookmarks.isBookmarked(this.bookmarks, bookmark);
+        const toggle = actions.createEl("button", {
+          text: saved ? "Bookmarked" : "Bookmark",
+          cls: `qt-msg-bookmark${saved ? " is-bookmarked" : ""}`,
+          attr: { "aria-label": saved ? "Remove this message bookmark" : "Bookmark this message" },
+        });
+        toggle.addEventListener("click", () => this.toggleBookmark(index, t));
+        if (saved) {
+          const copy = actions.createEl("button", { text: "Copy link", cls: "qt-msg-bookmark-link" });
+          copy.addEventListener("click", () => this.copyBookmarkLink(index, t));
+        }
+      }
+      if (assistantActions) {
         const copy = actions.createEl("button", { text: "Copy" });
         copy.addEventListener("click", () => this.copyText(t.texts.join("\n\n")));
         if (this.opts.onSaveNote) {
@@ -1447,12 +1534,12 @@ class ChatPanel {
           });
           sv.addEventListener("click", () => this.opts.onSaveNote(t.texts.join("\n\n")));
         }
-        if (t === [...this.turns].reverse().find((turn) => turn.role === "assistant")) {
+        if (t === lastAssistant) {
           const again = actions.createEl("button", { text: "Regenerate" });
           again.addEventListener("click", () => this.regenerate());
         }
       }
-    }
+    });
     if (this.pending) {
       box.createDiv({ cls: "qt-msg is-user" }).createDiv({ cls: "qt-msg-text", text: this.pending });
     }

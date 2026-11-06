@@ -229,6 +229,8 @@ const { TranscriptPracticeModal } = require("./transcript-modal");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const { QuickAskModal } = require("./quick-ask-modal");
+const { QuickChatModal } = require("./quick-chat-modal");
+const chatBookmarks = require("./chat-bookmarks");
 const studyCommands = require("./study-commands");
 const { quickAddNote, quickAddTitle } = require("./quick-add");
 const { noteQuizToQuickAdd } = require("./quiz-clipboard");
@@ -387,6 +389,11 @@ class QuestionTrackerPlugin extends Plugin {
       this._tableRibbon = this.addRibbonIcon("table", "Advanced Tables: controls", () => this.openTableControls());
     }
     this.noteReviewDock = new NoteReviewDock(this);
+    this._quickChatModal = null;
+    // Chat bookmark links are handled by this plugin, not a hosted redirect.
+    if (typeof this.registerObsidianProtocolHandler === "function") {
+      this.registerObsidianProtocolHandler("mcq-tracker-chat", (params) => this.openChatBookmark(params));
+    }
     if (typeof this.registerMarkdownPostProcessor === "function") {
       this.registerMarkdownPostProcessor((el) => satCallout.syncSatCallouts(el));
       this.registerMarkdownPostProcessor((el, ctx) => this.decorateTableEditor(el, ctx));
@@ -736,6 +743,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "cards-import-document", name: "Cards: extract cards from a PDF or Markdown file", callback: () => this.openDocumentCards() });
     this.addCommand({ id: "open-study-agent", name: "Study agent: open the sidebar", callback: () => this.activateAgent() });
     this.addCommand({ id: "ai-quick-ask", name: "AI: Quick Ask about the selection or note", callback: () => this.openQuickAsk() });
+    this.addCommand({ id: "study-agent-quick-chat", name: "Study agent: Quick Chat", callback: () => this.openQuickChat() });
     this.addCommand({
       id: "cards-rescan-plain",
       name: "Cards: rescan plain Markdown folder",
@@ -1154,6 +1162,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.ai.verification = normalizeVerificationMode(this.settings.ai.verification);
     aiService.normalizeAiService(this.settings.ai);
     this.settings.ai.studyCommands = studyCommands.normalizeStudyCommands(this.settings.ai.studyCommands);
+    this.settings.ai.studyChatBookmarks = chatBookmarks.normalizeBookmarks(this.settings.ai.studyChatBookmarks);
     // 0.2.0 saved settings had no `managed` flag: move those users to the automatic setup.
     if (saved.explanationDefault === undefined && saved.showRationale === false) this.settings.explanationDefault = "hide";
     delete this.settings.showRationale;
@@ -1899,6 +1908,14 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   onunload() {
+    if (this._quickChatModal) {
+      try {
+        this._quickChatModal.close();
+      } catch (e) {
+        /* the modal may already be closed */
+      }
+      this._quickChatModal = null;
+    }
     practiceFullscreen.setPracticeFullscreen(null, false);
     if (this.manager) this.manager.stop();
     this.pdfPlusPaused = true;
@@ -3884,6 +3901,58 @@ class QuestionTrackerPlugin extends Plugin {
     if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
     await ws.revealLeaf(leaf);
     return leaf.view;
+  }
+
+  /** Open the compact Quick Chat prompt; repeated invocations reuse the open modal. */
+  openQuickChat(options) {
+    const ai = this.settings && this.settings.ai;
+    if (!ai || ai.enabled !== true) {
+      new Notice("Turn on AI under Settings > MCQ Tracker > AI to use Quick Chat.");
+      return null;
+    }
+    if (this._quickChatModal) {
+      this._quickChatModal.focus();
+      return this._quickChatModal;
+    }
+    const modal = new QuickChatModal(this.app, this, options || {});
+    this._quickChatModal = modal;
+    modal.onClosed = () => {
+      if (this._quickChatModal === modal) this._quickChatModal = null;
+    };
+    modal.open();
+    return modal;
+  }
+
+  /** Dispatch a quick prompt into the active Study agent panel and its shipped guards. */
+  async quickChat(text) {
+    const value = String(text === undefined || text === null ? "" : text).trim();
+    if (!value) return false;
+    try {
+      const view = await this.activateAgent();
+      if (!view || typeof view.quickChat !== "function") {
+        new Notice("The Study agent could not open. Nothing was sent.");
+        return false;
+      }
+      return view.quickChat(value);
+    } catch (e) {
+      new Notice(`Quick Chat could not send: ${String(e && e.message ? e.message : e)}`, 8000);
+      return false;
+    }
+  }
+
+  /** Handle an obsidian://mcq-tracker-chat bookmark link. */
+  async openChatBookmark(params) {
+    try {
+      const view = await this.activateAgent();
+      if (!view || typeof view.openBookmarkLink !== "function") {
+        new Notice("The Study agent could not open that chat link.");
+        return false;
+      }
+      return await view.openBookmarkLink(params);
+    } catch (e) {
+      new Notice(`Could not open that chat link: ${String(e && e.message ? e.message : e)}`, 8000);
+      return false;
+    }
   }
 
   openCardExport(options, onDone) {

@@ -107,6 +107,7 @@ const DEFAULT_SETTINGS = {
     studyChatPinned: false, // pinned conversations sort first in the library
     studyChatModel: "", // optional model override for the active chat
     studyChatQueue: [], // messages waiting for the active chat's reply to finish
+    studyChatBookmarks: [], // saved message links on the active conversation
     studyChatTabOrder: 0, // stable order for open conversation tabs
     chatSessions: [], // saved and open conversations, bounded by chat-sessions.js
     studyCommands: [], // reusable /commands; prompts may use {} or {selection}

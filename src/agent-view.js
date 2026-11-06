@@ -15,6 +15,7 @@ const { insertReplyIntoNote } = require("./agent-note");
 const { renderMarkdownInto } = require("./view-helpers");
 const { MAX_FILES, MAX_FILE_CHARS, excerptBlock, searchText, terms } = require("./agent-retrieval");
 const { chatFileName, normalizeChatHistory } = require("./chat-history");
+const chatBookmarks = require("./chat-bookmarks");
 const chatQueue = require("./chat-queue");
 const { archiveSession, libraryRows, newChatId, normalizeSessions, removeSession, renameSession, setArchivedSession, setPinnedSession, titleFromMessages } = require("./chat-sessions");
 
@@ -148,6 +149,7 @@ class AgentView extends ItemView {
       messages,
       model: str(ai.studyChatModel).trim(),
       queue: chatQueue.normalizeQueue(ai.studyChatQueue),
+      bookmarks: chatBookmarks.normalizeBookmarks(ai.studyChatBookmarks),
       sessionId: str(ai.sessionId).trim(),
       pinned: ai.studyChatPinned === true,
       archived: false,
@@ -182,6 +184,7 @@ class AgentView extends ItemView {
       messages: normalizeChatHistory(record.messages),
       model: str(record.model).trim(),
       queue: chatQueue.normalizeQueue(record.queue),
+      bookmarks: chatBookmarks.normalizeBookmarks(record.bookmarks),
       sessionId: str(record.sessionId).trim(),
       pinned: record.pinned === true,
       archived: record.archived === true,
@@ -205,6 +208,9 @@ class AgentView extends ItemView {
       setModel: (value) => this.updateTab(tab, { model: str(value).trim().slice(0, 200) }),
       getQueue: () => tab.queue,
       saveQueue: (queue) => this.updateTab(tab, { queue }),
+      getBookmarks: () => tab.bookmarks,
+      saveBookmarks: (bookmarks) => this.updateTab(tab, { bookmarks }),
+      bookmarkLink: (bookmark) => this.bookmarkLink(bookmark, tab),
       getSessionId: () => tab.sessionId,
       setSessionId: (id) => this.updateTab(tab, { sessionId: str(id).trim() }),
       getApiHistory: () => tab.messages,
@@ -299,6 +305,7 @@ class AgentView extends ItemView {
       messages: normalizeChatHistory(ai.studyChat),
       model: str(ai.studyChatModel).trim(),
       queue: chatQueue.normalizeQueue(ai.studyChatQueue),
+      bookmarks: chatBookmarks.normalizeBookmarks(ai.studyChatBookmarks),
       pinned: ai.studyChatPinned === true,
       open: true,
     };
@@ -379,6 +386,7 @@ class AgentView extends ItemView {
     ai.studyChatPinned = tab.pinned === true;
     ai.studyChatModel = str(tab.model).trim();
     ai.studyChatQueue = chatQueue.normalizeQueue(tab.queue);
+    ai.studyChatBookmarks = chatBookmarks.normalizeBookmarks(tab.bookmarks);
     ai.studyChatTabOrder = Number(tab.tabOrder) || 0;
     ai.sessionId = str(tab.sessionId).trim();
     this.apiHistory = tab.messages;
@@ -404,6 +412,7 @@ class AgentView extends ItemView {
       notePath: "",
       model: str(tab.model).trim(),
       queue: chatQueue.normalizeQueue(tab.queue),
+      bookmarks: chatBookmarks.normalizeBookmarks(tab.bookmarks),
       pinned: tab.pinned === true,
       archived: tab.archived === true,
       open: opts.open === true ? true : false,
@@ -417,6 +426,7 @@ class AgentView extends ItemView {
     const next = changes && typeof changes === "object" ? changes : {};
     if (Object.prototype.hasOwnProperty.call(next, "messages")) setTabMessages(tab, next.messages);
     if (Object.prototype.hasOwnProperty.call(next, "queue")) tab.queue = chatQueue.normalizeQueue(next.queue);
+    if (Object.prototype.hasOwnProperty.call(next, "bookmarks")) tab.bookmarks = chatBookmarks.normalizeBookmarks(next.bookmarks);
     if (Object.prototype.hasOwnProperty.call(next, "model")) tab.model = str(next.model).trim().slice(0, 200);
     if (Object.prototype.hasOwnProperty.call(next, "sessionId")) tab.sessionId = str(next.sessionId).trim();
     if (Object.prototype.hasOwnProperty.call(next, "title")) tab.title = str(next.title).replace(/\s+/g, " ").trim().slice(0, 80);
@@ -500,6 +510,7 @@ class AgentView extends ItemView {
       messages: [],
       model: "",
       queue: [],
+      bookmarks: [],
       sessionId: "",
       pinned: false,
       archived: false,
@@ -536,6 +547,7 @@ class AgentView extends ItemView {
       messages: [],
       model: "",
       queue: [],
+      bookmarks: [],
       sessionId: "",
       pinned: false,
       archived: false,
@@ -689,6 +701,7 @@ class AgentView extends ItemView {
         ai.studyChatPinned = false;
         ai.studyChatModel = "";
         ai.studyChatQueue = [];
+        ai.studyChatBookmarks = [];
         ai.sessionId = "";
         this.apiHistory = [];
         if (this.chatTabs.length) {
@@ -790,6 +803,84 @@ class AgentView extends ItemView {
     await vault.create(path, text.endsWith("\n") ? text : `${text}\n`);
     new Notice(`Saved this chat to ${path}.`);
     return path;
+  }
+
+  /** A copyable link for a bookmark on this tab (or the active tab). */
+  bookmarkLink(bookmark, tab) {
+    const target = tab || this.activeTab();
+    if (!target || !target.id) return "";
+    return chatBookmarks.bookmarkLink(target.id, bookmark);
+  }
+
+  /**
+   * Dispatch a Quick Chat prompt into the active panel. The panel owns the
+   * provider request, model/mention/budget checks and Stop/error handling, so
+   * there is no second client and no modal-owned conversation state.
+   */
+  quickChat(text) {
+    const value = str(text).trim();
+    if (!value) return false;
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    if (!ai || ai.enabled !== true) {
+      new Notice("Turn on AI before using Quick Chat.");
+      return false;
+    }
+    if (!this.chatPanel) this.openEmptyTab();
+    const panel = this.chatPanel;
+    if (!panel || typeof panel.send !== "function") {
+      new Notice("The Study agent could not open. Nothing was sent.");
+      return false;
+    }
+    const pending = panel.send(value);
+    if (pending && typeof pending.catch === "function") {
+      pending.catch((e) => new Notice(str(e && e.message ? e.message : e) || "Quick Chat could not send.", 8000));
+    }
+    return true;
+  }
+
+  /**
+   * Open a bookmark link. The target conversation is resumed from the same
+   * chatSessions store when it is not already a tab; deleted chats and deleted
+   * messages produce a plain Notice rather than an exception.
+   */
+  async openBookmarkLink(value) {
+    const parsed = chatBookmarks.parseBookmarkLink(value);
+    if (!parsed) {
+      new Notice("That chat link is not valid. Copy the link again from a bookmarked message.");
+      return false;
+    }
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    if (!ai) return false;
+    let tab = this.tabById(parsed.chatId);
+    if (!tab) {
+      const saved = normalizeSessions(ai.chatSessions).find((session) => session.id === parsed.chatId);
+      if (!saved) {
+        new Notice("That conversation no longer exists. It may have been deleted.", 7000);
+        return false;
+      }
+      if (!this.resumeChat(parsed.chatId)) {
+        new Notice("That conversation could not be opened. It may have been deleted.", 7000);
+        return false;
+      }
+      tab = this.tabById(parsed.chatId);
+    }
+    if (!tab) {
+      new Notice("That conversation is not available in this Study agent.", 7000);
+      return false;
+    }
+    if (this.activeTabId !== tab.id) this.switchTab(tab.id);
+    const displayed = tab.panel && Array.isArray(tab.panel.turns)
+      ? tab.panel.turns.map((turn) => ({ role: turn.role, content: turn.texts.join("\n\n") }))
+      : [];
+    const history = tab.messages && tab.messages.length ? tab.messages : displayed;
+    const found = chatBookmarks.resolveBookmark(history, parsed.bookmark);
+    if (!found.ok) {
+      if (tab.panel && tab.panel.status) tab.panel.status.setText("That message is no longer in this conversation. It may have been deleted or compacted.");
+      new Notice("That message is no longer in this conversation. It may have been deleted or compacted.", 7000);
+      return false;
+    }
+    if (tab.panel && typeof tab.panel.focusMessage === "function") tab.panel.focusMessage(found.index);
+    return true;
   }
 
   /** Ask one passage-scoped question through the existing chat panel and its guards. */

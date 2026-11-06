@@ -1432,6 +1432,7 @@ const { insertReplyIntoNote } = require("./agent-note");
 const { renderMarkdownInto } = require("./view-helpers");
 const { MAX_FILES, MAX_FILE_CHARS, excerptBlock, searchText, terms } = require("./agent-retrieval");
 const { chatFileName, normalizeChatHistory } = require("./chat-history");
+const chatBookmarks = require("./chat-bookmarks");
 const chatQueue = require("./chat-queue");
 const { archiveSession, libraryRows, newChatId, normalizeSessions, removeSession, renameSession, setArchivedSession, setPinnedSession, titleFromMessages } = require("./chat-sessions");
 
@@ -1565,6 +1566,7 @@ class AgentView extends ItemView {
       messages,
       model: str(ai.studyChatModel).trim(),
       queue: chatQueue.normalizeQueue(ai.studyChatQueue),
+      bookmarks: chatBookmarks.normalizeBookmarks(ai.studyChatBookmarks),
       sessionId: str(ai.sessionId).trim(),
       pinned: ai.studyChatPinned === true,
       archived: false,
@@ -1599,6 +1601,7 @@ class AgentView extends ItemView {
       messages: normalizeChatHistory(record.messages),
       model: str(record.model).trim(),
       queue: chatQueue.normalizeQueue(record.queue),
+      bookmarks: chatBookmarks.normalizeBookmarks(record.bookmarks),
       sessionId: str(record.sessionId).trim(),
       pinned: record.pinned === true,
       archived: record.archived === true,
@@ -1622,6 +1625,9 @@ class AgentView extends ItemView {
       setModel: (value) => this.updateTab(tab, { model: str(value).trim().slice(0, 200) }),
       getQueue: () => tab.queue,
       saveQueue: (queue) => this.updateTab(tab, { queue }),
+      getBookmarks: () => tab.bookmarks,
+      saveBookmarks: (bookmarks) => this.updateTab(tab, { bookmarks }),
+      bookmarkLink: (bookmark) => this.bookmarkLink(bookmark, tab),
       getSessionId: () => tab.sessionId,
       setSessionId: (id) => this.updateTab(tab, { sessionId: str(id).trim() }),
       getApiHistory: () => tab.messages,
@@ -1716,6 +1722,7 @@ class AgentView extends ItemView {
       messages: normalizeChatHistory(ai.studyChat),
       model: str(ai.studyChatModel).trim(),
       queue: chatQueue.normalizeQueue(ai.studyChatQueue),
+      bookmarks: chatBookmarks.normalizeBookmarks(ai.studyChatBookmarks),
       pinned: ai.studyChatPinned === true,
       open: true,
     };
@@ -1796,6 +1803,7 @@ class AgentView extends ItemView {
     ai.studyChatPinned = tab.pinned === true;
     ai.studyChatModel = str(tab.model).trim();
     ai.studyChatQueue = chatQueue.normalizeQueue(tab.queue);
+    ai.studyChatBookmarks = chatBookmarks.normalizeBookmarks(tab.bookmarks);
     ai.studyChatTabOrder = Number(tab.tabOrder) || 0;
     ai.sessionId = str(tab.sessionId).trim();
     this.apiHistory = tab.messages;
@@ -1821,6 +1829,7 @@ class AgentView extends ItemView {
       notePath: "",
       model: str(tab.model).trim(),
       queue: chatQueue.normalizeQueue(tab.queue),
+      bookmarks: chatBookmarks.normalizeBookmarks(tab.bookmarks),
       pinned: tab.pinned === true,
       archived: tab.archived === true,
       open: opts.open === true ? true : false,
@@ -1834,6 +1843,7 @@ class AgentView extends ItemView {
     const next = changes && typeof changes === "object" ? changes : {};
     if (Object.prototype.hasOwnProperty.call(next, "messages")) setTabMessages(tab, next.messages);
     if (Object.prototype.hasOwnProperty.call(next, "queue")) tab.queue = chatQueue.normalizeQueue(next.queue);
+    if (Object.prototype.hasOwnProperty.call(next, "bookmarks")) tab.bookmarks = chatBookmarks.normalizeBookmarks(next.bookmarks);
     if (Object.prototype.hasOwnProperty.call(next, "model")) tab.model = str(next.model).trim().slice(0, 200);
     if (Object.prototype.hasOwnProperty.call(next, "sessionId")) tab.sessionId = str(next.sessionId).trim();
     if (Object.prototype.hasOwnProperty.call(next, "title")) tab.title = str(next.title).replace(/\s+/g, " ").trim().slice(0, 80);
@@ -1917,6 +1927,7 @@ class AgentView extends ItemView {
       messages: [],
       model: "",
       queue: [],
+      bookmarks: [],
       sessionId: "",
       pinned: false,
       archived: false,
@@ -1953,6 +1964,7 @@ class AgentView extends ItemView {
       messages: [],
       model: "",
       queue: [],
+      bookmarks: [],
       sessionId: "",
       pinned: false,
       archived: false,
@@ -2106,6 +2118,7 @@ class AgentView extends ItemView {
         ai.studyChatPinned = false;
         ai.studyChatModel = "";
         ai.studyChatQueue = [];
+        ai.studyChatBookmarks = [];
         ai.sessionId = "";
         this.apiHistory = [];
         if (this.chatTabs.length) {
@@ -2207,6 +2220,84 @@ class AgentView extends ItemView {
     await vault.create(path, text.endsWith("\n") ? text : `${text}\n`);
     new Notice(`Saved this chat to ${path}.`);
     return path;
+  }
+
+  /** A copyable link for a bookmark on this tab (or the active tab). */
+  bookmarkLink(bookmark, tab) {
+    const target = tab || this.activeTab();
+    if (!target || !target.id) return "";
+    return chatBookmarks.bookmarkLink(target.id, bookmark);
+  }
+
+  /**
+   * Dispatch a Quick Chat prompt into the active panel. The panel owns the
+   * provider request, model/mention/budget checks and Stop/error handling, so
+   * there is no second client and no modal-owned conversation state.
+   */
+  quickChat(text) {
+    const value = str(text).trim();
+    if (!value) return false;
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    if (!ai || ai.enabled !== true) {
+      new Notice("Turn on AI before using Quick Chat.");
+      return false;
+    }
+    if (!this.chatPanel) this.openEmptyTab();
+    const panel = this.chatPanel;
+    if (!panel || typeof panel.send !== "function") {
+      new Notice("The Study agent could not open. Nothing was sent.");
+      return false;
+    }
+    const pending = panel.send(value);
+    if (pending && typeof pending.catch === "function") {
+      pending.catch((e) => new Notice(str(e && e.message ? e.message : e) || "Quick Chat could not send.", 8000));
+    }
+    return true;
+  }
+
+  /**
+   * Open a bookmark link. The target conversation is resumed from the same
+   * chatSessions store when it is not already a tab; deleted chats and deleted
+   * messages produce a plain Notice rather than an exception.
+   */
+  async openBookmarkLink(value) {
+    const parsed = chatBookmarks.parseBookmarkLink(value);
+    if (!parsed) {
+      new Notice("That chat link is not valid. Copy the link again from a bookmarked message.");
+      return false;
+    }
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    if (!ai) return false;
+    let tab = this.tabById(parsed.chatId);
+    if (!tab) {
+      const saved = normalizeSessions(ai.chatSessions).find((session) => session.id === parsed.chatId);
+      if (!saved) {
+        new Notice("That conversation no longer exists. It may have been deleted.", 7000);
+        return false;
+      }
+      if (!this.resumeChat(parsed.chatId)) {
+        new Notice("That conversation could not be opened. It may have been deleted.", 7000);
+        return false;
+      }
+      tab = this.tabById(parsed.chatId);
+    }
+    if (!tab) {
+      new Notice("That conversation is not available in this Study agent.", 7000);
+      return false;
+    }
+    if (this.activeTabId !== tab.id) this.switchTab(tab.id);
+    const displayed = tab.panel && Array.isArray(tab.panel.turns)
+      ? tab.panel.turns.map((turn) => ({ role: turn.role, content: turn.texts.join("\n\n") }))
+      : [];
+    const history = tab.messages && tab.messages.length ? tab.messages : displayed;
+    const found = chatBookmarks.resolveBookmark(history, parsed.bookmark);
+    if (!found.ok) {
+      if (tab.panel && tab.panel.status) tab.panel.status.setText("That message is no longer in this conversation. It may have been deleted or compacted.");
+      new Notice("That message is no longer in this conversation. It may have been deleted or compacted.", 7000);
+      return false;
+    }
+    if (tab.panel && typeof tab.panel.focusMessage === "function") tab.panel.focusMessage(found.index);
+    return true;
   }
 
   /** Ask one passage-scoped question through the existing chat panel and its guards. */
@@ -23816,6 +23907,234 @@ module.exports = {
 };
 };
 
+/* ---- src/chat-bookmarks.js ---- */
+__defs["chat-bookmarks"] = function (module, exports, require) {
+/*
+ * Message bookmarks for the study agent.
+ *
+ * A bookmark is stored on the conversation it belongs to, next to the existing
+ * messages in settings.ai / chatSessions. It keeps the message index plus a
+ * small role/content fingerprint, so reopening a conversation can find the
+ * exact message even if the history was trimmed or another turn was inserted.
+ * Links are plain Obsidian URIs handled by the plugin. Pure: no Obsidian API.
+ */
+const { str } = require("./util");
+
+const MAX_BOOKMARKS = 100;
+const MAX_PREVIEW = 140;
+const MAX_LINK = 2400;
+const MAX_CHAT_ID = 160;
+const HASH_RE = /^[a-z0-9]{1,16}$/;
+
+function roleOf(value) {
+  return value === "user" ? "user" : "assistant";
+}
+
+function messageText(value) {
+  const message = value && typeof value === "object" ? value : {};
+  if (Array.isArray(message.texts)) return message.texts.map((text) => str(text)).join("\n\n").trim();
+  return str(message.content === undefined ? message.text : message.content).trim();
+}
+
+/** A short stable fingerprint of the role and the exact stored message text. */
+function hashMessage(role, content) {
+  const text = `${roleOf(role)}\n${str(content).trim()}`;
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+function previewText(content) {
+  const text = str(content).replace(/\s+/g, " ").trim();
+  return text.length > MAX_PREVIEW ? `${text.slice(0, MAX_PREVIEW - 3).trimEnd()}...` : text;
+}
+
+/**
+ * Build a bookmark for one displayed message. `value` may be a stored message
+ * ({role, content}), a rendered turn ({role, texts}) or a plain content string.
+ * `index` is the message's position in the conversation history.
+ */
+function makeBookmark(value, index, now) {
+  const message = value && typeof value === "object" ? value : { content: value };
+  const at = Number(index === undefined ? message.index : index);
+  if (!Number.isFinite(at) || at < 0) return null;
+  const role = roleOf(message.role);
+  const content = messageText(message);
+  if (!content) return null;
+  return {
+    index: Math.floor(at),
+    role,
+    hash: hashMessage(role, content),
+    preview: previewText(content),
+    createdAt: Number.isFinite(Number(now)) && Number(now) > 0 ? Number(now) : Date.now(),
+  };
+}
+
+function normalizeBookmark(value, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  if (!value || typeof value !== "object") return null;
+  const index = Math.floor(Number(value.index === undefined ? value.messageIndex : value.index));
+  if (!Number.isFinite(index) || index < 0) return null;
+  const role = roleOf(value.role);
+  const hash = str(value.hash).trim().toLowerCase();
+  if (!HASH_RE.test(hash) && !(opts.allowMissingHash === true && !hash)) return null;
+  const createdAt = Number(value.createdAt);
+  return {
+    index,
+    role,
+    hash,
+    preview: previewText(value.preview || value.content || ""),
+    createdAt: Number.isFinite(createdAt) && createdAt > 0 ? createdAt : 0,
+  };
+}
+
+function bookmarkKey(value) {
+  const bookmark = normalizeBookmark(value);
+  return bookmark ? `${bookmark.index}:${bookmark.role}:${bookmark.hash}` : "";
+}
+
+/** Keep only valid bookmarks, one per message, newest last. */
+function normalizeBookmarks(value) {
+  const seen = new Set();
+  const out = [];
+  for (const raw of Array.isArray(value) ? value : []) {
+    const bookmark = normalizeBookmark(raw);
+    if (!bookmark) continue;
+    const key = bookmarkKey(bookmark);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(bookmark);
+  }
+  return out.slice(-MAX_BOOKMARKS);
+}
+
+function findBookmark(value, candidate) {
+  const key = bookmarkKey(candidate);
+  if (!key) return null;
+  return normalizeBookmarks(value).find((bookmark) => bookmarkKey(bookmark) === key) || null;
+}
+
+function isBookmarked(value, candidate) {
+  return !!findBookmark(value, candidate);
+}
+
+/** Add a bookmark, or remove it when this exact message is already saved. */
+function toggleBookmark(value, candidate) {
+  const rows = normalizeBookmarks(value);
+  const bookmark = normalizeBookmark(candidate);
+  if (!bookmark) return rows;
+  const key = bookmarkKey(bookmark);
+  const without = rows.filter((row) => bookmarkKey(row) !== key);
+  if (without.length !== rows.length) return without;
+  return [...rows, bookmark].slice(-MAX_BOOKMARKS);
+}
+
+/** Find the stored message, preferring the recorded index and then its fingerprint. */
+function resolveBookmark(messages, value) {
+  const bookmark = normalizeBookmark(value, { allowMissingHash: true });
+  const rows = Array.isArray(messages) ? messages : [];
+  if (!bookmark || !rows.length) return { ok: false, reason: "missing", index: -1, message: null };
+  const matches = (message) => {
+    const role = roleOf(message && message.role);
+    if (bookmark.role !== role) return false;
+    if (!bookmark.hash) return true;
+    return hashMessage(role, messageText(message)) === bookmark.hash;
+  };
+  if (bookmark.index < rows.length && matches(rows[bookmark.index])) {
+    return { ok: true, reason: "", index: bookmark.index, message: rows[bookmark.index] };
+  }
+  let best = -1;
+  let distance = Infinity;
+  for (let i = 0; i < rows.length; i += 1) {
+    if (!matches(rows[i])) continue;
+    const next = Math.abs(i - bookmark.index);
+    if (next < distance) {
+      best = i;
+      distance = next;
+    }
+  }
+  return best >= 0
+    ? { ok: true, reason: "", index: best, message: rows[best] }
+    : { ok: false, reason: "missing", index: -1, message: null };
+}
+
+/** A copyable URI that opens the owning conversation and focuses this message. */
+function bookmarkLink(chatId, value) {
+  const id = str(chatId).trim().slice(0, MAX_CHAT_ID);
+  const bookmark = normalizeBookmark(value);
+  if (!id || !bookmark) return "";
+  const query = [
+    `chat=${encodeURIComponent(id)}`,
+    `message=${bookmark.index}`,
+    `role=${bookmark.role}`,
+    `hash=${bookmark.hash}`,
+  ].join("&");
+  return `obsidian://mcq-tracker-chat?${query}`;
+}
+
+/**
+ * Parse our own chat URI, or an object supplied by Obsidian's protocol handler.
+ * A missing hash is tolerated for old/manual links and falls back to the index.
+ */
+function parseBookmarkLink(value) {
+  let params = null;
+  if (value && typeof value === "object") {
+    params = value;
+  } else {
+    const text = str(value).trim();
+    if (!text || text.length > MAX_LINK) return null;
+    const match = /^obsidian:\/\/mcq-tracker(?:-chat)?\/?\?(.+)$/i.exec(text);
+    if (!match) return null;
+    try {
+      params = Object.fromEntries(new URLSearchParams(match[1]));
+    } catch (e) {
+      return null;
+    }
+  }
+  if (!params || typeof params !== "object") return null;
+  const chatId = str(params.chat === undefined ? params.chatId : params.chat).trim().slice(0, MAX_CHAT_ID);
+  const rawIndex = params.message === undefined ? params.messageIndex : params.message;
+  const index = Math.floor(Number(rawIndex));
+  if (!chatId || !Number.isFinite(index) || index < 0) return null;
+  const role = roleOf(params.role);
+  const hash = str(params.hash).trim().toLowerCase();
+  if (hash && !HASH_RE.test(hash)) return null;
+  return {
+    chatId,
+    bookmark: {
+      index,
+      role,
+      hash,
+      preview: previewText(params.preview || ""),
+      createdAt: 0,
+    },
+  };
+}
+
+module.exports = {
+  HASH_RE,
+  MAX_BOOKMARKS,
+  MAX_LINK,
+  MAX_PREVIEW,
+  bookmarkKey,
+  bookmarkLink,
+  findBookmark,
+  hashMessage,
+  isBookmarked,
+  makeBookmark,
+  messageText,
+  normalizeBookmark,
+  normalizeBookmarks,
+  parseBookmarkLink,
+  previewText,
+  resolveBookmark,
+  toggleBookmark,
+};
+};
+
 /* ---- src/chat-budget.js ---- */
 __defs["chat-budget"] = function (module, exports, require) {
 /*
@@ -24593,6 +24912,7 @@ const { chatMarkdown } = require("./chat-history");
 const chatBudget = require("./chat-budget");
 const chatMentions = require("./chat-mentions");
 const chatModels = require("./chat-models");
+const chatBookmarks = require("./chat-bookmarks");
 const chatCompact = require("./chat-compact");
 const chatQueue = require("./chat-queue");
 
@@ -24638,6 +24958,8 @@ class ChatPanel {
     this.previewSeq = 0;
     this.lastBudget = null;
     this.queue = chatQueue.normalizeQueue(opts.getQueue ? opts.getQueue() : []);
+    this.bookmarks = chatBookmarks.normalizeBookmarks(opts.getBookmarks ? opts.getBookmarks() : []);
+    this.turnEls = [];
     this.draining = false;
     this.libraryQuery = "";
     this.showArchived = false;
@@ -25403,6 +25725,7 @@ class ChatPanel {
 
   /** Replace the transcript without touching the stored history (the caller owns it). */
   loadConversation(messages) {
+    this.refreshBookmarks();
     this.turns = apiTurns(Array.isArray(messages) ? messages : []);
     this.pending = "";
     this.error = "";
@@ -25731,6 +26054,68 @@ class ChatPanel {
     return true;
   }
 
+  /** Reload the owning tab's bookmark list after a resume or reload. */
+  refreshBookmarks() {
+    this.bookmarks = chatBookmarks.normalizeBookmarks(
+      typeof this.opts.getBookmarks === "function" ? this.opts.getBookmarks() : []
+    );
+    return this.bookmarks;
+  }
+
+  /** Bookmark or unbookmark one displayed message, persisting through the tab. */
+  toggleBookmark(index, turn) {
+    const bookmark = chatBookmarks.makeBookmark(turn, index);
+    if (!bookmark) return null;
+    const wasSaved = chatBookmarks.isBookmarked(this.bookmarks, bookmark);
+    this.bookmarks = chatBookmarks.toggleBookmark(this.bookmarks, bookmark);
+    if (typeof this.opts.saveBookmarks === "function") this.opts.saveBookmarks(this.bookmarks.slice());
+    if (this.status) this.status.setText(wasSaved ? "Bookmark removed." : "Bookmarked. Copy link to reopen this message later.");
+    this.sig = "";
+    this.draw();
+    return this.bookmarks;
+  }
+
+  /** Persist a bookmark if needed, then copy its conversation/message URI. */
+  async copyBookmarkLink(index, turn) {
+    const bookmark = chatBookmarks.makeBookmark(turn, index);
+    if (!bookmark) return false;
+    if (!chatBookmarks.isBookmarked(this.bookmarks, bookmark)) {
+      this.bookmarks = chatBookmarks.toggleBookmark(this.bookmarks, bookmark);
+      if (typeof this.opts.saveBookmarks === "function") this.opts.saveBookmarks(this.bookmarks.slice());
+      this.sig = "";
+      this.draw();
+    }
+    const link = typeof this.opts.bookmarkLink === "function" ? this.opts.bookmarkLink(bookmark) : "";
+    if (!link) {
+      if (this.status) this.status.setText("This conversation cannot be linked yet.");
+      return false;
+    }
+    await this.copyText(link);
+    if (this.status) this.status.setText("Bookmark link copied. Paste it anywhere to jump back to this message.");
+    return true;
+  }
+
+  /** Scroll to and briefly highlight one message (used when a bookmark link opens). */
+  focusMessage(index) {
+    const el = this.turnEls[index];
+    if (!el) {
+      if (this.status) this.status.setText("That message is no longer in this conversation.");
+      return false;
+    }
+    if (typeof el.scrollIntoView === "function") el.scrollIntoView({ block: "center" });
+    if (typeof el.addClass === "function") el.addClass("is-bookmark-jump");
+    if (typeof activeWindow !== "undefined" && activeWindow && typeof activeWindow.setTimeout === "function") {
+      activeWindow.setTimeout(() => {
+        try {
+          if (el && typeof el.removeClass === "function") el.removeClass("is-bookmark-jump");
+        } catch (e) {
+          /* the panel may have been redrawn */
+        }
+      }, 3500);
+    }
+    return true;
+  }
+
   async send(text) {
     text = str(text).trim();
     if (!text || !this.ai.enabled) return false;
@@ -25910,6 +26295,7 @@ class ChatPanel {
     const base = hist.concat(resend && last && last.role === "user" ? [] : [{ role: "user", content: text }]);
     let proposals = [];
     let partial = "";
+    let stoppedNote = "";
     const onDelta = (delta) => {
       if (token !== this.apiCancelToken) return;
       const chunk = str(delta);
@@ -25944,6 +26330,7 @@ class ChatPanel {
       if (token !== this.apiCancelToken) return;
       const stopped = e && (e.name === "AbortError" || (controller && controller.signal && controller.signal.aborted));
       const kept = partial.trim();
+      stoppedNote = stopped ? (kept ? "Stopped. The partial reply was kept." : "Stopped.") : "";
       if (kept) {
         if (!resend) hist.push({ role: "user", content: text });
         else if (!hist.length || hist[hist.length - 1].role !== "user") hist.push({ role: "user", content: text });
@@ -25954,12 +26341,12 @@ class ChatPanel {
       this.pending = "";
       this.streamText = "";
       this.error = stopped ? "" : friendlyApiError(e);
-      if (stopped && this.status) this.status.setText(kept ? "Stopped. The partial reply was kept." : "Stopped.");
       if (!stopped && !kept) this.input.value = text;
     } finally {
       if (token === this.apiCancelToken) {
         this.streamingController = null;
         this.setBusy(false);
+        if (stoppedNote && this.status) this.status.setText(stoppedNote);
         this.turns = apiTurns(hist);
         this.draw();
         if (proposals.length) new AiToolReviewModal(this.view.app, this.view.plugin, proposals).open();
@@ -26006,17 +26393,36 @@ class ChatPanel {
 
   draw() {
     if (!this.transcript) return;
-    const sig = JSON.stringify([this.turns, this.pending, this.error, this.busy, this.streamText]);
+    const sig = JSON.stringify([this.turns, this.pending, this.error, this.busy, this.streamText, this.bookmarks]);
     if (sig === this.sig) return;
     this.sig = sig;
     const box = this.transcript;
     box.empty();
-    for (const t of this.turns) {
+    this.turnEls = [];
+    const lastAssistant = [...this.turns].reverse().find((turn) => turn.role === "assistant");
+    this.turns.forEach((t, index) => {
       const b = box.createDiv({ cls: `qt-msg is-${t.role}` });
+      this.turnEls[index] = b;
       for (const text of t.texts) this.view.md(text, b.createDiv({ cls: "qt-msg-text" }), this.opts.sourcePath || "");
       for (const line of t.tools) b.createDiv({ cls: "qt-tool", text: line });
-      if (t.role === "assistant" && t.texts.length && !this.busy) {
-        const actions = b.createDiv({ cls: "qt-msg-actions" });
+      const bookmark = chatBookmarks.makeBookmark(t, index);
+      const assistantActions = t.role === "assistant" && t.texts.length && !this.busy;
+      if (!bookmark && !assistantActions) return;
+      const actions = b.createDiv({ cls: "qt-msg-actions" });
+      if (bookmark) {
+        const saved = chatBookmarks.isBookmarked(this.bookmarks, bookmark);
+        const toggle = actions.createEl("button", {
+          text: saved ? "Bookmarked" : "Bookmark",
+          cls: `qt-msg-bookmark${saved ? " is-bookmarked" : ""}`,
+          attr: { "aria-label": saved ? "Remove this message bookmark" : "Bookmark this message" },
+        });
+        toggle.addEventListener("click", () => this.toggleBookmark(index, t));
+        if (saved) {
+          const copy = actions.createEl("button", { text: "Copy link", cls: "qt-msg-bookmark-link" });
+          copy.addEventListener("click", () => this.copyBookmarkLink(index, t));
+        }
+      }
+      if (assistantActions) {
         const copy = actions.createEl("button", { text: "Copy" });
         copy.addEventListener("click", () => this.copyText(t.texts.join("\n\n")));
         if (this.opts.onSaveNote) {
@@ -26026,12 +26432,12 @@ class ChatPanel {
           });
           sv.addEventListener("click", () => this.opts.onSaveNote(t.texts.join("\n\n")));
         }
-        if (t === [...this.turns].reverse().find((turn) => turn.role === "assistant")) {
+        if (t === lastAssistant) {
           const again = actions.createEl("button", { text: "Regenerate" });
           again.addEventListener("click", () => this.regenerate());
         }
       }
-    }
+    });
     if (this.pending) {
       box.createDiv({ cls: "qt-msg is-user" }).createDiv({ cls: "qt-msg-text", text: this.pending });
     }
@@ -26122,6 +26528,7 @@ __defs["chat-sessions"] = function (module, exports, require) {
  * action and never happens here.
  */
 const { normalizeChatHistory } = require("./chat-history");
+const chatBookmarks = require("./chat-bookmarks");
 const chatQueue = require("./chat-queue");
 const { str } = require("./util");
 
@@ -26161,6 +26568,7 @@ function normalizeSession(value) {
     notePath: str(raw.notePath).trim(),
     model: str(raw.model).trim().slice(0, 200),
     queue: chatQueue.normalizeQueue(raw.queue),
+    bookmarks: chatBookmarks.normalizeBookmarks(raw.bookmarks),
     open,
     tabOrder: Number.isFinite(tabOrder) && tabOrder >= 0 ? tabOrder : 0,
     pinned: raw.pinned === true,
@@ -26262,6 +26670,7 @@ function libraryRows(active, sessions, now, options) {
       archived: false,
       open: active && active.open !== false,
       queue: chatQueue.normalizeQueue(active && active.queue),
+      bookmarks: chatBookmarks.normalizeBookmarks(active && active.bookmarks),
     });
   }
   for (const session of normalizeSessions(sessions)) {
@@ -26280,6 +26689,7 @@ function libraryRows(active, sessions, now, options) {
       archived: session.archived === true,
       open: session.open,
       queue: session.queue,
+      bookmarks: session.bookmarks,
     });
   }
   rows.sort(
@@ -27424,6 +27834,7 @@ const DEFAULT_SETTINGS = {
     studyChatPinned: false, // pinned conversations sort first in the library
     studyChatModel: "", // optional model override for the active chat
     studyChatQueue: [], // messages waiting for the active chat's reply to finish
+    studyChatBookmarks: [], // saved message links on the active conversation
     studyChatTabOrder: 0, // stable order for open conversation tabs
     chatSessions: [], // saved and open conversations, bounded by chat-sessions.js
     studyCommands: [], // reusable /commands; prompts may use {} or {selection}
@@ -62677,6 +63088,8 @@ const { TranscriptPracticeModal } = require("./transcript-modal");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const { QuickAskModal } = require("./quick-ask-modal");
+const { QuickChatModal } = require("./quick-chat-modal");
+const chatBookmarks = require("./chat-bookmarks");
 const studyCommands = require("./study-commands");
 const { quickAddNote, quickAddTitle } = require("./quick-add");
 const { noteQuizToQuickAdd } = require("./quiz-clipboard");
@@ -62835,6 +63248,11 @@ class QuestionTrackerPlugin extends Plugin {
       this._tableRibbon = this.addRibbonIcon("table", "Advanced Tables: controls", () => this.openTableControls());
     }
     this.noteReviewDock = new NoteReviewDock(this);
+    this._quickChatModal = null;
+    // Chat bookmark links are handled by this plugin, not a hosted redirect.
+    if (typeof this.registerObsidianProtocolHandler === "function") {
+      this.registerObsidianProtocolHandler("mcq-tracker-chat", (params) => this.openChatBookmark(params));
+    }
     if (typeof this.registerMarkdownPostProcessor === "function") {
       this.registerMarkdownPostProcessor((el) => satCallout.syncSatCallouts(el));
       this.registerMarkdownPostProcessor((el, ctx) => this.decorateTableEditor(el, ctx));
@@ -63184,6 +63602,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "cards-import-document", name: "Cards: extract cards from a PDF or Markdown file", callback: () => this.openDocumentCards() });
     this.addCommand({ id: "open-study-agent", name: "Study agent: open the sidebar", callback: () => this.activateAgent() });
     this.addCommand({ id: "ai-quick-ask", name: "AI: Quick Ask about the selection or note", callback: () => this.openQuickAsk() });
+    this.addCommand({ id: "study-agent-quick-chat", name: "Study agent: Quick Chat", callback: () => this.openQuickChat() });
     this.addCommand({
       id: "cards-rescan-plain",
       name: "Cards: rescan plain Markdown folder",
@@ -63602,6 +64021,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.ai.verification = normalizeVerificationMode(this.settings.ai.verification);
     aiService.normalizeAiService(this.settings.ai);
     this.settings.ai.studyCommands = studyCommands.normalizeStudyCommands(this.settings.ai.studyCommands);
+    this.settings.ai.studyChatBookmarks = chatBookmarks.normalizeBookmarks(this.settings.ai.studyChatBookmarks);
     // 0.2.0 saved settings had no `managed` flag: move those users to the automatic setup.
     if (saved.explanationDefault === undefined && saved.showRationale === false) this.settings.explanationDefault = "hide";
     delete this.settings.showRationale;
@@ -64347,6 +64767,14 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   onunload() {
+    if (this._quickChatModal) {
+      try {
+        this._quickChatModal.close();
+      } catch (e) {
+        /* the modal may already be closed */
+      }
+      this._quickChatModal = null;
+    }
     practiceFullscreen.setPracticeFullscreen(null, false);
     if (this.manager) this.manager.stop();
     this.pdfPlusPaused = true;
@@ -66332,6 +66760,58 @@ class QuestionTrackerPlugin extends Plugin {
     if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
     await ws.revealLeaf(leaf);
     return leaf.view;
+  }
+
+  /** Open the compact Quick Chat prompt; repeated invocations reuse the open modal. */
+  openQuickChat(options) {
+    const ai = this.settings && this.settings.ai;
+    if (!ai || ai.enabled !== true) {
+      new Notice("Turn on AI under Settings > MCQ Tracker > AI to use Quick Chat.");
+      return null;
+    }
+    if (this._quickChatModal) {
+      this._quickChatModal.focus();
+      return this._quickChatModal;
+    }
+    const modal = new QuickChatModal(this.app, this, options || {});
+    this._quickChatModal = modal;
+    modal.onClosed = () => {
+      if (this._quickChatModal === modal) this._quickChatModal = null;
+    };
+    modal.open();
+    return modal;
+  }
+
+  /** Dispatch a quick prompt into the active Study agent panel and its shipped guards. */
+  async quickChat(text) {
+    const value = String(text === undefined || text === null ? "" : text).trim();
+    if (!value) return false;
+    try {
+      const view = await this.activateAgent();
+      if (!view || typeof view.quickChat !== "function") {
+        new Notice("The Study agent could not open. Nothing was sent.");
+        return false;
+      }
+      return view.quickChat(value);
+    } catch (e) {
+      new Notice(`Quick Chat could not send: ${String(e && e.message ? e.message : e)}`, 8000);
+      return false;
+    }
+  }
+
+  /** Handle an obsidian://mcq-tracker-chat bookmark link. */
+  async openChatBookmark(params) {
+    try {
+      const view = await this.activateAgent();
+      if (!view || typeof view.openBookmarkLink !== "function") {
+        new Notice("The Study agent could not open that chat link.");
+        return false;
+      }
+      return await view.openBookmarkLink(params);
+    } catch (e) {
+      new Notice(`Could not open that chat link: ${String(e && e.message ? e.message : e)}`, 8000);
+      return false;
+    }
   }
 
   openCardExport(options, onDone) {
@@ -79540,6 +80020,102 @@ class QuickAskModal extends Modal {
 }
 
 module.exports = { QuickAskModal };
+};
+
+/* ---- src/quick-chat-modal.js ---- */
+__defs["quick-chat-modal"] = function (module, exports, require) {
+/*
+ * A small Quick Chat surface. It deliberately does not call a provider itself:
+ * submitting dispatches into the active Study agent ChatPanel, which already
+ * owns model resolution, mentions, the local budget, streaming, Stop and error
+ * handling. This keeps Quick Chat on the same path as the full panel.
+ */
+const { Modal, Notice } = require("obsidian");
+const { str } = require("./util");
+
+class QuickChatModal extends Modal {
+  constructor(app, plugin, options) {
+    super(app);
+    const opts = options && typeof options === "object" ? options : {};
+    this.plugin = plugin;
+    this.initialPrompt = str(opts.prompt);
+    this.submitted = false;
+    this.statusText = "";
+  }
+
+  onOpen() {
+    this.contentEl.addClass("qt-quick-chat");
+    this.render();
+    this.focus();
+  }
+
+  render() {
+    const root = this.contentEl;
+    root.empty();
+    root.createEl("h3", { text: "Quick Chat" });
+    root.createDiv({
+      cls: "qt-hint",
+      text: "Sends through the active Study agent conversation: same model, mentions, context switches, token budget, streaming and Stop.",
+    });
+    this.input = root.createEl("textarea", {
+      cls: "qt-chat-input qt-quick-chat-input",
+      attr: { rows: "3", placeholder: "Ask a quick question..." },
+    });
+    this.input.value = this.initialPrompt;
+    this.input.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+      event.preventDefault();
+      this.submit();
+    });
+    const row = root.createDiv({ cls: "qt-row qt-small-row" });
+    this.sendBtn = row.createEl("button", { text: "Send to Study agent", cls: "mod-cta" });
+    this.sendBtn.addEventListener("click", () => this.submit());
+    const close = row.createEl("button", { text: "Close" });
+    close.addEventListener("click", () => this.close());
+    this.status = row.createDiv({ cls: "qt-hint qt-quick-chat-status" });
+    if (this.statusText) this.status.setText(this.statusText);
+  }
+
+  focus() {
+    if (this.input && typeof this.input.focus === "function") this.input.focus();
+    if (this.input && typeof this.input.select === "function") this.input.select();
+  }
+
+  /** Dispatch exactly once; repeated clicks or command invocations cannot double-send. */
+  submit() {
+    if (this.submitted) return false;
+    const text = str(this.input ? this.input.value : "").trim();
+    if (!text) {
+      if (this.status) this.status.setText("Type a question first.");
+      return false;
+    }
+    this.submitted = true;
+    if (this.sendBtn) this.sendBtn.disabled = true;
+    if (this.status) this.status.setText("Sending to the Study agent...");
+    try {
+      const pending = this.plugin.quickChat(text);
+      if (pending && typeof pending.catch === "function") {
+        pending.catch((e) => {
+          new Notice(str(e && e.message ? e.message : e) || "Quick Chat could not send.", 8000);
+        });
+      }
+      this.close();
+      return true;
+    } catch (e) {
+      this.submitted = false;
+      if (this.sendBtn) this.sendBtn.disabled = false;
+      if (this.status) this.status.setText(str(e && e.message ? e.message : e) || "Quick Chat could not send.");
+      return false;
+    }
+  }
+
+  onClose() {
+    this.contentEl.empty();
+    if (typeof this.onClosed === "function") this.onClosed();
+  }
+}
+
+module.exports = { QuickChatModal };
 };
 
 /* ---- src/quick-practice.js ---- */
@@ -119562,6 +120138,8 @@ const agentView = require("./agent-view");
 const agentNote = require("./agent-note");
 const quickAsk = require("./quick-ask");
 const { QuickAskModal } = require("./quick-ask-modal");
+const { QuickChatModal } = require("./quick-chat-modal");
+const chatBookmarks = require("./chat-bookmarks");
 const studyCommands = require("./study-commands");
 const tutorPresets = require("./tutor-presets");
 const aiContext = require("./ai-context");
@@ -119843,6 +120421,7 @@ QuestionTrackerPlugin.__test = {
   chatSessions: require("./chat-sessions"),
   chatBudget: require("./chat-budget"),
   chatMentions: require("./chat-mentions"),
+  chatBookmarks: require("./chat-bookmarks"),
   chatModels: require("./chat-models"),
   chatCompact: require("./chat-compact"),
   localModels: require("./local-models"),
@@ -120152,6 +120731,7 @@ QuestionTrackerPlugin.__test = {
   agentNote,
   quickAsk,
   QuickAskModal,
+  QuickChatModal,
   studyCommands,
   QUICK_START_URL,
   aiReady,

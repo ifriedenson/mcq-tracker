@@ -44,6 +44,8 @@ const agentView = require("./agent-view");
 const agentNote = require("./agent-note");
 const quickAsk = require("./quick-ask");
 const { QuickAskModal } = require("./quick-ask-modal");
+const { QuickChatModal } = require("./quick-chat-modal");
+const chatBookmarks = require("./chat-bookmarks");
 const studyCommands = require("./study-commands");
 const tutorPresets = require("./tutor-presets");
 const aiContext = require("./ai-context");
@@ -325,6 +327,7 @@ QuestionTrackerPlugin.__test = {
   chatSessions: require("./chat-sessions"),
   chatBudget: require("./chat-budget"),
   chatMentions: require("./chat-mentions"),
+  chatBookmarks: require("./chat-bookmarks"),
   chatModels: require("./chat-models"),
   chatCompact: require("./chat-compact"),
   localModels: require("./local-models"),
@@ -634,6 +637,7 @@ QuestionTrackerPlugin.__test = {
   agentNote,
   quickAsk,
   QuickAskModal,
+  QuickChatModal,
   studyCommands,
   QUICK_START_URL,
   aiReady,

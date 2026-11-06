@@ -10,6 +10,7 @@
  * action and never happens here.
  */
 const { normalizeChatHistory } = require("./chat-history");
+const chatBookmarks = require("./chat-bookmarks");
 const chatQueue = require("./chat-queue");
 const { str } = require("./util");
 
@@ -49,6 +50,7 @@ function normalizeSession(value) {
     notePath: str(raw.notePath).trim(),
     model: str(raw.model).trim().slice(0, 200),
     queue: chatQueue.normalizeQueue(raw.queue),
+    bookmarks: chatBookmarks.normalizeBookmarks(raw.bookmarks),
     open,
     tabOrder: Number.isFinite(tabOrder) && tabOrder >= 0 ? tabOrder : 0,
     pinned: raw.pinned === true,
@@ -150,6 +152,7 @@ function libraryRows(active, sessions, now, options) {
       archived: false,
       open: active && active.open !== false,
       queue: chatQueue.normalizeQueue(active && active.queue),
+      bookmarks: chatBookmarks.normalizeBookmarks(active && active.bookmarks),
     });
   }
   for (const session of normalizeSessions(sessions)) {
@@ -168,6 +171,7 @@ function libraryRows(active, sessions, now, options) {
       archived: session.archived === true,
       open: session.open,
       queue: session.queue,
+      bookmarks: session.bookmarks,
     });
   }
   rows.sort(

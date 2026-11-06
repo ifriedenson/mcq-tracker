@@ -91,6 +91,18 @@ view does not stop the configured AI provider.
   whole active note, whichever is switched on, and can copy, insert, replace or
   ask a follow-up. **Replace** checks that the selection did not change while
   the reply was pending.
+- **Quick Chat from anywhere.** Run **Study agent: Quick Chat** from the command
+  palette, or assign it a hotkey in Obsidian's hotkey settings. The compact
+  prompt sends through the active Study agent panel, so it shares that chat's
+  model, `@` mentions, context switches, 12,000-token budget, streaming, Stop
+  and error handling. With no conversation open it starts one; invoking it
+  again while open returns to the same prompt, so it cannot double-send.
+- **Bookmark a message and copy its link.** Use **Bookmark** on any user or
+  assistant message, then **Copy link** to copy an
+  `obsidian://mcq-tracker-chat` URL. The link restores the conversation and
+  focuses the message. Bookmarks are stored on the existing conversation
+  record and survive reload, tab switches, rename and archive; a deleted chat
+  or message produces a plain message instead of an error.
 
 ## Local search and privacy
 

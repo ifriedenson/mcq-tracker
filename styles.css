@@ -12259,6 +12259,17 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   font-size: var(--font-ui-smaller);
 }
 
+.qt-msg-actions button.qt-msg-bookmark.is-bookmarked {
+  color: var(--text-on-accent);
+  background: var(--interactive-accent);
+}
+
+.qt-msg.is-bookmark-jump {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-m);
+}
+
 .qt-error button {
   margin-top: 4px;
   min-height: 30px;
@@ -12668,6 +12679,22 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 .qt-time-block-project-status { align-items: center; gap: 6px; margin-top: 6px; }
 .qt-time-block-project-status .dropdown { flex: 1 1 auto; }
 .qt-time-block-project-status .qt-input { flex: 0 0 110px; }
+
+/* Quick Chat is a small dispatcher into the active Study agent panel. */
+.qt-quick-chat {
+  max-width: 560px;
+}
+.qt-quick-chat h3 {
+  margin-top: 0;
+}
+.qt-quick-chat-input {
+  width: 100%;
+  min-height: 76px;
+  resize: vertical;
+}
+.qt-quick-chat-status {
+  margin-left: auto;
+}
 
 /* Quick Ask stays a compact inline panel and reuses the chat primitives. */
 .qt-quick-ask {

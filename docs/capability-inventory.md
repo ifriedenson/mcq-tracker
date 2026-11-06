@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 408 groups, 2761 exports. **Commands:** 207. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 410 groups, 2778 exports. **Commands:** 208. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -63,6 +63,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `QuestionTrackerSettingTab` | 0 | `tests/feature-surfaces.test.js` |
 | `QuickAddModal` | 0 | `tests/feature-surfaces.test.js` |
 | `QuickAskModal` | 0 | `tests/quick-ask.test.js` |
+| `QuickChatModal` | 0 | `tests/quick-chat-bookmarks.test.js` |
 | `REFERENCE_TABS` | 2 | `tests/modules.test.js` |
 | `ReferenceView` | 0 | `tests/ap-exam-history.test.js`, `tests/ap-resource-notes.test.js`, `tests/ap-score.test.js`, `tests/calculator.test.js`, `tests/complex.test.js`, `tests/geometry.test.js`, `tests/graph-3d.test.js`, `tests/graph-complex.test.js`, `tests/matrix.test.js`, `tests/mobile-reference-stats.test.js`, `tests/reference-advanced.test.js`, `tests/reference-sheets.test.js`, `tests/reference-tools.test.js`, `tests/reference.test.js` |
 | `ReviewCalendarView` | 0 | `tests/mobile-calendar-agenda.test.js` |
@@ -88,7 +89,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `agentEditReview` | 9 | `tests/agent-edit-review.test.js` |
 | `agentNote` | 2 | `tests/agent-view.test.js` |
 | `agentRetrieval` | 14 | `tests/agent-retrieval.test.js` |
-| `agentView` | 5 | `tests/agent-view.test.js`, `tests/chat-tabs-queue.test.js` |
+| `agentView` | 5 | `tests/agent-view.test.js`, `tests/chat-tabs-queue.test.js`, `tests/quick-chat-bookmarks.test.js` |
 | `agentWriteGuard` | 3 | `tests/agent-write-guard.test.js` |
 | `aiContext` | 5 | `tests/ai-context.test.js` |
 | `aiReady` | 0 | `tests/empty-state.test.js` |
@@ -159,7 +160,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `cardsExtract` | 13 | `tests/cards-extract.test.js`, `tests/flashcard-generate.test.js` |
 | `cardsImport` | 39 | `tests/cards-import.test.js`, `tests/quizlet-pdf-fixtures.test.js`, `tests/spaced-quiz.test.js` |
 | `cbtExam` | 7 | `tests/cbt-exam.test.js` |
-| `chatBudget` | 6 | `tests/chat-budget.test.js`, `tests/chat-compact.test.js`, `tests/chat-panel-mentions.test.js` |
+| `chatBookmarks` | 17 | `tests/quick-chat-bookmarks.test.js` |
+| `chatBudget` | 6 | `tests/chat-budget.test.js`, `tests/chat-compact.test.js`, `tests/chat-panel-mentions.test.js`, `tests/quick-chat-bookmarks.test.js` |
 | `chatCompact` | 9 | `tests/chat-compact.test.js` |
 | `chatHistory` | 5 | `tests/chat-history.test.js` |
 | `chatMentions` | 17 | `tests/chat-mentions.test.js` |
@@ -572,8 +574,9 @@ the table and fails if a group, export count, command or citing test drifts.
 | `cards-grade-pending` | Cards: grade pending typed answers | `flushPendingCardGrades` | `tests/cards.test.js`, `tests/today.test.js` |
 | `import-cards` | Cards: import existing decks | `openCardImport` | `tests/plugin.test.js` |
 | `cards-import-document` | Cards: extract cards from a PDF or Markdown file | `openDocumentCards` | `tests/command-effects.test.js` |
-| `open-study-agent` | Study agent: open the sidebar | `activateAgent` | `tests/agent-view.test.js`, `tests/pdf-annotator-sidebar.test.js` |
+| `open-study-agent` | Study agent: open the sidebar | `activateAgent` | `tests/agent-view.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/quick-chat-bookmarks.test.js` |
 | `ai-quick-ask` | AI: Quick Ask about the selection or note | `openQuickAsk` | `tests/quick-ask.test.js` |
+| `study-agent-quick-chat` | Study agent: Quick Chat | `openQuickChat` | `tests/quick-chat-bookmarks.test.js` |
 | `cards-rescan-plain` | Cards: rescan plain Markdown folder | `moduleOff` | `tests/frq-review.test.js`, `tests/plain-cards.test.js`, `tests/views.test.js` |
 | `export-cards` | Cards: export to Quizlet, Anki package, Anki text, Mochi, LearnKit, Kahoot, Blooket or Gimkit | `openCardExport` | `tests/command-effects.test.js` |
 | `push-cards-anki` | Cards: push to Anki (AnkiConnect) | `openAnkiConnectPush` | `tests/command-effects.test.js` |
