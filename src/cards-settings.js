@@ -680,12 +680,12 @@ function renderReview(containerEl, plugin, redisplay) {
 
   new Setting(containerEl)
     .setName("Answer mode")
-    .setDesc("Flip is the classic reveal-and-rate review. Type asks for an answer and grades obvious matches locally; Speak uses the same box with your device's dictation. A card's answer_mode or its deck's setting overrides this default.")
+    .setDesc("Flip is the classic reveal-and-rate review. Type adds a locally graded answer box; Speak adds the same box with a microphone that turns speech into editable text before grading. Audio is not recorded or uploaded by this plugin. A card's answer_mode or its deck's setting overrides this default.")
     .addDropdown((d) =>
       d
         .addOption("flip", "Flip and self-rate")
-        .addOption("type", "Type the answer")
-        .addOption("speak", "Speak or type (OS dictation)")
+        .addOption("type", "Type or dictate the answer")
+        .addOption("speak", "Speak or type (microphone)")
         .setValue(st.answerMode || "flip")
         .onChange(async (v) => {
           st.answerMode = v === "type" || v === "speak" ? v : "flip";
@@ -711,8 +711,8 @@ function renderReview(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
-    .setName("AI fallback for typed answers")
-    .setDesc("When the local check cannot decide, send only the card front, the stored answer and your answer to your AI provider for a second opinion. Needs AI features and a configured provider. Off by default; offline answers wait in a queue and are graded later.")
+    .setName("AI fallback for typed or dictated answers")
+    .setDesc("When the local check cannot decide, send only the card front, the stored answer and your answer to your AI provider for a second opinion. Needs AI features and a configured provider. Off by default; offline answers wait in a queue and are graded later. With AI off, checking still reveals the stored answer so you can self-check.")
     .addToggle((t) =>
       t.setValue(st.aiGrading === true).onChange(async (v) => {
         st.aiGrading = v;

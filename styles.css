@@ -4785,6 +4785,26 @@ body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tra
   font-size: 1rem;
 }
 
+.qt-cards-typed-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qt-cards-dictate {
+  min-height: 32px;
+}
+
+.qt-cards-dictate:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.qt-cards-dictate-hint {
+  margin-top: -2px;
+}
+
 .qt-cards-verdict {
   margin: 0 0 10px;
   padding: 10px 12px;

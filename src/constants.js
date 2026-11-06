@@ -227,7 +227,7 @@ const DEFAULT_SETTINGS = {
     defaultDeck: "General",
     reviewLimit: 20,
     order: "due", // "due" (due + new) | "all"
-    answerMode: "flip", // "flip" | "type" | "speak" (speak uses the text box with OS dictation)
+    answerMode: "flip", // "flip" | "type" | "speak" (type/speak use the answer box; speak adds in-app microphone dictation when available)
     revealAnimation: "instant", // "instant" | "fade" | "flip": optional answer reveal presentation
     gradingStrictness: "standard", // "strict" | "standard" | "lenient"
     aiGrading: false, // optional AI second opinion when the local typed-answer grader is unsure

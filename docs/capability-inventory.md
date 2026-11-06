@@ -25,7 +25,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `CalendarView` | 0 | `tests/calendar.test.js`, `tests/term-calendar.test.js` |
 | `CardExtractModal` | 0 | `tests/feature-surfaces.test.js` |
 | `CardModal` | 0 | `tests/source-recall.test.js` |
-| `CardView` | 0 | `tests/card-learning.test.js`, `tests/card-reveal.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/interval-preview.test.js`, `tests/mobile-module-layout.test.js`, `tests/source-recall.test.js`, `tests/study-status.test.js` |
+| `CardView` | 0 | `tests/card-learning.test.js`, `tests/card-reveal.test.js`, `tests/card-speech.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/interval-preview.test.js`, `tests/mobile-module-layout.test.js`, `tests/source-recall.test.js`, `tests/study-status.test.js` |
 | `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/note-context.test.js`, `tests/security-hardening.test.js`, `tests/think-first.test.js` |
 | `CourseOverviewModal` | 0 | `tests/core-values.test.js` |
 | `DEFAULT_SETTINGS` | 113 | `tests/grading.test.js` |
@@ -153,7 +153,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `cardGradingAi` | 6 | `tests/card-grading-ai.test.js` |
 | `cardPreview` | 0 | `tests/couchdb-sync.test.js` |
 | `cardWriteDiff` | 2 | `tests/card-write-diff.test.js` |
-| `cards` | 46 | `tests/card-learning.test.js`, `tests/card-reveal.test.js`, `tests/card-scheduler-explorer.test.js`, `tests/cards-extract.test.js`, `tests/cards-import.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/fsrs-fit.test.js`, `tests/mobile-module-layout.test.js`, `tests/plain-cards.test.js`, `tests/quizlet-pdf-fixtures.test.js`, `tests/sm2.test.js`, `tests/source-recall.test.js`, `tests/spaced-quiz.test.js`, `tests/study-status.test.js` |
+| `cards` | 46 | `tests/card-learning.test.js`, `tests/card-reveal.test.js`, `tests/card-scheduler-explorer.test.js`, `tests/card-speech.test.js`, `tests/cards-extract.test.js`, `tests/cards-import.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/fsrs-fit.test.js`, `tests/mobile-module-layout.test.js`, `tests/plain-cards.test.js`, `tests/quizlet-pdf-fixtures.test.js`, `tests/sm2.test.js`, `tests/source-recall.test.js`, `tests/spaced-quiz.test.js`, `tests/study-status.test.js` |
 | `cardsExtract` | 13 | `tests/cards-extract.test.js`, `tests/flashcard-generate.test.js` |
 | `cardsImport` | 39 | `tests/cards-import.test.js`, `tests/quizlet-pdf-fixtures.test.js`, `tests/spaced-quiz.test.js` |
 | `cbtExam` | 7 | `tests/cbt-exam.test.js` |

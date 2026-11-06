@@ -378,6 +378,7 @@ test("cards view: an unsure typed answer gets an AI second opinion and records i
   plugin.settings.cards.reviewLimit = 1;
   plugin.settings.cards.aiGrading = true;
   plugin.settings.ai.enabled = true;
+  plugin.settings.ai.api.keys = { anthropic: "test-key" };
   let asked = null;
   plugin.gradeCardWithAi = async (card, typed, strictness) => {
     asked = { card, typed, strictness };
@@ -407,6 +408,7 @@ test("cards view: when AI is unavailable the answer waits, and rating it is reco
   plugin.settings.cards.reviewLimit = 1;
   plugin.settings.cards.aiGrading = true;
   plugin.settings.ai.enabled = true;
+  plugin.settings.ai.api.keys = { anthropic: "test-key" };
   plugin.gradeCardWithAi = async () => {
     throw new Error("offline");
   };
@@ -460,6 +462,7 @@ test("plugin: pending typed answers are graded once and cleared from the queue",
   const { app, plugin } = await setup();
   plugin.settings.cards.aiGrading = true;
   plugin.settings.ai.enabled = true;
+  plugin.settings.ai.api.keys = { anthropic: "test-key" };
   plugin.gradeCardWithAi = async () => ({
     verdict: "correct",
     suggestedGrade: "good",

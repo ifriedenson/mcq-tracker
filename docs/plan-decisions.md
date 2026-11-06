@@ -1,10 +1,11 @@
 # Plan decision sheet — answered Nov 6, 2026
 
-`plan.md` (v1.278.0) now has **98 checked roadmap rows, 3 `[~]` partial rows
+`plan.md` (v1.279.0) now has **98 checked roadmap rows, 3 `[~]` partial rows
 and 0 unchecked rows**. The three partials are owner manual passes that are being
-run now. PDF→FRQ import shipped as a text-layer preview-then-create command;
-four former gates remain closed by decision: TTS/audio, pronunciation, the FRQ
-accuracy claim and pilot thresholds.
+run now. Card answer dictation shipped with an editable transcript; PDF→FRQ
+import remains a text-layer preview-then-create command; four former gates
+remain closed by decision: TTS/audio, pronunciation, the FRQ accuracy claim and
+pilot thresholds.
 
 The plan's **§B** table lists the three open passes; **§C** lists what was
 decided against. Nothing below needs another product decision before an agent
@@ -43,8 +44,9 @@ stays as shipped. Closes §11 E5; no key, cost or privacy surface is added.
 
 ## 5. Pronunciation feedback — **decided**
 
-**Decision:** decline it. Language practice keeps typed answers and OS
-dictation; no audio capture or speech scoring is added. Closes §11 E5.
+**Decision:** decline it. Language practice keeps typed answers, browser/OS
+dictation and editable card-answer transcripts; no audio capture by the plugin
+or speech scoring is added. Closes §11 E5.
 
 ## 6. AP FRQ accuracy claim — **decided**
 

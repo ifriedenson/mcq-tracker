@@ -7,6 +7,8 @@ const { CardModal } = require("./card-modal");
 const { renderMarkdownInto } = require("./view-helpers");
 const { gradeTypedAnswer } = require("./card-grading");
 const { needsAi } = require("./card-grading-ai");
+const { API_PRESETS } = require("./api-client");
+const { resolveApiKey } = require("./secret-keys");
 const { pendingGradeCounts } = require("./card-grade-queue");
 const { splitSourceContext } = require("./source-recall");
 const { formatInterval, intervalPreviews } = require("./interval-preview");
@@ -34,6 +36,19 @@ function revealEnvironment() {
   return { reducedMotion, supportsTransition };
 }
 
+/** A visible, actionable message for the browser's speech-recognition errors. */
+function speechErrorMessage(code) {
+  const reason = String(code || "").trim().toLowerCase();
+  if (reason === "not-allowed" || reason === "service-not-allowed") {
+    return "Microphone access was denied. Allow microphone access for Obsidian, or type the answer instead.";
+  }
+  if (reason === "audio-capture") return "No microphone was found. Type the answer instead.";
+  if (reason === "network") return "Speech recognition could not reach its speech service. Check your connection, or type the answer instead.";
+  if (reason === "no-speech") return "No speech was heard. Try the microphone again, or type the answer instead.";
+  if (reason === "language-not-supported") return "This device does not support speech recognition for its current language. Type the answer instead.";
+  return "The microphone could not transcribe that. Try again, or type the answer instead.";
+}
+
 class CardView extends ItemView {
   constructor(leaf, plugin) {
     super(leaf);
@@ -58,6 +73,10 @@ class CardView extends ItemView {
     this.previewSource = null;
     this.previewValues = null;
     this.previewBuilds = 0;
+    this.speechFactory = null; // tests and hosts can inject a recognition boundary
+    this.speechRecognition = null;
+    this.speechListening = false;
+    this.speechError = "";
     this.session = { reviewed: 0, correct: 0, grades: { again: 0, hard: 0, good: 0, easy: 0 } };
   }
 
@@ -138,6 +157,193 @@ class CardView extends ItemView {
       ev.preventDefault();
       this.rate(grade);
     }
+  }
+
+  /** The browser's recognition constructor, or null when this runtime has none. */
+  speechSupport() {
+    if (typeof this.speechFactory === "function") {
+      return { available: true, create: () => this.speechFactory(), reason: "" };
+    }
+    const windows = [];
+    try {
+      if (typeof activeWindow !== "undefined" && activeWindow) windows.push(activeWindow);
+    } catch (e) {
+      /* no active window in this host */
+    }
+    try {
+      if (typeof window !== "undefined" && window && !windows.includes(window)) windows.push(window);
+    } catch (e) {
+      /* no global window in this host */
+    }
+    for (const win of windows) {
+      const Constructor = win.SpeechRecognition || win.webkitSpeechRecognition;
+      if (typeof Constructor === "function") return { available: true, create: () => new Constructor(), reason: "" };
+    }
+    return {
+      available: false,
+      create: null,
+      reason: "Speech recognition is not available in this Obsidian environment. Type the answer instead; the local check still works.",
+    };
+  }
+
+  speechLanguage() {
+    try {
+      if (typeof navigator !== "undefined" && navigator && navigator.language) return String(navigator.language);
+    } catch (e) {
+      /* no navigator */
+    }
+    try {
+      const doc = typeof activeDocument !== "undefined" ? activeDocument : null;
+      const lang = doc && doc.documentElement && doc.documentElement.lang;
+      if (lang) return String(lang);
+    } catch (e) {
+      /* no document */
+    }
+    return "";
+  }
+
+  stopDictation() {
+    const recognition = this.speechRecognition;
+    this.speechRecognition = null;
+    this.speechListening = false;
+    if (!recognition) return;
+    recognition.onstart = null;
+    recognition.onresult = null;
+    recognition.onerror = null;
+    recognition.onend = null;
+    try {
+      recognition.abort();
+    } catch (e) {
+      /* already stopped */
+    }
+  }
+
+  /** Dictate into the same editable box the typed path uses. Never grades on its own. */
+  startDictation(textarea, button, hint) {
+    if (!textarea || !button || !hint) return;
+    if (this.speechListening) {
+      this.stopDictation();
+      button.setText("Dictate again");
+      hint.setText("Dictation stopped. Edit the transcript, then check your answer.");
+      return;
+    }
+    const support = this.speechSupport();
+    if (!support.available) {
+      button.disabled = true;
+      hint.setText(support.reason);
+      return;
+    }
+    this.stopDictation();
+    let recognition;
+    try {
+      recognition = support.create();
+    } catch (e) {
+      button.disabled = true;
+      hint.setText("The microphone could not start. Type the answer instead.");
+      return;
+    }
+    if (!recognition) {
+      button.disabled = true;
+      hint.setText("The microphone could not start. Type the answer instead.");
+      return;
+    }
+
+    const base = str(textarea.value).trim();
+    let finalText = "";
+    let interimText = "";
+    let failed = false;
+    const updateTranscript = () => {
+      const spoken = [finalText, interimText].filter(Boolean).join(" ").trim();
+      const combined = base && spoken ? `${base} ${spoken}` : base || spoken;
+      textarea.value = combined;
+      this.typedAnswer = combined;
+    };
+
+    recognition.interimResults = true;
+    recognition.continuous = false;
+    recognition.maxAlternatives = 1;
+    const language = this.speechLanguage();
+    if (language) recognition.lang = language;
+    recognition.onstart = () => {
+      this.speechListening = true;
+      button.setText("Stop dictation");
+      hint.setText("Listening… Speak your answer, then edit the transcript before checking.");
+    };
+    recognition.onresult = (event) => {
+      const results = event && event.results ? event.results : [];
+      const start = event && Number.isFinite(Number(event.resultIndex)) ? Number(event.resultIndex) : 0;
+      let nextInterim = "";
+      for (let i = start; i < results.length; i++) {
+        const result = results[i];
+        const alternative = result && result[0] ? result[0] : result;
+        const text = str(alternative && alternative.transcript).trim();
+        if (!text) continue;
+        if (result && result.isFinal) finalText = `${finalText} ${text}`.trim();
+        else nextInterim = `${nextInterim} ${text}`.trim();
+      }
+      interimText = nextInterim;
+      updateTranscript();
+    };
+    recognition.onerror = (event) => {
+      failed = true;
+      this.speechError = speechErrorMessage(event && event.error);
+      this.speechListening = false;
+      button.disabled = false;
+      button.setText("Try dictation again");
+      hint.setText(this.speechError);
+    };
+    recognition.onend = () => {
+      this.speechListening = false;
+      if (this.speechRecognition === recognition) this.speechRecognition = null;
+      button.disabled = false;
+      button.setText(failed ? "Try dictation again" : finalText || interimText ? "Dictate again" : "Dictate");
+      if (!failed) hint.setText("Transcript ready. Edit it if needed, then check your answer. Audio is not recorded or uploaded by this plugin.");
+    };
+
+    this.speechError = "";
+    this.speechRecognition = recognition;
+    this.speechListening = true;
+    button.setText("Stop dictation");
+    hint.setText("Listening… Speak your answer, then edit the transcript before checking.");
+    try {
+      recognition.start();
+    } catch (e) {
+      this.stopDictation();
+      button.disabled = false;
+      button.setText("Dictate");
+      hint.setText("The microphone could not start. Type the answer instead.");
+    }
+  }
+
+  /** True only when the selected AI backend has enough configuration to try a grade. */
+  aiCredentialsConfigured() {
+    const ai = (this.plugin.settings && this.plugin.settings.ai) || {};
+    if (ai.enabled !== true) return false;
+    if (this.plugin.backend && this.plugin.backend() === "opencode") return !!(this.plugin.conn && this.plugin.conn().url);
+    const api = ai.api || {};
+    const preset = API_PRESETS[api.provider] || API_PRESETS.custom;
+    if (preset && preset.noKey) return true;
+    try {
+      return !!resolveApiKey(this.plugin.app, api);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /** One visible explanation for the local-only and AI-fallback paths. */
+  aiGradingHint() {
+    const st = (this.plugin && this.plugin.settings) || {};
+    const cards = st.cards || {};
+    if (cards.aiGrading !== true) {
+      return "AI grading is off. This answer is checked locally on this device; the stored answer appears after you check so you can self-check.";
+    }
+    if (!st.ai || st.ai.enabled !== true) {
+      return "No AI provider is configured, so this answer is checked locally on this device. Check it, then compare with the stored answer and rate yourself.";
+    }
+    if (!this.aiCredentialsConfigured()) {
+      return "AI features are on, but no provider credentials are configured. This answer is checked locally; compare it with the stored answer and rate yourself.";
+    }
+    return "If the local check is unsure, the AI grader compares only the card front, stored answer, your answer and the strictness.";
   }
 
   render() {
@@ -452,6 +658,7 @@ class CardView extends ItemView {
   }
 
   async showCard() {
+    this.stopDictation();
     const card = this.queue[this.index];
     if (!card) return this.finish();
     this.current = null;
@@ -505,6 +712,7 @@ class CardView extends ItemView {
   /** Grade a typed or dictated answer locally, then ask AI only when the local result is unsure. */
   async checkTyped(value) {
     if (!this.current || this.aiChecking) return;
+    this.stopDictation();
     const card = this.current;
     const typed = str(value).trim();
     const graded = gradeTypedAnswer(card.body.back, typed, {
@@ -526,7 +734,12 @@ class CardView extends ItemView {
     const st = this.plugin.settings;
     if (!st.cards.aiGrading) return;
     if (!st.ai.enabled) {
-      this.aiError = "AI fallback is on for cards, but AI features are off. Turn them on under Settings, Global, Modules.";
+      this.aiError = "AI fallback is on for cards, but AI features are off. The local check above is still usable; turn on AI features under Settings, Global, Modules if you want a second opinion.";
+      this.render();
+      return;
+    }
+    if (!this.aiCredentialsConfigured()) {
+      this.aiError = "No AI provider credentials are configured. The local check above is still usable; compare it with the stored answer and rate the card yourself.";
       this.render();
       return;
     }
@@ -620,6 +833,7 @@ class CardView extends ItemView {
   }
 
   finish() {
+    this.stopDictation();
     this.state = "summary";
     this.current = null;
     this.render();
@@ -667,12 +881,10 @@ class CardView extends ItemView {
     const mode = card.body.cardType === "image-occlusion" ? "flip" : card.answerMode || "flip";
     if (!this.revealed && mode !== "flip") {
       const typedWrap = root.createDiv({ cls: "qt-cards-typed-wrap" });
-      typedWrap.createEl("label", {
-        text: mode === "speak" ? "Your spoken answer (dictation or type)" : "Your answer",
-      });
+      typedWrap.createEl("label", { text: "Your answer (type or dictate)" });
       const typed = typedWrap.createEl("textarea", {
         cls: "qt-cards-typed",
-        attr: { rows: "3", placeholder: mode === "speak" ? "Use your device's dictation, or type here…" : "Type your answer…" },
+        attr: { rows: "3", placeholder: "Type your answer, or use the microphone to dictate it…" },
       });
       typed.value = this.typedAnswer || "";
       typed.addEventListener("input", () => (this.typedAnswer = typed.value));
@@ -682,14 +894,29 @@ class CardView extends ItemView {
           this.checkTyped(typed.value);
         }
       });
+      const speech = this.speechSupport();
+      const speechRow = typedWrap.createDiv({ cls: "qt-cards-typed-actions" });
+      const dictate = speechRow.createEl("button", { text: "Dictate", cls: "qt-cards-dictate" });
+      dictate.disabled = !speech.available;
+      if (speech.available) {
+        dictate.setAttr("aria-label", "Dictate your answer with the microphone");
+      } else {
+        dictate.setAttr("aria-label", "Dictation unavailable");
+        dictate.setAttr("title", speech.reason);
+      }
+      const dictateHint = typedWrap.createDiv({ cls: "qt-hint qt-cards-dictate-hint" });
+      dictateHint.setText(
+        speech.available
+          ? "Dictate, then edit the transcript before checking. Audio is not recorded or uploaded by this plugin."
+          : speech.reason
+      );
+      dictate.addEventListener("click", () => this.startDictation(typed, dictate, dictateHint));
       const check = root.createEl("button", { text: "Check answer", cls: "mod-cta qt-primary qt-cards-show" });
       check.addEventListener("click", () => this.checkTyped(typed.value));
+      root.createDiv({ cls: "qt-hint", text: this.aiGradingHint() });
       root.createDiv({
         cls: "qt-hint",
-        text:
-          mode === "speak"
-            ? "Use your keyboard's dictation or microphone key. The local match stays on this device; if AI fallback is on, only the card front, stored answer and your answer are sent when the local check is unsure."
-            : "Exact wording is not required at standard strictness; small typos and accepted variants count. If AI fallback is on, only the card front, stored answer and your answer are sent when the local check is unsure.",
+        text: "Exact wording is not required at standard strictness; small typos and accepted variants count.",
       });
       return;
     }
@@ -790,6 +1017,11 @@ class CardView extends ItemView {
             ? `Suggested rating: ${GRADE_LABELS[this.suggestedGrade] || "Good"}. Choose another rating to record an override.`
             : "Rate how well you recalled it. 1 = again, 4 = easy.",
     });
+  }
+
+  onClose() {
+    this.stopDictation();
+    this.contentEl.empty();
   }
 
   renderSummary(root) {
