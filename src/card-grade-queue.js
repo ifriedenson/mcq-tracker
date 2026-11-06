@@ -7,6 +7,7 @@
 const { str } = require("./util");
 
 const MAX_PENDING = 100;
+const MAX_GRADE_BATCH = 10;
 
 function newGradeId(now) {
   const at = now instanceof Date && !isNaN(now.getTime()) ? now.getTime() : Date.now();
@@ -37,6 +38,8 @@ function normalizeEntry(entry) {
     expected: str(entry.expected).slice(0, 2000),
     typed: str(entry.typed).slice(0, 2000),
     strictness: ["strict", "lenient"].includes(str(entry.strictness)) ? str(entry.strictness) : "standard",
+    locale: str(entry.locale).slice(0, 40),
+    model: str(entry.model).slice(0, 200),
     createdAt: str(entry.createdAt) || new Date().toISOString(),
   };
 }
@@ -77,6 +80,7 @@ function pendingGradeCounts(list) {
 
 module.exports = {
   MAX_PENDING,
+  MAX_GRADE_BATCH,
   newGradeId,
   unpackPendingGrades,
   packPendingGrades,

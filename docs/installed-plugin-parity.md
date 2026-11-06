@@ -64,7 +64,7 @@ consistent with a personal or unlisted plugin; no public listing was found.
 
 ## Feature matrix
 
-Status meanings: **Added** means shipped by MCQ Tracker in the current release (1.274.0); **Planned** means the owner approved a later slice; **Covered**
+Status meanings: **Added** means shipped by MCQ Tracker in the current release (1.281.0); **Planned** means the owner approved a later slice; **Covered**
 means an existing local module already performs the study-facing job; **Partial**
 means a real but deliberately narrower path exists; **Boundary** means the plan
 or a licence/security rule deliberately excludes it.
@@ -74,7 +74,7 @@ or a licence/security rule deliberately excludes it.
 | **Advanced Tables** | Covered | **1.234.0–1.260.0 cover the plugin's whole feature set:** in-place cell editing with Tab/Shift+Tab/Enter/Alt+Arrow navigation, row and column insert (above and below, left and right), delete and move, bold/italic/code/strikethrough, left/center/right/default alignment, body-row sorting in both directions, formula evaluation, CSV export with an optional header row, CSV/TSV import, transposing, a header toggle and a size readout. **1.260.0** adds the parts that used to exist only in the reading-view toolbar: 24 **Tables:** commands plus format-table, format-all-tables, next/previous cell, next row and move-cursor-out, a docked controls panel with a ribbon button, and settings for the Tab/Enter bindings, space padding and the ribbon button. **1.261.0** closes the last two behaviour gaps: the evaluator reproduces upstream's documented formula examples (`;dt`, `;hm`, datetime and duration cells, `#+TBLFM:`, and a row-to-column range refused as upstream refuses it), with the existing `<!-- TBLFM: … -->` comment kept as the canonical form so current documents are unchanged, and Tab/Shift+Tab/Enter/Shift+Enter now navigate cells and rows inside a table in the Markdown source editor, gated by the same two settings. **1.262.0** adds the table-building flow: a line starting with `|` counts as a table, Tab completes the header and delimiter rows, and Tab past the last header cell adds a column. **1.263.0** adds upstream's tab-joined export, its blank ordering in sorts and its double-action notices, plus merged cells as an extension upstream does not have. |
 | **Annotator** | Covered | PDF annotation index, PDF reader, ink, text marks, tags, annotation sidecar and the PDF editor cover PDF study. EPUB annotation is not an MCQ feature.  1.272.0 adds EPUB annotation: `src/epub.js` reads the container, package, spine and chapter text; `src/epub-annotations.js` stores highlights in `Book.epub.annotations.md` (chapter, anchored character range, quote, note, colour, tags) with `[[Book.epub#chapter=N&annotation=id]]` links; `src/epub-reader-modal.js` renders a chapter, marks annotated paragraphs and offers Highlight/Update/Remove; `src/plugin.js` adds the two EPUB commands. Covered by 10 tests in `tests/epub.test.js`. |
 | **Code Runner** | Boundary | The plan's §11 security gate prohibits in-plugin code execution; no sandbox or language allow-list has been approved. No runner, Pyodide, shell or language runtime was added. A dependency-free `calc`-only runner was prototyped during the Nov 5 parity close-out and withdrawn rather than shipped half-verified; the gate is unchanged. |
-| **Copilot** | Boundary / Covered workflow | Copilot is AGPL-3.0, so its code cannot be copied into this MIT plugin. The original Study agent already provides note-grounded chat, local retrieval, provider selection, write review and undo. |
+| **Copilot** | Boundary / Adapted workflow | Copilot is AGPL-3.0, so no code, prompt or stylesheet was copied. The original Study agent provides note-grounded chat, local cited retrieval, provider selection, reviewed writes, diffs, undo and saved conversations. **Nov 6, 2026:** Quick Ask (selection/full-note) and saved `/commands` add the inline and reusable-prompt surfaces without a second provider or network path. The full clean-room feature/UI matrix in `plan.md` §5.18.1 marks what is Covered, Adapted, Next and Boundary; Copilot Plus, Miyo, external CLI agents, web tools, Excalidraw, OpenArtifacts and self-host mode remain boundaries. |
 | **Deadline** | Covered | Calendar, Pomodoro, assignments, task list, due dates, study plan and local reminders already exist as separate local modules. |
 | **Desmos** | Boundary / Covered idea | Desmos is GPL-3.0 and its code was not copied. The local Reference Graph covers regression, sliders, polar, parametric, implicit and 3D graphing. |
 | **Download Pulse** | Boundary | Developer download/rank/competitor analytics is not study state and has no relationship to questions, cards or grades. |
@@ -105,8 +105,9 @@ or a licence/security rule deliberately excludes it.
    Minimal Theme Settings and Notebook Navigator. Those are separate UI/theme
    products, not study modules.
 3. **Licences:** Copilot (AGPL-3.0) and Desmos (GPL-3.0) cannot be copied into
-   this MIT codebase. A clean-room reimplementation of specific behaviour is
-   possible only with a separately approved spec.
+   this MIT codebase. Clean-room reimplementations of specific behaviour are
+   allowed with a spec; Quick Ask and saved study commands are the first
+   Copilot-shaped slice, and no AGPL material was used.
 4. **Importer depth:** the local **export-file** importers (the files those
    services let you download) shipped in 1.273.0 for Evernote, Google Keep,
    Airtable, Notion, Bear and Roam. Live cloud importer clients (signing in to a

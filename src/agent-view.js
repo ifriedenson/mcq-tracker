@@ -120,6 +120,7 @@ class AgentView extends ItemView {
       buildContext: (mode, currentNote) => this.buildContext(mode, currentNote),
       beforeSend: (text) => this.prepareQuestion(text),
       readNoteContext: () => readActiveNoteContext(this.app),
+      getCommands: () => this.plugin.settings.ai.studyCommands,
       onSaveNote: (text) => this.insertReply(text),
       saveNoteLabel: "Insert into active note",
       onSaveChat: (markdown) => this.saveChat(markdown),

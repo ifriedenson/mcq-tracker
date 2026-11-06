@@ -161,6 +161,7 @@ function renderDecks(containerEl, plugin, redisplay) {
         .addOption("flip", "Flip")
         .addOption("type", "Type")
         .addOption("speak", "Speak")
+        .addOption("auto", "Auto")
         .setValue((configured && configured.answerMode) || "")
         .onChange(async (v) => {
           const cfg = ensureDeck(st, deck.name);
@@ -680,15 +681,16 @@ function renderReview(containerEl, plugin, redisplay) {
 
   new Setting(containerEl)
     .setName("Answer mode")
-    .setDesc("Flip is the classic reveal-and-rate review. Type adds a locally graded answer box; Speak adds the same box with a microphone that turns speech into editable text before grading. Audio is not recorded or uploaded by this plugin. A card's answer_mode or its deck's setting overrides this default.")
+    .setDesc("Flip is the classic reveal-and-rate review. Type adds a locally graded answer box; Speak adds the same box with a microphone that turns speech into editable text before grading. Auto types on desktop and flips on mobile. Audio is not recorded or uploaded by this plugin. A card's answer_mode or its deck's setting overrides this default.")
     .addDropdown((d) =>
       d
         .addOption("flip", "Flip and self-rate")
         .addOption("type", "Type or dictate the answer")
         .addOption("speak", "Speak or type (microphone)")
+        .addOption("auto", "Auto (type on desktop, flip on mobile)")
         .setValue(st.answerMode || "flip")
         .onChange(async (v) => {
-          st.answerMode = v === "type" || v === "speak" ? v : "flip";
+          st.answerMode = v === "type" || v === "speak" || v === "auto" ? v : "flip";
           await plugin.save();
           plugin.refreshViews();
         })

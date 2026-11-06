@@ -105,6 +105,7 @@ const DEFAULT_SETTINGS = {
     studyChatTitle: "", // user-visible title of the active conversation
     studyChatUpdatedAt: 0, // epoch ms, used for the newest-first library order
     chatSessions: [], // archived conversations, bounded by chat-sessions.js
+    studyCommands: [], // reusable /commands; prompts may use {} or {selection}
     autoDeclined: false, // the user said no to the automatic OpenCode download: don't ask again until they press the button
     backend: "api", // desktop choice: "api" (default) or "opencode". Phones always use "api".
     api: { provider: "anthropic", baseUrl: "", model: "claude-sonnet-5-5", models: [], keys: {} },
@@ -227,7 +228,7 @@ const DEFAULT_SETTINGS = {
     defaultDeck: "General",
     reviewLimit: 20,
     order: "due", // "due" (due + new) | "all"
-    answerMode: "flip", // "flip" | "type" | "speak" (type/speak use the answer box; speak adds in-app microphone dictation when available)
+    answerMode: "flip", // "flip" | "type" | "speak" | "auto" (type/speak use the answer box; speak adds in-app microphone dictation; auto types on desktop and flips on mobile)
     revealAnimation: "instant", // "instant" | "fade" | "flip": optional answer reveal presentation
     gradingStrictness: "standard", // "strict" | "standard" | "lenient"
     aiGrading: false, // optional AI second opinion when the local typed-answer grader is unsure

@@ -104,9 +104,18 @@ work for both. The card-specific fields are:
 | `deck` | string | Deck name. Cards in a configured deck folder inherit its course. |
 | `course` | string | Course tag, from the card, its deck or its folder. |
 | `card_type` | string | `basic`, `reversed`, `cloze` or `image-occlusion`. Basic is the default and is normally omitted. |
-| `answer_mode` | string | Per-card override: `flip`, `type` or `speak`. |
+| `answer_mode` | string | Per-card override: `flip`, `type`, `speak` or `auto`. Auto types on desktop and flips on mobile. |
 | `grading_strictness` | string | Per-card override: `strict`, `standard` or `lenient`. |
 | `accepted_variants` | list | Extra answers accepted by the typed-answer grader. |
+| `last_typed_answer`, `last_verdict` | string | The latest typed or dictated answer and its `correct`, `partial` or `incorrect` verdict. |
+| `verdict_override` | boolean | True when the learner chose a rating other than the suggested one after a typed answer. |
+| `graded_by`, `graded_on` | string, date | Who produced the verdict (`deterministic`, `ai` or `self`) and when it was written. |
+| `grade_status` | string | `graded` for a completed AI or deterministic grade, `self` when the learner graded the card. |
+| `grade_confidence` | number | The AI grader's 0–1 confidence, when one was returned. |
+| `grade_feedback` | string | The one-sentence AI feedback, or a note that the card changed after the answer was queued. |
+| `grade_model` | string | The provider model that produced an AI grade. Absent on local and self grades. |
+| `grade_attempt_id` | string | Idempotency key matching the pending queue entry; a replayed batch does not grade the same attempt twice. |
+| `grade_stale` | boolean | True when the card's front or stored answer changed after the pending answer was queued; the grade still uses the queued snapshot. |
 | `part_of_speech`, `language` | string | Vocabulary-specific fields. |
 | `image`, `mask_x`, `mask_y`, `mask_w`, `mask_h`, `mask_label` | string/number | Image-occlusion fields. Coordinates are percentages. |
 | `question_set`, `choice_1` … `choice_8`, `correct_choices`, `time_limit` | mixed | Present when a card came from a quiz set; keeps the original choices. |

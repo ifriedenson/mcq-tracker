@@ -189,6 +189,24 @@ test("plugin: a daily cap blocks before another request is sent", async () => {
   }
 });
 
+test("plugin: card grading opts out of ambiguous automatic retries", async () => {
+  const { plugin } = await startPlugin();
+  let calls = 0;
+  obsidian.requestImpl = async () => {
+    calls++;
+    return { status: 503, json: { error: { message: "unavailable" } } };
+  };
+  try {
+    await assert.rejects(
+      () => plugin.aiComplete("system", "grade this", { feature: "cardGrading", retry: false }),
+      /503|unavailable/i
+    );
+    assert.equal(calls, 1, "a timed-out card grade is left for the explicit pending retry");
+  } finally {
+    obsidian.requestImpl = null;
+  }
+});
+
 test("plugin: blind verification uses the per-feature verification model", async () => {
   const { plugin } = await startPlugin();
   plugin.settings.ai.features.verification.model = "verifier";

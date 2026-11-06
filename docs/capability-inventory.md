@@ -1,11 +1,11 @@
 # Capability inventory — derived from the bundle
 
-Generated Nov 5, 2026 from the built `main.js` (`T`, the plugin's test surface) and the
+Generated Nov 6, 2026 from the built `main.js` (`T`, the plugin's test surface) and the
 plugin's registered commands, not from prose. Each row names the exports a group carries
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 400 groups, 2690 exports. **Commands:** 206. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 404 groups, 2714 exports. **Commands:** 207. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -26,7 +26,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `CardExtractModal` | 0 | `tests/feature-surfaces.test.js` |
 | `CardModal` | 0 | `tests/source-recall.test.js` |
 | `CardView` | 0 | `tests/card-cram.test.js`, `tests/card-learning.test.js`, `tests/card-mother-cram.test.js`, `tests/card-reveal.test.js`, `tests/card-speech.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/interval-preview.test.js`, `tests/mobile-module-layout.test.js`, `tests/source-recall.test.js`, `tests/study-status.test.js` |
-| `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/note-context.test.js`, `tests/security-hardening.test.js`, `tests/think-first.test.js` |
+| `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/note-context.test.js`, `tests/quick-ask.test.js`, `tests/security-hardening.test.js`, `tests/think-first.test.js` |
 | `CourseOverviewModal` | 0 | `tests/core-values.test.js` |
 | `DEFAULT_SETTINGS` | 113 | `tests/grading.test.js` |
 | `DocumentReviewModal` | 0 | `tests/feature-surfaces.test.js` |
@@ -62,6 +62,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `QuestionFolderModal` | 0 | `tests/views.test.js` |
 | `QuestionTrackerSettingTab` | 0 | `tests/feature-surfaces.test.js` |
 | `QuickAddModal` | 0 | `tests/feature-surfaces.test.js` |
+| `QuickAskModal` | 0 | `tests/quick-ask.test.js` |
 | `REFERENCE_TABS` | 2 | `tests/modules.test.js` |
 | `ReferenceView` | 0 | `tests/ap-exam-history.test.js`, `tests/ap-resource-notes.test.js`, `tests/ap-score.test.js`, `tests/calculator.test.js`, `tests/complex.test.js`, `tests/geometry.test.js`, `tests/graph-3d.test.js`, `tests/graph-complex.test.js`, `tests/matrix.test.js`, `tests/mobile-reference-stats.test.js`, `tests/reference-advanced.test.js`, `tests/reference-sheets.test.js`, `tests/reference-tools.test.js`, `tests/reference.test.js` |
 | `ReviewCalendarView` | 0 | `tests/mobile-calendar-agenda.test.js` |
@@ -148,9 +149,10 @@ the table and fails if a group, export count, command or citing test drifts.
 | `candidateAssetNames` | 0 | `tests/feature-surfaces.test.js` |
 | `cardArchive` | 8 | `tests/card-archive.test.js` |
 | `cardGenerator` | 11 | `tests/card-generator.test.js`, `tests/spaced-quiz.test.js` |
-| `cardGradeQueue` | 8 | `tests/card-grading-ai.test.js` |
-| `cardGrading` | 10 | `tests/card-grading-ai.test.js`, `tests/card-grading.test.js` |
-| `cardGradingAi` | 6 | `tests/card-grading-ai.test.js` |
+| `cardGradeQueue` | 9 | `tests/card-grading-ai.test.js` |
+| `cardGraderAccuracy` | 1 | `tests/card-grader-accuracy.test.js` |
+| `cardGrading` | 11 | `tests/card-grading-ai.test.js`, `tests/card-grading.test.js` |
+| `cardGradingAi` | 7 | `tests/card-grading-ai.test.js` |
 | `cardPreview` | 0 | `tests/couchdb-sync.test.js` |
 | `cardWriteDiff` | 2 | `tests/card-write-diff.test.js` |
 | `cards` | 46 | `tests/card-cram.test.js`, `tests/card-learning.test.js`, `tests/card-mother-cram.test.js`, `tests/card-reveal.test.js`, `tests/card-scheduler-explorer.test.js`, `tests/card-speech.test.js`, `tests/cards-extract.test.js`, `tests/cards-import.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/fsrs-fit.test.js`, `tests/mobile-module-layout.test.js`, `tests/plain-cards.test.js`, `tests/quizlet-pdf-fixtures.test.js`, `tests/sm2.test.js`, `tests/source-recall.test.js`, `tests/spaced-quiz.test.js`, `tests/study-status.test.js` |
@@ -310,6 +312,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `provenance` | 10 | `tests/import.test.js`, `tests/source-recall.test.js` |
 | `qtiArchive` | 1 | `tests/cards-import.test.js` |
 | `quickAdd` | 7 | `tests/hints.test.js`, `tests/note-quiz-clipboard.test.js`, `tests/quick-add.test.js` |
+| `quickAsk` | 8 | `tests/quick-ask.test.js` |
 | `quickRemainingSeconds` | 0 | `tests/uncited-groups.test.js` |
 | `quizBlock` | 18 | `tests/numeric-quiz.test.js`, `tests/quiz-bind.test.js`, `tests/quiz-block.test.js`, `tests/quiz-note-gate.test.js`, `tests/quiz-results.test.js`, `tests/reorder.test.js`, `tests/shared-choice.test.js` |
 | `quizClipboard` | 2 | `tests/note-quiz-clipboard.test.js` |
@@ -365,6 +368,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `stemDiagrams` | 6 | `tests/security-inventory.test.js`, `tests/stem-diagrams.test.js` |
 | `studyBundle` | 7 | `tests/study-bundle-import.test.js`, `tests/study-bundle.test.js` |
 | `studyBundleImport` | 4 | `tests/study-bundle-import.test.js` |
+| `studyCommands` | 12 | `tests/quick-ask.test.js` |
 | `studyCounters` | 13 | `tests/study-counters.test.js`, `tests/study-stats.test.js` |
 | `studyMap` | 6 | `tests/study-map.test.js` |
 | `studyNudge` | 7 | `tests/settings-consolidation.test.js`, `tests/study-nudge.test.js` |
@@ -565,6 +569,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `import-cards` | Cards: import existing decks | `openCardImport` | `tests/plugin.test.js` |
 | `cards-import-document` | Cards: extract cards from a PDF or Markdown file | `openDocumentCards` | `tests/command-effects.test.js` |
 | `open-study-agent` | Study agent: open the sidebar | `activateAgent` | `tests/agent-view.test.js`, `tests/pdf-annotator-sidebar.test.js` |
+| `ai-quick-ask` | AI: Quick Ask about the selection or note | `openQuickAsk` | `tests/quick-ask.test.js` |
 | `cards-rescan-plain` | Cards: rescan plain Markdown folder | `moduleOff` | `tests/frq-review.test.js`, `tests/plain-cards.test.js`, `tests/views.test.js` |
 | `export-cards` | Cards: export to Quizlet, Anki package, Anki text, Mochi, LearnKit, Kahoot, Blooket or Gimkit | `openCardExport` | `tests/command-effects.test.js` |
 | `push-cards-anki` | Cards: push to Anki (AnkiConnect) | `openAnkiConnectPush` | `tests/command-effects.test.js` |

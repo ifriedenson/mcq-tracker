@@ -382,7 +382,7 @@ test("cards view: an unsure typed answer gets an AI second opinion and records i
   let asked = null;
   plugin.gradeCardWithAi = async (card, typed, strictness) => {
     asked = { card, typed, strictness };
-    return { verdict: "correct", suggestedGrade: "good", reason: "The AI accepted it.", matchedBy: "ai", gradedBy: "ai", confidence: 0.8 };
+    return { verdict: "correct", suggestedGrade: "good", reason: "The AI accepted it.", matchedBy: "ai", gradedBy: "ai", confidence: 0.8, present: ["powerhouse"], missing: [] };
   };
   const dom = makeDom();
   const view = new T.CardView({ app }, plugin);
@@ -396,6 +396,8 @@ test("cards view: an unsure typed answer gets an AI second opinion and records i
   assert.equal(asked.typed, "powerhouse");
   assert.equal(view.verdict.verdict, "correct");
   assert.equal(view.verdict.gradedBy, "ai");
+  assert.ok(dom.texts().some((text) => /Key ideas present: powerhouse/.test(text)));
+  assert.ok(dom.texts().some((text) => /80% confidence/.test(text)));
   await dom.click("Good");
   assert.equal(card.file.fm.graded_by, "ai");
   assert.equal(card.file.fm.grade_status, "graded");
@@ -424,10 +426,40 @@ test("cards view: when AI is unavailable the answer waits, and rating it is reco
   assert.equal(view.pendingGrade, true);
   assert.equal(plugin.pendingCardGrades().length, 1);
   assert.equal(view.verdict.verdict, "incorrect");
+  assert.ok(dom.texts().includes("Pending AI grade"));
+  assert.ok(dom.find("Discard pending").length);
+  assert.ok(dom.texts().some((text) => /Local check: Not yet/.test(text)));
   await dom.click("Good");
   assert.equal(plugin.pendingCardGrades().length, 0, "self-grading removes the pending AI request");
   assert.equal(card.file.fm.graded_by, "self");
   assert.equal(card.file.fm.grade_status, "self");
+});
+
+test("cards view: grader accuracy summarizes AI, self and overrides", async () => {
+  const { app, plugin } = await setup();
+  const today = T.fmtDate(new Date());
+  const cell = plugin.getCards().find((c) => c.file.path === "Courses/Bio/cell.md");
+  const mitosis = plugin.getCards().find((c) => c.file.path === "Courses/Bio/mitosis.md");
+  const mole = plugin.getCards().find((c) => c.file.path === "Courses/Chem/mole.md");
+  Object.assign(cell.file.fm, { graded_by: "ai", grade_status: "graded", graded_on: today, verdict_override: true });
+  Object.assign(mitosis.file.fm, { graded_by: "deterministic", grade_status: "graded", graded_on: today, verdict_override: false });
+  Object.assign(mole.file.fm, { graded_by: "self", grade_status: "self", graded_on: today });
+
+  const dom = makeDom();
+  const view = new T.CardView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+
+  assert.ok(dom.texts().includes("Grader accuracy"));
+  assert.ok(dom.all.some((el) => el.meta && String(el.meta.cls || "").includes("qt-grader-stats")));
+  assert.ok(dom.texts().includes("AI graded"));
+  assert.ok(dom.texts().includes("Self-graded"));
+  assert.ok(dom.texts().includes("Overrides"));
+  assert.ok(dom.texts().some((text) => /^0% agreement$/.test(text)));
+  assert.ok(dom.texts().some((text) => /^100% agreement$/.test(text)));
+  assert.ok(dom.texts().some((text) => /^50% overall agreement$/.test(text)));
+  assert.ok(dom.texts().includes("Agreement over 8 weeks"));
 });
 
 test("cards view: pending typed grades are visible in the card list and can be retried", async () => {
@@ -488,6 +520,110 @@ test("plugin: pending typed answers are graded once and cleared from the queue",
   assert.equal(card.file.fm.last_verdict, "correct");
   assert.equal(card.file.fm.graded_by, "ai");
   assert.equal(card.file.fm.grade_status, "graded");
+});
+
+test("plugin: a pending grade replaces the same card and keeps locale and model provenance", async () => {
+  const { plugin } = await setup();
+  const card = plugin.getCards().find((c) => c.fm.card_id === "cell");
+  card.body = { front: "Powerhouse of the cell", back: "mitochondria" };
+  const first = plugin.queueCardGrade(card, "old answer", "standard", { locale: "es-MX" });
+  const second = plugin.queueCardGrade(card, "new answer", "strict", { id: "g-fixed", locale: "fr-FR", model: "test-model" });
+  const list = plugin.pendingCardGrades();
+  assert.equal(list.length, 1, "one card has one pending answer at a time");
+  assert.notEqual(first, second);
+  assert.equal(list[0].id, "g-fixed");
+  assert.equal(list[0].typed, "new answer");
+  assert.equal(list[0].strictness, "strict");
+  assert.equal(list[0].locale, "fr-FR");
+  assert.equal(list[0].model, "test-model");
+});
+
+test("plugin: a completed pending grade is not sent or recorded a second time", async () => {
+  const { plugin } = await setup();
+  plugin.settings.cards.aiGrading = true;
+  plugin.settings.ai.enabled = true;
+  const card = plugin.getCards().find((c) => c.fm.card_id === "cell");
+  card.body = { front: "What is a cell?", back: "The basic unit of life." };
+  plugin.queueCardGrade(card, "basic unit of life", "standard", { id: "g-once" });
+  card.file.fm.grade_attempt_id = "g-once";
+  card.file.fm.grade_status = "graded";
+  let calls = 0;
+  plugin.aiComplete = async () => {
+    calls++;
+    return '{"verdict":"correct","confidence":0.9,"feedback":"Accepted."}';
+  };
+  const r = await plugin.flushPendingCardGrades();
+  assert.equal(calls, 0, "a note carrying this attempt id is not sent again");
+  assert.equal(r.graded, 0);
+  assert.equal(r.skipped, 1);
+  assert.equal(plugin.pendingCardGrades().length, 0);
+  assert.equal(card.file.fm.attempts, undefined);
+});
+
+test("plugin: a pending AI grade records one review and flags a card edited after queueing", async () => {
+  const { plugin } = await setup();
+  plugin.settings.cards.aiGrading = true;
+  plugin.settings.ai.enabled = true;
+  const card = plugin.getCards().find((c) => c.fm.card_id === "cell");
+  card.body = { front: "Old question", back: "old answer" };
+  plugin.queueCardGrade(card, "old answer", "standard", { id: "g-stale" });
+  plugin.aiComplete = async () => '{"verdict":"correct","confidence":0.9,"feedback":"Accepted."}';
+  card.file.text = CARD_NOTE({}, "## Front\nNew question\n\n## Back\nnew answer");
+  const r = await plugin.flushPendingCardGrades();
+  assert.equal(r.graded, 1);
+  assert.equal(r.stale, 1);
+  assert.equal(card.file.fm.attempts, 1, "the graded attempt is recorded once");
+  assert.equal(card.file.fm.last_verdict, "correct");
+  assert.equal(card.file.fm.graded_by, "ai");
+  assert.equal(card.file.fm.grade_status, "graded");
+  assert.equal(card.file.fm.grade_attempt_id, "g-stale");
+  assert.equal(card.file.fm.grade_stale, true);
+  assert.match(card.file.fm.grade_feedback, /card changed after this answer was queued/i);
+  assert.equal(card.file.fm.grade_model, plugin.cardGradeModel());
+  assert.ok(card.file.fm.next_review, "the completed grade is scheduled");
+  assert.ok(String(card.file.fm.history[0]).endsWith("|g-stale"));
+});
+
+test("cards view: a pending review shows Grade now and Discard without presenting it as wrong", async () => {
+  const { app, plugin } = await setup();
+  const card = plugin.getCards().find((c) => c.file.path === "Courses/Bio/cell.md");
+  card.body = { front: "What is a cell?", back: "The basic unit of life." };
+  plugin.queueCardGrade(card, "cell", "standard");
+  const dom = makeDom();
+  const view = new T.CardView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  await view.reviewCard(card);
+  assert.ok(dom.texts().includes("Pending AI grade"));
+  assert.ok(dom.find("Grade now").length);
+  assert.ok(dom.find("Discard pending").length);
+  await dom.click("Discard pending");
+  assert.equal(view.pendingGrade, false);
+  assert.equal(plugin.pendingCardGrades().length, 0);
+});
+
+test("cards view: a reopened pending answer can reveal and self-grade without discarding", async () => {
+  const { app, plugin } = await setup();
+  plugin.settings.cards.answerMode = "type";
+  const card = plugin.getCards().find((c) => c.file.path === "Courses/Bio/cell.md");
+  card.body = { front: "What is a cell?", back: "The basic unit of life." };
+  plugin.queueCardGrade(card, "cell", "standard");
+  const attemptId = plugin.pendingCardGrades()[0].id;
+  const dom = makeDom();
+  const view = new T.CardView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  await view.reviewCard(card);
+  assert.ok(dom.find("Show answer and self-grade").length);
+  assert.equal(dom.find("Good").length, 0, "ratings wait until the answer is revealed");
+  await dom.click("Show answer and self-grade");
+  assert.ok(dom.find("Good").length);
+  await dom.click("Good");
+  assert.equal(plugin.pendingCardGrades().length, 0);
+  assert.equal(card.file.fm.graded_by, "self");
+  assert.equal(card.file.fm.grade_status, "self");
+  assert.equal(card.file.fm.grade_attempt_id, attemptId);
+  assert.equal(card.file.fm.last_typed_answer, "cell");
 });
 
 test("cards: image occlusion masks parse, clamp and write one note per mask", async () => {

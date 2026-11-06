@@ -46,6 +46,9 @@ const PROTECTED_PROPERTIES = [
   "grade_status",
   "graded_by",
   "grade_confidence",
+  "grade_model",
+  "grade_attempt_id",
+  "grade_stale",
   "verdict_override",
 ];
 

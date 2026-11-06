@@ -31,6 +31,19 @@ test("typed grading: numeric answers compare with a small tolerance", () => {
   assert.equal(grading.gradeTypedAnswer("6.022", "7.0", { strictness: "lenient" }).verdict, "incorrect");
 });
 
+test("typed grading: compatible units convert and incompatible units do not match", () => {
+  assert.equal(grading.gradeTypedAnswer("6 m", "600 cm").verdict, "correct");
+  assert.equal(grading.gradeTypedAnswer("6.022 × 10²³ particles", "6.022e23").verdict, "correct");
+  assert.equal(grading.gradeTypedAnswer("6 m", "6 s").verdict, "incorrect");
+});
+
+test("answer modes: Auto types on desktop and flips on mobile", () => {
+  assert.equal(grading.normalizeAnswerMode("auto"), "auto");
+  assert.equal(grading.resolveAnswerMode("auto", false), "type");
+  assert.equal(grading.resolveAnswerMode("auto", true), "flip");
+  assert.equal(grading.resolveAnswerMode("speak", true), "speak");
+});
+
 test("typed grading: partial keyword coverage is a partial result with the missing words", () => {
   const result = grading.gradeTypedAnswer("The mitochondria is the powerhouse of the cell", "mitochondria powerhouse");
   assert.equal(result.verdict, "partial");

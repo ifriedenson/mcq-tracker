@@ -8,7 +8,9 @@
  * contract.
  */
 
-const ANSWER_MODES = ["flip", "type", "speak"];
+const { parseQuantity, convertValue } = require("./numeric-grading");
+
+const ANSWER_MODES = ["flip", "type", "speak", "auto"];
 const GRADING_STRICTNESS = ["strict", "standard", "lenient"];
 const ARTICLES = new Set([
   "a", "an", "the",
@@ -26,6 +28,12 @@ function normalizeAnswerMode(value, fallback) {
   const mode = String(value == null ? "" : value).trim().toLowerCase();
   if (ANSWER_MODES.includes(mode)) return mode;
   return fallback === undefined ? "flip" : fallback;
+}
+
+function resolveAnswerMode(value, isMobile) {
+  const mode = normalizeAnswerMode(value, "flip");
+  if (mode !== "auto") return mode;
+  return isMobile === true ? "flip" : "type";
 }
 
 function normalizeStrictness(value, fallback) {
@@ -105,10 +113,36 @@ function numberIn(value) {
   return match ? Number(match[0]) : null;
 }
 
-function numericMatch(expected, typed, strictness) {
-  const a = numberIn(expected);
-  const b = numberIn(typed);
+function closeNumbers(a, b, strictness) {
   if (a === null || b === null || !Number.isFinite(a) || !Number.isFinite(b)) return false;
+  const level = normalizeStrictness(strictness);
+  const tolerance = level === "strict" ? 1e-9 : level === "lenient" ? 0.02 : 0.005;
+  return Math.abs(a - b) <= Math.max(tolerance, Math.abs(a) * tolerance);
+}
+
+/**
+ * Compare quantities with units when both sides parse cleanly. A known unit is
+ * converted (600 cm matches 6 m); an incompatible unit is not accepted. A
+ * unitless answer may match an answer whose unit is part of the written note.
+ */
+function numericMatch(expected, typed, strictness) {
+  const a = parseQuantity(expected);
+  const b = parseQuantity(typed);
+  if (a && b) {
+    let value = b.value;
+    if (a.unit && b.unit && a.unit !== b.unit) {
+      const converted = convertValue(b.value, b.unit, a.unit);
+      if (!converted.ok) return false;
+      value = converted.value;
+    }
+    return closeNumbers(a.value, value, strictness);
+  }
+
+  // Keep the older number-only path for text that parseQuantity rejects, such
+  // as a number followed by a parenthetical note rather than a unit.
+  const na = numberIn(expected);
+  const nb = numberIn(typed);
+  if (na === null || nb === null || !Number.isFinite(na) || !Number.isFinite(nb)) return false;
   const expectedWords = normalized(expected, strictness)
     .replace(/[-+]?\d*\.?\d+(?:e[-+]?\d+)?/gi, " ")
     .replace(/\b(?:x|times|10)\b/g, " ")
@@ -116,9 +150,7 @@ function numericMatch(expected, typed, strictness) {
     .filter((word) => word && !STOP_WORDS.has(word));
   const typedText = normalized(typed, strictness);
   if (expectedWords.length && !expectedWords.every((word) => typedText.includes(word))) return false;
-  const level = normalizeStrictness(strictness);
-  const tolerance = level === "strict" ? 1e-9 : level === "lenient" ? 0.02 : 0.005;
-  return Math.abs(a - b) <= Math.max(tolerance, Math.abs(a) * tolerance);
+  return closeNumbers(na, nb, strictness);
 }
 
 function result(verdict, reason, matchedBy, confidence, extra) {
@@ -207,6 +239,7 @@ module.exports = {
   ANSWER_MODES,
   GRADING_STRICTNESS,
   normalizeAnswerMode,
+  resolveAnswerMode,
   normalizeStrictness,
   plainText,
   normalized,

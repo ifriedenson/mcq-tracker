@@ -42,6 +42,9 @@ const { ChatPanel } = require("./chat-panel");
 const documentCards = require("./document-cards");
 const agentView = require("./agent-view");
 const agentNote = require("./agent-note");
+const quickAsk = require("./quick-ask");
+const { QuickAskModal } = require("./quick-ask-modal");
+const studyCommands = require("./study-commands");
 const tutorPresets = require("./tutor-presets");
 const aiContext = require("./ai-context");
 const aiService = require("./ai-service");
@@ -189,6 +192,7 @@ const { CardExtractModal } = require("./cards-extract-modal");
 const cardGrading = require("./card-grading");
 const cardGradingAi = require("./card-grading-ai");
 const cardGradeQueue = require("./card-grade-queue");
+const cardGraderAccuracy = require("./card-grader-accuracy");
 const { buildDueQueue, normalizeDailyCap, DueQueueModal } = require("./due-queue");
 const { MixedReviewModal, buildMixedQueue, mixedQuestionAttempt } = require("./mixed-review");
 const studyStatus = require("./study-status");
@@ -568,6 +572,7 @@ QuestionTrackerPlugin.__test = {
   cardGrading,
   cardGradingAi,
   cardGradeQueue,
+  cardGraderAccuracy,
   buildDueQueue,
   normalizeDailyCap,
   buildMixedQueue,
@@ -623,6 +628,9 @@ QuestionTrackerPlugin.__test = {
   documentCards,
   agentView,
   agentNote,
+  quickAsk,
+  QuickAskModal,
+  studyCommands,
   QUICK_START_URL,
   aiReady,
   emptyState,

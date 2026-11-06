@@ -229,6 +229,33 @@ test("cards view: when speech recognition is unavailable the mic is disabled and
   }
 });
 
+test("cards view: leaving a review stops an active dictation", async () => {
+  const { app, plugin } = await setup({ answerMode: "speak" });
+  const recognition = new FakeRecognition();
+  const { dom, view } = await openReview(plugin, app, (current) => {
+    current.speechFactory = () => recognition;
+  });
+  await dom.click("Dictate");
+  assert.equal(view.speechListening, true);
+  await dom.click("Decks");
+  assert.equal(recognition.aborted, 1);
+  assert.equal(view.speechListening, false);
+  assert.equal(view.state, "browse");
+});
+
+test("cards view: an empty dictation says no speech was heard instead of claiming a transcript", async () => {
+  const { app, plugin } = await setup({ answerMode: "speak" });
+  const recognition = new FakeRecognition();
+  const { dom, view } = await openReview(plugin, app, (current) => {
+    current.speechFactory = () => recognition;
+  });
+  await dom.click("Dictate");
+  recognition.onend();
+  assert.equal(view.speechListening, false);
+  assert.ok(dom.texts().some((text) => /No speech was heard/.test(text)));
+  assert.ok(!dom.texts().some((text) => /Transcript ready/.test(text)));
+});
+
 test("cards view: a denied microphone explains the failure and leaves typing available", async () => {
   const { app, plugin } = await setup({ answerMode: "speak" });
   const recognition = new FakeRecognition();

@@ -1,16 +1,17 @@
 "use strict";
-const { ItemView, Notice, setIcon } = require("obsidian");
+const { ItemView, Notice, Platform, setIcon } = require("obsidian");
 const { VIEW_TYPE_CARDS } = require("./constants");
 const { localDate, str } = require("./util");
 const { CARD_TYPE_LABELS, cardQueue, cardStats, courseOptions, deckSummary, parseCardBody, revealAnimationClass } = require("./cards");
 const { isDue, nextReviewTime } = require("./filters");
 const { CardModal } = require("./card-modal");
 const { renderMarkdownInto } = require("./view-helpers");
-const { gradeTypedAnswer } = require("./card-grading");
+const { gradeTypedAnswer, resolveAnswerMode } = require("./card-grading");
 const { needsAi } = require("./card-grading-ai");
 const { API_PRESETS } = require("./api-client");
 const { resolveApiKey } = require("./secret-keys");
-const { pendingGradeCounts } = require("./card-grade-queue");
+const { newGradeId, pendingGradeCounts } = require("./card-grade-queue");
+const { buildGraderAccuracy } = require("./card-grader-accuracy");
 const { splitSourceContext } = require("./source-recall");
 const { formatInterval, intervalPreviews } = require("./interval-preview");
 const { cramIntervalLabel, cramPreviews, motherCramStart, motherCramTurn } = require("./cram");
@@ -71,7 +72,8 @@ class CardView extends ItemView {
     this.aiError = "";
     this.pendingGrade = false;
     this.pendingGradeId = "";
-    this.revealEffect = ""; // consumed by the next render, so a refresh never replays the animation
+    this.gradeAttemptId = "";
+    this.revealEffect = "";
     this.previewSource = null;
     this.previewValues = null;
     this.previewBuilds = 0;
@@ -153,7 +155,7 @@ class CardView extends ItemView {
     const t = ev && ev.target;
     if (t && /^(input|textarea|select)$/i.test(t.tagName || "")) return;
     if (ev.key === " " || ev.key === "Enter") {
-      if (!this.mother && this.current.answerMode && this.current.answerMode !== "flip") return;
+      if (!this.mother && this.answerModeFor(this.current) !== "flip") return;
       ev.preventDefault();
       if (!this.revealed) this.reveal();
       return;
@@ -307,8 +309,15 @@ class CardView extends ItemView {
       this.speechListening = false;
       if (this.speechRecognition === recognition) this.speechRecognition = null;
       button.disabled = false;
-      button.setText(failed ? "Try dictation again" : finalText || interimText ? "Dictate again" : "Dictate");
-      if (!failed) hint.setText("Transcript ready. Edit it if needed, then check your answer. Audio is not recorded or uploaded by this plugin.");
+      const heard = !!(finalText || interimText);
+      button.setText(failed ? "Try dictation again" : heard ? "Dictate again" : "Dictate");
+      if (!failed) {
+        hint.setText(
+          heard
+            ? "Transcript ready. Edit it if needed, then check your answer. Audio is not recorded or uploaded by this plugin."
+            : "No speech was heard. Try the microphone again, or type the answer."
+        );
+      }
     };
 
     this.speechError = "";
@@ -355,6 +364,13 @@ class CardView extends ItemView {
       return "AI features are on, but no provider credentials are configured. This answer is checked locally; compare it with the stored answer and rate yourself.";
     }
     return "If the local check is unsure, the AI grader compares only the card front, stored answer, your answer and the strictness.";
+  }
+
+  /** Resolve Auto to type on desktop and flip on mobile. */
+  answerModeFor(card) {
+    if (!card) return "flip";
+    if (card.body && card.body.cardType === "image-occlusion") return "flip";
+    return resolveAnswerMode(card.answerMode, !!(Platform && Platform.isMobile));
   }
 
   render() {
@@ -489,6 +505,7 @@ class CardView extends ItemView {
     if (!shown.length) {
       root.createDiv({ cls: "qt-hint", text: "No cards match this deck and course. Pick another deck or clear the course filter." });
       this.renderCardRetention(root, shown, today);
+      this.renderGraderAccuracy(root, shown, today);
       return;
     }
     const list = root.createDiv({ cls: "qt-cards-list" });
@@ -522,6 +539,7 @@ class CardView extends ItemView {
     }
 
     this.renderCardRetention(root, shown, today);
+    this.renderGraderAccuracy(root, shown, today);
   }
 
   /** Repeat-review accuracy for the cards in the current deck/course filter. */
@@ -552,6 +570,62 @@ class CardView extends ItemView {
       cls: "qt-hint",
       text: `${Math.round((retention.accuracy || 0) * 100)}% over ${retention.attempts} repeat review${retention.attempts === 1 ? "" : "s"} in the last ${retention.weeks.length} weeks.`,
     });
+  }
+
+  /** Latest AI/local agreement, self-grades and overrides in this view. */
+  renderGraderAccuracy(root, cards, today) {
+    const data = buildGraderAccuracy(cards, { weeks: 8, today });
+    const box = root.createDiv({ cls: "qt-card-grader" });
+    box.createEl("h3", { cls: "qt-cards-heading", text: "Grader accuracy" });
+    if (!data.totals.events) {
+      box.createDiv({
+        cls: "qt-hint",
+        text: "Appears after a typed or dictated answer is graded. Flip-only ratings carry no grader suggestion.",
+      });
+      return;
+    }
+    box.createDiv({
+      cls: "qt-hint",
+      text: "Latest grade per card. Agreement means the rating you kept matched the AI or local grader; self-grades are counted separately.",
+    });
+    const stats = box.createDiv({ cls: "qt-dash-stats qt-grader-stats" });
+    const stat = (value, label, hint) => {
+      const card = stats.createDiv({ cls: "qt-dash-stat" });
+      card.createDiv({ cls: "qt-dash-value", text: String(value) });
+      card.createDiv({ cls: "qt-dash-label", text: label });
+      card.createDiv({ cls: "qt-hint", text: hint });
+    };
+    stat(data.totals.ai, "AI graded", data.totals.ai ? `${this.percent(data.totals.aiAgreement)} agreement` : "No AI grades yet");
+    stat(data.totals.local, "Local graded", data.totals.local ? `${this.percent(data.totals.localAgreement)} agreement` : "No local grades yet");
+    stat(data.totals.self, "Self-graded", "Rated without a suggestion");
+    stat(data.totals.overrides, "Overrides", data.totals.graded ? `${this.percent(data.totals.agreement)} overall agreement` : "No grader suggestions");
+
+    if (data.weeks.some((week) => week.graded)) {
+      box.createDiv({ cls: "qt-card-grader-trend-title", text: "Agreement over 8 weeks" });
+      const chart = box.createDiv({ cls: "qt-trend qt-grader-trend" });
+      for (const week of data.weeks) {
+        const column = chart.createDiv({ cls: "qt-trend-col" });
+        column.setAttr(
+          "title",
+          week.graded
+            ? `${week.start}: ${this.percent(week.agreement)} agreement on ${week.graded} graded card${week.graded === 1 ? "" : "s"} (${week.ai} AI, ${week.local} local, ${week.self} self)`
+            : `${week.start}: no graded cards`
+        );
+        const bar = column.createDiv({ cls: "qt-trend-bar" });
+        const band = week.agreement === null ? "" : week.agreement < 0.6 ? "is-low" : week.agreement < 0.8 ? "is-mid" : "is-high";
+        bar.createDiv({ cls: `qt-meter-fill ${band}`.trim() }).setCssProps({ "--qt-pct": `${Math.round((week.agreement || 0) * 100)}%` });
+        column.createDiv({ cls: "qt-hint qt-trend-lab", text: week.agreement === null ? "" : this.percent(week.agreement) });
+      }
+    }
+
+    const notes = [];
+    if (data.totals.undated) notes.push(`${data.totals.undated} latest grade${data.totals.undated === 1 ? " has" : "s have"} no date and are outside the trend.`);
+    if (data.totals.outside) notes.push(`${data.totals.outside} dated ${data.totals.outside === 1 ? "entry falls" : "entries fall"} outside the 8-week trend.`);
+    if (notes.length) box.createDiv({ cls: "qt-hint", text: notes.join(" ") });
+  }
+
+  percent(value) {
+    return value === null || value === undefined ? "—" : `${Math.round(Number(value) * 100)}%`;
   }
 
   renderDeckPicker(root, cards, today) {
@@ -622,6 +696,11 @@ class CardView extends ItemView {
           if (file) this.app.workspace.getLeaf("tab").openFile(file);
         });
       }
+      const discard = row.createEl("button", { text: "Discard", cls: "qt-link qt-pending-discard" });
+      discard.addEventListener("click", () => {
+        this.plugin.discardPendingCardGrade(entry.id);
+        this.render();
+      });
     }
     if (pendingCards.length > 5) list.createDiv({ cls: "qt-pending-more", text: `+${pendingCards.length - 5} more` });
     const actions = panel.createDiv({ cls: "qt-row" });
@@ -635,15 +714,74 @@ class CardView extends ItemView {
     if (button) button.disabled = true;
     try {
       const r = await p.flushPendingCardGrades();
+      const flagged = r.stale ? `; ${r.stale} flagged because the card changed` : "";
       if (r.disabled) new Notice("Turn on AI features and the Cards AI fallback first.", 6000);
-      else if (r.remaining) new Notice(`Graded ${r.graded}; ${r.remaining} answer${r.remaining === 1 ? "" : "s"} still waiting.`, 6000);
-      else if (r.graded) new Notice(`Graded ${r.graded} pending answer${r.graded === 1 ? "" : "s"}.`, 5000);
+      else if (r.remaining) new Notice(`Graded ${r.graded}${flagged}; ${r.remaining} answer${r.remaining === 1 ? "" : "s"} still waiting.`, 6000);
+      else if (r.graded) new Notice(`Graded ${r.graded} pending answer${r.graded === 1 ? "" : "s"}${flagged}.`, 5000);
       else new Notice("No typed answers are waiting for an AI grade.");
     } catch (e) {
       new Notice((e && e.message) || "Could not grade pending answers.");
     } finally {
       this.render();
     }
+  }
+
+  /** A queued answer is a visible state, not a verdict and not a failure. */
+  renderPendingReview(root) {
+    if (!this.pendingGrade) return;
+    const panel = root.createDiv({ cls: "qt-cards-pending-panel qt-cards-pending-review" });
+    panel.createDiv({ cls: "qt-cards-pending-title", text: "Pending AI grade" });
+    panel.createDiv({ cls: "qt-cards-pending-text", text: this.aiError || "An earlier answer on this card is waiting for the AI grader." });
+    panel.createDiv({ cls: "qt-hint", text: "It is not counted as incorrect. Grade it now, rate the card yourself, or discard it." });
+    if (this.verdict) {
+      const local = this.verdict.verdict === "correct" ? "Correct" : this.verdict.verdict === "partial" ? "Partly correct" : "Not yet";
+      panel.createDiv({ cls: "qt-hint", text: `Local check: ${local}. ${this.verdict.reason}` });
+    }
+    if (this.typedAnswer) panel.createDiv({ cls: "qt-cards-verdict-typed", text: `You wrote: ${this.typedAnswer}` });
+    const actions = panel.createDiv({ cls: "qt-row" });
+    const grade = actions.createEl("button", { text: "Grade now", cls: "mod-cta" });
+    grade.addEventListener("click", () => this.gradePendingFromReview(grade));
+    const discard = actions.createEl("button", { text: "Discard pending" });
+    discard.addEventListener("click", () => this.discardPendingFromReview());
+  }
+
+  async gradePendingFromReview(button) {
+    const id = this.pendingGradeId;
+    if (!this.plugin || typeof this.plugin.flushPendingCardGrades !== "function") return;
+    if (button) button.disabled = true;
+    try {
+      const r = await this.plugin.flushPendingCardGrades(id ? { id } : undefined);
+      if (r.disabled) {
+        new Notice("Turn on AI features and the Cards AI fallback first.", 6000);
+        return;
+      }
+      const result = (r.results || []).find((item) => item.id === id) || (r.results || [])[0];
+      if (result) {
+        this.session.reviewed++;
+        this.session.grades[result.grade] = (this.session.grades[result.grade] || 0) + 1;
+        if (result.grade !== "again") this.session.correct++;
+        if (result.stale) new Notice("Graded the stored answer. The card changed after it was queued, so the grade is flagged.", 7000);
+        this.index++;
+        if (this.index >= this.queue.length) return this.finish();
+        await this.showCard();
+        return;
+      }
+      new Notice(r.remaining ? `Still pending; ${r.remaining} answer${r.remaining === 1 ? "" : "s"} waiting.` : "That pending answer is no longer in the queue.", 6000);
+      await this.showCard();
+    } catch (e) {
+      new Notice((e && e.message) || "Could not grade the pending answer.");
+      this.render();
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
+  discardPendingFromReview() {
+    if (this.pendingGradeId && this.plugin.discardPendingCardGrade) this.plugin.discardPendingCardGrade(this.pendingGradeId);
+    this.pendingGrade = false;
+    this.pendingGradeId = "";
+    this.aiError = "";
+    this.render();
   }
 
   openCardModal() {
@@ -710,6 +848,7 @@ class CardView extends ItemView {
     this.aiError = "";
     this.pendingGrade = false;
     this.pendingGradeId = "";
+    this.gradeAttemptId = "";
     this.revealEffect = "";
     try {
       const text = await this.app.vault.cachedRead(card.file);
@@ -717,6 +856,7 @@ class CardView extends ItemView {
       const queued = !this.mother && this.plugin.pendingCardGrades ? this.plugin.pendingCardGrades().find((entry) => entry.path === card.file.path) : null;
       this.pendingGrade = !!queued;
       this.pendingGradeId = queued ? queued.id : "";
+      this.gradeAttemptId = queued ? queued.id : "";
     } catch (e) {
       new Notice(`Could not read ${card.file.path}.`);
       this.queue.splice(this.index, 1);
@@ -757,6 +897,8 @@ class CardView extends ItemView {
     this.stopDictation();
     const card = this.current;
     const typed = str(value).trim();
+    if (this.pendingGradeId && this.plugin.discardPendingCardGrade) this.plugin.discardPendingCardGrade(this.pendingGradeId);
+    this.gradeAttemptId = newGradeId();
     const graded = gradeTypedAnswer(card.body.back, typed, {
       strictness: card.gradingStrictness,
       variants: card.body.acceptedVariants,
@@ -796,11 +938,16 @@ class CardView extends ItemView {
     } catch (e) {
       if (this.current !== card) return;
       this.aiError = str(e && e.message ? e.message : e) || "The AI grader is unavailable.";
-      this.pendingGrade = true;
+      this.pendingGrade = false;
       try {
-        this.pendingGradeId = this.plugin.queueCardGrade(card, typed, card.gradingStrictness);
+        this.pendingGradeId = this.plugin.queueCardGrade(card, typed, card.gradingStrictness, {
+          id: this.gradeAttemptId,
+          locale: this.speechLanguage(),
+        });
+        this.pendingGrade = !!this.pendingGradeId;
       } catch (err) {
         this.pendingGradeId = "";
+        this.aiError = `${this.aiError} This answer could not be queued, so it was not saved as pending.`;
       }
     } finally {
       this.aiChecking = false;
@@ -813,6 +960,10 @@ class CardView extends ItemView {
     this.busy = true;
     const card = this.current;
     const override = !!(this.verdict && this.suggestedGrade && grade !== this.suggestedGrade);
+    const pendingEntry = this.pendingGrade && this.plugin.pendingCardGrades
+      ? this.plugin.pendingCardGrades().find((entry) => entry.id === this.pendingGradeId)
+      : null;
+    const selfTyped = this.typedAnswer || (pendingEntry && pendingEntry.typed) || "";
     try {
       const extra = {
         ...(this.verdict
@@ -825,6 +976,18 @@ class CardView extends ItemView {
               gradeStatus: this.pendingGrade ? "self" : "graded",
               gradeConfidence: this.verdict.confidence,
               gradeFeedback: this.verdict.reason,
+              gradeModel: this.pendingGrade ? "" : this.verdict.gradedBy === "ai" && this.plugin.cardGradeModel ? this.plugin.cardGradeModel() : "",
+              gradeAttemptId: this.gradeAttemptId,
+              gradeStale: false,
+            }
+          : {}),
+        ...(this.pendingGrade
+          ? {
+              ...(selfTyped ? { typedAnswer: selfTyped } : {}),
+              gradedBy: "self",
+              gradeStatus: "self",
+              gradeAttemptId: this.gradeAttemptId || this.pendingGradeId,
+              gradeStale: false,
             }
           : {}),
         cram: this.cram,
@@ -908,6 +1071,7 @@ class CardView extends ItemView {
     const top = root.createDiv({ cls: "qt-row qt-cards-top" });
     const back = top.createEl("button", { text: "Decks" });
     back.addEventListener("click", () => {
+      this.stopDictation();
       this.state = "browse";
       this.current = null;
       this.render();
@@ -943,8 +1107,9 @@ class CardView extends ItemView {
       front.createDiv({ cls: "qt-cards-expectation", text: `Expected: ${card.body.frontExpectation}` });
     }
     this.md(card.body.front || "*This card has no front.*", front.createDiv({ cls: "qt-cards-term" }), card.file.path);
+    this.renderPendingReview(root);
 
-    const mode = this.mother ? "flip" : card.body.cardType === "image-occlusion" ? "flip" : card.answerMode || "flip";
+    const mode = this.mother ? "flip" : this.answerModeFor(card);
     if (!this.revealed && mode !== "flip") {
       const typedWrap = root.createDiv({ cls: "qt-cards-typed-wrap" });
       typedWrap.createEl("label", { text: "Your answer (type or dictate)" });
@@ -979,6 +1144,10 @@ class CardView extends ItemView {
       dictate.addEventListener("click", () => this.startDictation(typed, dictate, dictateHint));
       const check = root.createEl("button", { text: "Check answer", cls: "mod-cta qt-primary qt-cards-show" });
       check.addEventListener("click", () => this.checkTyped(typed.value));
+      if (this.pendingGrade) {
+        const selfGrade = root.createEl("button", { text: "Show answer and self-grade", cls: "qt-link qt-cards-show" });
+        selfGrade.addEventListener("click", () => this.reveal());
+      }
       root.createDiv({ cls: "qt-hint", text: this.aiGradingHint() });
       root.createDiv({
         cls: "qt-hint",
@@ -997,7 +1166,7 @@ class CardView extends ItemView {
       return;
     }
 
-    if (this.verdict) {
+    if (this.verdict && !this.pendingGrade) {
       const kind = this.aiChecking ? "checking" : this.verdict.verdict;
       const verdict = root.createDiv({ cls: `qt-cards-verdict qt-cards-verdict-${kind}` });
       verdict.createDiv({
@@ -1009,10 +1178,21 @@ class CardView extends ItemView {
         text: this.aiChecking ? "The local check was unsure, so the AI is taking a second look." : this.verdict.reason,
       });
       if (this.typedAnswer) verdict.createDiv({ cls: "qt-cards-verdict-typed", text: `You wrote: ${this.typedAnswer}` });
-      if (!this.aiChecking && this.verdict.gradedBy === "ai") verdict.createDiv({ cls: "qt-hint", text: "Graded by AI." });
+      if (!this.aiChecking && this.verdict.gradedBy === "ai") {
+        if (Array.isArray(this.verdict.present) && this.verdict.present.length) {
+          verdict.createDiv({ cls: "qt-hint qt-cards-verdict-ideas", text: `Key ideas present: ${this.verdict.present.join(", ")}.` });
+        }
+        if (Array.isArray(this.verdict.missing) && this.verdict.missing.length) {
+          verdict.createDiv({ cls: "qt-hint qt-cards-verdict-ideas", text: `Missing: ${this.verdict.missing.join(", ")}.` });
+        }
+        const confidence = Number(this.verdict.confidence);
+        verdict.createDiv({
+          cls: "qt-hint",
+          text: `Graded by AI${Number.isFinite(confidence) ? ` · ${Math.round(confidence * 100)}% confidence` : ""}.`,
+        });
+      }
     }
-    if (this.aiError) root.createDiv({ cls: "qt-error", text: this.aiError });
-    if (this.pendingGrade) root.createDiv({ cls: "qt-hint qt-cards-pending", text: "Pending grade. Rate the card yourself to save this review now, or leave it and it will be graded when AI is available." });
+    if (this.aiError && !this.pendingGrade) root.createDiv({ cls: "qt-error", text: this.aiError });
 
     const effect = this.revealEffect;
     this.revealEffect = "";
@@ -1096,7 +1276,7 @@ class CardView extends ItemView {
       text: this.aiChecking
         ? "Waiting for the AI check. You can rate the card after it finishes."
         : this.pendingGrade
-          ? "The AI grade is pending. Rate the card yourself now, or leave it and it will be graded later."
+          ? "The AI grade is pending and is not counted as incorrect. Grade it now, rate the card yourself, or discard it."
           : this.verdict
             ? `Suggested rating: ${GRADE_LABELS[this.suggestedGrade] || "Good"}. Choose another rating to record an override.`
             : this.cram

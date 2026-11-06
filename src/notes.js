@@ -396,12 +396,21 @@ function applyAttempt(fm, a, intervals, options) {
   if (a.verdict) {
     fm.last_verdict = str(a.verdict).toLowerCase();
     fm.verdict_override = a.verdictOverride === true;
+  }
+  // Self-grading a reopened pending answer has no new verdict, but still needs
+  // its provenance and attempt id recorded.
+  if (a.verdict || a.gradedBy || a.gradeStatus || a.gradeAttemptId) {
     fm.graded_by = str(a.gradedBy || "deterministic");
     fm.graded_on = fmtDate(a.now);
     fm.grade_status = a.gradeStatus === "self" ? "self" : "graded";
     const confidence = Number(a.gradeConfidence);
     if (Number.isFinite(confidence)) fm.grade_confidence = Math.max(0, Math.min(1, confidence));
     if (a.gradeFeedback) fm.grade_feedback = str(a.gradeFeedback).slice(0, 500);
+    if (a.gradeModel) fm.grade_model = str(a.gradeModel).slice(0, 200);
+    else delete fm.grade_model;
+    if (a.gradeAttemptId) fm.grade_attempt_id = str(a.gradeAttemptId).slice(0, 120);
+    if (a.gradeStale === true) fm.grade_stale = true;
+    else delete fm.grade_stale;
   }
 
   return {

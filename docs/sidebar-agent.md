@@ -40,6 +40,16 @@ view does not stop the configured AI provider.
 - **Create cards safely.** Agent mode proposals continue through the plugin's
   existing tool-review window. Nothing is written to a note until the learner
   approves it.
+- **Run a saved study command.** The **Study commands** menu inserts a saved
+  `/name` command; typing the slash form expands it before the common request
+  path. `{selection}`, `{note}` and `{path}` are filled only when the chat's
+  existing context switches allow that text, and an unknown `/word` is sent
+  literally. Commands are capped at 40 entries of 2,000 characters.
+- **Quick Ask from the editor.** Select text and choose **Quick Ask** (or the
+  command) to open the compact panel. It sends only the selected text or the
+  whole active note, whichever is switched on, and can copy, insert, replace or
+  ask a follow-up. **Replace** checks that the selection did not change while
+  the reply was pending.
 
 ## Local search and privacy
 
@@ -57,7 +67,9 @@ the ribbon/command entry points. A mounted-view test opens the real `AgentView`,
 renders an assistant reply through its Markdown helper and confirms the insert
 action. `tests/note-context.test.js` and `tests/think-first.test.js` cover the
 shared note context, provider, countdown, stop/cancel and error paths reused by
-the panel.
+the panel. `tests/quick-ask.test.js` covers Quick Ask privacy, actions,
+replacement safety, command parsing and round-trip, slash expansion and the
+editor/user entry points.
 
 ## Manual gate
 

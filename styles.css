@@ -4861,6 +4861,23 @@ body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tra
   margin-top: 3px;
 }
 
+.qt-cards-verdict-ideas {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.qt-cards-pending-review {
+  margin: 0 0 12px;
+}
+
+.qt-cards-pending-review .qt-row {
+  gap: 8px;
+}
+
+.qt-pending-discard {
+  margin-left: auto;
+}
+
 .qt-cards-rate.is-suggested {
   border-width: 2px;
   box-shadow: 0 0 0 1px var(--interactive-accent);
@@ -10229,9 +10246,25 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   margin: 14px 0 0;
 }
 
-.qt-card-retention {
+.qt-card-retention,
+.qt-card-grader {
   display: grid;
   gap: 8px;
+}
+
+.qt-card-grader .qt-dash-stat {
+  padding: 8px 10px;
+}
+
+.qt-card-grader-trend-title {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.qt-card-grader .qt-trend {
+  height: 72px;
 }
 
 .qt-screen .qt-cards-tools button:not(.mod-cta) {
@@ -12542,3 +12575,40 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 .qt-time-block-project-status { align-items: center; gap: 6px; margin-top: 6px; }
 .qt-time-block-project-status .dropdown { flex: 1 1 auto; }
 .qt-time-block-project-status .qt-input { flex: 0 0 110px; }
+
+/* Quick Ask stays a compact inline panel and reuses the chat primitives. */
+.qt-quick-ask {
+  max-width: 760px;
+}
+.qt-quick-ask h3 {
+  margin-top: 0;
+}
+.qt-quick-input {
+  width: 100%;
+  min-height: 76px;
+  resize: vertical;
+}
+.qt-quick-note {
+  align-items: center;
+  gap: 6px;
+}
+.qt-quick-answer {
+  min-height: 84px;
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+}
+.qt-quick-answer-text {
+  overflow-wrap: anywhere;
+}
+.qt-quick-actions {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.qt-quick-status {
+  margin-left: auto;
+}
+.qt-study-commands {
+  margin-top: 2px;
+}

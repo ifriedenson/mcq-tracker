@@ -4,6 +4,7 @@ const { apiTurns, friendlyApiError } = require("./api-client");
 const { str } = require("./util");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole, tutorRole } = require("./tutor-presets");
+const { parseStudyCommand, applyStudyCommand } = require("./study-commands");
 const { buildCurrentNoteContext } = require("./note-context");
 const { thinkFirstLabel, thinkFirstRemainingMs } = require("./think-first");
 const { AgentEditReviewModal } = require("./agent-edit-review-modal");
@@ -19,7 +20,7 @@ function toolsForMode(mode, agentShell) {
 
 class ChatPanel {
   /**
-   * opts: { title, sourcePath, getSessionId, setSessionId, getRole, setRole, buildContext(mode), beforeSend(text), quick: [{label,prompt,run}], onSaveNote(text), saveNoteLabel, onSaveChat(markdown), getApiHistory(), saveApiHistory(history), copyText(text) }
+   * opts: { title, sourcePath, getSessionId, setSessionId, getRole, setRole, buildContext(mode), beforeSend(text), quick: [{label,prompt,run}], onSaveNote(text), saveNoteLabel, onSaveChat(markdown), getApiHistory(), saveApiHistory(history), copyText(text), getCommands() }
    */
   constructor(view, root, opts) {
     this.view = view;
@@ -194,6 +195,21 @@ class ChatPanel {
       }
       command.value = "";
     });
+    const savedCommands = this.studyCommands();
+    if (savedCommands.length) {
+      const savedRow = root.createDiv({ cls: "qt-row qt-small-row qt-study-commands" });
+      const saved = savedRow.createEl("select", { cls: "qt-select", attr: { "aria-label": "Insert a study command", title: "Insert a study command" } });
+      saved.createEl("option", { value: "", text: "Study commands..." });
+      for (const item of savedCommands) saved.createEl("option", { value: item.id, text: `/${item.id} — ${item.name}` });
+      saved.addEventListener("change", () => {
+        const chosen = savedCommands.find((item) => item.id === saved.value);
+        if (chosen) {
+          this.input.value = `/${chosen.id} `;
+          this.input.focus();
+        }
+        saved.value = "";
+      });
+    }
     this.startThinkFirst();
     this.draw();
   }
@@ -554,9 +570,44 @@ class ChatPanel {
     return this.send(prompt || "Explain the key ideas in this note and how they connect. Cite the note.");
   }
 
+  studyCommands() {
+    try {
+      const rows = typeof this.opts.getCommands === "function" ? this.opts.getCommands() : [];
+      return Array.isArray(rows) ? rows : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  /** Expand /name before sending, using only the context switches this chat allows. */
+  async resolveStudyCommand(text, parsed) {
+    const command = parsed || parseStudyCommand(text, this.studyCommands());
+    if (!command) return text;
+    let raw = null;
+    if (typeof this.opts.readNoteContext === "function") {
+      try {
+        raw = await this.opts.readNoteContext();
+      } catch (e) {
+        raw = null;
+      }
+    }
+    return applyStudyCommand(command.command, {
+      path: raw && raw.path,
+      note: this.includeNote && raw ? raw.text : "",
+      selection: this.includeSelection && raw ? raw.selection : "",
+      extra: command.rest,
+    }) || text;
+  }
+
   async send(text) {
     text = str(text).trim();
     if (!text || this.busy || !this.ai.enabled) return;
+    const command = parseStudyCommand(text, this.studyCommands());
+    if (command) {
+      text = await this.resolveStudyCommand(text, command);
+      if (!text) return;
+    }
+
     this.lastSent = text;
     this.streamText = "";
     this.keepPartial = "";

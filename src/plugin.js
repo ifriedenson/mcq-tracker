@@ -206,7 +206,7 @@ const { isStudyable, setStudyStatus: updateStudyStatus, restoreStudyStatus: appl
 const { STUDY_SKIN_LABELS, normalizeStudySkin, studySkinEnabled } = require("./study-skin");
 const { StudyStatusModal } = require("./study-status-modal");
 const { gradeWithAi } = require("./card-grading-ai");
-const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, unpackPendingGrades } = require("./card-grade-queue");
+const { MAX_PENDING, MAX_GRADE_BATCH, enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, unpackPendingGrades } = require("./card-grade-queue");
 const { completeDailyQuiz: recordDailyCompletion, dailyDone, normalizeDailyQuiz, pickDailyQuiz } = require("./daily-quiz");
 const { adaptiveDailyCount, normalizeQuickAdaptive } = require("./adaptive-session");
 const { dismissReminder, markReminderShown, normalizeReminder, reminderState: computeReminderState } = require("./reminder");
@@ -228,6 +228,8 @@ const { buildTranscriptCardPrompt, buildTranscriptQuestionPrompt, isTranscriptNo
 const { TranscriptPracticeModal } = require("./transcript-modal");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
+const { QuickAskModal } = require("./quick-ask-modal");
+const studyCommands = require("./study-commands");
 const { quickAddNote, quickAddTitle } = require("./quick-add");
 const { noteQuizToQuickAdd } = require("./quiz-clipboard");
 const { findQuizBlockSource, gradeNumericQuestion, gradeQuizBlockQuestion, gradeQuizQuestion, gradeReorderQuestion, parseQuizAiEvaluation, parseQuizBlock, quizBlockScore, quizResultProperties, visibleQuizCount } = require("./quiz-block");
@@ -733,6 +735,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "import-cards", name: "Cards: import existing decks", callback: () => this.openCardImport() });
     this.addCommand({ id: "cards-import-document", name: "Cards: extract cards from a PDF or Markdown file", callback: () => this.openDocumentCards() });
     this.addCommand({ id: "open-study-agent", name: "Study agent: open the sidebar", callback: () => this.activateAgent() });
+    this.addCommand({ id: "ai-quick-ask", name: "AI: Quick Ask about the selection or note", callback: () => this.openQuickAsk() });
     this.addCommand({
       id: "cards-rescan-plain",
       name: "Cards: rescan plain Markdown folder",
@@ -931,6 +934,24 @@ class QuestionTrackerPlugin extends Plugin {
               .onClick(() => this.openTranscriptPractice(file.path))
           );
         }
+      })
+    );
+    this.registerEvent(
+      this.app.workspace.on("editor-menu", (menu, editor, view) => {
+        if (!this.settings.ai || this.settings.ai.enabled !== true) return;
+        menu.addItem((item) =>
+          item
+            .setTitle("Quick Ask about this selection")
+            .setIcon("sparkles")
+            .onClick(() => {
+              const file = view && view.file;
+              const selection = editor && typeof editor.getSelection === "function" ? editor.getSelection() : "";
+              this.openQuickAsk({
+                editor,
+                context: file ? { path: file.path, title: file.basename || file.name, text: "", selection } : null,
+              });
+            })
+        );
       })
     );
     // keep saved filters and presets pointing at a folder that was renamed or moved
@@ -1132,6 +1153,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.ai.context = normalizeAiContext(this.settings.ai.context);
     this.settings.ai.verification = normalizeVerificationMode(this.settings.ai.verification);
     aiService.normalizeAiService(this.settings.ai);
+    this.settings.ai.studyCommands = studyCommands.normalizeStudyCommands(this.settings.ai.studyCommands);
     // 0.2.0 saved settings had no `managed` flag: move those users to the automatic setup.
     if (saved.explanationDefault === undefined && saved.showRationale === false) this.settings.explanationDefault = "hide";
     delete this.settings.showRationale;
@@ -3815,6 +3837,39 @@ class QuestionTrackerPlugin extends Plugin {
       this.refreshViews();
       if (onDone) onDone(result);
     }).open();
+  }
+
+  /** Open the inline Quick Ask panel. Nothing is written until the learner presses Insert or Replace. */
+  async openQuickAsk(options) {
+    const ai = this.settings && this.settings.ai;
+    if (!ai || ai.enabled !== true) {
+      new Notice("Turn on AI under Settings > MCQ Tracker > AI to use Quick Ask.");
+      return null;
+    }
+    const opts = options && typeof options === "object" ? options : {};
+    let context = opts.context && opts.context.path ? { ...opts.context } : await readActiveNoteContext(this.app);
+    if (context && !context.text && context.path) {
+      const file = this.app.vault.getAbstractFileByPath(context.path);
+      if (file) {
+        try {
+          context.text = await this.app.vault.cachedRead(file);
+        } catch (e) {
+          /* the selection can still be used without the full note */
+        }
+      }
+    }
+    const active = this.app.workspace.activeEditor;
+    const editor = opts.editor || (active && active.editor) || null;
+    const modal = new QuickAskModal(this.app, this, {
+      ...(context || {}),
+      editor,
+      action: opts.action,
+      question: opts.question,
+      includeNote: opts.includeNote === true,
+      commands: ai.studyCommands,
+    });
+    modal.open();
+    return modal;
   }
 
   /** Open the study agent in the right sidebar; every file write stays behind the existing review guards. */
@@ -8300,8 +8355,39 @@ ${body}
     }
   }
 
-  queueCardGrade(card, typed, strictness) {
-    const id = newGradeId();
+  cardGradeLocale() {
+    let language = "";
+    try {
+      if (typeof navigator !== "undefined" && navigator && navigator.language) language = navigator.language;
+    } catch (e) {
+      /* no navigator in this host */
+    }
+    if (!language) {
+      try {
+        const doc = typeof activeDocument !== "undefined" ? activeDocument : null;
+        const lang = doc && doc.documentElement && doc.documentElement.lang;
+        if (lang) language = lang;
+      } catch (e) {
+        /* no document in this host */
+      }
+    }
+    return str(language).slice(0, 40);
+  }
+
+  cardGradeModel() {
+    try {
+      return str(this.aiModelFor ? this.aiModelFor("cardGrading") : "").slice(0, 200);
+    } catch (e) {
+      return "";
+    }
+  }
+
+  /** Queue one attempt, replacing an older pending answer for the same card. */
+  queueCardGrade(card, typed, strictness, options) {
+    const opts = options || {};
+    const id = str(opts.id) || newGradeId();
+    const withoutSameCard = this.readPendingCardGrades().filter((item) => item.path !== card.file.path);
+    const dropped = withoutSameCard.length >= MAX_PENDING;
     const entry = {
       id,
       path: card.file.path,
@@ -8310,9 +8396,14 @@ ${body}
       expected: card.body && card.body.back ? card.body.back : "",
       typed: String(typed || ""),
       strictness: strictness || "standard",
+      locale: str(opts.locale) || this.cardGradeLocale(),
+      model: str(opts.model) || this.cardGradeModel(),
       createdAt: new Date().toISOString(),
     };
-    this.writePendingCardGrades(enqueuePendingGrade(this.readPendingCardGrades(), entry));
+    this.writePendingCardGrades(enqueuePendingGrade(withoutSameCard, entry));
+    if (dropped) {
+      new Notice("The pending AI grade queue was full, so the oldest answer was dropped. Grade or discard pending answers to keep room.", 8000);
+    }
     return id;
   }
 
@@ -8365,6 +8456,9 @@ ${body}
       return client.chat(system, Array.isArray(messages) ? messages : [], { ...o, maxTokens });
     };
     return aiService.withRetry(call, {
+      // A card-grade timeout is ambiguous and may already have been billed, so
+      // that path opts out and leaves the attempt in the explicit retry queue.
+      attempts: o.retry === false ? 1 : undefined,
       onRetry: () => {
         const retry = this.aiCanSpend(feature);
         if (!retry.ok) return false;
@@ -8507,48 +8601,104 @@ ${body}
     return new ApiClient(ai, this.app, { model: this.aiModelFor(feature) }).vision(system, prompt, images, { ...rest, maxTokens });
   }
 
-  gradeCardWithAi(card, typed, strictness) {
-    const client = { chat: (system, messages, opts) => this.aiComplete(system, messages && messages[0] ? messages[0].content : "", { ...(opts || {}), feature: "cardGrading" }) };
-    return gradeWithAi(client, { front: card.body && card.body.front, expected: card.body && card.body.back, typed, strictness });
+  cardGradeClient() {
+    return {
+      chat: (system, messages, opts) =>
+        this.aiComplete(system, messages && messages[0] ? messages[0].content : "", {
+          ...(opts || {}),
+          feature: "cardGrading",
+          retry: false,
+        }),
+    };
   }
 
-  /** Replay the device-local card-grade queue. One pending entry becomes exactly one AI grade. */
-  flushPendingCardGrades() {
+  gradeCardWithAi(card, typed, strictness) {
+    return gradeWithAi(this.cardGradeClient(), { front: card.body && card.body.front, expected: card.body && card.body.back, typed, strictness });
+  }
+
+  /**
+   * Replay the device-local card-grade queue oldest first. One pending attempt
+   * becomes exactly one recorded review, and a changed card is flagged rather
+   * than silently graded as if it still had its old text.
+   */
+  flushPendingCardGrades(options) {
     if (this._pendingCardGradeFlush) return this._pendingCardGradeFlush;
     if (!this.settings.ai.enabled || !this.settings.cards.aiGrading) {
-      return Promise.resolve({ graded: 0, remaining: this.readPendingCardGrades().length, disabled: true });
+      return Promise.resolve({ graded: 0, stale: 0, skipped: 0, results: [], remaining: this.readPendingCardGrades().length, disabled: true });
     }
+    const only = str(options && options.id);
     this._pendingCardGradeFlush = (async () => {
-      let list = this.readPendingCardGrades().slice();
+      const pending = this.readPendingCardGrades();
+      const batch = (only ? pending.filter((item) => item.id === only) : pending).slice(0, MAX_GRADE_BATCH);
       let graded = 0;
-      for (const entry of list.slice()) {
-        const file = this.app.vault.getAbstractFileByPath(entry.path);
-        if (!(file instanceof TFile)) {
-          list = removePendingGrade(list, entry.id);
+      let stale = 0;
+      let skipped = 0;
+      const results = [];
+      const drop = (id) => this.writePendingCardGrades(removePendingGrade(this.readPendingCardGrades(), id));
+      for (const entry of batch) {
+        // A discard or self-grade while the request was in flight wins.
+        if (!this.readPendingCardGrades().some((item) => item.id === entry.id)) {
+          skipped++;
           continue;
         }
+        const file = this.app.vault.getAbstractFileByPath(entry.path);
+        const card = this.getCards().find((item) => item.file.path === entry.path);
+        if (!(file instanceof TFile) || !card) {
+          drop(entry.id);
+          skipped++;
+          continue;
+        }
+        const cachedFm = (this.app.metadataCache.getFileCache(file) || {}).frontmatter || {};
+        if (str(cachedFm.grade_attempt_id) === entry.id) {
+          drop(entry.id);
+          skipped++;
+          continue;
+        }
+        let ai;
         try {
-          const ai = await gradeWithAi(
-            { chat: (system, messages, opts) => this.aiComplete(system, messages && messages[0] ? messages[0].content : "", { ...(opts || {}), feature: "cardGrading" }) },
-            entry
-          );
-          await this.app.fileManager.processFrontMatter(file, (fm) => {
-            fm.last_typed_answer = entry.typed.slice(0, 1000);
-            fm.last_verdict = ai.verdict;
-            fm.graded_by = "ai";
-            fm.graded_on = localDate();
-            fm.grade_status = "graded";
-            fm.grade_confidence = ai.confidence;
-            fm.grade_feedback = ai.reason;
-          });
-          list = removePendingGrade(list, entry.id);
-          graded++;
+          ai = await gradeWithAi(this.cardGradeClient(), entry);
         } catch (e) {
-          break; // still offline or provider unavailable: keep this and the rest for later
+          break; // offline, over budget, low confidence or provider error: keep it pending
+        }
+        if (!this.readPendingCardGrades().some((item) => item.id === entry.id)) {
+          skipped++;
+          continue;
+        }
+        let body = null;
+        try {
+          body = parseCardBody(await this.app.vault.cachedRead(file), card.fm);
+        } catch (e) {
+          body = null;
+        }
+        const changed = !body || body.front !== entry.front || body.back !== entry.expected;
+        const feedback = changed
+          ? `${ai.reason} The card changed after this answer was queued; this grade uses the stored answer from that time.`.slice(0, 500)
+          : ai.reason;
+        try {
+          await this.recordCardReview(card, ai.suggestedGrade, 0, {
+            attemptId: entry.id,
+            typedAnswer: entry.typed,
+            verdict: ai.verdict,
+            matchedBy: ai.matchedBy,
+            verdictOverride: false,
+            gradedBy: "ai",
+            gradeStatus: "graded",
+            gradeConfidence: ai.confidence,
+            gradeFeedback: feedback,
+            gradeModel: this.cardGradeModel() || entry.model,
+            gradeAttemptId: entry.id,
+            gradeStale: changed,
+            now: new Date(entry.createdAt),
+          });
+          drop(entry.id);
+          graded++;
+          if (changed) stale++;
+          results.push({ id: entry.id, grade: ai.suggestedGrade, verdict: ai.verdict, stale: changed });
+        } catch (e) {
+          break; // keep this and the rest for the next explicit retry
         }
       }
-      this.writePendingCardGrades(list);
-      return { graded, remaining: list.length, disabled: false };
+      return { graded, stale, skipped, results, remaining: this.readPendingCardGrades().length, disabled: false };
     })().finally(() => {
       this._pendingCardGradeFlush = null;
     });

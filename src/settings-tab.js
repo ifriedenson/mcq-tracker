@@ -25,6 +25,7 @@ const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { STUDY_TOOL_SETTINGS_BY_ID, STUDY_TOOL_SETTINGS_MODULES, renderStudyToolSettings } = require("./study-tool-settings");
 const { STUDY_MODE_LABELS, STUDY_SKIN_LABELS, normalizeStudyMode, normalizeStudySkin } = require("./study-skin");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
+const { STARTER_STUDY_COMMANDS, parseStudyCommandsText, studyCommandsText } = require("./study-commands");
 const { DEFAULT_THINK_FIRST_SECONDS, MAX_THINK_FIRST_SECONDS, MIN_THINK_FIRST_SECONDS, normalizeThinkFirstSeconds } = require("./think-first");
 const { normalizeAiContext } = require("./ai-context");
 const { AI_FEATURES, CAPABILITY_LABELS } = require("./ai-service");
@@ -805,6 +806,29 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       cls: "setting-item-description",
       text: `Tutor commands: ${TUTOR_COMMANDS.map((c) => `/${c.id}`).join(", ")}. Type one at the start of a chat message to steer the next reply.`,
     });
+    new Setting(containerEl)
+      .setName("Study commands")
+      .setDesc("One command per line: Name | Prompt. Use {} or {selection} for selected text, {note} or {activeNote} for the full note, and {path} for its path. Commands use the chat's context switches, so they cannot read a note the chat is not allowed to send.")
+      .addTextArea((t) =>
+        t
+          .setPlaceholder("Explain simply | Explain {} in plain language.")
+          .setValue(studyCommandsText(ai.studyCommands))
+          .onChange(async (v) => {
+            ai.studyCommands = parseStudyCommandsText(v);
+            await this.plugin.save();
+            this.plugin.refreshViews();
+          })
+      );
+    new Setting(containerEl)
+      .setName("Starter study commands")
+      .setDesc("Replace the saved list with four examples you can edit. They cover explaining, quizzing, cards and common gaps.")
+      .addButton((b) =>
+        b.setButtonText("Load starters").onClick(async () => {
+          ai.studyCommands = STARTER_STUDY_COMMANDS.map((command) => ({ ...command }));
+          await this.plugin.save();
+          this.display();
+        })
+      );
     new Setting(containerEl)
       .setName("Think-first timer")
       .setDesc(`Blocks chat sends until a countdown ends, so the first reply is not a reflex. Off by default; ${DEFAULT_THINK_FIRST_SECONDS} seconds is the default. The countdown starts when a chat opens or you press New chat, and applies to both AI backends.`)

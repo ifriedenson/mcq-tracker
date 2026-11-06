@@ -54,6 +54,16 @@ test("AI fallback: the request treats the learner's answer as data and the store
   assert.equal(seen.opts.maxTokens, 300);
 });
 
+test("AI fallback: a low-confidence reply stays pending instead of becoming a wrong answer", async () => {
+  const client = {
+    chat: async () => '{"verdict":"incorrect","confidence":0.2,"feedback":"Not sure."}',
+  };
+  await assert.rejects(
+    () => ai.gradeWithAi(client, { front: "Powerhouse", expected: "mitochondria", typed: "powerhouse" }),
+    /only 20% confident/i
+  );
+});
+
 test("grade-later queue: entries round-trip, replace themselves, and are removed by id", () => {
   const entry = {
     id: "g-1",
@@ -63,10 +73,15 @@ test("grade-later queue: entries round-trip, replace themselves, and are removed
     expected: "mitochondria",
     typed: "powerhouse",
     strictness: "standard",
+    locale: "es-MX",
+    model: "test-model",
   };
   const list = queue.enqueuePendingGrade([], entry);
   assert.equal(list.length, 1);
   assert.equal(list[0].typed, "powerhouse");
+  assert.equal(list[0].locale, "es-MX");
+  assert.equal(list[0].model, "test-model");
+  assert.equal(queue.MAX_GRADE_BATCH, 10);
   const replaced = queue.enqueuePendingGrade(list, { ...entry, typed: "the powerhouse" });
   assert.equal(replaced.length, 1);
   assert.equal(replaced[0].typed, "the powerhouse");

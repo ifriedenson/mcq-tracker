@@ -6,14 +6,24 @@ calendars, study planning, document ingestion, reference/STEM tools and an
 optional BYOK/OpenCode AI layer.
 
 **0 unchecked rows, 3 partial/gated rows, no locally implementable row left open.**
+This is the tracked core roadmap. The Copilot clean-room inventory in §5.18.1 is
+a separate reference matrix: it marks shipped, adapted, Next and Boundary
+surfaces, so unfinished ideas are not disguised as checked work.
 
 §3.9.6 is the gate table, §3.10 is the licence allow-list, and
 [docs/plan-decisions.md](docs/plan-decisions.md) is the owner decision sheet.
 
-**Verified at this commit:** `node --test` → 2,242 tests pass, 0 fail;
-`npm run check` clean (no dynamic code across 312 source files, vendor guard,
-bundle up to date); `main.js` generated from 315 modules at 6,411,334 bytes.
+**Verified at this commit:** `node --test` → 2,267 tests pass, 0 fail;
+`npm run check` clean (no dynamic code across 316 source files, vendor guard,
+bundle up to date); `main.js` generated from 319 modules at 6,457,408 bytes.
 Re-run both before quoting these numbers.
+
+**Nov 6, 2026 working tree (no version bump):** Quick Ask and saved study
+commands ship in the source and bundle. Quick Ask sends only the selection or
+whole note explicitly chosen, offers seven study actions, and writes only on
+**Insert** or **Replace**. Saved `/commands` expand `{selection}`, `{note}` and
+`{path}` only when the chat already allows that context. The clean-room Copilot
+inventory is §5.18.1; no AGPL code, prompt or stylesheet was used.
 
 **How to read this file.**
 
@@ -31,8 +41,8 @@ file is what made it unreadable; it now points instead.
 
 ## Handoff snapshot (updated Nov 6, 2026 at v1.281.0)
 
-- **State:** 0 unchecked; Mother cram and card answer dictation shipped; 3 `[~]` partials (the owner visual, device and screenshot passes now being run); four former gates decided on Nov 6, 2026 (§B).
-- **Newest feature:** 1.281.0 adds **Mother cram**, a practice-only Cards loop
+- **State:** 0 unchecked core rows; Quick Ask and saved study commands are in the Nov 6, 2026 working tree without a version bump; Mother cram and card answer dictation shipped; 3 `[~]` partials (the owner visual, device and screenshot passes now being run); four former gates decided on Nov 6, 2026 (§B).
+- **Newest feature:** The Nov 6, 2026 working tree adds **Quick Ask** and **saved study commands** without a release or version bump. In 1.281.0, **Mother cram** is the practice-only Cards loop
   in the current deck: flip the card, then choose **Do not know** (send it to the
   back) or **Know** (remove it) until the queue is empty. It writes no attempt,
   grade, history or due date. 1.280.0 added **cram sessions** with exact
@@ -52,7 +62,11 @@ file is what made it unreadable; it now points instead.
 
 ## Current focus (Nov 6, 2026)
 
-No implementation row is open. 1.281.0 adds **Mother cram**, a practice-only
+No tracked core implementation row is open. The Nov 6, 2026 working tree adds
+**Quick Ask** and **saved study commands**: selection or whole-note context,
+seven actions, follow-ups, copy/insert/replace, and `/name` prompts with
+context that obeys the chat's existing switches. The Copilot inventory's Next
+rows are explicit follow-ups, not unchecked rows. 1.281.0 adds **Mother cram**, a practice-only
 Cards loop with exactly two choices after the flip: **Do not know** sends the
 card to the back, **Know** removes it, and the session ends when every card is
 known. It writes no attempt, grade, history or due date, and leaves the normal
@@ -73,17 +87,17 @@ closed decisions; see [docs/plan-decisions.md](docs/plan-decisions.md).
 |---|---|---|
 | **Practice and exams** | Quick Practice and Today, full-screen practice, timed tests with section blueprints and question ranges, adaptive difficulty, confidence/timing fluency signals, partial credit, mistake taxonomy, weak-spot drills, study skin, CBT exam blocks, session reports, results CSV export, Space/Enter/Esc keyboard map | `src/practice*.js`, `src/quick-practice.js`, `src/exam*.js`, `src/cbt-exam.js`, `src/adaptive-session.js`, `src/weak-spot*.js`, `src/session-report.js` |
 | **Scheduling and review** | FSRS and SM-2, per-deck `request_retention` fitting, interval previews, docked whole-note review with undo and lapse actions, one mixed due queue across questions/cards/vocabulary, review calendar and workload estimate, Anki-style statistics, exam-aware interval caps, daily quiz and streak, reminders and opt-in OS notifications | `src/fsrs*.js`, `src/sm2.js`, `src/note-review-dock.js`, `src/due-queue.js`, `src/mixed-review.js`, `src/review-calendar*.js`, `src/study-stats*.js`, `src/os-notifications.js` |
-| **Cards and vocabulary** | Card types including image occlusion, typed and dictated answers with cheap-first grading, AI fallback and a validated verdict, durable grade-later queue, self-grade fallback, cram sessions (Again 3m / Hard 5m / Good 10m / Easy 1d), a practice-only Mother cram loop (Know / Do not know), decks and course tagging, card archive, Vocabulary tab, offline WordNet import, glossary lookup, rule-based note→card extraction with preview | `src/cards*.js`, `src/cram.js`, `src/answer-types.js`, `src/card-grading*.js`, `src/image-occlusion-modal.js`, `src/card-archive.js`, `src/wordnet.js`, `src/glossary.js` |
+| **Cards and vocabulary** | Card types including image occlusion, typed and dictated answers with cheap-first grading, AI fallback and a validated verdict, durable grade-later queue, self-grade fallback, a grader-accuracy summary (AI/local agreement, self-grades, overrides and an eight-week trend), cram sessions (Again 3m / Hard 5m / Good 10m / Easy 1d), a practice-only Mother cram loop (Know / Do not know), decks and course tagging, card archive, Vocabulary tab, offline WordNet import, glossary lookup, rule-based note→card extraction with preview | `src/cards*.js`, `src/cram.js`, `src/answer-types.js`, `src/card-grading*.js`, `src/image-occlusion-modal.js`, `src/card-archive.js`, `src/wordnet.js`, `src/glossary.js` |
 | **Import and interop** | `.apkg` import/export, two-way AnkiConnect, CouchDB sync, Quizlet/Kahoot/Blooket/Gimkit CSV, Moodle GIFT and XML, QTI, Mochi, CrowdAnki, LearnKit, Markdown tables, study bundle export/import, portable card archive, service exports (Evernote, Keep, Notion, Airtable, Bear, Roam, HTML) | `src/apkg*.js`, `src/anki-connect.js`, `src/couchdb-sync.js`, `src/cards-import.js`, `src/importer.js`, `src/qti-archive.js`, `src/study-bundle*.js`, `src/service-import.js` |
 | **Markdown blocks** | `mcq-quiz` inline blocks (choice, slider, text, weights, bands), `quiz-definition`/`playable-quiz` partial credit, `quiz-maker`, `quizport`, `sfc-cards`, `spaced-quiz`, `simple-note-quiz`, `tally`, `text-timer`, `tag-timer`, `study-map`, `sat-math`, `mindmap`, local `chem`/`biology`/`circuit` diagram blocks | `src/quiz-block.js`, `src/quiz-maker.js`, `src/quizport-view.js`, `src/sfc-cards.js`, `src/tally*.js`, `src/text-timer*.js`, `src/study-map.js`, `src/sat-math.js`, `src/mindmap.js`, `src/stem-diagrams.js` |
 | **Courses, calendar, grades** | Course registry with identity/aliases, ICS import and filtered export, month grid and daily timeline, exams and countdowns, study blocks in free gaps, assignments/tasks/grades, course health, course templates, course notes, local recurring events, lecture log, Time blocks (Day/Week/Grid/Timeline, drag/resize, routines, backlog, project files, tags, subject colours, daily-note sync) | `src/course-*.js`, `src/calendar-*.js`, `src/assignments*.js`, `src/exams.js`, `src/local-events*.js`, `src/time-blocks.js`, `src/study-workspace-view.js` |
-| **AI (optional)** | Direct API presets (OpenAI-compatible, Anthropic, Qwen/DashScope, Ollama, LM Studio, llama.cpp, Jan), OpenCode chat, streaming with Stop/Regenerate/Retry, tutor roles and slash commands, passage retrieval with citations, conversation library, write guards with diff-confirm and undo journal, quiz generation with blind verification and distractor checks, AP FRQ rubric grader with second pass and history, Feynman feedback, PDF passage Q&A, offline local-model guide | `src/api-client.js`, `src/ai-*.js`, `src/agent-*.js`, `src/chat-*.js`, `src/opencode-*.js`, `src/quiz-generator*.js`, `src/frq*.js`, `src/feynman-ai.js`, `src/reading-companion.js`, `src/local-models.js` |
+| **AI (optional)** | Direct API presets (OpenAI-compatible, Anthropic, Qwen/DashScope, Ollama, LM Studio, llama.cpp, Jan), OpenCode chat, streaming with Stop/Regenerate/Retry, tutor roles and slash commands, inline Quick Ask, saved study commands, passage retrieval with citations, conversation library, write guards with diff-confirm and undo journal, quiz generation with blind verification and distractor checks, AP FRQ rubric grader with second pass and history, Feynman feedback, PDF passage Q&A, offline local-model guide | `src/api-client.js`, `src/ai-*.js`, `src/agent-*.js`, `src/chat-*.js`, `src/quick-ask*.js`, `src/study-commands.js`, `src/opencode-*.js`, `src/quiz-generator*.js`, `src/frq*.js`, `src/feynman-ai.js`, `src/reading-companion.js`, `src/local-models.js` |
 | **Documents and ingestion** | PDF annotator (ink, highlights, quotes, notes, tags, searchable index, digest export, deep links), PDF page/form editor on vendored pdf-lib (rotate, reorder, insert, duplicate, delete, merge, extract, split, live forms, links, bookmarks, 20-step undo), continuous reader, embedded PDF++, EPUB annotations and reader, paper scanner, document import (`.pptx`/`.pptm`/`.ppsx`/`.docx`/`.docm`/`.odt`/`.odp`/HTML/Markdown), BYOK vision OCR with editable page text, lecture-note compiler, transcript import, audio bookmarks | `src/pdf*.js`, `src/epub*.js`, `src/paper-scanner.js`, `src/documents.js`, `src/ocr*.js`, `src/lecture-compiler.js`, `src/transcript*.js`, `vendor/pdf-lib.js`, `vendor/pdf-plus.js` |
 | **Reference and STEM** | Graph with implicit, polar, parametric, 3D, sliders, regression, table, summation and complex modes; calculator, calculus, geometry, matrix/vector fields; constants and formula sheets; unit circle, trig identities, codon table, Punnett square; periodic-table data; local SMILES renderer; math-rendering audit and goldens; polynomial equivalence and numeric grading; computed-answer verification | `src/graph-*.js`, `src/calculator.js`, `src/calculus.js`, `src/geometry*.js`, `src/matrix.js`, `src/vector-*.js`, `src/reference-*.js`, `src/smiles.js`, `src/math-rendering.js`, `src/polynomial.js`, `src/numeric-grading.js` |
 | **Study workspace** | 32 per-tool settings pages plus a Global index, and the workspace tabs (Cornell, lecture log, goals, Feynman, Recall Scheduler, topic planner, Study Flow, Subject Manager, quiz index, course hub, tasks, annotations, Deep Notes, Retention, Vocabulary, Quiz Maker, SFC cards, CBT, SAT math, Read aloud, lecture notes, bookmarks, Feynman AI, PDF annotations, scheduler fitting, study map, vault search, card archive, study nudge, reading library, course templates), writing-session count, vault task index and tag rename, opt-in Web browser | `src/study-tool-settings.js`, `src/settings-global.js`, `src/study-workspace*.js`, `src/vault-task-index.js`, `src/web-browser*.js` |
 | **Advanced Tables** | Upstream 0.23.2 parity: draft completion, cell editing and Tab/Enter navigation in reading and source views, row/column insert/delete/move, formatting and alignment, TBLFM formulas (datetime and duration aware), CSV/TSV import, transpose, header toggle, stable body-row sorting, merged cells, controls panel | `src/table-editor.js`, `src/table-formulas.js`, `src/table-controls-view.js`, `src/table-csv-modal.js` |
 | **Canvas** | Six clean-room slices: Canvas ⇄ Markdown, map walking and auto-layout, kanban columns, auto-link, query groups, presentations | `src/canvas-*.js` |
-| **Quality** | 2,242-test suite, capability and security inventories re-derived by tests, dynamic-code lint, vendor guard, one release note per version, licence audit and `NOTICES.md` | `tests/`, `docs/capability-inventory.md`, `docs/security-inventory.md`, `scripts/` |
+| **Quality** | 2,267-test suite, capability and security inventories re-derived by tests, dynamic-code lint, vendor guard, one release note per version, licence audit and `NOTICES.md` | `tests/`, `docs/capability-inventory.md`, `docs/security-inventory.md`, `scripts/` |
 
 ## B. Partial rows (3) — owner manual passes still open
 
@@ -299,13 +313,38 @@ Obsidian renders LaTeX natively with MathJax. Forum posts report that the mhchem
 
 | Plugin | What to learn from it | License | Link |
 |---|---|---|---|
-| **Copilot** (Logan Yang) | Chat with your vault; runs agents such as OpenCode, Codex, Claude Code per its listing; the model the owner referenced | **AGPL-3.0** ⚠️ do not integrate (§3.10) | [Obsidian Stats](https://www.obsidianstats.com/plugins/copilot) |
+| **Copilot** (Logan Yang) | Chat with your vault; runs agents such as OpenCode, Codex, Claude Code per its listing; the model the owner referenced | **AGPL-3.0** ⚠️ do not integrate (§3.10) | [GitHub](https://github.com/logancyang/obsidian-copilot) · [Obsidian Stats](https://www.obsidianstats.com/plugins/copilot) |
 | **Agent Client** | Connects agents (Claude Code, Codex, Gemini CLI) via the Agent Client Protocol | **Apache-2.0** (keep `NOTICE`) | [Obsidian Stats](https://www.obsidianstats.com/plugins/agent-client) |
 | **Codex Panel** | Codex in a sidebar for the vault | **Apache-2.0** (keep `NOTICE`) | [Obsidian Stats](https://www.obsidianstats.com/plugins/codex-panel) |
 | **Gemini Helper** | AI chat, workflow automation, semantic search; desktop and mobile | MIT, verified | [Obsidian Stats](https://www.obsidianstats.com/plugins/gemini-helper) |
 | **LLM Hub** | Chat, workflow automation, semantic search with several providers and CLI backends | MIT, verified | [Obsidian Stats](https://www.obsidianstats.com/plugins/llm-hub) |
 | **LearnKit Companion** | Study-focused assistant built into LearnKit: ask about a note, generate cards and tests, rewrite notes (MIT) | MIT ✅ | [LearnKit](https://github.com/ctrlaltwill/learnkit) |
 | **MCQ Tracker's own tutor** | Existing BYOK and OpenCode integration, tutor vs agent mode | MIT ✅ | [community](https://community.obsidian.md/plugins/mcq-tracker) |
+
+#### 3.8.1 MIT AI-assistant gap audit (Nov 6, 2026)
+
+These licences were read from the repository's own `LICENSE` or the GitHub
+licence API on Nov 6, 2026. **No code, prompts or styles were copied.** The
+table records a real gap and where it stands, so the next slice can be chosen
+without re-researching the licence.
+
+| Plugin | Licence | Feature MCQ Tracker did not have | Link | Status after this pass |
+|---|---|---|---|---|
+| **Smart Composer** | MIT ✅ | `@file` and `@folder` context mentions, web-page and image attachments, one-click vault edits with a diff. | [GitHub](https://github.com/glowingjade/obsidian-smart-composer) | **Next.** The Study agent has note/vault retrieval, reviewed writes and diffs, but not `@` mentions or URL/image attachments. |
+| **Smart Second Brain** | MIT ✅ | Hybrid keyword + semantic search, an automatically grouped knowledge graph, and a local-first agent. | [GitHub](https://github.com/s2b-dev/smart-second-brain) | **Next.** Search is lexical and cited; there are no embeddings and no generated topic graph. |
+| **Text Generator** | MIT ✅ | Reusable prompt templates with variables, a community template library, and generation inserted into the current note. | [GitHub](https://github.com/nhaouari/obsidian-textgenerator-plugin) | **Adapted.** Saved study commands cover reusable prompts and `{selection}`/`{note}`/`{path}` variables; there is no template marketplace. |
+| **Local GPT** | MIT ✅ | Selection context-menu actions, an action palette, community actions, RAG over links/backlinks/PDFs, and image input. | [GitHub](https://github.com/pfrankov/obsidian-local-gpt) | **Adapted.** Quick Ask ships selection actions; there is no shared action library or link/PDF RAG. |
+| **Obsidian Ollama** | MIT ✅ | Built-in preprompts (summarize, explain, rewrite, caption), per-prompt model and temperature, and insert-at-cursor. | [GitHub](https://github.com/hinterdupfinger/obsidian-ollama) | **Adapted.** Study commands and Quick Ask cover the prompt/insert workflow; per-command model and temperature are still missing. |
+| **BMO Chatbot** | MIT ✅ | Named chatbot profiles with their own knowledge and presets, prompt-select-generate, and chat Markdown rendering. | [GitHub](https://github.com/longy2k/obsidian-bmo-chatbot) | **Adapted.** Tutor roles and the chat renderer cover part; user-defined profiles are not built. |
+| **Obsidian AI** (Maximophone) | MIT ✅ | Inline `<ai!>` generation blocks that read `[[links]]` as context, plus token and cost tracking. | [GitHub](https://github.com/Maximophone/obsidian-ai-plugin) | **Next.** Inline generation and visible cost tracking are not built. |
+| **AI Local Assistant** | MIT ✅ | Prompt mode over a selection plus DALL·E image generation and Whisper transcription. | [GitHub](https://github.com/ManOhMan28/obsidian-ai-local-assistant) | **Boundary.** Prompt mode is covered by Quick Ask; image generation and audio capture are outside the study-assistant scope and the plan's audio decisions. |
+
+**What shipped from this audit.** Quick Ask (selection or full-note context,
+preview, copy, insert, replace, follow-ups) and saved study commands with slash
+expansion. Both reuse the existing provider, request caps, model routing,
+untrusted-context labelling and write guards. They are original modules:
+`src/quick-ask.js`, `src/quick-ask-modal.js` and `src/study-commands.js`.
+
 
 ### 3.9 Similar-plugin scan, Oct 30, 2026
 
@@ -1429,7 +1468,7 @@ This saves cost, works offline for easy cases, and keeps latency low.
 - Periodically sample overrides to find systematic leniency or harshness; expose a small "grader accuracy" stat in settings.
 - Provide a deterministic test set of card/answer pairs to evaluate each model before recommending it.
 
-**Properties (see §6):** `answer_mode`, `accepted_variants`, `grading_strictness`, `last_typed_answer`, `last_verdict`, `verdict_override`, `graded_by`, `graded_on`, `grade_status: pending|graded`, `grade_attempt_id`, `grade_confidence`.
+**Properties (see §6):** `answer_mode`, `accepted_variants`, `grading_strictness`, `last_typed_answer`, `last_verdict`, `verdict_override`, `graded_by`, `graded_on`, `grade_status: graded|self`, `grade_attempt_id`, `grade_confidence`, `grade_feedback`, `grade_model`, `grade_stale`.
 
 **Privacy:** typed or spoken answers are sent to the selected provider only when the AI step is needed. Disclose this in settings. Easy matches never leave the device.
 
@@ -1452,10 +1491,13 @@ This saves cost, works offline for easy cases, and keeps latency low.
 
 **Shipped in 1.90.0:** Direct AI agent mode uses an allow-listed tool protocol rather than file access. It can propose a question note, a card note, or one replacement of a safe body section; each proposal is reviewed and checked before it is written, and the existing AI write roots and protected review properties still apply. OpenCode keeps its richer agent mode.
 
+**Shipped in the Nov 6, 2026 working tree (unversioned): Quick Ask and saved study commands.** Quick Ask opens on the selection (or the whole active note), runs the selected action through the existing `chat` feature, and offers copy, insert, replace and follow-ups. Replace writes only if the editor selection is unchanged. Saved study commands (`Name | Prompt`) appear in Settings → AI and as a ChatPanel dropdown; `/id` expands at send time, with `{selection}`, `{note}` and `{path}` available only when the chat already allows that context. The command list is bounded (40 commands, 2,000 characters each), text is escaped and URL schemes are ignored, and no second provider, key store or network path is introduced. Files: `src/quick-ask.js`, `src/quick-ask-modal.js`, `src/study-commands.js`, `tests/quick-ask.test.js`.
+
 **Surfaces**
-- Side-panel chat on desktop; full-screen chat on mobile.
-- Inline quick actions on a question, card, or selected text.
-- Slash commands and user-defined prompts (e.g., `/explain`, `/quiz`, `/plan`).
+- Side-panel chat on desktop; full-screen chat on mobile. ✅ 1.90.0
+- Inline Quick Ask on selected text. ✅ Nov 6, 2026
+- Slash commands and user-defined prompts. ✅ study commands; built-in `/guide`, `/quiz`, `/confuse`, `/gap`, `/predict`, `/feynman`, `/mock`.
+- Floating Quick Chat, chat tabs, pins and archive. ○ not built; see §5.18.1.
 
 **Context the user can toggle on (visible and per-chat)**
 - Current note and selection.
@@ -1487,6 +1529,160 @@ This saves cost, works offline for easy cases, and keeps latency low.
 **Differentiation from general assistants:** generic vault chat tools do not know which skills you keep missing or when your exam is. This assistant does.
 
 **Risks:** scope can sprawl. Keep the first release to chat + five or six study actions + safe note/card creation, then expand. Avoid duplicating Copilot's general-purpose breadth.
+
+**Acceptance criteria for Quick Ask and study commands**
+- Selection and whole-note context are separate switches; nothing outside the
+  explicit choice is read.
+- Nothing is written until **Insert** or **Replace** is pressed, and **Replace**
+  refuses if the editor selection changed while the reply was pending.
+- `/command` expansion is bounded, escaped and applied before the shared request
+  path; an unknown slash command is sent literally, not treated as a command.
+- Saved commands obey the same provider, cap, model, note-context and write
+  guards as the chat.
+- The command editor and picker normalise corrupt values to an empty list and
+  never render raw HTML.
+
+#### 5.18.1 Copilot feature and UI parity inventory (clean-room)
+
+This is the full inventory requested for `logancyang/obsidian-copilot` 4.0.18.
+It was built from Copilot's public README, docs and feature map. **No AGPL code,
+prompts or styles were used**; the columns record behaviour and UI ideas only.
+The status is about MCQ Tracker's own implementation, not a claim that Copilot's
+code was ported.
+
+**Status legend:** ✅ ships a usable equivalent; ◐ adapted or narrower; ○ not
+built and locally implementable; ⛔ boundary — needs a service, conflicts with
+an owner decision, or is outside this plugin's study identity.
+
+**A. Chat surfaces and entry points**
+
+| Copilot surface | What it does | MCQ status |
+|---|---|---|
+| Agent Chat sidebar | Long-running chat in the right panel, with tools and a model picker. | ✅ Study agent. |
+| Quick Chat | Floating, compact chat from anywhere. | ○ Quick Ask covers selection; a floating global chat is not built. |
+| Quick Ask | Inline question about selected text. | ✅ Nov 6, 2026. |
+| Full-screen / mobile chat | Phone-friendly chat surface. | ◐ Agent opens as a tab on phones; no separate full-screen chat mode. |
+| Ribbon and command-palette entry | Open chat or run an action. | ✅ Ribbon bot and `Study agent: open the sidebar`. |
+| Slash commands | Built-in and user-defined prompt shortcuts. | ✅ Built-in tutor commands and saved study commands. |
+| Projects | Group chats and context by project. | ○ Courses and study profile are context, but there is no project container for chats. |
+| Skills | Packaged instructions and resources an agent can load. | ○ Not built; no skills directory or loader. |
+| Custom command editor | Create, edit and share reusable prompts. | ✅ Settings → AI → Study commands; no sharing/import format. |
+| Chat tabs | Several conversations open at once. | ○ One active conversation plus a saved list. |
+| Chat history, pins, archive | Browse, pin and archive conversations. | ◐ Saved conversations, rename, delete and new chat; no pins or archive view. |
+| Chat links and bookmarks | Link to a message or bookmark it. | ○ Not built. |
+| Queued messages | Queue a follow-up while a reply streams. | ○ Stop and retry ship; queueing does not. |
+| `/compact` | Summarise a long conversation to save context. | ○ Not built. |
+| Plan proposals | Agent proposes a multi-step plan before acting. | ○ Agent proposals are per-write, not multi-step plans. |
+| Background subagents / multi-agent | Delegated workers and several agents. | ⛔ Requires an external agent runtime and entitlements; no second runtime. |
+| Web viewer, YouTube and X tools | Fetch or browse remote content. | ⛔ Owner decision 5: no web lookup or off-device retrieval. |
+| Obsidian CLI tool | Drive Obsidian commands from chat. | ⛔ Shell/arbitrary command execution is excluded. |
+| Excalidraw integration | Create and edit Excalidraw drawings. | ⛔ Do-not-adopt row; separate canvas product. |
+| OpenArtifacts publishing | Publish generated artifacts to a hosted viewer. | ⛔ Hosted service and outbound publishing are out of scope. |
+| Self-host mode | Point the plugin at a self-hosted Copilot service. | ⛔ No second runtime, relay or hosted control plane. |
+| Diagnostics | Connection/model/tool diagnostics. | ◐ `Test`, model fetch and capability reporting; no Copilot-style diagnostic bundle. |
+
+**B. Context and retrieval**
+
+| Copilot context feature | What it does | MCQ status |
+|---|---|---|
+| Current note | Add the open note explicitly. | ✅ Per-chat switch, 6,000-character cap, frontmatter removed. |
+| Selection | Add only the selected text. | ✅ Per-chat switch, 2,000-character cap; Quick Ask uses it directly. |
+| `@` note and folder mentions | Address vault content precisely. | ○ Local search covers discovery; there is no mention picker. |
+| Context chips / source list | Show what is attached before sending. | ◐ The toggles are visible and search results are cited; there is no chip row. |
+| Local vault search | Retrieve relevant passages with citations. | ✅ Bounded lexical search, `[[path#L12]]` citations. |
+| Full-vault index | Opt into paths-only file context. | ✅ Opt-in and off by default. |
+| Relevant Notes sidebar | A persistent list of related notes. | ✅ Search results are clickable and cited; not a separate persistent pane. |
+| PDF context | Ask about a PDF passage. | ◐ PDF annotations and page text can be sent; no general PDF attachment flow. |
+| Web-page context | Attach a URL and extract its content. | ⛔ Owner decision 5. |
+| Image context | Attach screenshots or figures to a chat. | ⛔ Vision exists only for OCR/handwriting, not general chat attachments. |
+| Miyo semantic search | Embedding-based vault retrieval. | ○ Lexical retrieval ships; embeddings are not enabled. |
+| Memory | Remember facts across chats. | ○ Saved conversations preserve history; there is no long-term memory store. |
+| Study profile | Performance, due work and exams as context. | ✅ Three default-off aggregate toggles. |
+
+**C. Conversation management and productivity**
+
+| Copilot feature | What it does | MCQ status |
+|---|---|---|
+| Save and resume | Persist a transcript and reopen it. | ✅ Save chat and a saved-conversation list; newest 40 messages, 8,000 characters each. |
+| Rename and delete | Manage saved conversations. | ✅ |
+| New chat | Start clean without losing the old one. | ✅ |
+| Search conversations | Find an old thread by text. | ○ List only, no full-text search. |
+| Export/share | Copy or export a conversation. | ◐ Copy per reply and save to Markdown; no dedicated export/share format. |
+| Per-chat model | Choose a model for this thread. | ◐ Model is chosen per feature in settings, not per chat. |
+| Token ring / context gauge | Show how full the context window is. | ○ Token estimate and caps exist; no ring or per-thread gauge. |
+| Cost display | Show running session cost. | ○ Request and token caps exist; no price table or running cost. |
+| Message actions | Copy, regenerate, retry, stop. | ✅ Copy, regenerate, retry and Stop/Esc. |
+| Streaming | Render tokens as they arrive. | ✅ Direct API SSE and OpenCode events. |
+| Queued follow-ups | Send while busy. | ○ |
+
+**D. Agent, tools and safety**
+
+| Copilot capability | What it does | MCQ status |
+|---|---|---|
+| Read-only tutor | Answer with context, no writes. | ✅ Tutor mode, BYOK or OpenCode. |
+| Vault-editing agent | Create and edit notes. | ✅ OpenCode agent mode; Direct AI uses reviewed proposals. |
+| Allow-listed tools | A small, explicit tool set instead of filesystem access. | ✅ Create question, create card, replace one safe body section. |
+| Diff review | Show the proposed change before applying. | ✅ Review and apply; no raw filesystem writes in BYOK mode. |
+| Undo / revoke | Put back a change. | ◐ Undo journal for generated notes; no per-message rollback for every edit. |
+| Protected tracking fields | Prevent changes to results, history and scheduling. | ✅ Enforced by the write guard, snapshots and restore. |
+| Folder allow-list | Constrain where writes may land. | ✅ Existing AI write roots. |
+| Permission prompts | Ask before a tool runs. | ✅ Every proposal is reviewed. |
+| Prompt-injection labelling | Treat notes and sources as untrusted data. | ✅ Shared note-context sanitiser and untrusted labels. |
+| Shell / code execution | Run commands. | ⛔ Excluded by security gate. |
+| MCP tools | Connect external tool servers. | ⛔ No MCP client or extra runtime. |
+| Plan-then-act | Multi-step plan approval. | ○ Only per-write proposals. |
+| Background work | Continue a task after closing chat. | ⛔ No background daemon; Obsidian unload must stop work. |
+
+**E. Models, providers and operations**
+
+| Copilot feature | What it does | MCQ status |
+|---|---|---|
+| Multiple providers | OpenAI, Anthropic, Google and compatible APIs. | ✅ Anthropic, OpenAI, OpenRouter, Gemini, Qwen and OpenAI-compatible. |
+| Local models | Ollama, LM Studio, llama.cpp, Jan. | ✅ Same Direct API path; desktop only for localhost. |
+| Per-feature model | Different models for chat, generation, grading, vision. | ✅ Settings → AI → Models and request limits. |
+| Fetch model list | Read the provider's available models. | ✅ Filtered to chat models and cached per provider/address. |
+| Reply/day/run caps | Bound spending. | ✅ Reply token cap, daily request cap, per-run cap. |
+| Cost estimate | Price a request before or after sending. | ○ Rough token estimate only; no price table. |
+| Capability reporting | Say whether a backend supports images, JSON, tools or streaming. | ✅ Per-backend capability report. |
+| Test connection | One-word provider check. | ✅ |
+| Mobile support | Work on phones where the provider allows it. | ✅ Direct API; localhost and OpenCode are desktop-only. |
+| Self-host / relay | Run a separate Copilot service. | ⛔ |
+| Diagnostics bundle | Collect logs and environment details. | ○ No bundle; errors are shown in the panel. |
+
+**F. UI design ideas and what was adopted**
+
+| Copilot UI idea | MCQ decision |
+|---|---|
+| Compact right-sidebar chat with the composer pinned to the bottom | ✅ Adopted in the original Study agent. |
+| Visible context toggles rather than hidden vault access | ✅ Adopted; current note and selection reset on New chat. |
+| Source chips with clickable citations | ◐ Citations are clickable; a chip row is still missing. |
+| Model picker in the composer | ○ Model is in settings, not the composer. |
+| Stop button that keeps partial text | ✅ Adopted; late replies are ignored. |
+| Diff card with Apply / Cancel | ✅ Adopted for agent proposals. |
+| Status cards for tool calls | ◐ Plain proposal/status text, not Copilot's card components. |
+| Token ring / context gauge | ○ Not adopted. |
+| Queued-message tray | ○ Not adopted. |
+| Pinned chats, tabs and archive | ○ Not adopted. |
+| Slash-command popover | ✅ A datalist/dropdown inserts saved commands; built-in commands are documented. |
+| Command palette with search | ✅ Native Obsidian command palette; no custom palette. |
+| Empty state with suggested study actions | ◐ Quick actions exist; no rotating suggestion cards. |
+| Mobile bottom-sheet composer | ◐ Responsive tab, not a bottom sheet. |
+| Inline Quick Ask popover near the selection | ✅ Nov 6, 2026. |
+| Inline diff in the editor | ○ Review modal only; no editor overlay. |
+| Artifact/canvas panel | ⛔ Separate product. |
+| Animated streaming caret | ◐ Streaming text; no caret animation promised. |
+| Token/cost footer | ○ Counters exist, no footer. |
+| Theme-token styling | ✅ Uses Obsidian CSS variables; no Copilot stylesheet. |
+
+**Boundary statement.** Copilot is AGPL-3.0. This inventory is a behavioural
+spec, not a port. Features tied to Copilot Plus, Miyo, external CLI agents,
+hosted viewers, Excalidraw, MCP, web retrieval or a self-hosted control plane
+cannot be delivered by copying code and are marked ⛔ or ○ above. The owner's
+"all features" goal is therefore met as an inventory; literal feature parity
+would require separate product decisions and, for AGPL code, a different
+licence. The next implementable Copilot-shaped slices, in order, are: `@` note
+mentions, chat search/pins, a context/token footer, per-command model settings,
+and a floating Quick Chat. None is silently claimed as shipped.
 
 ---
 
@@ -2079,7 +2275,7 @@ Names are proposals; keep existing ones unchanged.
 | Courses | `course` (reuse), `semester`, `exam` (link or id) |
 | Sync safety | `history` as append-only entries with unique timestamps; derived fields recomputed from it |
 | Cards/vocab | `item_type: card\|vocab`, `language`, `part_of_speech`, `audio` |
-| Card answer modes | `answer_mode: flip\|type\|speak`, `accepted_variants`, `grading_strictness: strict\|standard\|lenient`, `last_typed_answer`, `last_verdict`, `verdict_override`, `graded_by`, `graded_on`, `grade_status: pending\|graded`, `grade_attempt_id`, `grade_confidence` |
+| Card answer modes | `answer_mode: flip\|type\|speak\|auto`, `accepted_variants`, `grading_strictness: strict\|standard\|lenient`, `last_typed_answer`, `last_verdict`, `verdict_override`, `graded_by`, `graded_on`, `grade_status: graded\|self`, `grade_attempt_id`, `grade_confidence`, `grade_feedback`, `grade_model`, `grade_stale` |
 | Math / STEM | `tolerance`, `tolerance_type`, `sig_figs`, `units`, `accepted_answers`, `variables`, `answer_formula`, `variant_seed`, `last_variant`, `calculator: allowed\|none`, `formula_sheet` |
 | Item control | `study_status: active\|known\|excluded`, `known_until`, `excluded_on`, `excluded_reason` |
 | Import provenance | `import_source`, `import_format`, `imported_on`, `import_batch`, `import_source_url` |
