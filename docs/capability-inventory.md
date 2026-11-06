@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 406 groups, 2739 exports. **Commands:** 207. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 408 groups, 2761 exports. **Commands:** 207. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -159,9 +159,11 @@ the table and fails if a group, export count, command or citing test drifts.
 | `cardsExtract` | 13 | `tests/cards-extract.test.js`, `tests/flashcard-generate.test.js` |
 | `cardsImport` | 39 | `tests/cards-import.test.js`, `tests/quizlet-pdf-fixtures.test.js`, `tests/spaced-quiz.test.js` |
 | `cbtExam` | 7 | `tests/cbt-exam.test.js` |
-| `chatBudget` | 6 | `tests/chat-budget.test.js`, `tests/chat-panel-mentions.test.js` |
+| `chatBudget` | 6 | `tests/chat-budget.test.js`, `tests/chat-compact.test.js`, `tests/chat-panel-mentions.test.js` |
+| `chatCompact` | 9 | `tests/chat-compact.test.js` |
 | `chatHistory` | 5 | `tests/chat-history.test.js` |
 | `chatMentions` | 17 | `tests/chat-mentions.test.js` |
+| `chatModels` | 13 | `tests/chat-models.test.js` |
 | `chatSessions` | 13 | `tests/chat-sessions.test.js` |
 | `chatStream` | 5 | `tests/chat-stream.test.js` |
 | `chooseRelease` | 0 | `tests/opencode-compat.test.js` |

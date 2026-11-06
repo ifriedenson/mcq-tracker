@@ -195,6 +195,7 @@ class AgentView extends ItemView {
       title: str(ai.studyChatTitle).trim(),
       updatedAt: Number(ai.studyChatUpdatedAt) || 0,
       messages: normalizeChatHistory(ai.studyChat),
+      model: str(ai.studyChatModel).trim(),
       pinned: ai.studyChatPinned === true,
     };
   }
@@ -231,6 +232,7 @@ class AgentView extends ItemView {
       messages,
       sessionId: str(ai.sessionId).trim(),
       notePath: "",
+      model: str(ai.studyChatModel).trim(),
       pinned: ai.studyChatPinned === true,
       archived: archived === true,
     });
@@ -248,6 +250,7 @@ class AgentView extends ItemView {
     ai.studyChatTitle = "";
     ai.studyChatUpdatedAt = 0;
     ai.studyChatPinned = false;
+    ai.studyChatModel = "";
     ai.sessionId = "";
     this.apiHistory = [];
     this.plugin.save();
@@ -276,6 +279,7 @@ class AgentView extends ItemView {
     ai.studyChatTitle = record.title;
     ai.studyChatUpdatedAt = record.updatedAt || Date.now();
     ai.studyChatPinned = record.pinned === true;
+    ai.studyChatModel = record.model || "";
     ai.sessionId = record.sessionId || "";
     this.apiHistory = record.messages.slice();
     this.plugin.save();
@@ -314,6 +318,7 @@ class AgentView extends ItemView {
       ai.studyChatTitle = "";
       ai.studyChatUpdatedAt = 0;
       ai.studyChatPinned = false;
+      ai.studyChatModel = "";
       ai.sessionId = "";
       this.apiHistory = [];
       if (this.chatPanel) this.chatPanel.loadConversation([]);
@@ -353,6 +358,7 @@ class AgentView extends ItemView {
       ai.studyChatTitle = "";
       ai.studyChatUpdatedAt = 0;
       ai.studyChatPinned = false;
+      ai.studyChatModel = "";
       ai.sessionId = "";
       this.apiHistory = [];
       if (this.chatPanel) this.chatPanel.loadConversation([]);

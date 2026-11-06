@@ -8431,7 +8431,7 @@ ${body}
     const can = this.aiCanSpend(feature);
     if (!can.ok) throw new Error(can.reason);
     const maxTokens = aiService.clampMaxTokens(ai, o.maxTokens);
-    const model = this.aiModelFor(feature);
+    const model = str(o.model).trim().slice(0, 200) || this.aiModelFor(feature);
     const tokens = aiService.estimateRequestTokens(system, messages, o.images);
     this.spendAiRequest(feature, tokens);
     const call = async () => {

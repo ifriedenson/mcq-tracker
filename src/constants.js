@@ -105,8 +105,10 @@ const DEFAULT_SETTINGS = {
     studyChatTitle: "", // user-visible title of the active conversation
     studyChatUpdatedAt: 0, // epoch ms, used for the newest-first library order
     studyChatPinned: false, // pinned conversations sort first in the library
+    studyChatModel: "", // optional model override for the active chat
     chatSessions: [], // archived conversations, bounded by chat-sessions.js
     studyCommands: [], // reusable /commands; prompts may use {} or {selection}
+    commandModels: {}, // optional per-slash-command model overrides, keyed by command id
     autoDeclined: false, // the user said no to the automatic OpenCode download: don't ask again until they press the button
     backend: "api", // desktop choice: "api" (default) or "opencode". Phones always use "api".
     api: { provider: "anthropic", baseUrl: "", model: "claude-sonnet-5-5", models: [], keys: {} },

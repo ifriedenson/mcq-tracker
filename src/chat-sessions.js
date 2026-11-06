@@ -43,6 +43,7 @@ function normalizeSession(value) {
     messages,
     sessionId: str(raw.sessionId).trim(),
     notePath: str(raw.notePath).trim(),
+    model: str(raw.model).trim().slice(0, 200),
     pinned: raw.pinned === true,
     archived: raw.archived === true,
   };
@@ -137,6 +138,7 @@ function libraryRows(active, sessions, now, options) {
       when: formatWhen(active && active.updatedAt),
       messages,
       active: true,
+      model: str(active && active.model).trim(),
       pinned: active && active.pinned === true,
       archived: false,
     });
@@ -152,6 +154,7 @@ function libraryRows(active, sessions, now, options) {
       when: formatWhen(session.updatedAt),
       messages: session.messages,
       active: false,
+      model: session.model,
       pinned: session.pinned === true,
       archived: session.archived === true,
     });

@@ -13,6 +13,8 @@ const { toolProtocol } = require("./ai-tools");
 const { chatMarkdown } = require("./chat-history");
 const chatBudget = require("./chat-budget");
 const chatMentions = require("./chat-mentions");
+const chatModels = require("./chat-models");
+const chatCompact = require("./chat-compact");
 
 function budgetRefusal(budget) {
   return `Nothing was sent: the estimated ${chatBudget.formatTokenCount(budget.tokens)}-token context is over the local ${chatBudget.formatTokenCount(budget.limit)}-token chat budget. Remove a mention or shorten the message.`;
@@ -153,6 +155,16 @@ class ChatPanel {
     for (const item of TUTOR_ROLES) role.createEl("option", { value: item.id, text: item.label });
     role.value = this.currentRole();
     role.addEventListener("change", () => this.setRole(role.value));
+    this.modelSelect = top.createEl("select", {
+      cls: "qt-select",
+      attr: { "aria-label": "Chat model", title: "Model for this chat" },
+    });
+    this.renderModelSelect();
+    this.modelSelect.addEventListener("change", () => {
+      this.ai.studyChatModel = chatModels.normalizeModel(this.modelSelect.value);
+      this.view.plugin.save();
+      this.refreshTokenFooter();
+    });
     const nc = top.createEl("button", { text: "New chat" });
     nc.addEventListener("click", () => this.newChat());
     if (this.opts.onSaveChat) {
@@ -247,6 +259,8 @@ class ChatPanel {
     this.refreshTokenFooter();
     this.refreshContextPreview();
     this.startThinkFirst();
+    this.renderModelSelect();
+    this.refreshTokenFooter();
     this.draw();
   }
 
@@ -423,6 +437,53 @@ class ChatPanel {
     this.refreshTokenFooter();
   }
 
+  modelPlan(text) {
+    const draft = text === undefined ? str(this.input && this.input.value) : str(text);
+    const backend = this.view.plugin.backend();
+    const globalModel =
+      typeof this.view.plugin.aiModelFor === "function"
+        ? this.view.plugin.aiModelFor("chat")
+        : str(this.ai.api && this.ai.api.model).trim() || str(this.ai.model).trim();
+    return chatModels.resolveChatModel({
+      chatModel: this.ai.studyChatModel,
+      commandModel: this.commandModelFor(draft),
+      globalModel,
+      availableModels: backend === "api" && this.ai.api ? this.ai.api.models : [],
+      backend,
+    });
+  }
+
+  commandModelFor(text) {
+    const id = chatModels.commandIdFromText(text);
+    if (!id) return "";
+    return chatModels.normalizeCommandModels(this.ai.commandModels)[id] || "";
+  }
+
+  chatModelChoices() {
+    const backend = this.view.plugin.backend();
+    const globalModel = typeof this.view.plugin.aiModelFor === "function" ? this.view.plugin.aiModelFor("chat") : "";
+    return chatModels.modelChoices({
+      globalModel,
+      availableModels: backend === "api" && this.ai.api ? this.ai.api.models : [],
+      ownModel: this.ai.studyChatModel,
+    });
+  }
+
+  renderModelSelect() {
+    if (!this.modelSelect) return;
+    const select = this.modelSelect;
+    const globalModel = typeof this.view.plugin.aiModelFor === "function" ? this.view.plugin.aiModelFor("chat") : "";
+    select.empty();
+    select.createEl("option", {
+      value: "",
+      text: globalModel ? `Chat default (${globalModel})` : "Chat default",
+    });
+    for (const model of this.chatModelChoices()) {
+      select.createEl("option", { value: model, text: model });
+    }
+    select.value = chatModels.normalizeModel(this.ai.studyChatModel);
+  }
+
   historyText() {
     if (this.view.plugin.backend() === "api") return this.apiHistory().map((message) => message.content).join("\n");
     return this.turns.map((turn) => turn.texts.join("\n")).join("\n");
@@ -454,10 +515,22 @@ class ChatPanel {
     if (!this.budgetEl) return;
     const draft = str(this.input && this.input.value);
     const budget = this.budgetFor(draft, this.previewContext);
+    const plan = this.modelPlan(draft);
     this.lastBudget = budget;
+    this.lastModelPlan = plan;
     this.budgetEl.empty();
     this.budgetEl.toggleClass("is-warn", budget.warn);
     this.budgetEl.toggleClass("is-over", budget.over);
+    this.budgetEl.createDiv({
+      cls: "qt-chat-budget-line qt-chat-model-line",
+      text: `Model: ${chatModels.effectiveModelLabel(plan)} (${chatModels.modelSourceLabel(plan.source)})`,
+    });
+    for (const fallback of plan.fallbacks) {
+      this.budgetEl.createDiv({
+        cls: "qt-chat-budget-warning",
+        text: `${fallback.source === "chat" ? "This chat's" : "That command's"} model ${fallback.requested} is unavailable (${fallback.reason}); using ${chatModels.effectiveModelLabel(plan)} instead.`,
+      });
+    }
     this.budgetEl.createDiv({
       cls: "qt-chat-budget-line",
       text: `${this.contextAttachmentLabels()} — ~${chatBudget.formatTokenCount(budget.tokens)} / ${chatBudget.formatTokenCount(budget.limit)} tokens`,
@@ -639,6 +712,8 @@ class ChatPanel {
     this.lastSent = "";
     this.sig = "";
     this.startThinkFirst();
+    this.renderModelSelect();
+    this.refreshTokenFooter();
     this.draw();
   }
 
@@ -693,7 +768,7 @@ class ChatPanel {
       });
       const open = item.createEl("button", {
         cls: "qt-chat-library-open",
-        text: `${row.pinned ? "Pinned · " : ""}${row.title}${row.when ? ` — ${row.when}` : ""}${row.archived ? " (archived)" : ""}`,
+        text: `${row.pinned ? "Pinned · " : ""}${row.title}${row.when ? ` — ${row.when}` : ""}${row.model ? ` · ${row.model}` : ""}${row.archived ? " (archived)" : ""}`,
       });
       open.addEventListener("click", () => this.openLibraryRow(row));
       const actions = item.createDiv({ cls: "qt-row qt-small-row qt-chat-library-actions" });
@@ -837,6 +912,7 @@ class ChatPanel {
     if (!value || this.busy) return;
     this.error = "";
     this.lastSent = value;
+    const modelPlan = this.modelPlan(value);
     if (this.view.plugin.backend() === "api") {
       const prepared = await this.prepareSendContext(value);
       if (!prepared.ok) {
@@ -849,7 +925,7 @@ class ChatPanel {
       while (hist.length && hist[hist.length - 1].role !== "user") hist.pop();
       this.turns = apiTurns(hist);
       this.persistApiHistory();
-      return this.sendApi(value, prepared.context, true);
+      return this.sendApi(value, prepared.context, true, modelPlan.model);
     }
     return this.send(value);
   }
@@ -912,9 +988,56 @@ class ChatPanel {
     }) || text;
   }
 
+  /**
+   * `/compact` folds older Direct API messages into one bounded local summary.
+   * No provider call is made; OpenCode's server-side session is reported plainly.
+   */
+  async compactChat() {
+    if (this.busy) return false;
+    if (this.view.plugin.backend() !== "api") {
+      const reason =
+        "/compact folds the Direct API conversation stored in settings. OpenCode keeps its own server-side history, so there is nothing local to compact.";
+      this.error = reason;
+      if (this.status) this.status.setText(reason);
+      this.draw();
+      return false;
+    }
+    const result = chatCompact.compactMessages(this.apiHistory(), {
+      limit: chatBudget.CONTEXT_BUDGET_TOKENS,
+    });
+    if (!result.ok) {
+      this.error = "";
+      if (this.status) this.status.setText(result.reason);
+      return false;
+    }
+    if (typeof this.opts.saveApiHistory === "function") this.opts.saveApiHistory(result.messages);
+    else {
+      const history = this.apiHistory();
+      history.length = 0;
+      history.push(...result.messages);
+    }
+    this.turns = apiTurns(result.messages);
+    this.lastSent = "";
+    this.error = "";
+    this.input.value = "";
+    this.syncMentionChips();
+    this.sig = "";
+    this.draw();
+    this.refreshTokenFooter();
+    if (this.status) {
+      this.status.setText(
+        `Compacted ${result.removed} older message${result.removed === 1 ? "" : "s"} into a local summary. The last ${result.kept} messages are unchanged. About ${chatBudget.formatTokenCount(result.tokens)} tokens now.`
+      );
+    }
+    return true;
+  }
+
   async send(text) {
     text = str(text).trim();
     if (!text || this.busy || !this.ai.enabled) return;
+    if (/^\/compact\b/i.test(text)) return this.compactChat();
+
+    const modelPlan = this.modelPlan(text);
     const command = parseStudyCommand(text, this.studyCommands());
     if (command) {
       text = await this.resolveStudyCommand(text, command);
@@ -945,7 +1068,7 @@ class ChatPanel {
       }
     }
     const currentNote = prepared.context;
-    if (this.view.plugin.backend() === "api") return this.sendApi(text, currentNote);
+    if (this.view.plugin.backend() === "api") return this.sendApi(text, currentNote, false, modelPlan.model);
     const plugin = this.view.plugin;
     const ai = this.ai;
     const reviewAgent = ai.mode === "agent" && ai.reviewAgentEdits !== false;
@@ -994,7 +1117,7 @@ class ChatPanel {
         parts: [{ type: "text", text }],
         system: this.opts.buildContext(ai.mode, currentNote),
       };
-      const model = modelFromString(ai.model);
+      const model = modelFromString(modelPlan.model);
       if (model) body.model = model;
       if (str(ai.agent).trim()) body.agent = ai.agent.trim();
       const tools = toolsForMode(ai.mode, ai.agentShell);
@@ -1060,7 +1183,7 @@ class ChatPanel {
     }
   }
 
-  async sendApi(text, currentNote, resend) {
+  async sendApi(text, currentNote, resend, model) {
     const budget = this.budgetFor(text, currentNote);
     if (budget.over) {
       this.error = budgetRefusal(budget);
@@ -1099,6 +1222,7 @@ class ChatPanel {
         .join("\n\n");
       const reply = await this.view.plugin.aiChat(system, base, {
         feature: "chat",
+        model: chatModels.normalizeModel(model || this.modelPlan(text).model),
         onDelta,
         signal: controller ? controller.signal : undefined,
       });

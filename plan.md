@@ -13,14 +13,15 @@ surfaces, so unfinished ideas are not disguised as checked work.
 §3.9.6 is the gate table, §3.10 is the licence allow-list, and
 [docs/plan-decisions.md](docs/plan-decisions.md) is the owner decision sheet.
 
-**Verified at this commit:** `node --test` → 2,287 tests pass, 0 fail;
-`npm run check` clean (no dynamic code across 318 source files, vendor guard,
-bundle up to date); `main.js` generated from 321 modules at 6,488,580 bytes.
+**Verified at this commit:** `node --test` → 2,304 tests pass, 0 fail;
+`npm run check` clean (no dynamic code across 320 source files, vendor guard,
+bundle up to date); `main.js` generated from 323 modules at 6,505,531 bytes.
 Re-run both before quoting these numbers.
 
 **Nov 6, 2026 working tree (no version bump):** Quick Ask, saved study
-commands, `@` note/folder mentions, a context/token footer and a searchable,
-pinned, archived conversation library ship in the source and bundle. Quick Ask sends only the selection or
+commands, per-chat and per-command model overrides with visible fallback,
+local `/compact`, `@` note/folder mentions, a context/token/model footer and a
+searchable, pinned, archived conversation library ship in the source and bundle. Quick Ask sends only the selection or
 whole note explicitly chosen, offers seven study actions, and writes only on
 **Insert** or **Replace**. Saved `/commands` expand `{selection}`, `{note}` and
 `{path}` only when the chat already allows that context. The clean-room Copilot
@@ -95,13 +96,13 @@ closed decisions; see [docs/plan-decisions.md](docs/plan-decisions.md).
 | **Import and interop** | `.apkg` import/export, two-way AnkiConnect, CouchDB sync, Quizlet/Kahoot/Blooket/Gimkit CSV, Moodle GIFT and XML, QTI, Mochi, CrowdAnki, LearnKit, Markdown tables, study bundle export/import, portable card archive, service exports (Evernote, Keep, Notion, Airtable, Bear, Roam, HTML) | `src/apkg*.js`, `src/anki-connect.js`, `src/couchdb-sync.js`, `src/cards-import.js`, `src/importer.js`, `src/qti-archive.js`, `src/study-bundle*.js`, `src/service-import.js` |
 | **Markdown blocks** | `mcq-quiz` inline blocks (choice, slider, text, weights, bands), `quiz-definition`/`playable-quiz` partial credit, `quiz-maker`, `quizport`, `sfc-cards`, `spaced-quiz`, `simple-note-quiz`, `tally`, `text-timer`, `tag-timer`, `study-map`, `sat-math`, `mindmap`, local `chem`/`biology`/`circuit` diagram blocks | `src/quiz-block.js`, `src/quiz-maker.js`, `src/quizport-view.js`, `src/sfc-cards.js`, `src/tally*.js`, `src/text-timer*.js`, `src/study-map.js`, `src/sat-math.js`, `src/mindmap.js`, `src/stem-diagrams.js` |
 | **Courses, calendar, grades** | Course registry with identity/aliases, ICS import and filtered export, month grid and daily timeline, exams and countdowns, study blocks in free gaps, assignments/tasks/grades, course health, course templates, course notes, local recurring events, lecture log, Time blocks (Day/Week/Grid/Timeline, drag/resize, routines, backlog, project files, tags, subject colours, daily-note sync) | `src/course-*.js`, `src/calendar-*.js`, `src/assignments*.js`, `src/exams.js`, `src/local-events*.js`, `src/time-blocks.js`, `src/study-workspace-view.js` |
-| **AI (optional)** | Direct API presets (OpenAI-compatible, Anthropic, Qwen/DashScope, Ollama, LM Studio, llama.cpp, Jan), OpenCode chat, streaming with Stop/Regenerate/Retry, tutor roles and slash commands, inline Quick Ask, saved study commands, `@` note/folder mentions, a context/token footer, a searchable conversation library with pins and archive, passage retrieval with citations, write guards with diff-confirm and undo journal, quiz generation with blind verification and distractor checks, AP FRQ rubric grader with second pass and history, Feynman feedback, PDF passage Q&A, offline local-model guide | `src/api-client.js`, `src/ai-*.js`, `src/agent-*.js`, `src/chat-*.js`, `src/quick-ask*.js`, `src/study-commands.js`, `src/opencode-*.js`, `src/quiz-generator*.js`, `src/frq*.js`, `src/feynman-ai.js`, `src/reading-companion.js`, `src/local-models.js` |
+| **AI (optional)** | Direct API presets (OpenAI-compatible, Anthropic, Qwen/DashScope, Ollama, LM Studio, llama.cpp, Jan), OpenCode chat, streaming with Stop/Regenerate/Retry, tutor roles and slash commands, inline Quick Ask, saved study commands, per-chat and per-command model overrides with visible fallback, `/compact` local summarisation, `@` note/folder mentions, a context/token/model footer, a searchable conversation library with pins and archive, passage retrieval with citations, write guards with diff-confirm and undo journal, quiz generation with blind verification and distractor checks, AP FRQ rubric grader with second pass and history, Feynman feedback, PDF passage Q&A, offline local-model guide | `src/api-client.js`, `src/ai-*.js`, `src/agent-*.js`, `src/chat-*.js`, `src/quick-ask*.js`, `src/study-commands.js`, `src/opencode-*.js`, `src/quiz-generator*.js`, `src/frq*.js`, `src/feynman-ai.js`, `src/reading-companion.js`, `src/local-models.js` |
 | **Documents and ingestion** | PDF annotator (ink, highlights, quotes, notes, tags, searchable index, digest export, deep links), PDF page/form editor on vendored pdf-lib (rotate, reorder, insert, duplicate, delete, merge, extract, split, live forms, links, bookmarks, 20-step undo), continuous reader, embedded PDF++, EPUB annotations and reader, paper scanner, document import (`.pptx`/`.pptm`/`.ppsx`/`.docx`/`.docm`/`.odt`/`.odp`/HTML/Markdown), BYOK vision OCR with editable page text, lecture-note compiler, transcript import, audio bookmarks | `src/pdf*.js`, `src/epub*.js`, `src/paper-scanner.js`, `src/documents.js`, `src/ocr*.js`, `src/lecture-compiler.js`, `src/transcript*.js`, `vendor/pdf-lib.js`, `vendor/pdf-plus.js` |
 | **Reference and STEM** | Graph with implicit, polar, parametric, 3D, sliders, regression, table, summation and complex modes; calculator, calculus, geometry, matrix/vector fields; constants and formula sheets; unit circle, trig identities, codon table, Punnett square; periodic-table data; local SMILES renderer; math-rendering audit and goldens; polynomial equivalence and numeric grading; computed-answer verification | `src/graph-*.js`, `src/calculator.js`, `src/calculus.js`, `src/geometry*.js`, `src/matrix.js`, `src/vector-*.js`, `src/reference-*.js`, `src/smiles.js`, `src/math-rendering.js`, `src/polynomial.js`, `src/numeric-grading.js` |
 | **Study workspace** | 32 per-tool settings pages plus a Global index, and the workspace tabs (Cornell, lecture log, goals, Feynman, Recall Scheduler, topic planner, Study Flow, Subject Manager, quiz index, course hub, tasks, annotations, Deep Notes, Retention, Vocabulary, Quiz Maker, SFC cards, CBT, SAT math, Read aloud, lecture notes, bookmarks, Feynman AI, PDF annotations, scheduler fitting, study map, vault search, card archive, study nudge, reading library, course templates), writing-session count, vault task index and tag rename, opt-in Web browser | `src/study-tool-settings.js`, `src/settings-global.js`, `src/study-workspace*.js`, `src/vault-task-index.js`, `src/web-browser*.js` |
 | **Advanced Tables** | Upstream 0.23.2 parity: draft completion, cell editing and Tab/Enter navigation in reading and source views, row/column insert/delete/move, formatting and alignment, TBLFM formulas (datetime and duration aware), CSV/TSV import, transpose, header toggle, stable body-row sorting, merged cells, controls panel | `src/table-editor.js`, `src/table-formulas.js`, `src/table-controls-view.js`, `src/table-csv-modal.js` |
 | **Canvas** | Six clean-room slices: Canvas ⇄ Markdown, map walking and auto-layout, kanban columns, auto-link, query groups, presentations | `src/canvas-*.js` |
-| **Quality** | 2,287-test suite, capability and security inventories re-derived by tests, dynamic-code lint, vendor guard, one release note per version, licence audit and `NOTICES.md` | `tests/`, `docs/capability-inventory.md`, `docs/security-inventory.md`, `scripts/` |
+| **Quality** | 2,304-test suite, capability and security inventories re-derived by tests, dynamic-code lint, vendor guard, one release note per version, licence audit and `NOTICES.md` | `tests/`, `docs/capability-inventory.md`, `docs/security-inventory.md`, `scripts/` |
 
 ## B. Partial rows (3) — owner manual passes still open
 
@@ -1575,7 +1576,7 @@ an owner decision, or is outside this plugin's study identity.
 | Chat history, pins, archive | Browse, pin and archive conversations. | ✅ Nov 6, 2026. Saved conversations, rename, delete, new chat, pin/unpin and archive/restore; archived chats are hidden by default but stay searchable, and every flag persists in `settings.ai`. |
 | Chat links and bookmarks | Link to a message or bookmark it. | ○ Not built. |
 | Queued messages | Queue a follow-up while a reply streams. | ○ Stop and retry ship; queueing does not. |
-| `/compact` | Summarise a long conversation to save context. | ○ Not built. |
+| `/compact` | Summarise a long conversation to save context. | ✅ Nov 6, 2026. `/compact` folds older Direct API turns into a bounded deterministic local summary, keeps the newest turns verbatim, writes through `settings.ai.studyChat`, and updates the token footer. It makes no provider call; a short chat reports that there is nothing old enough, recent turns that alone exceed the budget are refused, and OpenCode explains that its server owns the history. |
 | Plan proposals | Agent proposes a multi-step plan before acting. | ○ Agent proposals are per-write, not multi-step plans. |
 | Background subagents / multi-agent | Delegated workers and several agents. | ⛔ Requires an external agent runtime and entitlements; no second runtime. |
 | Web viewer, YouTube and X tools | Fetch or browse remote content. | ⛔ Owner decision 5: no web lookup or off-device retrieval. |
@@ -1612,7 +1613,8 @@ an owner decision, or is outside this plugin's study identity.
 | New chat | Start clean without losing the old one. | ✅ |
 | Search conversations | Find an old thread by text. | ✅ Nov 6, 2026. Searches titles and message text across saved and archived chats. |
 | Export/share | Copy or export a conversation. | ◐ Copy per reply and save to Markdown; no dedicated export/share format. |
-| Per-chat model | Choose a model for this thread. | ◐ Model is chosen per feature in settings, not per chat. |
+| Per-chat model | Choose a model for this thread. | ✅ Nov 6, 2026. A **Chat model** selector stores `settings.ai.studyChatModel`; it survives archive, reload and resume, shows the effective model and source in the composer footer, and falls back visibly when the model is no longer available. |
+| Per-command model | Run a slash command on a chosen model. | ✅ Nov 6, 2026. Settings → AI → **Per-command model overrides** stores a bounded `settings.ai.commandModels` map; resolution is chat override → command override → global chat model, with unavailable models skipped and named in the footer. |
 | Token ring / context gauge | Show how full the context window is. | ○ Token estimate and caps exist; no ring or per-thread gauge. |
 | Cost display | Show running session cost. | ○ Request and token caps exist; no price table or running cost. |
 | Message actions | Copy, regenerate, retry, stop. | ✅ Copy, regenerate, retry and Stop/Esc. |
@@ -1660,7 +1662,7 @@ an owner decision, or is outside this plugin's study identity.
 | Compact right-sidebar chat with the composer pinned to the bottom | ✅ Adopted in the original Study agent. |
 | Visible context toggles rather than hidden vault access | ✅ Adopted; current note and selection reset on New chat. |
 | Source chips with clickable citations | ◐ Citations are clickable; a chip row is still missing. |
-| Model picker in the composer | ○ Model is in settings, not the composer. |
+| Model picker in the composer | ✅ Nov 6, 2026. The Chat model selector sits beside mode and role; the footer names the effective model and source. |
 | Stop button that keeps partial text | ✅ Adopted; late replies are ignored. |
 | Diff card with Apply / Cancel | ✅ Adopted for agent proposals. |
 | Status cards for tool calls | ◐ Plain proposal/status text, not Copilot's card components. |

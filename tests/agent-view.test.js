@@ -781,3 +781,39 @@ test("study agent library: pinned and archived chats survive a reload and stay s
   assert.deepEqual(reloadedView.getLibrary({ query: "Beta" }).map((row) => row.id), [betaId]);
   assert.equal(reloadedView.getLibrary().some((row) => row.id === betaId), false);
 });
+
+
+test("study agent library: per-chat and per-command model choices survive a reload", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.ai.enabled = true;
+  plugin.settings.ai.backend = "api";
+  const view = new a.AgentView({ app }, plugin);
+  view.contentEl = makeDom().root;
+  await view.onOpen();
+
+  view.saveApiHistory([
+    { role: "user", content: "Alpha question" },
+    { role: "assistant", content: "Alpha answer" },
+  ]);
+  const alphaId = plugin.settings.ai.studyChatId;
+  plugin.settings.ai.studyChatModel = "chat/model";
+  plugin.settings.ai.commandModels = { quiz: "command/model" };
+  view.startNewChat();
+  assert.equal(plugin.settings.ai.studyChatModel, "", "a new chat starts on the global model");
+  assert.equal(view.getLibrary().find((row) => row.id === alphaId).model, "chat/model");
+
+  const reloadedPlugin = new QT(app);
+  reloadedPlugin.saved = JSON.parse(JSON.stringify(plugin.saved));
+  await reloadedPlugin.onload();
+  assert.deepEqual(reloadedPlugin.settings.ai.commandModels, { quiz: "command/model" });
+
+  const reopened = new a.AgentView({ app }, reloadedPlugin);
+  reopened.contentEl = makeDom().root;
+  await reopened.onOpen();
+  assert.equal(reopened.getLibrary().find((row) => row.id === alphaId).model, "chat/model");
+  assert.equal(reopened.resumeChat(alphaId), true);
+  assert.equal(reloadedPlugin.settings.ai.studyChatModel, "chat/model");
+  assert.equal(reopened.chatPanel.modelSelect.value, "chat/model");
+});

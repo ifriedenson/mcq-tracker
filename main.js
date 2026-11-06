@@ -1612,6 +1612,7 @@ class AgentView extends ItemView {
       title: str(ai.studyChatTitle).trim(),
       updatedAt: Number(ai.studyChatUpdatedAt) || 0,
       messages: normalizeChatHistory(ai.studyChat),
+      model: str(ai.studyChatModel).trim(),
       pinned: ai.studyChatPinned === true,
     };
   }
@@ -1648,6 +1649,7 @@ class AgentView extends ItemView {
       messages,
       sessionId: str(ai.sessionId).trim(),
       notePath: "",
+      model: str(ai.studyChatModel).trim(),
       pinned: ai.studyChatPinned === true,
       archived: archived === true,
     });
@@ -1665,6 +1667,7 @@ class AgentView extends ItemView {
     ai.studyChatTitle = "";
     ai.studyChatUpdatedAt = 0;
     ai.studyChatPinned = false;
+    ai.studyChatModel = "";
     ai.sessionId = "";
     this.apiHistory = [];
     this.plugin.save();
@@ -1693,6 +1696,7 @@ class AgentView extends ItemView {
     ai.studyChatTitle = record.title;
     ai.studyChatUpdatedAt = record.updatedAt || Date.now();
     ai.studyChatPinned = record.pinned === true;
+    ai.studyChatModel = record.model || "";
     ai.sessionId = record.sessionId || "";
     this.apiHistory = record.messages.slice();
     this.plugin.save();
@@ -1731,6 +1735,7 @@ class AgentView extends ItemView {
       ai.studyChatTitle = "";
       ai.studyChatUpdatedAt = 0;
       ai.studyChatPinned = false;
+      ai.studyChatModel = "";
       ai.sessionId = "";
       this.apiHistory = [];
       if (this.chatPanel) this.chatPanel.loadConversation([]);
@@ -1770,6 +1775,7 @@ class AgentView extends ItemView {
       ai.studyChatTitle = "";
       ai.studyChatUpdatedAt = 0;
       ai.studyChatPinned = false;
+      ai.studyChatModel = "";
       ai.sessionId = "";
       this.apiHistory = [];
       if (this.chatPanel) this.chatPanel.loadConversation([]);
@@ -23479,6 +23485,149 @@ module.exports = {
 };
 };
 
+/* ---- src/chat-compact.js ---- */
+__defs["chat-compact"] = function (module, exports, require) {
+/*
+ * `/compact`: fold older chat turns into one bounded, locally generated summary.
+ *
+ * No provider is called. The summary is deterministic, the newest turns stay
+ * byte-for-byte verbatim, and the result is checked against the same local token
+ * budget the composer footer uses. When the recent turns alone are already over
+ * the budget, nothing is changed and the caller gets a plain reason.
+ */
+const { str } = require("./util");
+const chatBudget = require("./chat-budget");
+
+const DEFAULT_KEEP_RECENT = 4;
+const MIN_MESSAGES_TO_COMPACT = 6;
+const MAX_SUMMARY_CHARS = 2400;
+const MAX_SUMMARY_LINE = 180;
+const COMPACT_TARGET_RATIO = 0.7;
+
+function normalizeMessages(value) {
+  const out = [];
+  for (const raw of Array.isArray(value) ? value : []) {
+    const role = raw && (raw.role === "user" || raw.role === "assistant") ? raw.role : "";
+    const content = str(raw && raw.content).trim();
+    if (!role || !content) continue;
+    out.push({ role, content });
+  }
+  return out;
+}
+
+function oneLine(value) {
+  return str(value).replace(/\s+/g, " ").trim();
+}
+
+/** Nearest older turns are kept first; the oldest are named only by a count. */
+function summarizeOld(messages) {
+  const lines = [];
+  let chars = 0;
+  let omitted = 0;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    const prefix = message.role === "user" ? "Learner" : "Tutor";
+    let line = `${prefix}: ${oneLine(message.content)}`;
+    if (line.length > MAX_SUMMARY_LINE) line = `${line.slice(0, MAX_SUMMARY_LINE - 1).trimEnd()}…`;
+    if (chars + line.length + 1 > MAX_SUMMARY_CHARS) {
+      omitted = i + 1;
+      break;
+    }
+    lines.push(line);
+    chars += line.length + 1;
+  }
+  lines.reverse();
+  return {
+    text: omitted ? `(Earlier messages omitted: ${omitted})\n${lines.join("\n")}` : lines.join("\n"),
+    omitted,
+  };
+}
+
+function conversationTokens(messages) {
+  return chatBudget.budgetState([
+    { label: "conversation", text: messages.map((message) => `${message.role}: ${message.content}`).join("\n\n") },
+  ]).tokens;
+}
+
+function compactMessages(value, options) {
+  const opts = options || {};
+  const limit = Math.max(1, Math.floor(Number(opts.limit) || chatBudget.CONTEXT_BUDGET_TOKENS));
+  const ratio = Number(opts.targetRatio);
+  const target = Math.max(1, Math.floor(limit * (Number.isFinite(ratio) && ratio > 0 && ratio <= 1 ? ratio : COMPACT_TARGET_RATIO)));
+  const messages = normalizeMessages(value);
+  const beforeTokens = conversationTokens(messages);
+  const base = { messages, limit, target, beforeTokens, tokens: beforeTokens };
+  if (messages.length < MIN_MESSAGES_TO_COMPACT) {
+    return {
+      ...base,
+      ok: false,
+      reason: `This chat has only ${messages.length} messages; there is nothing old enough to compact.`,
+    };
+  }
+  if (beforeTokens <= target) {
+    return {
+      ...base,
+      ok: false,
+      reason: `This chat is already about ${beforeTokens} tokens, under the ${target}-token compaction target; there is nothing worth folding.`,
+    };
+  }
+  const requestedKeep = Math.max(2, Math.floor(Number(opts.keepRecent) || DEFAULT_KEEP_RECENT));
+  const maxKeep = Math.min(requestedKeep, messages.length - 2);
+  let lastTokens = beforeTokens;
+  for (let keep = maxKeep; keep >= 2; keep -= 1) {
+    let cut = messages.length - keep;
+    while (cut < messages.length && messages[cut].role !== "user") cut += 1;
+    if (cut <= 0 || cut >= messages.length) continue;
+    const recent = messages.slice(cut);
+    const summary = summarizeOld(messages.slice(0, cut));
+    if (!summary.text) continue;
+    const replacement = [
+      {
+        role: "user",
+        content: `[Earlier conversation summary — compacted locally]\n\n${summary.text}\n\nContinue from this summary; the recent messages below are verbatim.`,
+      },
+      { role: "assistant", content: "Understood. I will continue from that summary and the recent messages." },
+      ...recent,
+    ];
+    const tokens = conversationTokens(replacement);
+    lastTokens = tokens;
+    if (tokens <= target || (recent.length <= 2 && tokens <= limit)) {
+      return {
+        ok: true,
+        messages: replacement,
+        beforeTokens,
+        tokens,
+        limit,
+        target,
+        kept: recent.length,
+        removed: cut,
+        summaryChars: summary.text.length,
+        omitted: summary.omitted,
+      };
+    }
+  }
+  return {
+    ...base,
+    tokens: lastTokens,
+    ok: false,
+    reason:
+      "The most recent turns alone are still over the local chat budget, so nothing was compacted. Shorten or remove recent messages first.",
+  };
+}
+
+module.exports = {
+  COMPACT_TARGET_RATIO,
+  DEFAULT_KEEP_RECENT,
+  MAX_SUMMARY_CHARS,
+  MAX_SUMMARY_LINE,
+  MIN_MESSAGES_TO_COMPACT,
+  compactMessages,
+  conversationTokens,
+  normalizeMessages,
+  summarizeOld,
+};
+};
+
 /* ---- src/chat-history.js ---- */
 __defs["chat-history"] = function (module, exports, require) {
 /*
@@ -23856,6 +24005,179 @@ module.exports = {
 };
 };
 
+/* ---- src/chat-models.js ---- */
+__defs["chat-models"] = function (module, exports, require) {
+/*
+ * Per-chat and per-command model selection for the Study agent.
+ *
+ * Resolution is deliberately conservative: an explicit chat override wins, then
+ * a slash-command override, then the existing feature model. A model that is not
+ * in the provider's fetched list (or is not a `provider/model` pair on OpenCode)
+ * is skipped with a visible reason instead of being sent and failing the
+ * request. No provider, key or model is invented here.
+ */
+const { str } = require("./util");
+
+const MAX_MODEL_ID = 200;
+const MAX_COMMAND_MODELS = 80;
+const COMMAND_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+function normalizeModel(value) {
+  return str(value)
+    .replace(/[\u0000-\u001f]/g, "")
+    .trim()
+    .slice(0, MAX_MODEL_ID);
+}
+
+/** The slash-command id at the start of a message, or "" when there is none. */
+function commandIdFromText(text) {
+  const match = /^\/([a-z0-9][a-z0-9-]*)\b/i.exec(str(text).trim());
+  return match ? match[1].toLowerCase() : "";
+}
+
+function normalizeCommandModels(value) {
+  const out = {};
+  const source = value && typeof value === "object" ? value : {};
+  for (const rawId of Object.keys(source)) {
+    const id = str(rawId).trim().replace(/^\/+/, "").toLowerCase();
+    const model = normalizeModel(source[rawId]);
+    if (!COMMAND_ID_RE.test(id) || !model) continue;
+    out[id] = model;
+    if (Object.keys(out).length >= MAX_COMMAND_MODELS) break;
+  }
+  return out;
+}
+
+function commandModelsText(value) {
+  const models = normalizeCommandModels(value);
+  return Object.keys(models)
+    .sort()
+    .map((id) => `${id} | ${models[id]}`)
+    .join("\n");
+}
+
+/** One override per line: `command-id | model`. Built-in and saved ids both work. */
+function parseCommandModelsText(text) {
+  const out = {};
+  for (const line of str(text).split(/\r?\n/)) {
+    const raw = line.trim();
+    if (!raw) continue;
+    const at = raw.indexOf("|");
+    if (at < 0) continue;
+    const id = raw.slice(0, at).trim().replace(/^\/+/, "").toLowerCase();
+    const model = normalizeModel(raw.slice(at + 1));
+    if (!COMMAND_ID_RE.test(id) || !model) continue;
+    if (!(id in out) && Object.keys(out).length >= MAX_COMMAND_MODELS) break;
+    out[id] = model;
+  }
+  return out;
+}
+
+function availableList(value) {
+  const seen = new Set();
+  const out = [];
+  for (const raw of Array.isArray(value) ? value : []) {
+    const model = normalizeModel(raw);
+    if (!model || seen.has(model)) continue;
+    seen.add(model);
+    out.push(model);
+  }
+  return out;
+}
+
+/** Known choices for the panel: global model, fetched models, then a saved override. */
+function modelChoices(options) {
+  const opts = options || {};
+  const seen = new Set();
+  const out = [];
+  for (const raw of [opts.globalModel, ...(Array.isArray(opts.availableModels) ? opts.availableModels : []), opts.ownModel]) {
+    const model = normalizeModel(raw);
+    if (!model || seen.has(model)) continue;
+    seen.add(model);
+    out.push(model);
+  }
+  return out;
+}
+
+function modelAvailability(requested, options) {
+  const opts = options || {};
+  const model = normalizeModel(requested);
+  if (!model) return { ok: false, reason: "no model name" };
+  if (str(opts.backend).trim() === "opencode" && !/^[^/\s]+\/[^/\s]+$/.test(model)) {
+    return { ok: false, reason: "OpenCode models must be written provider/model" };
+  }
+  const available = availableList(opts.availableModels);
+  if (available.length && !available.includes(model)) {
+    return { ok: false, reason: "not in the provider's fetched model list" };
+  }
+  return { ok: true, reason: "" };
+}
+
+/**
+ * Resolve the model for one send. Every requested override that is skipped is
+ * returned in `fallbacks` so the caller can show why the effective model differs.
+ */
+function resolveChatModel(options) {
+  const opts = options || {};
+  const backend = str(opts.backend).trim() === "opencode" ? "opencode" : "api";
+  const global = normalizeModel(opts.globalModel);
+  const availableModels = availableList(opts.availableModels);
+  const fallbacks = [];
+  const candidates = [
+    { source: "chat", requested: normalizeModel(opts.chatModel) },
+    { source: "command", requested: normalizeModel(opts.commandModel) },
+  ];
+  for (const candidate of candidates) {
+    if (!candidate.requested) continue;
+    if (global && candidate.requested === global) {
+      return { model: global, source: candidate.source, requested: candidate.requested, requestedSource: candidate.source, fallbacks, availableModels, backend };
+    }
+    const check = modelAvailability(candidate.requested, { backend, availableModels });
+    if (check.ok) {
+      return { model: candidate.requested, source: candidate.source, requested: candidate.requested, requestedSource: candidate.source, fallbacks, availableModels, backend };
+    }
+    fallbacks.push({ source: candidate.source, requested: candidate.requested, reason: check.reason });
+  }
+  return {
+    model: global,
+    source: global ? "global" : "default",
+    requested: "",
+    requestedSource: "",
+    fallbacks,
+    availableModels,
+    backend,
+  };
+}
+
+function modelSourceLabel(source) {
+  if (source === "chat") return "chat override";
+  if (source === "command") return "command override";
+  if (source === "global") return "global chat model";
+  return "provider default";
+}
+
+function effectiveModelLabel(plan) {
+  const model = plan && plan.model ? plan.model : "";
+  return model || "provider default";
+}
+
+module.exports = {
+  COMMAND_ID_RE,
+  MAX_COMMAND_MODELS,
+  MAX_MODEL_ID,
+  commandIdFromText,
+  commandModelsText,
+  effectiveModelLabel,
+  modelAvailability,
+  modelChoices,
+  modelSourceLabel,
+  normalizeCommandModels,
+  normalizeModel,
+  parseCommandModelsText,
+  resolveChatModel,
+};
+};
+
 /* ---- src/chat-panel.js ---- */
 __defs["chat-panel"] = function (module, exports, require) {
 const { Notice } = require("obsidian");
@@ -23872,6 +24194,8 @@ const { toolProtocol } = require("./ai-tools");
 const { chatMarkdown } = require("./chat-history");
 const chatBudget = require("./chat-budget");
 const chatMentions = require("./chat-mentions");
+const chatModels = require("./chat-models");
+const chatCompact = require("./chat-compact");
 
 function budgetRefusal(budget) {
   return `Nothing was sent: the estimated ${chatBudget.formatTokenCount(budget.tokens)}-token context is over the local ${chatBudget.formatTokenCount(budget.limit)}-token chat budget. Remove a mention or shorten the message.`;
@@ -24012,6 +24336,16 @@ class ChatPanel {
     for (const item of TUTOR_ROLES) role.createEl("option", { value: item.id, text: item.label });
     role.value = this.currentRole();
     role.addEventListener("change", () => this.setRole(role.value));
+    this.modelSelect = top.createEl("select", {
+      cls: "qt-select",
+      attr: { "aria-label": "Chat model", title: "Model for this chat" },
+    });
+    this.renderModelSelect();
+    this.modelSelect.addEventListener("change", () => {
+      this.ai.studyChatModel = chatModels.normalizeModel(this.modelSelect.value);
+      this.view.plugin.save();
+      this.refreshTokenFooter();
+    });
     const nc = top.createEl("button", { text: "New chat" });
     nc.addEventListener("click", () => this.newChat());
     if (this.opts.onSaveChat) {
@@ -24106,6 +24440,8 @@ class ChatPanel {
     this.refreshTokenFooter();
     this.refreshContextPreview();
     this.startThinkFirst();
+    this.renderModelSelect();
+    this.refreshTokenFooter();
     this.draw();
   }
 
@@ -24282,6 +24618,53 @@ class ChatPanel {
     this.refreshTokenFooter();
   }
 
+  modelPlan(text) {
+    const draft = text === undefined ? str(this.input && this.input.value) : str(text);
+    const backend = this.view.plugin.backend();
+    const globalModel =
+      typeof this.view.plugin.aiModelFor === "function"
+        ? this.view.plugin.aiModelFor("chat")
+        : str(this.ai.api && this.ai.api.model).trim() || str(this.ai.model).trim();
+    return chatModels.resolveChatModel({
+      chatModel: this.ai.studyChatModel,
+      commandModel: this.commandModelFor(draft),
+      globalModel,
+      availableModels: backend === "api" && this.ai.api ? this.ai.api.models : [],
+      backend,
+    });
+  }
+
+  commandModelFor(text) {
+    const id = chatModels.commandIdFromText(text);
+    if (!id) return "";
+    return chatModels.normalizeCommandModels(this.ai.commandModels)[id] || "";
+  }
+
+  chatModelChoices() {
+    const backend = this.view.plugin.backend();
+    const globalModel = typeof this.view.plugin.aiModelFor === "function" ? this.view.plugin.aiModelFor("chat") : "";
+    return chatModels.modelChoices({
+      globalModel,
+      availableModels: backend === "api" && this.ai.api ? this.ai.api.models : [],
+      ownModel: this.ai.studyChatModel,
+    });
+  }
+
+  renderModelSelect() {
+    if (!this.modelSelect) return;
+    const select = this.modelSelect;
+    const globalModel = typeof this.view.plugin.aiModelFor === "function" ? this.view.plugin.aiModelFor("chat") : "";
+    select.empty();
+    select.createEl("option", {
+      value: "",
+      text: globalModel ? `Chat default (${globalModel})` : "Chat default",
+    });
+    for (const model of this.chatModelChoices()) {
+      select.createEl("option", { value: model, text: model });
+    }
+    select.value = chatModels.normalizeModel(this.ai.studyChatModel);
+  }
+
   historyText() {
     if (this.view.plugin.backend() === "api") return this.apiHistory().map((message) => message.content).join("\n");
     return this.turns.map((turn) => turn.texts.join("\n")).join("\n");
@@ -24313,10 +24696,22 @@ class ChatPanel {
     if (!this.budgetEl) return;
     const draft = str(this.input && this.input.value);
     const budget = this.budgetFor(draft, this.previewContext);
+    const plan = this.modelPlan(draft);
     this.lastBudget = budget;
+    this.lastModelPlan = plan;
     this.budgetEl.empty();
     this.budgetEl.toggleClass("is-warn", budget.warn);
     this.budgetEl.toggleClass("is-over", budget.over);
+    this.budgetEl.createDiv({
+      cls: "qt-chat-budget-line qt-chat-model-line",
+      text: `Model: ${chatModels.effectiveModelLabel(plan)} (${chatModels.modelSourceLabel(plan.source)})`,
+    });
+    for (const fallback of plan.fallbacks) {
+      this.budgetEl.createDiv({
+        cls: "qt-chat-budget-warning",
+        text: `${fallback.source === "chat" ? "This chat's" : "That command's"} model ${fallback.requested} is unavailable (${fallback.reason}); using ${chatModels.effectiveModelLabel(plan)} instead.`,
+      });
+    }
     this.budgetEl.createDiv({
       cls: "qt-chat-budget-line",
       text: `${this.contextAttachmentLabels()} — ~${chatBudget.formatTokenCount(budget.tokens)} / ${chatBudget.formatTokenCount(budget.limit)} tokens`,
@@ -24498,6 +24893,8 @@ class ChatPanel {
     this.lastSent = "";
     this.sig = "";
     this.startThinkFirst();
+    this.renderModelSelect();
+    this.refreshTokenFooter();
     this.draw();
   }
 
@@ -24552,7 +24949,7 @@ class ChatPanel {
       });
       const open = item.createEl("button", {
         cls: "qt-chat-library-open",
-        text: `${row.pinned ? "Pinned · " : ""}${row.title}${row.when ? ` — ${row.when}` : ""}${row.archived ? " (archived)" : ""}`,
+        text: `${row.pinned ? "Pinned · " : ""}${row.title}${row.when ? ` — ${row.when}` : ""}${row.model ? ` · ${row.model}` : ""}${row.archived ? " (archived)" : ""}`,
       });
       open.addEventListener("click", () => this.openLibraryRow(row));
       const actions = item.createDiv({ cls: "qt-row qt-small-row qt-chat-library-actions" });
@@ -24696,6 +25093,7 @@ class ChatPanel {
     if (!value || this.busy) return;
     this.error = "";
     this.lastSent = value;
+    const modelPlan = this.modelPlan(value);
     if (this.view.plugin.backend() === "api") {
       const prepared = await this.prepareSendContext(value);
       if (!prepared.ok) {
@@ -24708,7 +25106,7 @@ class ChatPanel {
       while (hist.length && hist[hist.length - 1].role !== "user") hist.pop();
       this.turns = apiTurns(hist);
       this.persistApiHistory();
-      return this.sendApi(value, prepared.context, true);
+      return this.sendApi(value, prepared.context, true, modelPlan.model);
     }
     return this.send(value);
   }
@@ -24771,9 +25169,56 @@ class ChatPanel {
     }) || text;
   }
 
+  /**
+   * `/compact` folds older Direct API messages into one bounded local summary.
+   * No provider call is made; OpenCode's server-side session is reported plainly.
+   */
+  async compactChat() {
+    if (this.busy) return false;
+    if (this.view.plugin.backend() !== "api") {
+      const reason =
+        "/compact folds the Direct API conversation stored in settings. OpenCode keeps its own server-side history, so there is nothing local to compact.";
+      this.error = reason;
+      if (this.status) this.status.setText(reason);
+      this.draw();
+      return false;
+    }
+    const result = chatCompact.compactMessages(this.apiHistory(), {
+      limit: chatBudget.CONTEXT_BUDGET_TOKENS,
+    });
+    if (!result.ok) {
+      this.error = "";
+      if (this.status) this.status.setText(result.reason);
+      return false;
+    }
+    if (typeof this.opts.saveApiHistory === "function") this.opts.saveApiHistory(result.messages);
+    else {
+      const history = this.apiHistory();
+      history.length = 0;
+      history.push(...result.messages);
+    }
+    this.turns = apiTurns(result.messages);
+    this.lastSent = "";
+    this.error = "";
+    this.input.value = "";
+    this.syncMentionChips();
+    this.sig = "";
+    this.draw();
+    this.refreshTokenFooter();
+    if (this.status) {
+      this.status.setText(
+        `Compacted ${result.removed} older message${result.removed === 1 ? "" : "s"} into a local summary. The last ${result.kept} messages are unchanged. About ${chatBudget.formatTokenCount(result.tokens)} tokens now.`
+      );
+    }
+    return true;
+  }
+
   async send(text) {
     text = str(text).trim();
     if (!text || this.busy || !this.ai.enabled) return;
+    if (/^\/compact\b/i.test(text)) return this.compactChat();
+
+    const modelPlan = this.modelPlan(text);
     const command = parseStudyCommand(text, this.studyCommands());
     if (command) {
       text = await this.resolveStudyCommand(text, command);
@@ -24804,7 +25249,7 @@ class ChatPanel {
       }
     }
     const currentNote = prepared.context;
-    if (this.view.plugin.backend() === "api") return this.sendApi(text, currentNote);
+    if (this.view.plugin.backend() === "api") return this.sendApi(text, currentNote, false, modelPlan.model);
     const plugin = this.view.plugin;
     const ai = this.ai;
     const reviewAgent = ai.mode === "agent" && ai.reviewAgentEdits !== false;
@@ -24853,7 +25298,7 @@ class ChatPanel {
         parts: [{ type: "text", text }],
         system: this.opts.buildContext(ai.mode, currentNote),
       };
-      const model = modelFromString(ai.model);
+      const model = modelFromString(modelPlan.model);
       if (model) body.model = model;
       if (str(ai.agent).trim()) body.agent = ai.agent.trim();
       const tools = toolsForMode(ai.mode, ai.agentShell);
@@ -24919,7 +25364,7 @@ class ChatPanel {
     }
   }
 
-  async sendApi(text, currentNote, resend) {
+  async sendApi(text, currentNote, resend, model) {
     const budget = this.budgetFor(text, currentNote);
     if (budget.over) {
       this.error = budgetRefusal(budget);
@@ -24958,6 +25403,7 @@ class ChatPanel {
         .join("\n\n");
       const reply = await this.view.plugin.aiChat(system, base, {
         feature: "chat",
+        model: chatModels.normalizeModel(model || this.modelPlan(text).model),
         onDelta,
         signal: controller ? controller.signal : undefined,
       });
@@ -25135,6 +25581,7 @@ function normalizeSession(value) {
     messages,
     sessionId: str(raw.sessionId).trim(),
     notePath: str(raw.notePath).trim(),
+    model: str(raw.model).trim().slice(0, 200),
     pinned: raw.pinned === true,
     archived: raw.archived === true,
   };
@@ -25229,6 +25676,7 @@ function libraryRows(active, sessions, now, options) {
       when: formatWhen(active && active.updatedAt),
       messages,
       active: true,
+      model: str(active && active.model).trim(),
       pinned: active && active.pinned === true,
       archived: false,
     });
@@ -25244,6 +25692,7 @@ function libraryRows(active, sessions, now, options) {
       when: formatWhen(session.updatedAt),
       messages: session.messages,
       active: false,
+      model: session.model,
       pinned: session.pinned === true,
       archived: session.archived === true,
     });
@@ -26388,8 +26837,10 @@ const DEFAULT_SETTINGS = {
     studyChatTitle: "", // user-visible title of the active conversation
     studyChatUpdatedAt: 0, // epoch ms, used for the newest-first library order
     studyChatPinned: false, // pinned conversations sort first in the library
+    studyChatModel: "", // optional model override for the active chat
     chatSessions: [], // archived conversations, bounded by chat-sessions.js
     studyCommands: [], // reusable /commands; prompts may use {} or {selection}
+    commandModels: {}, // optional per-slash-command model overrides, keyed by command id
     autoDeclined: false, // the user said no to the automatic OpenCode download: don't ask again until they press the button
     backend: "api", // desktop choice: "api" (default) or "opencode". Phones always use "api".
     api: { provider: "anthropic", baseUrl: "", model: "claude-sonnet-5-5", models: [], keys: {} },
@@ -69841,7 +70292,7 @@ ${body}
     const can = this.aiCanSpend(feature);
     if (!can.ok) throw new Error(can.reason);
     const maxTokens = aiService.clampMaxTokens(ai, o.maxTokens);
-    const model = this.aiModelFor(feature);
+    const model = str(o.model).trim().slice(0, 200) || this.aiModelFor(feature);
     const tokens = aiService.estimateRequestTokens(system, messages, o.images);
     this.spendAiRequest(feature, tokens);
     const call = async () => {
@@ -92061,6 +92512,7 @@ const { STUDY_TOOL_SETTINGS_BY_ID, STUDY_TOOL_SETTINGS_MODULES, renderStudyToolS
 const { STUDY_MODE_LABELS, STUDY_SKIN_LABELS, normalizeStudyMode, normalizeStudySkin } = require("./study-skin");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
 const { STARTER_STUDY_COMMANDS, parseStudyCommandsText, studyCommandsText } = require("./study-commands");
+const { commandModelsText, parseCommandModelsText } = require("./chat-models");
 const { DEFAULT_THINK_FIRST_SECONDS, MAX_THINK_FIRST_SECONDS, MIN_THINK_FIRST_SECONDS, normalizeThinkFirstSeconds } = require("./think-first");
 const { normalizeAiContext } = require("./ai-context");
 const { AI_FEATURES, CAPABILITY_LABELS } = require("./ai-service");
@@ -92863,6 +93315,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           await this.plugin.save();
           this.display();
         })
+      );
+    new Setting(containerEl)
+      .setName("Per-command model overrides")
+      .setDesc("Optional. One line per slash command: command-id | model. A chat's own model wins, then this command override, then the global chat model. A model that is not in the fetched provider list falls back visibly instead of failing the send.")
+      .addTextArea((t) =>
+        t
+          .setPlaceholder("quiz | gpt-4o-mini\ngap | provider/model")
+          .setValue(commandModelsText(ai.commandModels))
+          .onChange(async (v) => {
+            ai.commandModels = parseCommandModelsText(v);
+            await this.plugin.save();
+            this.plugin.refreshViews();
+          })
       );
     new Setting(containerEl)
       .setName("Think-first timer")
@@ -118791,6 +119256,8 @@ QuestionTrackerPlugin.__test = {
   chatSessions: require("./chat-sessions"),
   chatBudget: require("./chat-budget"),
   chatMentions: require("./chat-mentions"),
+  chatModels: require("./chat-models"),
+  chatCompact: require("./chat-compact"),
   localModels: require("./local-models"),
   readingCompanion: require("./reading-companion"),
   tutorPresets,

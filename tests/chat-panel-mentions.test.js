@@ -31,7 +31,7 @@ function makePanel(plugin, app, extra) {
       extra || {}
     )
   );
-  return { panel, dom, view };
+  return { panel, dom, view, history: () => history };
 }
 
 async function apiPanel(app, extra) {
@@ -40,8 +40,8 @@ async function apiPanel(app, extra) {
   plugin.settings.ai.enabled = true;
   plugin.settings.ai.backend = "api";
   const calls = [];
-  plugin.aiChat = async (system, base) => {
-    calls.push({ system, base });
+  plugin.aiChat = async (system, base, opts) => {
+    calls.push({ system, base, opts });
     return "Answer";
   };
   const built = makePanel(plugin, app, extra);
@@ -212,4 +212,86 @@ test("conversation library panel: search, archived toggle, pin, archive and rest
   search.value = "beta";
   for (const handler of search.handlers.filter((item) => item.ev === "input")) handler.fn({});
   assert.equal(options.query, "beta");
+});
+
+
+test("study agent chat: the effective model follows chat override, command override, then global", async () => {
+  const app = makeApp([]);
+  const { panel, calls, plugin, dom } = await apiPanel(app);
+  plugin.settings.ai.api.model = "global/model";
+  plugin.settings.ai.api.models = ["global/model", "chat/model", "command/model"];
+  plugin.settings.ai.commandModels = { quiz: "command/model" };
+  plugin.settings.ai.studyChatModel = "chat/model";
+
+  await panel.send("/quiz cells");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].opts.model, "chat/model");
+  assert.ok(dom.texts().some((text) => /Model: chat\/model \(chat override\)/.test(text)));
+
+  plugin.settings.ai.studyChatModel = "gone/model";
+  panel.input.value = "/quiz cells";
+  panel.refreshTokenFooter();
+  assert.ok(dom.texts().some((text) => /gone\/model is unavailable/.test(text)));
+  assert.ok(dom.texts().some((text) => /Model: command\/model \(command override\)/.test(text)));
+  await panel.send(panel.input.value);
+  assert.equal(calls[1].opts.model, "command/model");
+
+  plugin.settings.ai.commandModels = { quiz: "also-gone/model" };
+  panel.input.value = "/quiz cells";
+  panel.refreshTokenFooter();
+  assert.ok(dom.texts().some((text) => /also-gone\/model is unavailable/.test(text)));
+  assert.ok(dom.texts().some((text) => /Model: global\/model \(global chat model\)/.test(text)));
+});
+
+test("study agent chat: the model selector writes the per-chat override through settings", async () => {
+  const app = makeApp([]);
+  const { panel, plugin } = await apiPanel(app);
+  plugin.settings.ai.api.model = "global/model";
+  plugin.settings.ai.api.models = ["global/model", "picked/model"];
+  panel.renderModelSelect();
+  assert.deepEqual(panel.chatModelChoices(), ["global/model", "picked/model"]);
+
+  panel.modelSelect.value = "picked/model";
+  for (const handler of panel.modelSelect.handlers.filter((item) => item.ev === "change")) await handler.fn({});
+  assert.equal(plugin.settings.ai.studyChatModel, "picked/model");
+  assert.equal(panel.lastModelPlan.model, "picked/model");
+});
+
+test("study agent chat: /compact folds older messages under the budget with no provider call", async () => {
+  const app = makeApp([]);
+  const { panel, calls, dom, plugin } = await apiPanel(app);
+  plugin.settings.ai.api.model = "global/model";
+  const messages = Array.from({ length: 20 }, (_, index) => ({
+    role: index % 2 === 0 ? "user" : "assistant",
+    content: `${index}: ${"x".repeat(3000)}`,
+  }));
+  panel.apiHistory().push(...messages);
+  panel.persistApiHistory();
+
+  await panel.send("/compact");
+  assert.equal(calls.length, 0, "compaction never calls a provider");
+  assert.equal(panel.apiHistory().length, 6);
+  assert.deepEqual(panel.apiHistory().slice(-4).map((message) => message.content), messages.slice(-4).map((message) => message.content));
+  assert.ok(panel.lastBudget.tokens <= T.chatBudget.CONTEXT_BUDGET_TOKENS);
+  assert.ok(dom.texts().some((text) => /Compacted 16 older messages into a local summary/.test(text)));
+  assert.ok(dom.texts().some((text) => /About .* tokens now/.test(text)));
+  assert.ok(dom.texts().some((text) => /Model: global\/model/.test(text)));
+});
+
+test("study agent chat: /compact on a small chat reports plainly and leaves history alone", async () => {
+  const app = makeApp([]);
+  const { panel, calls, dom } = await apiPanel(app);
+  panel.apiHistory().push(
+    { role: "user", content: "Small question" },
+    { role: "assistant", content: "Small answer" }
+  );
+  panel.persistApiHistory();
+  panel.input.value = "/compact";
+
+  await panel.send("/compact");
+  assert.equal(calls.length, 0);
+  assert.equal(panel.apiHistory().length, 2);
+  assert.deepEqual(panel.apiHistory().map((message) => message.content), ["Small question", "Small answer"]);
+  assert.equal(panel.input.value, "/compact", "the no-op keeps the composer text");
+  assert.ok(dom.texts().some((text) => /only 2 messages/.test(text)));
 });

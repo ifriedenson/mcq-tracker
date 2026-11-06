@@ -26,6 +26,7 @@ const { STUDY_TOOL_SETTINGS_BY_ID, STUDY_TOOL_SETTINGS_MODULES, renderStudyToolS
 const { STUDY_MODE_LABELS, STUDY_SKIN_LABELS, normalizeStudyMode, normalizeStudySkin } = require("./study-skin");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
 const { STARTER_STUDY_COMMANDS, parseStudyCommandsText, studyCommandsText } = require("./study-commands");
+const { commandModelsText, parseCommandModelsText } = require("./chat-models");
 const { DEFAULT_THINK_FIRST_SECONDS, MAX_THINK_FIRST_SECONDS, MIN_THINK_FIRST_SECONDS, normalizeThinkFirstSeconds } = require("./think-first");
 const { normalizeAiContext } = require("./ai-context");
 const { AI_FEATURES, CAPABILITY_LABELS } = require("./ai-service");
@@ -828,6 +829,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           await this.plugin.save();
           this.display();
         })
+      );
+    new Setting(containerEl)
+      .setName("Per-command model overrides")
+      .setDesc("Optional. One line per slash command: command-id | model. A chat's own model wins, then this command override, then the global chat model. A model that is not in the fetched provider list falls back visibly instead of failing the send.")
+      .addTextArea((t) =>
+        t
+          .setPlaceholder("quiz | gpt-4o-mini\ngap | provider/model")
+          .setValue(commandModelsText(ai.commandModels))
+          .onChange(async (v) => {
+            ai.commandModels = parseCommandModelsText(v);
+            await this.plugin.save();
+            this.plugin.refreshViews();
+          })
       );
     new Setting(containerEl)
       .setName("Think-first timer")

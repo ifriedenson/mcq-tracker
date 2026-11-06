@@ -44,20 +44,34 @@ view does not stop the configured AI provider.
   `/name` command; typing the slash form expands it before the common request
   path. `{selection}`, `{note}` and `{path}` are filled only when the chat's
   existing context switches allow that text, and an unknown `/word` is sent
-  literally. Commands are capped at 40 entries of 2,000 characters.
+  literally. Commands are capped at 40 entries of 2,000 characters. Settings
+  can give each command its own model with one `command-id | model` line.
 - **Mention a note or folder.** Type `@` in the composer or press the **@**
   button; the picker inserts `@[[path]]`. The target is resolved at send time
   only while **Include mentioned notes** is on. Up to eight mentions, 6,000
   characters per note and 12,000 in total; truncation is reported and a deleted
   target refuses the send instead of silently dropping context.
+- **Choose the model per chat and per command.** The **Chat model** selector
+  stores an override on the active conversation; the footer spells out the
+  effective model and whether it came from the chat, a slash command or the
+  global chat setting. Precedence is chat, then command, then global. A model
+  that is no longer in the provider's fetched list is skipped with a visible
+  warning, never a failed send.
 - **See what will be sent.** The footer under the composer names the current
-  note, selection, mentioned notes and folders, slash command and history, and
-  estimates tokens against a local 12,000-token budget, warning at 80% and
-  refusing an over-budget Send before any request.
+  note, selection, mentioned notes and folders, slash command and history, names
+  the effective model, and estimates tokens against a local 12,000-token budget,
+  warning at 80% and refusing an over-budget Send before any request.
+- **Compact a long chat.** Type `/compact` to fold older Direct API messages
+  into one local summary and keep the newest turns verbatim. It writes through
+  the existing conversation storage, updates the token estimate and makes no
+  provider call. A short chat reports that there is nothing to compact; on
+  OpenCode it explains that the server owns the history and changes nothing.
 - **Find, pin and archive conversations.** Search saved and archived chats by
-  title or message text; pin a chat to keep it first; archive hides it from the
-  default list while keeping it searchable and restorable. Everything lives in
-  the existing `settings.ai` storage and survives reopening.
+  title or message text; each row also shows its model override; pin a chat to
+  keep it first; archive hides it from the default list while keeping it
+  searchable and restorable. The active chat's model, every archived model and
+  the per-command map live in the existing `settings.ai` storage and survive
+  reopening.
 - **Quick Ask from the editor.** Select text and choose **Quick Ask** (or the
   command) to open the compact panel. It sends only the selected text or the
   whole active note, whichever is switched on, and can copy, insert, replace or
@@ -85,8 +99,12 @@ replacement safety, command parsing and round-trip, slash expansion and the
 editor/user entry points. `tests/chat-budget.test.js` and
 `tests/chat-mentions.test.js` cover the estimate, warning and overrun states,
 mention parsing, candidate ranking, missing targets and bounded resolution,
-and `tests/chat-panel-mentions.test.js` drives the switch, refusal, footer,
-picker and library controls end to end.
+`tests/chat-models.test.js` covers override precedence, unavailable-model
+fallback, OpenCode shape checking and command-map parsing,
+`tests/chat-compact.test.js` covers the no-op, over-budget, recent-turn and
+impossible-recent cases, and `tests/chat-panel-mentions.test.js` drives the
+switch, refusal, footer, picker, model selector, `/compact` and library
+controls end to end.
 
 ## Manual gate
 
