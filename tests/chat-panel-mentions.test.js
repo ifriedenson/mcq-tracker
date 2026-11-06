@@ -191,7 +191,7 @@ test("conversation library panel: search, archived toggle, pin, archive and rest
   panel.libraryQuery = "alpha";
   panel.showArchived = true;
   panel.refreshLibrary();
-  assert.deepEqual(options, { query: "alpha", includeArchived: true });
+  assert.deepEqual(options, { query: "alpha", includeArchived: true, project: "" });
 
   await dom.click("Pin");
   assert.deepEqual(calls[0], ["pin", "a", true]);

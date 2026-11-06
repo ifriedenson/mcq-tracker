@@ -18,6 +18,7 @@ const { chatFileName, normalizeChatHistory } = require("./chat-history");
 const chatBookmarks = require("./chat-bookmarks");
 const chatQueue = require("./chat-queue");
 const chatSkills = require("./chat-skills");
+const chatProjects = require("./chat-projects");
 const { archiveSession, libraryRows, newChatId, normalizeSessions, removeSession, renameSession, setArchivedSession, setPinnedSession, titleFromMessages } = require("./chat-sessions");
 
 const MAX_TABS = 6;
@@ -149,6 +150,7 @@ class AgentView extends ItemView {
       updatedAt: Number(ai.studyChatUpdatedAt) || 0,
       messages,
       model: str(ai.studyChatModel).trim(),
+      project: str(ai.studyChatProject).trim(),
       queue: chatQueue.normalizeQueue(ai.studyChatQueue),
       bookmarks: chatBookmarks.normalizeBookmarks(ai.studyChatBookmarks),
       sessionId: str(ai.sessionId).trim(),
@@ -184,6 +186,7 @@ class AgentView extends ItemView {
       updatedAt: Number(record.updatedAt) || 0,
       messages: normalizeChatHistory(record.messages),
       model: str(record.model).trim(),
+      project: str(record.project).trim(),
       queue: chatQueue.normalizeQueue(record.queue),
       bookmarks: chatBookmarks.normalizeBookmarks(record.bookmarks),
       sessionId: str(record.sessionId).trim(),
@@ -225,6 +228,11 @@ class AgentView extends ItemView {
       beforeSend: (text) => this.prepareQuestion(text),
       readNoteContext: () => readActiveNoteContext(this.app),
       getCommands: () => this.plugin.settings.ai.studyCommands,
+      getProjects: () => this.chatProjects(),
+      getProject: () => str(tab.project).trim(),
+      setProject: (id) => this.assignChatProjectById(id, tab),
+      onNewProject: () => this.promptNewProject(tab),
+      onRemoveProject: (id) => this.removeChatProject(id),
       loadSkills: () => this.loadSkills(),
       onSaveNote: (text) => this.insertReply(text),
       saveNoteLabel: "Insert into active note",
@@ -312,6 +320,7 @@ class AgentView extends ItemView {
       updatedAt: Number(ai.studyChatUpdatedAt) || 0,
       messages: normalizeChatHistory(ai.studyChat),
       model: str(ai.studyChatModel).trim(),
+      project: str(ai.studyChatProject).trim(),
       queue: chatQueue.normalizeQueue(ai.studyChatQueue),
       bookmarks: chatBookmarks.normalizeBookmarks(ai.studyChatBookmarks),
       pinned: ai.studyChatPinned === true,
@@ -324,10 +333,89 @@ class AgentView extends ItemView {
     const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
     if (!ai) return [];
     const opts = options && typeof options === "object" ? options : {};
-    return libraryRows(this.activeConversation(), ai.chatSessions, Date.now(), {
+    const projects = this.chatProjects();
+    const known = new Set(projects.map((project) => project.id));
+    const rows = libraryRows(this.activeConversation(), ai.chatSessions, Date.now(), {
       query: opts.query,
       includeArchived: opts.includeArchived,
+    }).map((row) => {
+      const project = known.has(str(row.project).trim()) ? str(row.project).trim() : "";
+      return { ...row, project };
     });
+    return chatProjects.filterByProject(rows, opts.project).map((row) => ({
+      ...row,
+      projectName: chatProjects.projectName(projects, row.project),
+    }));
+  }
+
+  /** Named, local groupings of conversations; a project bundles no files or prompts. */
+  chatProjects() {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    return chatProjects.normalizeProjects(ai ? ai.chatProjects : []);
+  }
+
+  /** Create a local project by name, reusing an existing one with the same name. */
+  createChatProject(name) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    if (!ai) return null;
+    const clean = chatProjects.normalizeProjectName(name);
+    if (!clean) return null;
+    const existing = chatProjects.findProject(ai.chatProjects, clean);
+    if (existing) return existing;
+    const result = chatProjects.ensureProject(ai.chatProjects, clean, Date.now());
+    if (!result.project) {
+      new Notice(`You can have at most ${chatProjects.MAX_PROJECTS} chat projects. Remove one first.`, 7000);
+      return null;
+    }
+    ai.chatProjects = result.projects;
+    this.plugin.save();
+    new Notice(`Created the chat project "${result.project.name}".`, 5000);
+    return result.project;
+  }
+
+  /** Put one tab in a known project; an empty id leaves it unassigned. */
+  assignChatProjectById(id, tab) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    const target = tab || this.activeTab();
+    if (!ai || !target) return false;
+    const key = str(id).trim();
+    const project = key ? chatProjects.findProject(ai.chatProjects, key) : null;
+    if (key && !project) return false;
+    target.project = project ? project.id : "";
+    this.updateTab(target, { project: target.project });
+    new Notice(project ? `This chat is in the project "${project.name}".` : "This chat is no longer in a project.", 5000);
+    return true;
+  }
+
+  /** Ask the plugin for a name, then create the project and assign this tab. */
+  promptNewProject(tab) {
+    if (this.plugin && typeof this.plugin.promptNewChatProject === "function") {
+      return this.plugin.promptNewChatProject(this, tab || this.activeTab());
+    }
+    return false;
+  }
+
+  /** Remove one project locally and leave every conversation in it unassigned. */
+  removeChatProject(id) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    if (!ai) return false;
+    const project = chatProjects.findProject(ai.chatProjects, id);
+    if (!project) return false;
+    ai.chatProjects = chatProjects.removeProject(ai.chatProjects, project.id);
+    for (const tab of this.chatTabs || []) {
+      if (str(tab.project).trim() !== project.id) continue;
+      tab.project = "";
+      if (this.activeTabId === tab.id) this.persistActiveTab(tab);
+      else this.saveTabRecord(tab, { open: tab.open !== false });
+    }
+    if (str(ai.studyChatProject).trim() === project.id) ai.studyChatProject = "";
+    ai.chatSessions = normalizeSessions(ai.chatSessions).map((session) =>
+      str(session.project).trim() === project.id ? { ...session, project: "" } : session
+    );
+    this.plugin.save();
+    this.refreshLibraries();
+    new Notice(`Removed the project "${project.name}". Its chats are now unassigned.`, 6000);
+    return true;
   }
 
   activeTab() {
@@ -395,6 +483,7 @@ class AgentView extends ItemView {
     ai.studyChatModel = str(tab.model).trim();
     ai.studyChatQueue = chatQueue.normalizeQueue(tab.queue);
     ai.studyChatBookmarks = chatBookmarks.normalizeBookmarks(tab.bookmarks);
+    ai.studyChatProject = str(tab.project).trim();
     ai.studyChatTabOrder = Number(tab.tabOrder) || 0;
     ai.sessionId = str(tab.sessionId).trim();
     this.apiHistory = tab.messages;
@@ -419,6 +508,7 @@ class AgentView extends ItemView {
       sessionId: str(tab.sessionId).trim(),
       notePath: "",
       model: str(tab.model).trim(),
+      project: str(tab.project).trim(),
       queue: chatQueue.normalizeQueue(tab.queue),
       bookmarks: chatBookmarks.normalizeBookmarks(tab.bookmarks),
       pinned: tab.pinned === true,
@@ -436,6 +526,7 @@ class AgentView extends ItemView {
     if (Object.prototype.hasOwnProperty.call(next, "queue")) tab.queue = chatQueue.normalizeQueue(next.queue);
     if (Object.prototype.hasOwnProperty.call(next, "bookmarks")) tab.bookmarks = chatBookmarks.normalizeBookmarks(next.bookmarks);
     if (Object.prototype.hasOwnProperty.call(next, "model")) tab.model = str(next.model).trim().slice(0, 200);
+    if (Object.prototype.hasOwnProperty.call(next, "project")) tab.project = str(next.project).trim().slice(0, 80);
     if (Object.prototype.hasOwnProperty.call(next, "sessionId")) tab.sessionId = str(next.sessionId).trim();
     if (Object.prototype.hasOwnProperty.call(next, "title")) tab.title = str(next.title).replace(/\s+/g, " ").trim().slice(0, 80);
     if (Object.prototype.hasOwnProperty.call(next, "updatedAt")) tab.updatedAt = Number(next.updatedAt) || 0;
@@ -517,6 +608,7 @@ class AgentView extends ItemView {
       updatedAt: 0,
       messages: [],
       model: "",
+      project: "",
       queue: [],
       bookmarks: [],
       sessionId: "",
@@ -554,6 +646,7 @@ class AgentView extends ItemView {
       updatedAt: 0,
       messages: [],
       model: "",
+      project: "",
       queue: [],
       bookmarks: [],
       sessionId: "",
@@ -710,6 +803,7 @@ class AgentView extends ItemView {
         ai.studyChatModel = "";
         ai.studyChatQueue = [];
         ai.studyChatBookmarks = [];
+        ai.studyChatProject = "";
         ai.sessionId = "";
         this.apiHistory = [];
         if (this.chatTabs.length) {

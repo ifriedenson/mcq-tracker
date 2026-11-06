@@ -97,7 +97,17 @@ view does not stop the configured AI provider.
 - **Estimate cost locally.** Optional **Local model pricing** in Settings → AI
   takes `model | USD per 1M input | USD per 1M output` lines. The footer uses
   the effective model, token estimate and reply cap to show an estimated USD
-  cost. No price list is fetched and an unknown model has no cost line.
+  cost. No price list is fetched and an unknown model has no cost line. Once
+  the chat has stored messages, the footer also estimates the whole
+  conversation from the same table, and **Study agent: show this chat's cost
+  estimate** reports it from the palette. Both are estimates, not invoices.
+- **Group chats into projects.** The library has a **This chat** picker for the
+  open conversation, a **Filter** picker for All / Unassigned / one project, a
+  project name on each matching row, and **Remove project** to delete the label
+  without deleting chats. **Study agent: create a chat project** opens the name
+  prompt and assigns the current chat. Projects are local labels only: at most
+  30, no bundled files or prompts, and an unknown or removed project reads as
+  unassigned.
 - **Compact a long chat.** Type `/compact` to fold older Direct API messages
   into one local summary and keep the newest turns verbatim. It writes through
   the existing conversation storage, updates the token estimate and makes no

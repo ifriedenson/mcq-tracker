@@ -69,6 +69,7 @@ class ChatPanel {
     this.turnEls = [];
     this.draining = false;
     this.libraryQuery = "";
+    this.libraryProject = "";
     this.showArchived = false;
     this.build();
     if (this.view.plugin.backend() === "api") {
@@ -752,6 +753,17 @@ class ChatPanel {
         text: `Estimated cost: ${chatPricing.formatUsd(cost.total)} (${chatPricing.formatUsd(cost.inputCost)} input + up to ${chatPricing.formatUsd(cost.outputCost)} reply at local prices)`,
       });
     }
+    const history = typeof this.opts.getApiHistory === "function" ? this.opts.getApiHistory() : [];
+    const baseTokens = budget.parts
+      .filter((part) => part.label !== "message" && part.label !== "history")
+      .reduce((sum, part) => sum + part.tokens, 0);
+    const conversation = chatPricing.estimateConversationCost(this.ai.pricing, plan.model, history, { baseTokens });
+    if (conversation.ok) {
+      this.budgetEl.createDiv({
+        cls: "qt-chat-budget-line qt-chat-cost-total",
+        text: `Conversation estimate: ${chatPricing.formatUsd(conversation.total)} across ${conversation.turns} repl${conversation.turns === 1 ? "y" : "ies"} (local prices; an estimate, not an invoice)`,
+      });
+    }
     if (this.includeSkills) {
       const names = this.skills.map((skill) => skill.name).filter(Boolean).join(", ");
       this.budgetEl.createDiv({
@@ -971,6 +983,24 @@ class ChatPanel {
       this.archivedToggle.setText(this.showArchived ? "Hide archived" : "Show archived");
       this.refreshLibrary();
     });
+    const projectRow = this.libraryWrap.createDiv({ cls: "qt-row qt-small-row qt-chat-library-project" });
+    projectRow.createSpan({ text: "This chat:" });
+    this.projectAssign = projectRow.createEl("select", {
+      cls: "dropdown",
+      attr: { "aria-label": "Project for this chat" },
+    });
+    this.projectAssign.addEventListener("change", () => this.applyProjectSelection());
+    projectRow.createSpan({ text: "Filter:" });
+    this.projectSelect = projectRow.createEl("select", {
+      cls: "dropdown",
+      attr: { "aria-label": "Filter conversations by project" },
+    });
+    this.projectSelect.addEventListener("change", () => {
+      this.libraryProject = str(this.projectSelect.value);
+      this.refreshLibrary();
+    });
+    this.projectRemove = projectRow.createEl("button", { text: "Remove project" });
+    this.projectRemove.addEventListener("click", () => this.removeLibraryProject());
     this.libraryList = this.libraryWrap.createDiv({ cls: "qt-chat-library-list" });
     const row = this.libraryWrap.createDiv({ cls: "qt-row qt-small-row" });
     this.libraryTitle = row.createEl("input", {
@@ -986,12 +1016,17 @@ class ChatPanel {
 
   refreshLibrary() {
     if (!this.libraryList) return;
+    this.refreshProjectOptions();
     const rows = this.libraryRows();
     this.libraryList.empty?.();
     if (!rows.length) {
       this.libraryList.createDiv({
         cls: "qt-hint",
-        text: str(this.libraryQuery).trim() ? "No conversation matches that search." : "No saved conversations yet.",
+        text: str(this.libraryQuery).trim()
+          ? "No conversation matches that search."
+          : this.libraryProject
+            ? "No conversation in this project yet."
+            : "No saved conversations yet.",
       });
       return;
     }
@@ -1001,7 +1036,7 @@ class ChatPanel {
       });
       const open = item.createEl("button", {
         cls: "qt-chat-library-open",
-        text: `${row.pinned ? "Pinned · " : ""}${row.title}${row.when ? ` — ${row.when}` : ""}${row.model ? ` · ${row.model}` : ""}${row.archived ? " (archived)" : ""}`,
+        text: `${row.pinned ? "Pinned · " : ""}${row.title}${row.projectName ? ` · ${row.projectName}` : ""}${row.when ? ` — ${row.when}` : ""}${row.model ? ` · ${row.model}` : ""}${row.archived ? " (archived)" : ""}`,
       });
       open.addEventListener("click", () => this.openLibraryRow(row));
       const actions = item.createDiv({ cls: "qt-row qt-small-row qt-chat-library-actions" });
@@ -1015,6 +1050,66 @@ class ChatPanel {
         archive.addEventListener("click", () => this.archiveLibraryRow(row));
       }
     }
+  }
+
+  /** Project pickers come from the caller; an absent list leaves them empty. */
+  refreshProjectOptions() {
+    const projects = typeof this.opts.getProjects === "function" ? this.opts.getProjects() : [];
+    const rows = Array.isArray(projects) ? projects : [];
+    const fill = (select, options, selected) => {
+      if (!select) return;
+      select.empty?.();
+      for (const [value, text] of options) {
+        const option = select.createEl("option", { text, value });
+        option.value = value;
+      }
+      select.value = selected;
+    };
+    if (this.projectAssign) {
+      const current = typeof this.opts.getProject === "function" ? str(this.opts.getProject()) : "";
+      const selected = rows.some((project) => str(project.id) === current) ? current : "";
+      fill(
+        this.projectAssign,
+        [["", "No project"]]
+          .concat(rows.map((project) => [str(project.id), str(project.name)]))
+          .concat([["__new", "New project..."]]),
+        selected
+      );
+    }
+    if (this.projectSelect) {
+      const known =
+        this.libraryProject === "" ||
+        this.libraryProject === "none" ||
+        rows.some((project) => str(project.id) === this.libraryProject);
+      if (!known) this.libraryProject = "";
+      fill(
+        this.projectSelect,
+        [["", "All projects"], ["none", "Unassigned"]].concat(rows.map((project) => [str(project.id), str(project.name)])),
+        this.libraryProject
+      );
+    }
+    if (this.projectRemove && typeof this.projectRemove.toggleClass === "function") {
+      const current = typeof this.opts.getProject === "function" ? str(this.opts.getProject()) : "";
+      this.projectRemove.toggleClass("qt-hidden", !current);
+    }
+  }
+
+  applyProjectSelection() {
+    if (!this.projectAssign) return;
+    const value = str(this.projectAssign.value);
+    if (value === "__new") {
+      if (typeof this.opts.onNewProject === "function") this.opts.onNewProject();
+      else this.refreshProjectOptions();
+      return;
+    }
+    if (typeof this.opts.setProject === "function") this.opts.setProject(value);
+  }
+
+  removeLibraryProject() {
+    const current = typeof this.opts.getProject === "function" ? str(this.opts.getProject()) : "";
+    if (!current || typeof this.opts.onRemoveProject !== "function") return;
+    this.opts.onRemoveProject(current);
+    this.refreshLibrary();
   }
 
   pinLibraryRow(row) {
@@ -1038,7 +1133,7 @@ class ChatPanel {
   libraryRows() {
     try {
       const rows = typeof this.opts.getLibrary === "function"
-        ? this.opts.getLibrary({ query: this.libraryQuery, includeArchived: this.showArchived })
+        ? this.opts.getLibrary({ query: this.libraryQuery, includeArchived: this.showArchived, project: this.libraryProject })
         : [];
       return Array.isArray(rows) ? rows : [];
     } catch (e) {

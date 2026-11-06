@@ -1435,6 +1435,7 @@ const { chatFileName, normalizeChatHistory } = require("./chat-history");
 const chatBookmarks = require("./chat-bookmarks");
 const chatQueue = require("./chat-queue");
 const chatSkills = require("./chat-skills");
+const chatProjects = require("./chat-projects");
 const { archiveSession, libraryRows, newChatId, normalizeSessions, removeSession, renameSession, setArchivedSession, setPinnedSession, titleFromMessages } = require("./chat-sessions");
 
 const MAX_TABS = 6;
@@ -1566,6 +1567,7 @@ class AgentView extends ItemView {
       updatedAt: Number(ai.studyChatUpdatedAt) || 0,
       messages,
       model: str(ai.studyChatModel).trim(),
+      project: str(ai.studyChatProject).trim(),
       queue: chatQueue.normalizeQueue(ai.studyChatQueue),
       bookmarks: chatBookmarks.normalizeBookmarks(ai.studyChatBookmarks),
       sessionId: str(ai.sessionId).trim(),
@@ -1601,6 +1603,7 @@ class AgentView extends ItemView {
       updatedAt: Number(record.updatedAt) || 0,
       messages: normalizeChatHistory(record.messages),
       model: str(record.model).trim(),
+      project: str(record.project).trim(),
       queue: chatQueue.normalizeQueue(record.queue),
       bookmarks: chatBookmarks.normalizeBookmarks(record.bookmarks),
       sessionId: str(record.sessionId).trim(),
@@ -1642,6 +1645,11 @@ class AgentView extends ItemView {
       beforeSend: (text) => this.prepareQuestion(text),
       readNoteContext: () => readActiveNoteContext(this.app),
       getCommands: () => this.plugin.settings.ai.studyCommands,
+      getProjects: () => this.chatProjects(),
+      getProject: () => str(tab.project).trim(),
+      setProject: (id) => this.assignChatProjectById(id, tab),
+      onNewProject: () => this.promptNewProject(tab),
+      onRemoveProject: (id) => this.removeChatProject(id),
       loadSkills: () => this.loadSkills(),
       onSaveNote: (text) => this.insertReply(text),
       saveNoteLabel: "Insert into active note",
@@ -1729,6 +1737,7 @@ class AgentView extends ItemView {
       updatedAt: Number(ai.studyChatUpdatedAt) || 0,
       messages: normalizeChatHistory(ai.studyChat),
       model: str(ai.studyChatModel).trim(),
+      project: str(ai.studyChatProject).trim(),
       queue: chatQueue.normalizeQueue(ai.studyChatQueue),
       bookmarks: chatBookmarks.normalizeBookmarks(ai.studyChatBookmarks),
       pinned: ai.studyChatPinned === true,
@@ -1741,10 +1750,89 @@ class AgentView extends ItemView {
     const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
     if (!ai) return [];
     const opts = options && typeof options === "object" ? options : {};
-    return libraryRows(this.activeConversation(), ai.chatSessions, Date.now(), {
+    const projects = this.chatProjects();
+    const known = new Set(projects.map((project) => project.id));
+    const rows = libraryRows(this.activeConversation(), ai.chatSessions, Date.now(), {
       query: opts.query,
       includeArchived: opts.includeArchived,
+    }).map((row) => {
+      const project = known.has(str(row.project).trim()) ? str(row.project).trim() : "";
+      return { ...row, project };
     });
+    return chatProjects.filterByProject(rows, opts.project).map((row) => ({
+      ...row,
+      projectName: chatProjects.projectName(projects, row.project),
+    }));
+  }
+
+  /** Named, local groupings of conversations; a project bundles no files or prompts. */
+  chatProjects() {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    return chatProjects.normalizeProjects(ai ? ai.chatProjects : []);
+  }
+
+  /** Create a local project by name, reusing an existing one with the same name. */
+  createChatProject(name) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    if (!ai) return null;
+    const clean = chatProjects.normalizeProjectName(name);
+    if (!clean) return null;
+    const existing = chatProjects.findProject(ai.chatProjects, clean);
+    if (existing) return existing;
+    const result = chatProjects.ensureProject(ai.chatProjects, clean, Date.now());
+    if (!result.project) {
+      new Notice(`You can have at most ${chatProjects.MAX_PROJECTS} chat projects. Remove one first.`, 7000);
+      return null;
+    }
+    ai.chatProjects = result.projects;
+    this.plugin.save();
+    new Notice(`Created the chat project "${result.project.name}".`, 5000);
+    return result.project;
+  }
+
+  /** Put one tab in a known project; an empty id leaves it unassigned. */
+  assignChatProjectById(id, tab) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    const target = tab || this.activeTab();
+    if (!ai || !target) return false;
+    const key = str(id).trim();
+    const project = key ? chatProjects.findProject(ai.chatProjects, key) : null;
+    if (key && !project) return false;
+    target.project = project ? project.id : "";
+    this.updateTab(target, { project: target.project });
+    new Notice(project ? `This chat is in the project "${project.name}".` : "This chat is no longer in a project.", 5000);
+    return true;
+  }
+
+  /** Ask the plugin for a name, then create the project and assign this tab. */
+  promptNewProject(tab) {
+    if (this.plugin && typeof this.plugin.promptNewChatProject === "function") {
+      return this.plugin.promptNewChatProject(this, tab || this.activeTab());
+    }
+    return false;
+  }
+
+  /** Remove one project locally and leave every conversation in it unassigned. */
+  removeChatProject(id) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    if (!ai) return false;
+    const project = chatProjects.findProject(ai.chatProjects, id);
+    if (!project) return false;
+    ai.chatProjects = chatProjects.removeProject(ai.chatProjects, project.id);
+    for (const tab of this.chatTabs || []) {
+      if (str(tab.project).trim() !== project.id) continue;
+      tab.project = "";
+      if (this.activeTabId === tab.id) this.persistActiveTab(tab);
+      else this.saveTabRecord(tab, { open: tab.open !== false });
+    }
+    if (str(ai.studyChatProject).trim() === project.id) ai.studyChatProject = "";
+    ai.chatSessions = normalizeSessions(ai.chatSessions).map((session) =>
+      str(session.project).trim() === project.id ? { ...session, project: "" } : session
+    );
+    this.plugin.save();
+    this.refreshLibraries();
+    new Notice(`Removed the project "${project.name}". Its chats are now unassigned.`, 6000);
+    return true;
   }
 
   activeTab() {
@@ -1812,6 +1900,7 @@ class AgentView extends ItemView {
     ai.studyChatModel = str(tab.model).trim();
     ai.studyChatQueue = chatQueue.normalizeQueue(tab.queue);
     ai.studyChatBookmarks = chatBookmarks.normalizeBookmarks(tab.bookmarks);
+    ai.studyChatProject = str(tab.project).trim();
     ai.studyChatTabOrder = Number(tab.tabOrder) || 0;
     ai.sessionId = str(tab.sessionId).trim();
     this.apiHistory = tab.messages;
@@ -1836,6 +1925,7 @@ class AgentView extends ItemView {
       sessionId: str(tab.sessionId).trim(),
       notePath: "",
       model: str(tab.model).trim(),
+      project: str(tab.project).trim(),
       queue: chatQueue.normalizeQueue(tab.queue),
       bookmarks: chatBookmarks.normalizeBookmarks(tab.bookmarks),
       pinned: tab.pinned === true,
@@ -1853,6 +1943,7 @@ class AgentView extends ItemView {
     if (Object.prototype.hasOwnProperty.call(next, "queue")) tab.queue = chatQueue.normalizeQueue(next.queue);
     if (Object.prototype.hasOwnProperty.call(next, "bookmarks")) tab.bookmarks = chatBookmarks.normalizeBookmarks(next.bookmarks);
     if (Object.prototype.hasOwnProperty.call(next, "model")) tab.model = str(next.model).trim().slice(0, 200);
+    if (Object.prototype.hasOwnProperty.call(next, "project")) tab.project = str(next.project).trim().slice(0, 80);
     if (Object.prototype.hasOwnProperty.call(next, "sessionId")) tab.sessionId = str(next.sessionId).trim();
     if (Object.prototype.hasOwnProperty.call(next, "title")) tab.title = str(next.title).replace(/\s+/g, " ").trim().slice(0, 80);
     if (Object.prototype.hasOwnProperty.call(next, "updatedAt")) tab.updatedAt = Number(next.updatedAt) || 0;
@@ -1934,6 +2025,7 @@ class AgentView extends ItemView {
       updatedAt: 0,
       messages: [],
       model: "",
+      project: "",
       queue: [],
       bookmarks: [],
       sessionId: "",
@@ -1971,6 +2063,7 @@ class AgentView extends ItemView {
       updatedAt: 0,
       messages: [],
       model: "",
+      project: "",
       queue: [],
       bookmarks: [],
       sessionId: "",
@@ -2127,6 +2220,7 @@ class AgentView extends ItemView {
         ai.studyChatModel = "";
         ai.studyChatQueue = [];
         ai.studyChatBookmarks = [];
+        ai.studyChatProject = "";
         ai.sessionId = "";
         this.apiHistory = [];
         if (this.chatTabs.length) {
@@ -24975,6 +25069,7 @@ class ChatPanel {
     this.turnEls = [];
     this.draining = false;
     this.libraryQuery = "";
+    this.libraryProject = "";
     this.showArchived = false;
     this.build();
     if (this.view.plugin.backend() === "api") {
@@ -25658,6 +25753,17 @@ class ChatPanel {
         text: `Estimated cost: ${chatPricing.formatUsd(cost.total)} (${chatPricing.formatUsd(cost.inputCost)} input + up to ${chatPricing.formatUsd(cost.outputCost)} reply at local prices)`,
       });
     }
+    const history = typeof this.opts.getApiHistory === "function" ? this.opts.getApiHistory() : [];
+    const baseTokens = budget.parts
+      .filter((part) => part.label !== "message" && part.label !== "history")
+      .reduce((sum, part) => sum + part.tokens, 0);
+    const conversation = chatPricing.estimateConversationCost(this.ai.pricing, plan.model, history, { baseTokens });
+    if (conversation.ok) {
+      this.budgetEl.createDiv({
+        cls: "qt-chat-budget-line qt-chat-cost-total",
+        text: `Conversation estimate: ${chatPricing.formatUsd(conversation.total)} across ${conversation.turns} repl${conversation.turns === 1 ? "y" : "ies"} (local prices; an estimate, not an invoice)`,
+      });
+    }
     if (this.includeSkills) {
       const names = this.skills.map((skill) => skill.name).filter(Boolean).join(", ");
       this.budgetEl.createDiv({
@@ -25877,6 +25983,24 @@ class ChatPanel {
       this.archivedToggle.setText(this.showArchived ? "Hide archived" : "Show archived");
       this.refreshLibrary();
     });
+    const projectRow = this.libraryWrap.createDiv({ cls: "qt-row qt-small-row qt-chat-library-project" });
+    projectRow.createSpan({ text: "This chat:" });
+    this.projectAssign = projectRow.createEl("select", {
+      cls: "dropdown",
+      attr: { "aria-label": "Project for this chat" },
+    });
+    this.projectAssign.addEventListener("change", () => this.applyProjectSelection());
+    projectRow.createSpan({ text: "Filter:" });
+    this.projectSelect = projectRow.createEl("select", {
+      cls: "dropdown",
+      attr: { "aria-label": "Filter conversations by project" },
+    });
+    this.projectSelect.addEventListener("change", () => {
+      this.libraryProject = str(this.projectSelect.value);
+      this.refreshLibrary();
+    });
+    this.projectRemove = projectRow.createEl("button", { text: "Remove project" });
+    this.projectRemove.addEventListener("click", () => this.removeLibraryProject());
     this.libraryList = this.libraryWrap.createDiv({ cls: "qt-chat-library-list" });
     const row = this.libraryWrap.createDiv({ cls: "qt-row qt-small-row" });
     this.libraryTitle = row.createEl("input", {
@@ -25892,12 +26016,17 @@ class ChatPanel {
 
   refreshLibrary() {
     if (!this.libraryList) return;
+    this.refreshProjectOptions();
     const rows = this.libraryRows();
     this.libraryList.empty?.();
     if (!rows.length) {
       this.libraryList.createDiv({
         cls: "qt-hint",
-        text: str(this.libraryQuery).trim() ? "No conversation matches that search." : "No saved conversations yet.",
+        text: str(this.libraryQuery).trim()
+          ? "No conversation matches that search."
+          : this.libraryProject
+            ? "No conversation in this project yet."
+            : "No saved conversations yet.",
       });
       return;
     }
@@ -25907,7 +26036,7 @@ class ChatPanel {
       });
       const open = item.createEl("button", {
         cls: "qt-chat-library-open",
-        text: `${row.pinned ? "Pinned · " : ""}${row.title}${row.when ? ` — ${row.when}` : ""}${row.model ? ` · ${row.model}` : ""}${row.archived ? " (archived)" : ""}`,
+        text: `${row.pinned ? "Pinned · " : ""}${row.title}${row.projectName ? ` · ${row.projectName}` : ""}${row.when ? ` — ${row.when}` : ""}${row.model ? ` · ${row.model}` : ""}${row.archived ? " (archived)" : ""}`,
       });
       open.addEventListener("click", () => this.openLibraryRow(row));
       const actions = item.createDiv({ cls: "qt-row qt-small-row qt-chat-library-actions" });
@@ -25921,6 +26050,66 @@ class ChatPanel {
         archive.addEventListener("click", () => this.archiveLibraryRow(row));
       }
     }
+  }
+
+  /** Project pickers come from the caller; an absent list leaves them empty. */
+  refreshProjectOptions() {
+    const projects = typeof this.opts.getProjects === "function" ? this.opts.getProjects() : [];
+    const rows = Array.isArray(projects) ? projects : [];
+    const fill = (select, options, selected) => {
+      if (!select) return;
+      select.empty?.();
+      for (const [value, text] of options) {
+        const option = select.createEl("option", { text, value });
+        option.value = value;
+      }
+      select.value = selected;
+    };
+    if (this.projectAssign) {
+      const current = typeof this.opts.getProject === "function" ? str(this.opts.getProject()) : "";
+      const selected = rows.some((project) => str(project.id) === current) ? current : "";
+      fill(
+        this.projectAssign,
+        [["", "No project"]]
+          .concat(rows.map((project) => [str(project.id), str(project.name)]))
+          .concat([["__new", "New project..."]]),
+        selected
+      );
+    }
+    if (this.projectSelect) {
+      const known =
+        this.libraryProject === "" ||
+        this.libraryProject === "none" ||
+        rows.some((project) => str(project.id) === this.libraryProject);
+      if (!known) this.libraryProject = "";
+      fill(
+        this.projectSelect,
+        [["", "All projects"], ["none", "Unassigned"]].concat(rows.map((project) => [str(project.id), str(project.name)])),
+        this.libraryProject
+      );
+    }
+    if (this.projectRemove && typeof this.projectRemove.toggleClass === "function") {
+      const current = typeof this.opts.getProject === "function" ? str(this.opts.getProject()) : "";
+      this.projectRemove.toggleClass("qt-hidden", !current);
+    }
+  }
+
+  applyProjectSelection() {
+    if (!this.projectAssign) return;
+    const value = str(this.projectAssign.value);
+    if (value === "__new") {
+      if (typeof this.opts.onNewProject === "function") this.opts.onNewProject();
+      else this.refreshProjectOptions();
+      return;
+    }
+    if (typeof this.opts.setProject === "function") this.opts.setProject(value);
+  }
+
+  removeLibraryProject() {
+    const current = typeof this.opts.getProject === "function" ? str(this.opts.getProject()) : "";
+    if (!current || typeof this.opts.onRemoveProject !== "function") return;
+    this.opts.onRemoveProject(current);
+    this.refreshLibrary();
   }
 
   pinLibraryRow(row) {
@@ -25944,7 +26133,7 @@ class ChatPanel {
   libraryRows() {
     try {
       const rows = typeof this.opts.getLibrary === "function"
-        ? this.opts.getLibrary({ query: this.libraryQuery, includeArchived: this.showArchived })
+        ? this.opts.getLibrary({ query: this.libraryQuery, includeArchived: this.showArchived, project: this.libraryProject })
         : [];
       return Array.isArray(rows) ? rows : [];
     } catch (e) {
@@ -26594,8 +26783,10 @@ __defs["chat-pricing"] = function (module, exports, require) {
  * simply has no estimate, so the footer stays quiet.
  */
 const { str } = require("./util");
+const chatBudget = require("./chat-budget");
 
 const MAX_MODELS = 100;
+const MAX_HISTORY_MESSAGES = 80;
 const MAX_PRICE = 100000;
 const MAX_MODEL_CHARS = 200;
 
@@ -26677,6 +26868,59 @@ function estimateCost(value, model, inputTokens, outputTokens) {
   };
 }
 
+/**
+ * Estimate a whole conversation from its stored messages. Each user turn is
+ * treated as a prompt that resends the prior transcript, and each assistant
+ * message is treated as output. `baseTokens` covers the system/context text the
+ * caller already estimated. Pure arithmetic over the local price table.
+ */
+function estimateConversationCost(value, model, messages, options) {
+  const row = findPricing(value, model);
+  if (!row) return { ok: false, reason: "no pricing for this model" };
+  const inputPrice = Math.max(0, Number(row.input) || 0);
+  const outputPrice = Math.max(0, Number(row.output) || 0);
+  if (inputPrice === 0 && outputPrice === 0) return { ok: false, reason: "pricing is zero" };
+  const list = (Array.isArray(messages) ? messages : [])
+    .filter(
+      (message) =>
+        message &&
+        (message.role === "user" || message.role === "assistant") &&
+        str(message.content).trim()
+    )
+    .slice(-MAX_HISTORY_MESSAGES);
+  if (!list.length) return { ok: false, reason: "no messages yet" };
+  const opts = options && typeof options === "object" ? options : {};
+  let context = Math.max(0, Number(opts.baseTokens) || 0);
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let turns = 0;
+  for (const message of list) {
+    const tokens = chatBudget.estimateTokens(message.content);
+    if (message.role === "assistant") {
+      outputTokens += tokens;
+      context += tokens;
+    } else {
+      inputTokens += context + tokens;
+      context += tokens;
+      turns += 1;
+    }
+  }
+  const inputCost = (inputTokens / 1000000) * inputPrice;
+  const outputCost = (outputTokens / 1000000) * outputPrice;
+  return {
+    ok: true,
+    model: str(row.model || model),
+    turns,
+    inputTokens,
+    outputTokens,
+    inputPerMillion: inputPrice,
+    outputPerMillion: outputPrice,
+    inputCost,
+    outputCost,
+    total: inputCost + outputCost,
+  };
+}
+
 function formatUsd(value) {
   const number = Math.max(0, Number(value) || 0);
   if (number === 0) return "$0.0000";
@@ -26687,12 +26931,146 @@ function formatUsd(value) {
 
 module.exports = {
   MAX_MODELS,
+  estimateConversationCost,
   estimateCost,
   findPricing,
   formatUsd,
   modelKey,
   parsePricingText,
   pricingText,
+};
+};
+
+/* ---- src/chat-projects.js ---- */
+__defs["chat-projects"] = function (module, exports, require) {
+/*
+ * Local chat projects.
+ *
+ * A project is a named, local grouping of saved conversations. It bundles no
+ * files, prompts, provider context or hosting, and nothing here touches the
+ * network. An unknown or removed project id simply reads as unassigned.
+ */
+const { str } = require("./util");
+
+const MAX_PROJECTS = 30;
+const MAX_PROJECT_NAME = 60;
+const UNASSIGNED = "none";
+
+function normalizeProjectName(value) {
+  return str(value)
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_PROJECT_NAME);
+}
+
+function newProjectId(now) {
+  const stamp = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+  return `project-${stamp}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Bounded, de-duplicated projects: first id and first name win. */
+function normalizeProjects(value) {
+  const seenIds = new Set();
+  const seenNames = new Set();
+  const rows = [];
+  for (const raw of Array.isArray(value) ? value : []) {
+    const name = normalizeProjectName(raw && raw.name);
+    const id = str(raw && raw.id).trim().slice(0, 80);
+    if (!name || !id || seenIds.has(id)) continue;
+    const key = name.toLowerCase();
+    if (seenNames.has(key)) continue;
+    seenIds.add(id);
+    seenNames.add(key);
+    rows.push({ id, name });
+    if (rows.length >= MAX_PROJECTS) break;
+  }
+  return rows;
+}
+
+/** Match by id first, then by name, case-insensitively. */
+function findProject(projects, ref) {
+  const key = str(ref).trim();
+  if (!key) return null;
+  const rows = normalizeProjects(projects);
+  return (
+    rows.find((project) => project.id === key) ||
+    rows.find((project) => project.name.toLowerCase() === key.toLowerCase()) ||
+    null
+  );
+}
+
+/** Return the existing project with that name, or create one. */
+function ensureProject(projects, name, now) {
+  const rows = normalizeProjects(projects);
+  const clean = normalizeProjectName(name);
+  if (!clean) return { projects: rows, project: null };
+  const existing = rows.find((project) => project.name.toLowerCase() === clean.toLowerCase());
+  if (existing) return { projects: rows, project: existing };
+  if (rows.length >= MAX_PROJECTS) return { projects: rows, project: null, full: true };
+  const project = { id: newProjectId(now), name: clean };
+  return { projects: rows.concat(project), project };
+}
+
+function renameProject(projects, id, name) {
+  const rows = normalizeProjects(projects);
+  const key = str(id).trim();
+  const clean = normalizeProjectName(name);
+  if (!key || !clean) return rows;
+  if (rows.some((project) => project.id !== key && project.name.toLowerCase() === clean.toLowerCase())) return rows;
+  return rows.map((project) => (project.id === key ? { ...project, name: clean } : project));
+}
+
+function removeProject(projects, id) {
+  const key = str(id).trim();
+  return normalizeProjects(projects).filter((project) => project.id !== key);
+}
+
+function projectName(projects, id) {
+  const found = findProject(projects, id);
+  return found ? found.name : "";
+}
+
+/** "" or "all" means every conversation; "none" means unassigned. */
+function normalizeFilter(value) {
+  const key = str(value).trim();
+  if (!key || key === "all") return "";
+  if (key === UNASSIGNED) return UNASSIGNED;
+  return key;
+}
+
+function filterByProject(rows, filter) {
+  const key = normalizeFilter(filter);
+  const list = Array.isArray(rows) ? rows : [];
+  if (!key) return list;
+  if (key === UNASSIGNED) return list.filter((row) => !str(row && row.project).trim());
+  return list.filter((row) => str(row && row.project).trim() === key);
+}
+
+/** Row list for a project picker: count of conversations in each project. */
+function summarizeProjects(projects, rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  return normalizeProjects(projects).map((project) => ({
+    ...project,
+    count: list.filter((row) => str(row && row.project).trim() === project.id).length,
+  }));
+}
+
+module.exports = {
+  MAX_PROJECTS,
+  MAX_PROJECT_NAME,
+  UNASSIGNED,
+  ensureProject,
+  filterByProject,
+  findProject,
+  newProjectId,
+  normalizeFilter,
+  normalizeProjectName,
+  normalizeProjects,
+  projectName,
+  removeProject,
+  renameProject,
+  summarizeProjects,
 };
 };
 
@@ -26799,6 +27177,7 @@ function normalizeSession(value) {
     sessionId: str(raw.sessionId).trim(),
     notePath: str(raw.notePath).trim(),
     model: str(raw.model).trim().slice(0, 200),
+    project: str(raw.project).trim().slice(0, 80),
     queue: chatQueue.normalizeQueue(raw.queue),
     bookmarks: chatBookmarks.normalizeBookmarks(raw.bookmarks),
     open,
@@ -26898,6 +27277,7 @@ function libraryRows(active, sessions, now, options) {
       messages,
       active: true,
       model: str(active && active.model).trim(),
+      project: str(active && active.project).trim(),
       pinned: active && active.pinned === true,
       archived: false,
       open: active && active.open !== false,
@@ -26917,6 +27297,7 @@ function libraryRows(active, sessions, now, options) {
       messages: session.messages,
       active: false,
       model: session.model,
+      project: session.project,
       pinned: session.pinned === true,
       archived: session.archived === true,
       open: session.open,
@@ -28226,6 +28607,8 @@ const DEFAULT_SETTINGS = {
     studyChatTabOrder: 0, // stable order for open conversation tabs
     chatSessions: [], // saved and open conversations, bounded by chat-sessions.js
     studyCommands: [], // reusable /commands; prompts may use {} or {selection}
+    chatProjects: [], // named local groups of conversations; they bundle no files or prompts
+    studyChatProject: "", // project id for the active conversation, if any
     skillsFolder: "Study agent skills", // vault folder of user-authored skill notes
     commandModels: {}, // optional per-slash-command model overrides, keyed by command id
     pricing: {}, // optional local model prices: { model: { input, output } } in USD per 1M tokens
@@ -63726,6 +64109,7 @@ const { renderTextTimerBlock } = require("./text-timer-view");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const diagnostics = require("./diagnostics");
 const chatSkills = require("./chat-skills");
+const chatPricing = require("./chat-pricing");
 const { PdfImportModal } = require("./import-modal");
 const { readPdfPages, renderPdfPagesAsPng } = require("./pdf");
 const { CourseNotesModal, removeAiSummary } = require("./course-notes");
@@ -64340,6 +64724,20 @@ class QuestionTrackerPlugin extends Plugin {
           this.recordDiagnosticError("skill", e);
           new Notice(`Could not create the skill note: ${String((e && e.message) || e)}`, 8000);
         }),
+    });
+    this.addCommand({
+      id: "study-agent-project",
+      name: "Study agent: create a chat project",
+      callback: () =>
+        this.promptChatProject().catch((e) => {
+          this.recordDiagnosticError("chat project", e);
+          new Notice(`Could not create the project: ${String((e && e.message) || e)}`, 8000);
+        }),
+    });
+    this.addCommand({
+      id: "study-agent-cost",
+      name: "Study agent: show this chat's cost estimate",
+      callback: () => this.showChatCostEstimate(),
     });
     this.addCommand({
       id: "study-agent-diagnostics",
@@ -67642,6 +68040,52 @@ class QuestionTrackerPlugin extends Plugin {
       /* the note still exists if the workspace cannot focus it */
     }
     return path;
+  }
+
+  /** Create a local chat project and put the active conversation in it. */
+  async promptChatProject() {
+    const view = await this.activateAgent();
+    if (!view || typeof view.promptNewProject !== "function") {
+      new Notice("The Study agent could not open. No project was created.");
+      return null;
+    }
+    return view.promptNewProject();
+  }
+
+  /** The name prompt behind the project pickers. No AI, network or file write. */
+  promptNewChatProject(view, tab) {
+    if (!view || typeof view.createChatProject !== "function") return false;
+    new NameModal(this.app, "Name the new chat project", "", (name) => {
+      const project = view.createChatProject(name);
+      if (project) view.assignChatProjectById(project.id, tab);
+    }).open();
+    return true;
+  }
+
+  /** Notice a local cost estimate for the active conversation. Never sends a request. */
+  showChatCostEstimate() {
+    const ai = this.settings && this.settings.ai;
+    if (!ai) return { ok: false, reason: "AI settings are not available" };
+    const messages = Array.isArray(ai.studyChat) ? ai.studyChat : [];
+    if (!messages.length) {
+      new Notice("Start a conversation before estimating its cost.", 5000);
+      return { ok: false, reason: "no messages yet" };
+    }
+    const model = String(ai.studyChatModel || ai.api.model || "").trim();
+    if (!chatPricing.findPricing(ai.pricing, model)) {
+      new Notice("Set local model prices in Settings → AI → Local model pricing to estimate this chat's cost.", 9000);
+      return { ok: false, reason: "no pricing for this model" };
+    }
+    const cost = chatPricing.estimateConversationCost(ai.pricing, model, messages, {});
+    if (!cost.ok) {
+      new Notice("This chat has no cost estimate yet.", 5000);
+      return cost;
+    }
+    new Notice(
+      `This chat is about ${chatPricing.formatUsd(cost.total)} at your local prices (${cost.turns} repl${cost.turns === 1 ? "y" : "ies"}; an estimate, not an invoice).`,
+      9000
+    );
+    return cost;
   }
 
   openCardExport(options, onDone) {
@@ -121280,6 +121724,7 @@ QuestionTrackerPlugin.__test = {
   chatSessions: require("./chat-sessions"),
   chatBudget: require("./chat-budget"),
   chatSkills: require("./chat-skills"),
+  chatProjects: require("./chat-projects"),
   chatPricing: require("./chat-pricing"),
   chatMentions: require("./chat-mentions"),
   chatBookmarks: require("./chat-bookmarks"),

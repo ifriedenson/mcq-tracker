@@ -111,6 +111,8 @@ const DEFAULT_SETTINGS = {
     studyChatTabOrder: 0, // stable order for open conversation tabs
     chatSessions: [], // saved and open conversations, bounded by chat-sessions.js
     studyCommands: [], // reusable /commands; prompts may use {} or {selection}
+    chatProjects: [], // named local groups of conversations; they bundle no files or prompts
+    studyChatProject: "", // project id for the active conversation, if any
     skillsFolder: "Study agent skills", // vault folder of user-authored skill notes
     commandModels: {}, // optional per-slash-command model overrides, keyed by command id
     pricing: {}, // optional local model prices: { model: { input, output } } in USD per 1M tokens

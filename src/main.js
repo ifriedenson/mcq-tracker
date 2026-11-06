@@ -327,6 +327,7 @@ QuestionTrackerPlugin.__test = {
   chatSessions: require("./chat-sessions"),
   chatBudget: require("./chat-budget"),
   chatSkills: require("./chat-skills"),
+  chatProjects: require("./chat-projects"),
   chatPricing: require("./chat-pricing"),
   chatMentions: require("./chat-mentions"),
   chatBookmarks: require("./chat-bookmarks"),

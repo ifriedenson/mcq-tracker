@@ -141,6 +141,7 @@ const { renderTextTimerBlock } = require("./text-timer-view");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const diagnostics = require("./diagnostics");
 const chatSkills = require("./chat-skills");
+const chatPricing = require("./chat-pricing");
 const { PdfImportModal } = require("./import-modal");
 const { readPdfPages, renderPdfPagesAsPng } = require("./pdf");
 const { CourseNotesModal, removeAiSummary } = require("./course-notes");
@@ -755,6 +756,20 @@ class QuestionTrackerPlugin extends Plugin {
           this.recordDiagnosticError("skill", e);
           new Notice(`Could not create the skill note: ${String((e && e.message) || e)}`, 8000);
         }),
+    });
+    this.addCommand({
+      id: "study-agent-project",
+      name: "Study agent: create a chat project",
+      callback: () =>
+        this.promptChatProject().catch((e) => {
+          this.recordDiagnosticError("chat project", e);
+          new Notice(`Could not create the project: ${String((e && e.message) || e)}`, 8000);
+        }),
+    });
+    this.addCommand({
+      id: "study-agent-cost",
+      name: "Study agent: show this chat's cost estimate",
+      callback: () => this.showChatCostEstimate(),
     });
     this.addCommand({
       id: "study-agent-diagnostics",
@@ -4057,6 +4072,52 @@ class QuestionTrackerPlugin extends Plugin {
       /* the note still exists if the workspace cannot focus it */
     }
     return path;
+  }
+
+  /** Create a local chat project and put the active conversation in it. */
+  async promptChatProject() {
+    const view = await this.activateAgent();
+    if (!view || typeof view.promptNewProject !== "function") {
+      new Notice("The Study agent could not open. No project was created.");
+      return null;
+    }
+    return view.promptNewProject();
+  }
+
+  /** The name prompt behind the project pickers. No AI, network or file write. */
+  promptNewChatProject(view, tab) {
+    if (!view || typeof view.createChatProject !== "function") return false;
+    new NameModal(this.app, "Name the new chat project", "", (name) => {
+      const project = view.createChatProject(name);
+      if (project) view.assignChatProjectById(project.id, tab);
+    }).open();
+    return true;
+  }
+
+  /** Notice a local cost estimate for the active conversation. Never sends a request. */
+  showChatCostEstimate() {
+    const ai = this.settings && this.settings.ai;
+    if (!ai) return { ok: false, reason: "AI settings are not available" };
+    const messages = Array.isArray(ai.studyChat) ? ai.studyChat : [];
+    if (!messages.length) {
+      new Notice("Start a conversation before estimating its cost.", 5000);
+      return { ok: false, reason: "no messages yet" };
+    }
+    const model = String(ai.studyChatModel || ai.api.model || "").trim();
+    if (!chatPricing.findPricing(ai.pricing, model)) {
+      new Notice("Set local model prices in Settings → AI → Local model pricing to estimate this chat's cost.", 9000);
+      return { ok: false, reason: "no pricing for this model" };
+    }
+    const cost = chatPricing.estimateConversationCost(ai.pricing, model, messages, {});
+    if (!cost.ok) {
+      new Notice("This chat has no cost estimate yet.", 5000);
+      return cost;
+    }
+    new Notice(
+      `This chat is about ${chatPricing.formatUsd(cost.total)} at your local prices (${cost.turns} repl${cost.turns === 1 ? "y" : "ies"}; an estimate, not an invoice).`,
+      9000
+    );
+    return cost;
   }
 
   openCardExport(options, onDone) {
