@@ -16,3 +16,6 @@ jobs:
         with:
           node-version: 20
       - run: npm test
+      # Fails when main.js is stale or plan.md's status block no longer matches
+      # the version, row counts, source file count or bundle size.
+      - run: npm run check

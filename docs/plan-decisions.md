@@ -1,9 +1,10 @@
 # Plan decision sheet
 
-`plan.md` has **0 unchecked rows**. What is left is seven `[~]` rows, and every one
-of them is waiting on a single input from the owner — a visual or device pass, a
-provider decision, or a calibration fixture. Nothing on the list needs new code
-before you answer.
+`plan.md` (v1.277.0) has **93 checked roadmap rows, 7 `[~]` partial rows and 0
+unchecked rows**. The seven are listed here and again in the plan's **§B** table;
+every one is waiting on a single input from the owner — a visual or device pass,
+a provider decision, or a calibration fixture. Nothing here needs new code before
+you answer, and the ideas already decided against are in the plan's **§C**.
 
 Answer in place (edit this file) or in chat. Each section names the plan row it
 belongs to, the one decision, the options with a recommended default, and what

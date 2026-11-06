@@ -5,8 +5,10 @@
   "description": "Obsidian plugin for exam practice, spaced review, cards, courses and grades, with optional AI.",
   "scripts": {
     "build": "node scripts/build.js",
-    "check": "node scripts/check-no-dynamic-code.js && node scripts/check-vendor.js && node scripts/build.js --check",
-    "test": "node --test"
+    "check": "node scripts/check-no-dynamic-code.js && node scripts/check-vendor.js && node scripts/build.js --check && node scripts/plan-status.js",
+    "test": "node --test",
+    "plan:status": "node scripts/plan-status.js --write --run-tests",
+    "plan:status:check": "node scripts/plan-status.js"
   },
   "engines": {
     "node": ">=18"

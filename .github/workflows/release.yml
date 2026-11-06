@@ -114,6 +114,10 @@ jobs:
         if: steps.existing.outputs.published != 'true'
         run: npm test
 
+      - name: Check the plan status
+        if: steps.existing.outputs.published != 'true'
+        run: npm run plan:status:check
+
       - name: Attest build provenance
         if: steps.existing.outputs.published != 'true'
         uses: actions/attest-build-provenance@v2

@@ -33,6 +33,25 @@ npm run check             # main.js matches src/ and no dynamic execution exists
 If you change `src/`, run `npm run build` and commit the regenerated `main.js`
 with the source change. Do not edit `main.js` by hand.
 
+## Releasing
+
+The version in `manifest.json` is the release: a push to `main` with a new
+version publishes it through `.github/workflows/release.yml`.
+
+1. Bump the version in `package.json`, `manifest.json` and `versions.json`.
+2. Write `docs/release-notes/<version>.md`.
+3. Run `npm run build` and commit `main.js` with the source change.
+4. Run `npm run plan:status`. It runs the suite and rewrites the status block in
+   `plan.md` (version, test and failure counts, source-file and module counts,
+   bundle size, checked/partial/unchecked rows). Commit `plan.md` in the same
+   commit as the version bump; CI and the release workflow reject a release
+   whose status block does not match `manifest.json`, `src/`, `vendor/` and
+   `main.js`.
+5. Run `npm run check` and `git diff --check`.
+
+`npm run plan:status:check` checks the block without running the suite (it
+cannot re-derive the test count, so the recorded count is kept).
+
 ## Rules for a change
 
 - Keep the plugin dependency-free. Do not add runtime or development packages.
