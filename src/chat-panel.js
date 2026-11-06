@@ -264,6 +264,13 @@ class ChatPanel {
       });
     }
     this.budgetEl = root.createDiv({ cls: "qt-chat-budget" });
+    this.tokenGauge = root.createDiv({
+      cls: "qt-chat-token-gauge qt-hidden",
+      attr: { role: "img", "aria-label": "Conversation context usage", "aria-hidden": "true" },
+    });
+    this.tokenGaugeRing = this.tokenGauge.createDiv({ cls: "qt-chat-token-ring" });
+    this.tokenGaugeRing.createDiv({ cls: "qt-chat-token-hole" });
+    this.tokenGaugeLabel = this.tokenGauge.createSpan({ cls: "qt-chat-token-label" });
     this.syncMentionChips();
     this.refreshTokenFooter();
     this.refreshContextPreview();
@@ -630,6 +637,40 @@ class ChatPanel {
     return labels.length ? labels.join(" · ") : "No extra context";
   }
 
+  historyCount() {
+    return this.view.plugin.backend() === "api" ? this.apiHistory().length : this.turns.length;
+  }
+
+  /**
+   * Draw the compact context gauge from the exact same budget object the footer
+   * already uses. It is absent until the chat has a message or a draft, and it
+   * silently hides again when budget data is missing or unusable.
+   */
+  renderTokenGauge(budget, draft) {
+    if (!this.tokenGauge) return false;
+    const limit = Number(budget && budget.limit);
+    const tokens = Number(budget && budget.tokens);
+    const hasUsage = this.historyCount() > 0 || !!str(draft).trim();
+    const show = !!budget && Number.isFinite(limit) && limit > 0 && Number.isFinite(tokens) && tokens >= 0 && hasUsage;
+    this.tokenGauge.toggleClass("qt-hidden", !show);
+    this.tokenGauge.setAttr("aria-hidden", show ? "false" : "true");
+    if (!show) {
+      this.lastGauge = null;
+      return false;
+    }
+    const ratio = Math.max(0, Math.min(1, Number(budget.ratio) || tokens / limit));
+    const percent = Math.round(ratio * 100);
+    this.lastGauge = { tokens, limit, ratio, percent };
+    this.tokenGauge.toggleClass("is-warn", budget.warn === true);
+    this.tokenGauge.toggleClass("is-over", budget.over === true);
+    this.tokenGauge.setAttr("aria-label", `Context usage: about ${chatBudget.formatTokenCount(tokens)} of ${chatBudget.formatTokenCount(limit)} tokens, ${percent} percent`);
+    this.tokenGauge.style.setProperty("--qt-budget-percent", `${percent}%`);
+    if (this.tokenGaugeLabel) {
+      this.tokenGaugeLabel.setText(`${percent}% · ~${chatBudget.formatTokenCount(tokens)} / ${chatBudget.formatTokenCount(limit)} tokens`);
+    }
+    return true;
+  }
+
   refreshTokenFooter() {
     if (!this.budgetEl) return;
     const draft = str(this.input && this.input.value);
@@ -637,6 +678,7 @@ class ChatPanel {
     const plan = this.modelPlan(draft);
     this.lastBudget = budget;
     this.lastModelPlan = plan;
+    this.renderTokenGauge(budget, draft);
     this.budgetEl.empty();
     this.budgetEl.toggleClass("is-warn", budget.warn);
     this.budgetEl.toggleClass("is-over", budget.over);
@@ -1450,6 +1492,7 @@ class ChatPanel {
         this.setBusy(false);
         if (stoppedNote && this.status) this.status.setText(stoppedNote);
         this.turns = apiTurns(hist);
+        this.refreshTokenFooter();
         this.draw();
         if (proposals.length) new AiToolReviewModal(this.view.app, this.view.plugin, proposals).open();
       }
@@ -1479,6 +1522,7 @@ class ChatPanel {
     try {
       const msgs = await this.view.plugin.openCode().messages(sid);
       this.turns = partsToTurns(msgs);
+      this.refreshTokenFooter();
       if (this.keepPartial && !this.turns.some((turn) => turn.role === "assistant" && turn.texts.join("\n").includes(this.keepPartial))) {
         this.turns.push({ role: "assistant", texts: [this.keepPartial], tools: [] });
       }

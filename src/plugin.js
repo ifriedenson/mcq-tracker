@@ -139,6 +139,7 @@ const { renderTallyBlock } = require("./tally-view");
 const { normalizeTextTimerSettings } = require("./text-timer");
 const { renderTextTimerBlock } = require("./text-timer-view");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
+const diagnostics = require("./diagnostics");
 const { PdfImportModal } = require("./import-modal");
 const { readPdfPages, renderPdfPagesAsPng } = require("./pdf");
 const { CourseNotesModal, removeAiSummary } = require("./course-notes");
@@ -390,6 +391,7 @@ class QuestionTrackerPlugin extends Plugin {
     }
     this.noteReviewDock = new NoteReviewDock(this);
     this._quickChatModal = null;
+    this.recentDiagnosticErrors = [];
     // Chat bookmark links are handled by this plugin, not a hosted redirect.
     if (typeof this.registerObsidianProtocolHandler === "function") {
       this.registerObsidianProtocolHandler("mcq-tracker-chat", (params) => this.openChatBookmark(params));
@@ -744,6 +746,15 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-study-agent", name: "Study agent: open the sidebar", callback: () => this.activateAgent() });
     this.addCommand({ id: "ai-quick-ask", name: "AI: Quick Ask about the selection or note", callback: () => this.openQuickAsk() });
     this.addCommand({ id: "study-agent-quick-chat", name: "Study agent: Quick Chat", callback: () => this.openQuickChat() });
+    this.addCommand({
+      id: "study-agent-diagnostics",
+      name: "Study agent: save diagnostics bundle",
+      callback: () =>
+        this.saveDiagnosticsBundle().catch((e) => {
+          this.recordDiagnosticError("diagnostics", e);
+          new Notice(`Could not save the diagnostics bundle: ${String((e && e.message) || e)}`, 8000);
+        }),
+    });
     this.addCommand({
       id: "cards-rescan-plain",
       name: "Cards: rescan plain Markdown folder",
@@ -3935,6 +3946,7 @@ class QuestionTrackerPlugin extends Plugin {
       }
       return view.quickChat(value);
     } catch (e) {
+      this.recordDiagnosticError("quick chat", e);
       new Notice(`Quick Chat could not send: ${String(e && e.message ? e.message : e)}`, 8000);
       return false;
     }
@@ -3950,9 +3962,71 @@ class QuestionTrackerPlugin extends Plugin {
       }
       return await view.openBookmarkLink(params);
     } catch (e) {
+      this.recordDiagnosticError("chat bookmark", e);
       new Notice(`Could not open that chat link: ${String(e && e.message ? e.message : e)}`, 8000);
       return false;
     }
+  }
+
+  /** Keep a small bounded local error trail for the diagnostics bundle. */
+  recordDiagnosticError(scope, error) {
+    const message = String((error && error.message) || error || "").trim();
+    if (!message) return;
+    this.recentDiagnosticErrors = (this.recentDiagnosticErrors || []).concat({
+      at: Date.now(),
+      scope: String(scope || "local"),
+      message: message.slice(0, 1000),
+    }).slice(-20);
+  }
+
+  /** The active Study agent panel, or null when that view is not open. */
+  activeChatPanel() {
+    try {
+      const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT) || [];
+      for (const leaf of leaves) {
+        const view = leaf && leaf.view;
+        if (view && view.chatPanel) return view.chatPanel;
+      }
+    } catch (e) {
+      /* diagnostics must never fail because a view is closing */
+    }
+    return null;
+  }
+
+  /**
+   * Save one self-contained local diagnostics report through the same Vault path
+   * used by other exports. It reads nothing outside plugin/app state and makes no
+   * network request; secrets are redacted before Markdown is written.
+   */
+  async saveDiagnosticsBundle(options) {
+    const panel = this.activeChatPanel();
+    const ai = this.settings.ai || {};
+    const couch = (this.settings.cards && this.settings.cards.couchdb) || this.settings.couchdb || {};
+    const bundle = diagnostics.buildDiagnosticsBundle({
+      manifest: this.manifest,
+      platform: Platform,
+      settings: this.settings,
+      appVersion: this.app && this.app.version,
+      panelState: panel
+        ? { budget: panel.lastBudget, modelPlan: panel.lastModelPlan, error: panel.error }
+        : null,
+      historyMessages: panel ? panel.historyCount() : null,
+      openSessions: Array.isArray(ai.chatSessions) ? ai.chatSessions.length : 0,
+      bookmarks: Array.isArray(ai.studyChatBookmarks) ? ai.studyChatBookmarks.length : 0,
+      chatModel: panel ? panel.chatModel() : ai.studyChatModel,
+      commandCount: Array.isArray(this.commands) ? this.commands.length : null,
+      capabilities: typeof this.aiCapabilities === "function" ? this.aiCapabilities() : {},
+      recentErrors: this.recentDiagnosticErrors || [],
+      setupError: this.manager && this.manager.setupError,
+      couchdbError: couch && couch.lastError,
+      now: options && options.now instanceof Date ? options.now : new Date(),
+    });
+    const folder = diagnostics.bundleFolder();
+    await ensureFolder(this.app, folder);
+    const path = await this.uniqueVaultPath(`${folder}/${diagnostics.bundleFileName(options && options.now)}`);
+    await this.app.vault.create(path, bundle.markdown.endsWith("\n") ? bundle.markdown : `${bundle.markdown}\n`);
+    new Notice(`Saved the diagnostics bundle to ${path}.`, 8000);
+    return { path, ...bundle };
   }
 
   openCardExport(options, onDone) {

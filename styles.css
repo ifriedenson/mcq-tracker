@@ -12790,6 +12790,57 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   color: var(--text-muted);
   margin: 2px 0 4px;
 }
+.qt-agent-chat {
+  container-type: inline-size;
+}
+.qt-chat-token-gauge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 18px;
+  margin: 2px 0 4px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+}
+.qt-chat-token-gauge.qt-hidden {
+  display: none;
+}
+.qt-chat-token-ring {
+  position: relative;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: conic-gradient(var(--interactive-accent) var(--qt-budget-percent, 0%), var(--background-modifier-border) 0);
+}
+.qt-chat-token-gauge.is-warn .qt-chat-token-ring {
+  background: conic-gradient(var(--text-warning) var(--qt-budget-percent, 0%), var(--background-modifier-border) 0);
+}
+.qt-chat-token-gauge.is-over .qt-chat-token-ring {
+  background: conic-gradient(var(--text-error) var(--qt-budget-percent, 0%), var(--background-modifier-border) 0);
+}
+.qt-chat-token-hole {
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--background-primary);
+}
+.qt-chat-token-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@container (max-width: 300px) {
+  .qt-chat-token-label {
+    display: none;
+  }
+}
+@container (max-width: 220px) {
+  .qt-chat-token-gauge {
+    display: none;
+  }
+}
 .qt-chat-budget.is-warn {
   color: var(--text-warning);
 }

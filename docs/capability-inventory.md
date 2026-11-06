@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 410 groups, 2778 exports. **Commands:** 208. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 411 groups, 2786 exports. **Commands:** 209. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -26,7 +26,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `CardExtractModal` | 0 | `tests/feature-surfaces.test.js` |
 | `CardModal` | 0 | `tests/source-recall.test.js` |
 | `CardView` | 0 | `tests/card-cram.test.js`, `tests/card-learning.test.js`, `tests/card-mother-cram.test.js`, `tests/card-reveal.test.js`, `tests/card-speech.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/interval-preview.test.js`, `tests/mobile-module-layout.test.js`, `tests/source-recall.test.js`, `tests/study-status.test.js` |
-| `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/chat-panel-mentions.test.js`, `tests/note-context.test.js`, `tests/quick-ask.test.js`, `tests/security-hardening.test.js`, `tests/think-first.test.js` |
+| `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/chat-panel-mentions.test.js`, `tests/diagnostics-gauge.test.js`, `tests/note-context.test.js`, `tests/quick-ask.test.js`, `tests/security-hardening.test.js`, `tests/think-first.test.js` |
 | `CourseOverviewModal` | 0 | `tests/core-values.test.js` |
 | `DEFAULT_SETTINGS` | 113 | `tests/grading.test.js` |
 | `DocumentReviewModal` | 0 | `tests/feature-surfaces.test.js` |
@@ -161,7 +161,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `cardsImport` | 39 | `tests/cards-import.test.js`, `tests/quizlet-pdf-fixtures.test.js`, `tests/spaced-quiz.test.js` |
 | `cbtExam` | 7 | `tests/cbt-exam.test.js` |
 | `chatBookmarks` | 17 | `tests/quick-chat-bookmarks.test.js` |
-| `chatBudget` | 6 | `tests/chat-budget.test.js`, `tests/chat-compact.test.js`, `tests/chat-panel-mentions.test.js`, `tests/quick-chat-bookmarks.test.js` |
+| `chatBudget` | 6 | `tests/chat-budget.test.js`, `tests/chat-compact.test.js`, `tests/chat-panel-mentions.test.js`, `tests/diagnostics-gauge.test.js`, `tests/quick-chat-bookmarks.test.js` |
 | `chatCompact` | 9 | `tests/chat-compact.test.js` |
 | `chatHistory` | 5 | `tests/chat-history.test.js` |
 | `chatMentions` | 17 | `tests/chat-mentions.test.js` |
@@ -184,6 +184,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `cram` | 9 | `tests/card-cram.test.js`, `tests/card-mother-cram.test.js` |
 | `createQuickSession` | 0 | `tests/feature-surfaces.test.js` |
 | `dailyQuiz` | 14 | `tests/daily-quiz-freeze.test.js`, `tests/daily-quiz.test.js` |
+| `diagnostics` | 8 | `tests/diagnostics-gauge.test.js` |
 | `distractorQuality` | 5 | `tests/distractor-quality.test.js` |
 | `documentCards` | 7 | `tests/document-cards.test.js`, `tests/import-routes-audit.test.js` |
 | `documentClassify` | 5 | `tests/document-classify.test.js` |
@@ -577,6 +578,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `open-study-agent` | Study agent: open the sidebar | `activateAgent` | `tests/agent-view.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/quick-chat-bookmarks.test.js` |
 | `ai-quick-ask` | AI: Quick Ask about the selection or note | `openQuickAsk` | `tests/quick-ask.test.js` |
 | `study-agent-quick-chat` | Study agent: Quick Chat | `openQuickChat` | `tests/quick-chat-bookmarks.test.js` |
+| `study-agent-diagnostics` | Study agent: save diagnostics bundle | `saveDiagnosticsBundle` | `tests/diagnostics-gauge.test.js` |
 | `cards-rescan-plain` | Cards: rescan plain Markdown folder | `moduleOff` | `tests/frq-review.test.js`, `tests/plain-cards.test.js`, `tests/views.test.js` |
 | `export-cards` | Cards: export to Quizlet, Anki package, Anki text, Mochi, LearnKit, Kahoot, Blooket or Gimkit | `openCardExport` | `tests/command-effects.test.js` |
 | `push-cards-anki` | Cards: push to Anki (AnkiConnect) | `openAnkiConnectPush` | `tests/command-effects.test.js` |

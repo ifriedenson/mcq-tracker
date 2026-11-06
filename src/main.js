@@ -330,6 +330,7 @@ QuestionTrackerPlugin.__test = {
   chatBookmarks: require("./chat-bookmarks"),
   chatModels: require("./chat-models"),
   chatCompact: require("./chat-compact"),
+  diagnostics: require("./diagnostics"),
   localModels: require("./local-models"),
   readingCompanion: require("./reading-companion"),
   tutorPresets,

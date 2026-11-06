@@ -75,6 +75,17 @@ view does not stop the configured AI provider.
   note, selection, mentioned notes and folders, slash command and history, names
   the effective model, and estimates tokens against a local 12,000-token budget,
   warning at 80% and refusing an over-budget Send before any request.
+- **See the context ring.** A compact ring and `~tokens / 12,000` label under
+  the composer read the same `lastBudget` state as the text footer. They appear
+  once the chat has a message or draft, update after sends and `/compact`, hide
+  on an unused chat or when budget data is unavailable, and drop the label (then
+  the whole gauge) at narrow container widths.
+- **Save a local diagnostics bundle.** Run **Study agent: save diagnostics
+  bundle** from the command palette to write one Markdown report under
+  `Study agent diagnostics/`. It contains the plugin/version, platform, redacted
+  settings, live chat-budget and model state, observed capability flags and
+  recent local errors. Secrets and API keys are replaced before writing; it uses
+  the normal Vault path and a Notice, with no network request or telemetry.
 - **Compact a long chat.** Type `/compact` to fold older Direct API messages
   into one local summary and keep the newest turns verbatim. It writes through
   the existing conversation storage, updates the token estimate and makes no
@@ -127,6 +138,8 @@ editor/user entry points. `tests/chat-budget.test.js` and
 mention parsing, candidate ranking, missing targets and bounded resolution,
 `tests/chat-models.test.js` covers override precedence, unavailable-model
 fallback, OpenCode shape checking and command-map parsing,
+`tests/diagnostics-gauge.test.js` covers the local bundle, fake-key redaction
+and no-network guard, plus gauge tracking and graceful hiding.
 `tests/chat-compact.test.js` covers the no-op, over-budget, recent-turn and
 impossible-recent cases, and `tests/chat-panel-mentions.test.js` drives the
 switch, refusal, footer, picker, model selector, `/compact` and library
