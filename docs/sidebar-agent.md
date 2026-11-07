@@ -114,6 +114,15 @@ view does not stop the configured AI provider.
   `Study agent chats` with title, model and project metadata plus one heading
   per turn. It writes a normal vault note, never overwrites an earlier export,
   redacts key-like text and creates no share link or upload.
+- **Rewind or fork from a question.** Every user message has **Rewind** and
+  **Fork**. Rewind removes that turn and every later one, then puts the question
+  back in the composer for editing; fork copies the transcript up to that
+  question into a new saved conversation named `<title> (fork)` and switches to
+  it, while the original stays intact. The palette commands **Study agent:
+  rewind to the last question** and **Study agent: fork from the last question**
+  do the same. Both work on this device's Direct API transcript (OpenCode keeps
+  its history on its server) and refuse the first question, because there is
+  nothing before it to keep.
 - **Group chats into projects.** The library has a **This chat** picker for the
   open conversation, a **Filter** picker for All / Unassigned / one project, a
   project name on each matching row, and **Remove project** to delete the label

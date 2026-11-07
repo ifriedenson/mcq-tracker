@@ -788,6 +788,24 @@ class QuestionTrackerPlugin extends Plugin {
         }),
     });
     this.addCommand({
+      id: "study-agent-rewind",
+      name: "Study agent: rewind to the last question",
+      callback: () =>
+        this.rewindLastQuestion().catch((e) => {
+          this.recordDiagnosticError("chat rewind", e);
+          new Notice(`Could not rewind the conversation: ${String((e && e.message) || e)}`, 8000);
+        }),
+    });
+    this.addCommand({
+      id: "study-agent-fork",
+      name: "Study agent: fork from the last question",
+      callback: () =>
+        this.forkLastQuestion().catch((e) => {
+          this.recordDiagnosticError("chat fork", e);
+          new Notice(`Could not fork the conversation: ${String((e && e.message) || e)}`, 8000);
+        }),
+    });
+    this.addCommand({
       id: "study-agent-diagnostics",
       name: "Study agent: save diagnostics bundle",
       callback: () =>
@@ -4197,6 +4215,26 @@ class QuestionTrackerPlugin extends Plugin {
     }
     const tab = view.activeTab();
     return view.exportChat(tab && tab.id);
+  }
+
+  /** Rewind the active Direct API conversation to its most recent question. */
+  async rewindLastQuestion() {
+    const view = await this.activateAgent();
+    if (!view || typeof view.rewindLastQuestion !== "function") {
+      new Notice("The Study agent could not open. Nothing changed.");
+      return false;
+    }
+    return view.rewindLastQuestion();
+  }
+
+  /** Fork the active Direct API conversation from its most recent question. */
+  async forkLastQuestion() {
+    const view = await this.activateAgent();
+    if (!view || typeof view.forkLastQuestion !== "function") {
+      new Notice("The Study agent could not open. Nothing changed.");
+      return false;
+    }
+    return view.forkLastQuestion();
   }
 
   openCardExport(options, onDone) {

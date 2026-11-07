@@ -1437,6 +1437,7 @@ const chatQueue = require("./chat-queue");
 const chatSkills = require("./chat-skills");
 const chatProjects = require("./chat-projects");
 const chatExport = require("./chat-export");
+const chatBranches = require("./chat-branches");
 const { archiveSession, libraryRows, newChatId, normalizeSessions, removeSession, renameSession, setArchivedSession, setPinnedSession, titleFromMessages } = require("./chat-sessions");
 
 const MAX_TABS = 6;
@@ -1653,6 +1654,9 @@ class AgentView extends ItemView {
       onRemoveProject: (id) => this.removeChatProject(id),
       onOpenMemory: () => this.openMemory(),
       onExportChat: (id) => this.exportChat(id),
+      onRewindTurn: (turn) => this.rewindTurn(turn),
+      onForkTurn: (turn) => this.forkTurn(turn),
+      canBranch: () => this.canBranch(),
       loadSkills: () => this.loadSkills(),
       onSaveNote: (text) => this.insertReply(text),
       saveNoteLabel: "Insert into active note",
@@ -1750,6 +1754,90 @@ class AgentView extends ItemView {
     await vault.create(path, text.endsWith("\n") ? text : `${text}\n`);
     new Notice(`Exported this conversation to ${path}.`);
     return path;
+  }
+
+  /** Rewind and fork operate on the local Direct API transcript only. */
+  canBranch() {
+    const backend = this.plugin && typeof this.plugin.backend === "function" ? this.plugin.backend() : "api";
+    return backend !== "opencode";
+  }
+
+  /** Truncate the active conversation to before one user turn and refill the composer. */
+  rewindTurn(turnNumber) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    const tab = this.activeTab();
+    if (!ai || !tab) {
+      new Notice("There is no conversation to rewind.");
+      return false;
+    }
+    if (!this.canBranch()) {
+      new Notice("Rewind works on this device's Direct API transcript. OpenCode keeps its conversation on its server.", 8000);
+      return false;
+    }
+    const index = chatBranches.indexForTurn(tab.messages, turnNumber);
+    const plan = chatBranches.rewindPlan(tab.messages, index);
+    if (!plan.ok) {
+      new Notice(chatBranches.reasonText(plan.reason), 6000);
+      return false;
+    }
+    const bookmarks = chatBookmarks.normalizeBookmarks(tab.bookmarks).filter((bookmark) => bookmark.index < plan.messages.length);
+    this.saveTabHistory(tab, plan.messages);
+    this.updateTab(tab, { bookmarks });
+    if (tab.panel && typeof tab.panel.prefillComposer === "function") tab.panel.prefillComposer(plan.text);
+    new Notice("Rewound this conversation. That question is back in the box; the later turns were removed.", 7000);
+    return true;
+  }
+
+  /** Copy the conversation up to before one user turn into a new saved conversation. */
+  forkTurn(turnNumber) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    const tab = this.activeTab();
+    if (!ai || !tab) {
+      new Notice("There is no conversation to fork.");
+      return false;
+    }
+    if (!this.canBranch()) {
+      new Notice("Fork works on this device's Direct API transcript. OpenCode keeps its conversation on its server.", 8000);
+      return false;
+    }
+    const index = chatBranches.indexForTurn(tab.messages, turnNumber);
+    const plan = chatBranches.forkPlan(tab.messages, index, tab.title || titleFromMessages(tab.messages));
+    if (!plan.ok) {
+      new Notice(chatBranches.reasonText(plan.reason), 6000);
+      return false;
+    }
+    if (this.chatTabs.length >= MAX_TABS) {
+      new Notice(`You can have at most ${MAX_TABS} conversation tabs open. Close one first.`, 6000);
+      return false;
+    }
+    const source = { model: tab.model, project: tab.project };
+    if (!this.newTab()) return false;
+    const fork = this.activeTab();
+    if (!fork) return false;
+    this.updateTab(fork, { title: plan.title, model: source.model, project: source.project, bookmarks: [] });
+    this.saveTabHistory(fork, plan.messages);
+    new Notice(`Forked this conversation into "${plan.title}". The original is unchanged.`, 7000);
+    return true;
+  }
+
+  /** Palette command: rewind to the most recent question. */
+  rewindLastQuestion() {
+    const tab = this.activeTab();
+    if (!tab) {
+      new Notice("There is no conversation to rewind.");
+      return false;
+    }
+    return this.rewindTurn(chatBranches.lastTurnNumber(tab.messages));
+  }
+
+  /** Palette command: fork from the most recent question. */
+  forkLastQuestion() {
+    const tab = this.activeTab();
+    if (!tab) {
+      new Notice("There is no conversation to fork.");
+      return false;
+    }
+    return this.forkTurn(chatBranches.lastTurnNumber(tab.messages));
   }
 
   /** The active Direct API transcript, restored from settings so a reload keeps the chat. */
@@ -24297,6 +24385,110 @@ module.exports = {
 };
 };
 
+/* ---- src/chat-branches.js ---- */
+__defs["chat-branches"] = function (module, exports, require) {
+/*
+ * Local transcript branching for the Study agent.
+ *
+ * Rewind truncates a conversation to before one user turn and returns that
+ * turn's text for the composer. Fork copies the same prefix into a new saved
+ * conversation, leaving the original untouched. Pure: no Obsidian API, no
+ * provider call and no file write.
+ */
+const { str } = require("./util");
+
+const MAX_TITLE = 80;
+const MAX_TEXT = 20000;
+
+function messageText(value) {
+  const message = value && typeof value === "object" ? value : {};
+  return str(message.content === undefined ? message.text : message.content).trim();
+}
+
+/** History indexes of the user turns that have text, in order. */
+function userTurnIndexes(messages) {
+  const rows = Array.isArray(messages) ? messages : [];
+  const indexes = [];
+  for (let index = 0; index < rows.length; index += 1) {
+    const message = rows[index];
+    if (message && message.role === "user" && messageText(message)) indexes.push(index);
+  }
+  return indexes;
+}
+
+/** Map the nth displayed user turn to its history index, or -1. */
+function indexForTurn(messages, turnNumber) {
+  const indexes = userTurnIndexes(messages);
+  const turn = Number(turnNumber);
+  if (!Number.isInteger(turn) || turn < 0 || turn >= indexes.length) return -1;
+  return indexes[turn];
+}
+
+/** The last user turn number, or -1 when there is no question. */
+function lastTurnNumber(messages) {
+  return userTurnIndexes(messages).length - 1;
+}
+
+function forkTitle(title) {
+  const base = str(title).replace(/\s+/g, " ").trim().slice(0, MAX_TITLE) || "Study agent chat";
+  const suffix = " (fork)";
+  return `${base.slice(0, MAX_TITLE - suffix.length).trimEnd()}${suffix}`;
+}
+
+/**
+ * The common operation: keep every message before one user turn and return
+ * that turn's text. The first turn has no prefix to keep, so it is refused.
+ */
+function branchPlan(messages, index) {
+  const rows = Array.isArray(messages) ? messages : [];
+  if (!rows.length) return { ok: false, reason: "no-messages", messages: [], text: "" };
+  const at = Number(index);
+  if (!Number.isInteger(at) || at < 0 || at >= rows.length) {
+    return { ok: false, reason: "missing", messages: [], text: "" };
+  }
+  const target = rows[at];
+  const text = messageText(target);
+  if (!target || target.role !== "user" || !text) {
+    return { ok: false, reason: "not-user", messages: [], text: "" };
+  }
+  const prefix = rows.slice(0, at);
+  if (!prefix.length) return { ok: false, reason: "first", messages: [], text: "" };
+  return { ok: true, reason: "", messages: prefix, text: text.slice(0, MAX_TEXT) };
+}
+
+function rewindPlan(messages, index) {
+  return branchPlan(messages, index);
+}
+
+function forkPlan(messages, index, title) {
+  const plan = branchPlan(messages, index);
+  if (!plan.ok) return plan;
+  return { ...plan, title: forkTitle(title) };
+}
+
+function reasonText(reason) {
+  if (reason === "no-messages") return "There is no conversation to branch yet.";
+  if (reason === "missing") return "That question is no longer in this transcript.";
+  if (reason === "not-user") return "Rewind and fork start from a question, not a reply.";
+  if (reason === "first") return "This is the first question. There is nothing before it to keep.";
+  return "That conversation could not be branched.";
+}
+
+module.exports = {
+  MAX_TEXT,
+  MAX_TITLE,
+  branchPlan,
+  forkPlan,
+  forkTitle,
+  indexForTurn,
+  lastTurnNumber,
+  messageText,
+  reasonText,
+  rewindPlan,
+  userTurnIndexes,
+};
+};
+
 /* ---- src/chat-budget.js ---- */
 __defs["chat-budget"] = function (module, exports, require) {
 /*
@@ -27052,6 +27244,17 @@ class ChatPanel {
     }
   }
 
+  /** Put text back in the composer after a rewind without sending it. */
+  prefillComposer(text) {
+    const value = str(text);
+    if (!this.input || !value) return false;
+    this.input.value = value;
+    if (this.input.focus) this.input.focus();
+    this.syncMentionChips();
+    this.refreshTokenFooter();
+    return true;
+  }
+
   draw() {
     if (!this.transcript) return;
     const sig = JSON.stringify([this.turns, this.pending, this.error, this.busy, this.streamText, this.bookmarks]);
@@ -27061,14 +27264,22 @@ class ChatPanel {
     box.empty();
     this.turnEls = [];
     const lastAssistant = [...this.turns].reverse().find((turn) => turn.role === "assistant");
+    let userSeen = -1;
     this.turns.forEach((t, index) => {
+      if (t.role === "user") userSeen += 1;
       const b = box.createDiv({ cls: `qt-msg is-${t.role}` });
       this.turnEls[index] = b;
       for (const text of t.texts) this.view.md(text, b.createDiv({ cls: "qt-msg-text" }), this.opts.sourcePath || "");
       for (const line of t.tools) b.createDiv({ cls: "qt-tool", text: line });
       const bookmark = chatBookmarks.makeBookmark(t, index);
       const assistantActions = t.role === "assistant" && t.texts.length && !this.busy;
-      if (!bookmark && !assistantActions) return;
+      const branchable =
+        t.role === "user" &&
+        !this.busy &&
+        typeof this.opts.onRewindTurn === "function" &&
+        typeof this.opts.onForkTurn === "function" &&
+        !(typeof this.opts.canBranch === "function" && !this.opts.canBranch());
+      if (!bookmark && !assistantActions && !branchable) return;
       const actions = b.createDiv({ cls: "qt-msg-actions" });
       if (bookmark) {
         const saved = chatBookmarks.isBookmarked(this.bookmarks, bookmark);
@@ -27082,6 +27293,13 @@ class ChatPanel {
           const copy = actions.createEl("button", { text: "Copy link", cls: "qt-msg-bookmark-link" });
           copy.addEventListener("click", () => this.copyBookmarkLink(index, t));
         }
+      }
+      if (branchable) {
+        const turn = userSeen;
+        const rewind = actions.createEl("button", { text: "Rewind" });
+        rewind.addEventListener("click", () => this.opts.onRewindTurn(turn));
+        const fork = actions.createEl("button", { text: "Fork" });
+        fork.addEventListener("click", () => this.opts.onForkTurn(turn));
       }
       if (assistantActions) {
         const copy = actions.createEl("button", { text: "Copy" });
@@ -65107,6 +65325,24 @@ class QuestionTrackerPlugin extends Plugin {
         }),
     });
     this.addCommand({
+      id: "study-agent-rewind",
+      name: "Study agent: rewind to the last question",
+      callback: () =>
+        this.rewindLastQuestion().catch((e) => {
+          this.recordDiagnosticError("chat rewind", e);
+          new Notice(`Could not rewind the conversation: ${String((e && e.message) || e)}`, 8000);
+        }),
+    });
+    this.addCommand({
+      id: "study-agent-fork",
+      name: "Study agent: fork from the last question",
+      callback: () =>
+        this.forkLastQuestion().catch((e) => {
+          this.recordDiagnosticError("chat fork", e);
+          new Notice(`Could not fork the conversation: ${String((e && e.message) || e)}`, 8000);
+        }),
+    });
+    this.addCommand({
       id: "study-agent-diagnostics",
       name: "Study agent: save diagnostics bundle",
       callback: () =>
@@ -68516,6 +68752,26 @@ class QuestionTrackerPlugin extends Plugin {
     }
     const tab = view.activeTab();
     return view.exportChat(tab && tab.id);
+  }
+
+  /** Rewind the active Direct API conversation to its most recent question. */
+  async rewindLastQuestion() {
+    const view = await this.activateAgent();
+    if (!view || typeof view.rewindLastQuestion !== "function") {
+      new Notice("The Study agent could not open. Nothing changed.");
+      return false;
+    }
+    return view.rewindLastQuestion();
+  }
+
+  /** Fork the active Direct API conversation from its most recent question. */
+  async forkLastQuestion() {
+    const view = await this.activateAgent();
+    if (!view || typeof view.forkLastQuestion !== "function") {
+      new Notice("The Study agent could not open. Nothing changed.");
+      return false;
+    }
+    return view.forkLastQuestion();
   }
 
   openCardExport(options, onDone) {
@@ -122157,6 +122413,7 @@ QuestionTrackerPlugin.__test = {
   chatProjects: require("./chat-projects"),
   chatMemory: require("./chat-memory"),
   chatExport: require("./chat-export"),
+  chatBranches: require("./chat-branches"),
   chatPricing: require("./chat-pricing"),
   chatMentions: require("./chat-mentions"),
   chatBookmarks: require("./chat-bookmarks"),

@@ -20,6 +20,7 @@ const chatQueue = require("./chat-queue");
 const chatSkills = require("./chat-skills");
 const chatProjects = require("./chat-projects");
 const chatExport = require("./chat-export");
+const chatBranches = require("./chat-branches");
 const { archiveSession, libraryRows, newChatId, normalizeSessions, removeSession, renameSession, setArchivedSession, setPinnedSession, titleFromMessages } = require("./chat-sessions");
 
 const MAX_TABS = 6;
@@ -236,6 +237,9 @@ class AgentView extends ItemView {
       onRemoveProject: (id) => this.removeChatProject(id),
       onOpenMemory: () => this.openMemory(),
       onExportChat: (id) => this.exportChat(id),
+      onRewindTurn: (turn) => this.rewindTurn(turn),
+      onForkTurn: (turn) => this.forkTurn(turn),
+      canBranch: () => this.canBranch(),
       loadSkills: () => this.loadSkills(),
       onSaveNote: (text) => this.insertReply(text),
       saveNoteLabel: "Insert into active note",
@@ -333,6 +337,90 @@ class AgentView extends ItemView {
     await vault.create(path, text.endsWith("\n") ? text : `${text}\n`);
     new Notice(`Exported this conversation to ${path}.`);
     return path;
+  }
+
+  /** Rewind and fork operate on the local Direct API transcript only. */
+  canBranch() {
+    const backend = this.plugin && typeof this.plugin.backend === "function" ? this.plugin.backend() : "api";
+    return backend !== "opencode";
+  }
+
+  /** Truncate the active conversation to before one user turn and refill the composer. */
+  rewindTurn(turnNumber) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    const tab = this.activeTab();
+    if (!ai || !tab) {
+      new Notice("There is no conversation to rewind.");
+      return false;
+    }
+    if (!this.canBranch()) {
+      new Notice("Rewind works on this device's Direct API transcript. OpenCode keeps its conversation on its server.", 8000);
+      return false;
+    }
+    const index = chatBranches.indexForTurn(tab.messages, turnNumber);
+    const plan = chatBranches.rewindPlan(tab.messages, index);
+    if (!plan.ok) {
+      new Notice(chatBranches.reasonText(plan.reason), 6000);
+      return false;
+    }
+    const bookmarks = chatBookmarks.normalizeBookmarks(tab.bookmarks).filter((bookmark) => bookmark.index < plan.messages.length);
+    this.saveTabHistory(tab, plan.messages);
+    this.updateTab(tab, { bookmarks });
+    if (tab.panel && typeof tab.panel.prefillComposer === "function") tab.panel.prefillComposer(plan.text);
+    new Notice("Rewound this conversation. That question is back in the box; the later turns were removed.", 7000);
+    return true;
+  }
+
+  /** Copy the conversation up to before one user turn into a new saved conversation. */
+  forkTurn(turnNumber) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    const tab = this.activeTab();
+    if (!ai || !tab) {
+      new Notice("There is no conversation to fork.");
+      return false;
+    }
+    if (!this.canBranch()) {
+      new Notice("Fork works on this device's Direct API transcript. OpenCode keeps its conversation on its server.", 8000);
+      return false;
+    }
+    const index = chatBranches.indexForTurn(tab.messages, turnNumber);
+    const plan = chatBranches.forkPlan(tab.messages, index, tab.title || titleFromMessages(tab.messages));
+    if (!plan.ok) {
+      new Notice(chatBranches.reasonText(plan.reason), 6000);
+      return false;
+    }
+    if (this.chatTabs.length >= MAX_TABS) {
+      new Notice(`You can have at most ${MAX_TABS} conversation tabs open. Close one first.`, 6000);
+      return false;
+    }
+    const source = { model: tab.model, project: tab.project };
+    if (!this.newTab()) return false;
+    const fork = this.activeTab();
+    if (!fork) return false;
+    this.updateTab(fork, { title: plan.title, model: source.model, project: source.project, bookmarks: [] });
+    this.saveTabHistory(fork, plan.messages);
+    new Notice(`Forked this conversation into "${plan.title}". The original is unchanged.`, 7000);
+    return true;
+  }
+
+  /** Palette command: rewind to the most recent question. */
+  rewindLastQuestion() {
+    const tab = this.activeTab();
+    if (!tab) {
+      new Notice("There is no conversation to rewind.");
+      return false;
+    }
+    return this.rewindTurn(chatBranches.lastTurnNumber(tab.messages));
+  }
+
+  /** Palette command: fork from the most recent question. */
+  forkLastQuestion() {
+    const tab = this.activeTab();
+    if (!tab) {
+      new Notice("There is no conversation to fork.");
+      return false;
+    }
+    return this.forkTurn(chatBranches.lastTurnNumber(tab.messages));
   }
 
   /** The active Direct API transcript, restored from settings so a reload keeps the chat. */

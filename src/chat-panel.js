@@ -1741,6 +1741,17 @@ class ChatPanel {
     }
   }
 
+  /** Put text back in the composer after a rewind without sending it. */
+  prefillComposer(text) {
+    const value = str(text);
+    if (!this.input || !value) return false;
+    this.input.value = value;
+    if (this.input.focus) this.input.focus();
+    this.syncMentionChips();
+    this.refreshTokenFooter();
+    return true;
+  }
+
   draw() {
     if (!this.transcript) return;
     const sig = JSON.stringify([this.turns, this.pending, this.error, this.busy, this.streamText, this.bookmarks]);
@@ -1750,14 +1761,22 @@ class ChatPanel {
     box.empty();
     this.turnEls = [];
     const lastAssistant = [...this.turns].reverse().find((turn) => turn.role === "assistant");
+    let userSeen = -1;
     this.turns.forEach((t, index) => {
+      if (t.role === "user") userSeen += 1;
       const b = box.createDiv({ cls: `qt-msg is-${t.role}` });
       this.turnEls[index] = b;
       for (const text of t.texts) this.view.md(text, b.createDiv({ cls: "qt-msg-text" }), this.opts.sourcePath || "");
       for (const line of t.tools) b.createDiv({ cls: "qt-tool", text: line });
       const bookmark = chatBookmarks.makeBookmark(t, index);
       const assistantActions = t.role === "assistant" && t.texts.length && !this.busy;
-      if (!bookmark && !assistantActions) return;
+      const branchable =
+        t.role === "user" &&
+        !this.busy &&
+        typeof this.opts.onRewindTurn === "function" &&
+        typeof this.opts.onForkTurn === "function" &&
+        !(typeof this.opts.canBranch === "function" && !this.opts.canBranch());
+      if (!bookmark && !assistantActions && !branchable) return;
       const actions = b.createDiv({ cls: "qt-msg-actions" });
       if (bookmark) {
         const saved = chatBookmarks.isBookmarked(this.bookmarks, bookmark);
@@ -1771,6 +1790,13 @@ class ChatPanel {
           const copy = actions.createEl("button", { text: "Copy link", cls: "qt-msg-bookmark-link" });
           copy.addEventListener("click", () => this.copyBookmarkLink(index, t));
         }
+      }
+      if (branchable) {
+        const turn = userSeen;
+        const rewind = actions.createEl("button", { text: "Rewind" });
+        rewind.addEventListener("click", () => this.opts.onRewindTurn(turn));
+        const fork = actions.createEl("button", { text: "Fork" });
+        fork.addEventListener("click", () => this.opts.onForkTurn(turn));
       }
       if (assistantActions) {
         const copy = actions.createEl("button", { text: "Copy" });
