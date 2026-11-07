@@ -12991,3 +12991,355 @@ body.is-mobile .qt-screen .qt-local-events-tab {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+/* Study agent: Copilot-style chat layout.
+   Clean-room composition from Obsidian's own variables; no third-party
+   stylesheet, class name or asset is copied. */
+.qt-agent-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+.qt-agent-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 2px 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.qt-agent-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.qt-agent-mark {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-size: 15px;
+  line-height: 1;
+  box-shadow: var(--shadow-s);
+}
+.qt-agent-titles {
+  min-width: 0;
+}
+.qt-agent-title {
+  font-weight: var(--font-semibold, 600);
+  font-size: var(--font-ui-medium);
+  line-height: 1.2;
+}
+.qt-agent-subtitle {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.qt-agent-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+.qt-agent-model {
+  max-width: 150px;
+  min-height: 26px;
+  font-size: var(--font-ui-smaller);
+}
+.qt-agent-icon {
+  min-height: 26px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+.qt-agent-icon:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+.qt-agent-hintbar {
+  margin: 0 2px;
+  font-size: var(--font-ui-smaller);
+  line-height: 1.45;
+}
+.qt-agent-suggestions {
+  gap: 6px;
+}
+.qt-agent-suggestions .qt-chip {
+  border-radius: 999px;
+}
+.qt-agent-thread {
+  flex: 1 1 auto;
+  min-height: 220px;
+  max-height: 58vh;
+  gap: 14px;
+  padding: 6px 2px 10px;
+  scroll-behavior: smooth;
+}
+.qt-agent-thread.is-empty {
+  justify-content: center;
+}
+.qt-agent-turn {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 100%;
+}
+.qt-agent-turn.is-user {
+  flex-direction: row-reverse;
+}
+.qt-agent-avatar {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-top: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+}
+.qt-agent-turn.is-assistant .qt-agent-avatar {
+  border-color: transparent;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-size: 13px;
+}
+.qt-agent-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  max-width: 88%;
+}
+.qt-agent-turn.is-user .qt-agent-stack {
+  align-items: flex-end;
+}
+.qt-agent-name {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+.qt-agent-thread .qt-msg {
+  max-width: 100%;
+  padding: 9px 12px;
+}
+.qt-agent-thread .qt-msg.is-user {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-radius: 14px 14px 4px 14px;
+}
+.qt-agent-thread .qt-msg.is-user a {
+  color: var(--text-on-accent);
+  text-decoration-line: underline;
+}
+.qt-agent-thread .qt-msg.is-assistant {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 14px 14px 14px 4px;
+}
+.qt-agent-thread .qt-msg.is-pending {
+  opacity: 0.75;
+}
+.qt-agent-thread .qt-msg.is-typing {
+  display: flex;
+  gap: 4px;
+  padding: 12px;
+}
+.qt-agent-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  opacity: 0.55;
+}
+.qt-agent-thread .qt-msg.is-user .qt-msg-actions button,
+.qt-agent-thread .qt-msg.is-user .qt-tool {
+  color: var(--text-on-accent);
+  opacity: 0.85;
+}
+.qt-msg-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-top: 4px;
+}
+.qt-msg-actions button {
+  min-height: 22px;
+  height: auto;
+  padding: 0 6px;
+  border-radius: var(--radius-s);
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+.qt-msg-actions button:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.qt-agent-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: auto;
+  padding: 18px 12px;
+  text-align: center;
+}
+.qt-agent-empty-mark {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-size: 20px;
+  line-height: 1;
+  box-shadow: var(--shadow-s);
+}
+.qt-agent-empty-title {
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-semibold, 600);
+}
+.qt-agent-empty-text {
+  max-width: 36ch;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  line-height: 1.5;
+}
+.qt-agent-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+.qt-agent-empty-actions .qt-chip {
+  border-radius: 999px;
+}
+.qt-agent-composer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-l, 12px);
+  background: var(--background-primary);
+  box-shadow: var(--shadow-s);
+}
+.qt-agent-composer .qt-chat-context {
+  margin: 0;
+  gap: 4px;
+}
+.qt-agent-composer .qt-chat-context .qt-chip {
+  min-height: 24px;
+  height: auto;
+  padding: 0 8px;
+  font-size: var(--font-ui-smaller);
+  border-radius: 999px;
+}
+.qt-agent-composer .qt-chat-mentions,
+.qt-agent-composer .qt-chat-pdfs {
+  margin: 0;
+}
+.qt-agent-inputrow {
+  display: flex;
+}
+.qt-agent-inputrow .qt-chat-input,
+.qt-agent-input {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 54px;
+  max-height: 180px;
+  padding: 4px 2px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  resize: none;
+  font-size: var(--font-ui-small);
+  line-height: 1.5;
+}
+.qt-agent-inputrow .qt-chat-input:focus,
+.qt-agent-input:focus {
+  border: none;
+  box-shadow: none;
+  outline: none;
+}
+.qt-agent-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+.qt-agent-toolbar .qt-select {
+  min-height: 26px;
+  max-width: 150px;
+  font-size: var(--font-ui-smaller);
+}
+.qt-agent-tool {
+  min-height: 26px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+.qt-agent-tool:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+.qt-agent-send {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.qt-agent-send-btn {
+  min-height: 28px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: var(--font-ui-smaller);
+}
+.qt-agent-budget {
+  margin: 0;
+  font-size: var(--font-ui-smaller);
+}
+.qt-agent-status {
+  margin: 0 2px;
+}
+@container (max-width: 360px) {
+  .qt-agent-head-actions .qt-agent-icon {
+    padding: 0 6px;
+  }
+  .qt-agent-model {
+    max-width: 108px;
+  }
+  .qt-agent-toolbar .qt-agent-command,
+  .qt-agent-toolbar .qt-agent-saved-command {
+    display: none;
+  }
+}

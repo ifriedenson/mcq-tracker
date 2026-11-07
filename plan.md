@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status: v1.285.0 (Nov 7, 2026).** One MIT, dependency-free Obsidian plugin
+**Status: v1.286.0 (Nov 7, 2026).** One MIT, dependency-free Obsidian plugin
 (`mcq-tracker`) covering exam practice, cards and vocabulary, courses and
 calendars, study planning, document ingestion, reference/STEM tools and an
 optional BYOK/OpenCode AI layer.
@@ -15,7 +15,7 @@ surfaces, so unfinished ideas are not disguised as checked work.
 
 **Verified at this commit:** `node --test` → 2,379 tests pass, 0 fail;
 `npm run check` clean (no dynamic code across 336 source files, vendor guard,
-bundle up to date); `main.js` generated from 339 modules at 6,755,271 bytes.
+bundle up to date); `main.js` generated from 339 modules at 6,759,020 bytes.
 Re-run both before quoting these numbers.
 
 **Shipped in 1.282.0 (Nov 7, 2026):** Quick Ask, saved study
@@ -70,7 +70,7 @@ file is what made it unreadable; it now points instead.
 ## Handoff snapshot (updated Nov 7, 2026 at v1.284.0)
 
 - **State:** 0 unchecked core rows; Quick Chat, message bookmarks, per-message rewind and fork, Quick Ask, saved study commands, vault skills, chat projects, opt-in local memory, Markdown conversation export and local cost estimates ship in 1.282.0; the 1.283.0 knowledge record is end-to-end scenario-verified in 1.285.0 and now follows a moved or renamed note; Mother cram and card answer dictation shipped; 3 `[~]` partials (the owner visual, device and screenshot passes remain; no result has been pasted); four former gates decided on Nov 6, 2026 (§B).
-- **Newest feature:** 1.285.0 proves the opt-in **knowledge record** (§5.27) survives a source-note move, rename, delete, recreation at a new path and restore: concept ids, `firstSeen`, aliases, attempt evidence and misconception state stay attached, the Insights card and learner digest keep the note linked, and repeated rebuilds do not duplicate it. 1.284.0 verified extraction, attempt updates, misconception opening/fixing, heading rename identity, deleted-source retention, idempotent rebuild, reload, Insights actions and the bounded Study-agent digest. 1.283.0 added it: concept extraction, coverage, misconceptions and the digest, with its UI in Insights → Concepts. 1.282.0 added **plan-then-act**, **general PDF attachments**, a **Quick Practice home-screen URI** and a **sample-vault math/chemistry audit note**, alongside the Nov 6 additions: **Quick Chat**, **message bookmarks with chat links**, **per-message rewind and fork**, **vault skills**, **local chat projects**, **opt-in local memory**, **per-conversation Markdown export**, **local cost estimates** (per send and per conversation), a **compact context ring**, a **local diagnostics bundle**, **Quick Ask**, **saved study commands**, **`@` note/folder mentions**, a **context/token footer** and a **searchable, pinned, archived conversation library** in one release. In 1.281.0, **Mother cram** is the practice-only Cards loop
+- **Newest feature:** 1.286.0 restyles the Study agent as a chat pane: an identity header with the chat model and conversation actions, avatar turns with bubbles, an empty state with starter prompts, and one rounded composer for context, draft and send. 1.285.0 proves the opt-in **knowledge record** (§5.27) survives a source-note move, rename, delete, recreation at a new path and restore: concept ids, `firstSeen`, aliases, attempt evidence and misconception state stay attached, the Insights card and learner digest keep the note linked, and repeated rebuilds do not duplicate it. 1.284.0 verified extraction, attempt updates, misconception opening/fixing, heading rename identity, deleted-source retention, idempotent rebuild, reload, Insights actions and the bounded Study-agent digest. 1.283.0 added it: concept extraction, coverage, misconceptions and the digest, with its UI in Insights → Concepts. 1.282.0 added **plan-then-act**, **general PDF attachments**, a **Quick Practice home-screen URI** and a **sample-vault math/chemistry audit note**, alongside the Nov 6 additions: **Quick Chat**, **message bookmarks with chat links**, **per-message rewind and fork**, **vault skills**, **local chat projects**, **opt-in local memory**, **per-conversation Markdown export**, **local cost estimates** (per send and per conversation), a **compact context ring**, a **local diagnostics bundle**, **Quick Ask**, **saved study commands**, **`@` note/folder mentions**, a **context/token footer** and a **searchable, pinned, archived conversation library** in one release. In 1.281.0, **Mother cram** is the practice-only Cards loop
   in the current deck: flip the card, then choose **Do not know** (send it to the
   back) or **Know** (remove it) until the queue is empty. It writes no attempt,
   grade, history or due date. 1.280.0 added **cram sessions** with exact
@@ -1699,10 +1699,13 @@ an owner decision, or is outside this plugin's study identity.
 
 | Copilot UI idea | MCQ decision |
 |---|---|
-| Compact right-sidebar chat with the composer pinned to the bottom | ✅ Adopted in the original Study agent. |
+| Compact right-sidebar chat with the composer pinned to the bottom | ✅ Adopted in the original Study agent; 1.286.0 rebuilt it as an identity header, an avatar turn list with an empty state, and one rounded composer card. |
 | Visible context toggles rather than hidden vault access | ✅ Adopted; current note and selection reset on New chat. |
-| Source chips with clickable citations | ◐ Citations are clickable; a chip row is still missing. |
+| Source chips with clickable citations | ✅ 1.286.0. Mention and PDF chips live inside the composer card above the draft; citations remain clickable in replies. |
 | Model picker in the composer | ✅ Nov 6, 2026. The Chat model selector sits beside mode and role; the footer names the effective model and source. |
+| Assistant identity header | ✅ 1.286.0. An accent mark, **Study agent**, and a live `Tutor · role` / `Agent · role` subtitle sit beside the chat model and **New chat** / **Save chat**. |
+| Chat bubbles with speaker avatars | ✅ 1.286.0. Each turn is an avatar row: user messages are accent bubbles aligned right, assistant replies sit left, actions collapse into a quiet row, and a three-dot row shows while a reply is prepared. |
+| Welcome screen with starter prompts | ✅ 1.286.0. An empty chat shows a greeting and three prompts (Explain this note, Quiz me on it, Plan my next hour) that send through the normal path; they hide once a turn exists. |
 | Stop button that keeps partial text | ✅ Adopted; late replies are ignored. |
 | Diff card with Apply / Cancel | ✅ Adopted for agent proposals. |
 | Status cards for tool calls | ◐ Plain proposal/status text, not Copilot's card components. |

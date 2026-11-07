@@ -157,6 +157,7 @@ class ChatPanel {
   build() {
     const root = this.root;
     root.empty();
+    root.addClass("qt-agent-panel");
     if (!this.ai.enabled) {
       root.createDiv({
         cls: "qt-hint",
@@ -165,25 +166,17 @@ class ChatPanel {
       return;
     }
 
-    const top = root.createDiv({ cls: "qt-row qt-small-row" });
-    const modeSel = top.createEl("select", { cls: "qt-select" });
-    modeSel.createEl("option", { value: "tutor", text: "Tutor (no file edits)" });
-    modeSel.createEl("option", {
-      value: "agent",
-      text: this.view.plugin.backend() === "api" ? "Agent (allow-listed notes)" : "Agent (can edit files)",
-    });
-    modeSel.value = this.ai.mode;
-    modeSel.addEventListener("change", () => {
-      this.ai.mode = modeSel.value;
-      this.view.plugin.save();
-      this.updateHint();
-    });
-    const role = top.createEl("select", { cls: "qt-select", attr: { "aria-label": "Tutor role", title: "Tutor role" } });
-    for (const item of TUTOR_ROLES) role.createEl("option", { value: item.id, text: item.label });
-    role.value = this.currentRole();
-    role.addEventListener("change", () => this.setRole(role.value));
-    this.modelSelect = top.createEl("select", {
-      cls: "qt-select",
+    // Header: who is answering, the model this tab sends with, and the two
+    // conversation actions. Per-send controls stay with the composer.
+    const head = root.createDiv({ cls: "qt-agent-head" });
+    const brand = head.createDiv({ cls: "qt-agent-brand" });
+    brand.createDiv({ cls: "qt-agent-mark", text: "✦", attr: { "aria-hidden": "true" } });
+    const titles = brand.createDiv({ cls: "qt-agent-titles" });
+    titles.createDiv({ cls: "qt-agent-title", text: "Study agent" });
+    this.modeLabel = titles.createDiv({ cls: "qt-agent-subtitle" });
+    const headActions = head.createDiv({ cls: "qt-agent-head-actions" });
+    this.modelSelect = headActions.createEl("select", {
+      cls: "qt-select qt-agent-model",
       attr: { "aria-label": "Chat model", title: "Model for this chat" },
     });
     this.renderModelSelect();
@@ -191,21 +184,23 @@ class ChatPanel {
       this.setChatModel(chatModels.normalizeModel(this.modelSelect.value));
       this.refreshTokenFooter();
     });
-    const nc = top.createEl("button", { text: "New chat" });
+    const nc = headActions.createEl("button", { text: "New chat", cls: "qt-agent-icon" });
     nc.addEventListener("click", () => this.newChat());
     if (this.opts.onSaveChat) {
-      const save = top.createEl("button", { text: "Save chat" });
+      const save = headActions.createEl("button", { text: "Save chat", cls: "qt-agent-icon" });
       save.addEventListener("click", () => this.saveChat());
     }
-    this.hint = root.createDiv({ cls: "qt-hint" });
+
+    this.hint = root.createDiv({ cls: "qt-hint qt-agent-hintbar" });
     this.updateHint();
     this.planEl = root.createDiv({ cls: "qt-chat-plan" });
     this.renderPlan();
-    this.renderContextToggles(root);
     this.renderLibrary(root);
 
+    this.quickEl = null;
     if (this.opts.quick && this.opts.quick.length) {
-      const chips = root.createDiv({ cls: "qt-chips" });
+      const chips = root.createDiv({ cls: "qt-chips qt-agent-suggestions" });
+      this.quickEl = chips;
       for (const q of this.opts.quick) {
         const c = chips.createEl("button", { text: q.label, cls: "qt-chip" });
         c.addEventListener("click", () => {
@@ -216,17 +211,25 @@ class ChatPanel {
       }
     }
 
-    this.transcript = root.createDiv({ cls: "qt-chat" });
-    this.status = root.createDiv({ cls: "qt-hint" });
+    this.transcript = root.createDiv({ cls: "qt-chat qt-agent-thread" });
+    this.status = root.createDiv({ cls: "qt-hint qt-agent-status" });
     this.thinkFirstNote = root.createDiv({ cls: "qt-hint qt-think-first qt-hidden", text: "" });
     this.mentionPicker = root.createDiv({ cls: "qt-chat-mention-picker qt-hidden" });
     this.queueEl = root.createDiv({ cls: "qt-chat-queue qt-hidden" });
     this.renderQueue();
 
-    const row = root.createDiv({ cls: "qt-row" });
+    // Composer: one rounded card. Context switches, the draft and the send
+    // controls live inside it, the way a chat app's input area reads.
+    const composer = root.createDiv({ cls: "qt-agent-composer" });
+    this.composerEl = composer;
+    this.renderContextToggles(composer);
+    const row = composer.createDiv({ cls: "qt-agent-inputrow" });
     this.input = row.createEl("textarea", {
-      cls: "qt-chat-input",
-      attr: { rows: "2", placeholder: "Ask a question... (Enter to send, Shift+Enter for a new line)" },
+      cls: "qt-chat-input qt-agent-input",
+      attr: {
+        rows: "2",
+        placeholder: "Ask about a note, paste a question, or plan a session…  (Enter to send, Shift+Enter for a new line)",
+      },
     });
     this.input.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && this.busy) {
@@ -238,15 +241,6 @@ class ChatPanel {
       e.preventDefault();
       this.send(this.input.value);
     });
-    this.atBtn = row.createEl("button", { text: "@", attr: { "aria-label": "Attach a note or folder", title: "Attach a note or folder" } });
-    this.atBtn.addEventListener("click", () => {
-      const prefix = this.input.value && !/\s$/.test(this.input.value) ? " " : "";
-      this.input.value = `${this.input.value}${prefix}@`;
-      this.mentionRange = { start: this.input.value.length - 1, end: this.input.value.length };
-      this.openMentionPicker("");
-    });
-    this.pdfBtn = row.createEl("button", { text: "PDF", attr: { "aria-label": "Attach a PDF", title: "Attach a PDF" } });
-    this.pdfBtn.addEventListener("click", () => this.attachPdf());
     this.input.addEventListener("input", () => {
       const before = chatMentions.mentionQueryAt(this.input.value, this.input.value.length);
       if (before) this.openMentionPicker(before.query, before.start, before.end);
@@ -254,14 +248,52 @@ class ChatPanel {
       this.syncMentionChips();
       this.refreshTokenFooter();
     });
-    this.sendBtn = row.createEl("button", { text: "Send", cls: "mod-cta" });
-    this.sendBtn.addEventListener("click", () => this.send(this.input.value));
-    this.stopBtn = row.createEl("button", { text: "Stop" });
-    this.stopBtn.addClass("qt-hidden");
-    this.stopBtn.addEventListener("click", () => this.stop());
-    const commandRow = root.createDiv({ cls: "qt-row qt-small-row qt-tutor-commands" });
-    const command = commandRow.createEl("select", { cls: "qt-select", attr: { "aria-label": "Insert a tutor command", title: "Insert a tutor command" } });
-    command.createEl("option", { value: "", text: "Tutor commands..." });
+
+    const toolbar = composer.createDiv({ cls: "qt-agent-toolbar" });
+    const modeSel = toolbar.createEl("select", {
+      cls: "qt-select qt-agent-mode",
+      attr: { "aria-label": "Mode", title: "Tutor or agent" },
+    });
+    modeSel.createEl("option", { value: "tutor", text: "Tutor" });
+    modeSel.createEl("option", {
+      value: "agent",
+      text: this.view.plugin.backend() === "api" ? "Agent (notes)" : "Agent (files)",
+    });
+    modeSel.value = this.ai.mode;
+    modeSel.addEventListener("change", () => {
+      this.ai.mode = modeSel.value;
+      this.view.plugin.save();
+      this.updateHint();
+    });
+    const role = toolbar.createEl("select", {
+      cls: "qt-select qt-agent-role",
+      attr: { "aria-label": "Tutor role", title: "Tutor role" },
+    });
+    for (const item of TUTOR_ROLES) role.createEl("option", { value: item.id, text: item.label });
+    role.value = this.currentRole();
+    role.addEventListener("change", () => this.setRole(role.value));
+    this.atBtn = toolbar.createEl("button", {
+      cls: "qt-agent-tool",
+      text: "@",
+      attr: { "aria-label": "Attach a note or folder", title: "Attach a note or folder" },
+    });
+    this.atBtn.addEventListener("click", () => {
+      const prefix = this.input.value && !/\s$/.test(this.input.value) ? " " : "";
+      this.input.value = `${this.input.value}${prefix}@`;
+      this.mentionRange = { start: this.input.value.length - 1, end: this.input.value.length };
+      this.openMentionPicker("");
+    });
+    this.pdfBtn = toolbar.createEl("button", {
+      cls: "qt-agent-tool",
+      text: "PDF",
+      attr: { "aria-label": "Attach a PDF", title: "Attach a PDF" },
+    });
+    this.pdfBtn.addEventListener("click", () => this.attachPdf());
+    const command = toolbar.createEl("select", {
+      cls: "qt-select qt-agent-command",
+      attr: { "aria-label": "Insert a tutor command", title: "Insert a tutor command" },
+    });
+    command.createEl("option", { value: "", text: "Tutor commands…" });
     for (const item of TUTOR_COMMANDS) command.createEl("option", { value: item.id, text: `/${item.id} — ${item.label}` });
     command.addEventListener("change", () => {
       const chosen = TUTOR_COMMANDS.find((item) => item.id === command.value);
@@ -273,9 +305,11 @@ class ChatPanel {
     });
     const savedCommands = this.studyCommands();
     if (savedCommands.length) {
-      const savedRow = root.createDiv({ cls: "qt-row qt-small-row qt-study-commands" });
-      const saved = savedRow.createEl("select", { cls: "qt-select", attr: { "aria-label": "Insert a study command", title: "Insert a study command" } });
-      saved.createEl("option", { value: "", text: "Study commands..." });
+      const saved = toolbar.createEl("select", {
+        cls: "qt-select qt-agent-saved-command",
+        attr: { "aria-label": "Insert a study command", title: "Insert a study command" },
+      });
+      saved.createEl("option", { value: "", text: "Study commands…" });
       for (const item of savedCommands) saved.createEl("option", { value: item.id, text: `/${item.id} — ${item.name}` });
       saved.addEventListener("change", () => {
         const chosen = savedCommands.find((item) => item.id === saved.value);
@@ -286,8 +320,15 @@ class ChatPanel {
         saved.value = "";
       });
     }
-    this.budgetEl = root.createDiv({ cls: "qt-chat-budget" });
-    this.tokenGauge = root.createDiv({
+    const sendGroup = toolbar.createDiv({ cls: "qt-agent-send" });
+    this.stopBtn = sendGroup.createEl("button", { text: "Stop", cls: "qt-agent-tool" });
+    this.stopBtn.addClass("qt-hidden");
+    this.stopBtn.addEventListener("click", () => this.stop());
+    this.sendBtn = sendGroup.createEl("button", { text: "Send", cls: "mod-cta qt-agent-send-btn" });
+    this.sendBtn.addEventListener("click", () => this.send(this.input.value));
+
+    this.budgetEl = composer.createDiv({ cls: "qt-chat-budget qt-agent-budget" });
+    this.tokenGauge = composer.createDiv({
       cls: "qt-chat-token-gauge qt-hidden",
       attr: { role: "img", "aria-label": "Conversation context usage", "aria-hidden": "true" },
     });
@@ -425,6 +466,7 @@ class ChatPanel {
 
   updateHint() {
     if (!this.hint) return;
+    if (this.modeLabel) this.modeLabel.setText(`${this.ai.mode === "agent" ? "Agent" : "Tutor"} · ${tutorRole(this.currentRole()).label}`);
     const role = tutorRole(this.currentRole());
     const suffix = ` Role: ${role.label}. Commands: ${TUTOR_COMMANDS.map((c) => `/${c.id}`).join(", ")}.`;
     if (this.view.plugin.backend() === "api") {
@@ -2327,11 +2369,28 @@ class ChatPanel {
     const box = this.transcript;
     box.empty();
     this.turnEls = [];
+    const empty = !this.turns.length && !this.pending && !this.streamText && !this.error;
+    box.toggleClass("is-empty", empty);
+    if (this.quickEl) this.quickEl.toggleClass("qt-hidden", !empty || !!this.busy);
     const lastAssistant = [...this.turns].reverse().find((turn) => turn.role === "assistant");
     let userSeen = -1;
+
+    const turnRow = (role) => {
+      const turn = box.createDiv({ cls: `qt-agent-turn is-${role}` });
+      turn.createDiv({
+        cls: "qt-agent-avatar",
+        text: role === "user" ? "Y" : "✦",
+        attr: { "aria-hidden": "true" },
+      });
+      const stack = turn.createDiv({ cls: "qt-agent-stack" });
+      stack.createDiv({ cls: "qt-agent-name", text: role === "user" ? "You" : "Study agent" });
+      return stack;
+    };
+
     this.turns.forEach((t, index) => {
       if (t.role === "user") userSeen += 1;
-      const b = box.createDiv({ cls: `qt-msg is-${t.role}` });
+      const stack = turnRow(t.role);
+      const b = stack.createDiv({ cls: `qt-msg is-${t.role}` });
       this.turnEls[index] = b;
       for (const text of t.texts) this.view.md(text, b.createDiv({ cls: "qt-msg-text" }), this.opts.sourcePath || "");
       for (const line of t.tools) b.createDiv({ cls: "qt-tool", text: line });
@@ -2382,11 +2441,17 @@ class ChatPanel {
       }
     });
     if (this.pending) {
-      box.createDiv({ cls: "qt-msg is-user" }).createDiv({ cls: "qt-msg-text", text: this.pending });
+      const stack = turnRow("user");
+      stack.createDiv({ cls: "qt-msg is-user is-pending" }).createDiv({ cls: "qt-msg-text", text: this.pending });
     }
     if (this.streamText) {
-      const live = box.createDiv({ cls: "qt-msg is-assistant is-streaming" });
+      const stack = turnRow("assistant");
+      const live = stack.createDiv({ cls: "qt-msg is-assistant is-streaming" });
       this.view.md(this.streamText, live.createDiv({ cls: "qt-msg-text" }), this.opts.sourcePath || "");
+    } else if (this.busy) {
+      const stack = turnRow("assistant");
+      const typing = stack.createDiv({ cls: "qt-msg is-assistant is-typing", attr: { "aria-label": "The study agent is thinking" } });
+      for (let i = 0; i < 3; i++) typing.createSpan({ cls: "qt-agent-dot" });
     }
     if (this.error) {
       const boxed = box.createDiv({ cls: "qt-error", text: this.error });
@@ -2395,8 +2460,27 @@ class ChatPanel {
         retry.addEventListener("click", () => this.retry());
       }
     }
+    if (empty) {
+      const intro = box.createDiv({ cls: "qt-agent-empty" });
+      intro.createDiv({ cls: "qt-agent-empty-mark", text: "✦", attr: { "aria-hidden": "true" } });
+      intro.createDiv({ cls: "qt-agent-empty-title", text: "How can I help you study?" });
+      intro.createDiv({
+        cls: "qt-agent-empty-text",
+        text: "Ask about the note you have open, generate practice from a course note, or plan a session. Nothing is sent until you press Send.",
+      });
+      const actions = intro.createDiv({ cls: "qt-agent-empty-actions" });
+      for (const [label, prompt] of [
+        ["Explain this note", "Explain the note I have open in plain language, with one worked example."],
+        ["Quiz me on it", "Quiz me on the note I have open. Ask one question at a time and wait for my answer."],
+        ["Plan my next hour", "Plan the next hour of study from what is due."],
+      ]) {
+        const button = actions.createEl("button", { text: label, cls: "qt-chip" });
+        button.addEventListener("click", () => this.send(prompt));
+      }
+    }
     box.scrollTop = box.scrollHeight;
   }
+
 }
 
 ChatPanel.toolsForMode = toolsForMode;
