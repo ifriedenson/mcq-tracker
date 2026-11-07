@@ -1,3 +1,7 @@
+## 1.288.2 - 2026-11-07
+
+- **Study agent narrow-pane polish.** At 320 px the tutor role and per-chat model controls keep compact labels, the first table column stays on one line, all five context chips fit on one row, and the empty-state suggestion shows its full description. Full role and model names remain available in option titles and Settings. The patch also ships 16 current-tree captures at 320/420/560 px in light and dark (thread, empty, busy and error) plus the unchanged settings pair; the evidence README records the measured zero horizontal overflow, centered empty card and Send/Stop swap. No behaviour, provider, note schema or dependency changed.
+
 ## 1.241.0 - 2026-11-04
 
 - **Web browser (opt-in).** A new view opens pages inside Obsidian in a sandboxed frame, with tabs (including a private tab that records no history), an address bar that accepts a URL or searches DuckDuckGo, Google, Bing or Wikipedia, per-tab back, forward, reload and home, bookmarks, a session history panel and 50–250% zoom. Only `http` and `https` addresses open; `javascript:`, `data:`, `file:` and every other scheme are refused before a frame exists. It adds no engine, extension, download manager, proxy, account or injected script, and a page that refuses framing falls back to **Open in browser**.

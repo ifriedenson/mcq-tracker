@@ -25892,7 +25892,8 @@ class ChatPanel {
     modeSel.createEl("option", { value: "tutor", text: "Tutor" });
     modeSel.createEl("option", {
       value: "agent",
-      text: this.view.plugin.backend() === "api" ? "Agent (notes)" : "Agent (files)",
+      text: "Agent",
+      attr: { title: this.view.plugin.backend() === "api" ? "Agent (notes)" : "Agent (files)" },
     });
     modeSel.value = this.ai.mode;
     modeSel.addEventListener("change", () => {
@@ -25904,7 +25905,16 @@ class ChatPanel {
       cls: "qt-select qt-agent-role",
       attr: { "aria-label": "Tutor role", title: "Tutor role" },
     });
-    for (const item of TUTOR_ROLES) role.createEl("option", { value: item.id, text: item.label });
+    // The full role names are in the option titles and Settings. A short
+    // selected label keeps the persona visible in a 320 px leaf instead of
+    // clipping "Private tutc" behind the select arrow.
+    for (const item of TUTOR_ROLES) {
+      role.createEl("option", {
+        value: item.id,
+        text: item.label.replace(/ (tutor|partner)$/, ""),
+        attr: { title: item.label },
+      });
+    }
     role.value = this.currentRole();
     role.addEventListener("change", () => this.setRole(role.value));
 
@@ -26467,12 +26477,14 @@ class ChatPanel {
     select.empty();
     select.createEl("option", {
       value: "",
-      text: globalModel ? `Chat default (${globalModel})` : "Chat default",
+      text: "Chat default",
+      attr: { title: globalModel ? `Chat default (${globalModel})` : "Chat default" },
     });
     for (const model of this.chatModelChoices()) {
       select.createEl("option", { value: model, text: model });
     }
     select.value = this.chatModel();
+    select.setAttr("title", globalModel ? `Model for this chat · default ${globalModel}` : "Model for this chat");
   }
 
   historyText() {

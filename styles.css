@@ -13104,6 +13104,10 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   background: var(--table-header-background, var(--background-secondary));
   font-weight: var(--table-header-weight, var(--font-semibold, 600));
 }
+.qt-agent-message .qt-msg-text th:first-child,
+.qt-agent-message .qt-msg-text td:first-child {
+  white-space: nowrap;
+}
 .qt-agent-message .qt-msg-text code {
   padding: 2px 4px;
   border-radius: 3px;
@@ -13569,7 +13573,7 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   font-size: var(--font-ui-smaller);
   line-height: 1.35;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
 }
 .qt-agent-suggestion-dots {
   display: flex;
@@ -14208,7 +14212,7 @@ body.is-mobile .qt-screen .qt-local-events-tab {
     max-width: 68px;
   }
   .qt-agent-role {
-    max-width: 76px;
+    max-width: 84px;
   }
   .qt-agent-iconbtn {
     width: 22px;
@@ -14218,8 +14222,12 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   .qt-agent-toolbar .qt-agent-command {
     display: none;
   }
+  .qt-agent-composer .qt-chat-context {
+    gap: 2px;
+  }
   .qt-agent-context-chip {
-    padding: 0 6px;
+    padding: 0 5px;
+    font-size: 11px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
