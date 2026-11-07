@@ -15,6 +15,7 @@ class AgentEditReviewModal extends Modal {
     this.changes = Array.isArray(changes) ? changes : [];
     this.onDone = onDone;
     this.applying = false;
+    this.finished = false;
   }
 
   onOpen() {
@@ -101,6 +102,7 @@ class AgentEditReviewModal extends Modal {
           10000
         );
       }
+      this.finished = true;
       if (this.onDone) this.onDone(result);
       this.close();
     } catch (e) {
@@ -116,6 +118,10 @@ class AgentEditReviewModal extends Modal {
 
   onClose() {
     this.contentEl.empty();
+    if (!this.finished) {
+      this.finished = true;
+      if (this.onDone) this.onDone({ applied: [], conflicts: [], cancelled: true });
+    }
   }
 }
 

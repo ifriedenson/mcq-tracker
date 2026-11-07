@@ -12,6 +12,8 @@
 const { normalizeChatHistory } = require("./chat-history");
 const chatBookmarks = require("./chat-bookmarks");
 const chatQueue = require("./chat-queue");
+const chatPlan = require("./chat-plan");
+const chatPdf = require("./chat-pdf");
 const { str } = require("./util");
 
 const MAX_SESSIONS = 20;
@@ -52,6 +54,8 @@ function normalizeSession(value) {
     project: str(raw.project).trim().slice(0, 80),
     queue: chatQueue.normalizeQueue(raw.queue),
     bookmarks: chatBookmarks.normalizeBookmarks(raw.bookmarks),
+    plan: chatPlan.restoredPlan(raw.plan),
+    pdfs: chatPdf.normalizeAttachments(raw.pdfs),
     open,
     tabOrder: Number.isFinite(tabOrder) && tabOrder >= 0 ? tabOrder : 0,
     pinned: raw.pinned === true,
@@ -155,6 +159,8 @@ function libraryRows(active, sessions, now, options) {
       open: active && active.open !== false,
       queue: chatQueue.normalizeQueue(active && active.queue),
       bookmarks: chatBookmarks.normalizeBookmarks(active && active.bookmarks),
+      plan: chatPlan.normalizePlan(active && active.plan),
+      pdfs: chatPdf.normalizeAttachments(active && active.pdfs),
     });
   }
   for (const session of normalizeSessions(sessions)) {
@@ -175,6 +181,8 @@ function libraryRows(active, sessions, now, options) {
       open: session.open,
       queue: session.queue,
       bookmarks: session.bookmarks,
+      plan: session.plan,
+      pdfs: session.pdfs,
     });
   }
   rows.sort(

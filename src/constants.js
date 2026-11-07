@@ -108,6 +108,8 @@ const DEFAULT_SETTINGS = {
     studyChatModel: "", // optional model override for the active chat
     studyChatQueue: [], // messages waiting for the active chat's reply to finish
     studyChatBookmarks: [], // saved message links on the active conversation
+    studyChatPlan: null, // plan-then-act state for the active conversation, bounded by chat-plan.js
+    studyChatPdfs: [], // attached PDF paths, pages and sizes for the active conversation, bounded by chat-pdf.js
     studyChatTabOrder: 0, // stable order for open conversation tabs
     chatSessions: [], // saved and open conversations, bounded by chat-sessions.js
     studyCommands: [], // reusable /commands; prompts may use {} or {selection}

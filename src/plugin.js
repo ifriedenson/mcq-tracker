@@ -806,6 +806,24 @@ class QuestionTrackerPlugin extends Plugin {
         }),
     });
     this.addCommand({
+      id: "study-agent-plan",
+      name: "Study agent: plan a multi-step task",
+      callback: () =>
+        this.promptStudyPlan().catch((e) => {
+          this.recordDiagnosticError("chat plan", e);
+          new Notice(`Could not start the plan: ${String((e && e.message) || e)}`, 8000);
+        }),
+    });
+    this.addCommand({
+      id: "study-agent-attach-pdf",
+      name: "Study agent: attach a PDF",
+      callback: () =>
+        this.attachPdfToStudyAgent().catch((e) => {
+          this.recordDiagnosticError("chat pdf", e);
+          new Notice(`Could not attach the PDF: ${String((e && e.message) || e)}`, 8000);
+        }),
+    });
+    this.addCommand({
       id: "study-agent-diagnostics",
       name: "Study agent: save diagnostics bundle",
       callback: () =>
@@ -4235,6 +4253,45 @@ class QuestionTrackerPlugin extends Plugin {
       return false;
     }
     return view.forkLastQuestion();
+  }
+
+  /** Ask for a goal, then let the Study agent propose a numbered plan. Nothing runs yet. */
+  async promptStudyPlan() {
+    if (!(this.settings.ai && this.settings.ai.enabled)) {
+      new Notice("Turn on AI under Settings > MCQ Tracker > AI to plan a task.");
+      return false;
+    }
+    new NameModal(this.app, "Plan a multi-step task", "", (goal) => {
+      this.startAgentPlan(goal).catch((e) => {
+        this.recordDiagnosticError("chat plan", e);
+        new Notice(`Could not start the plan: ${String((e && e.message) || e)}`, 8000);
+      });
+    }).open();
+    return true;
+  }
+
+  /** Open the Study agent and ask it for a plan for one goal. */
+  async startAgentPlan(goal) {
+    const view = await this.activateAgent();
+    if (!view || typeof view.startPlan !== "function") {
+      new Notice("The Study agent could not open. No plan was requested.");
+      return false;
+    }
+    return view.startPlan(goal);
+  }
+
+  /** Open the Study agent and its vault PDF picker; nothing is sent or written. */
+  async attachPdfToStudyAgent() {
+    if (!(this.settings.ai && this.settings.ai.enabled)) {
+      new Notice("Turn on AI under Settings > MCQ Tracker > AI to attach a PDF to the Study agent.");
+      return false;
+    }
+    const view = await this.activateAgent();
+    if (!view || typeof view.attachPdf !== "function") {
+      new Notice("The Study agent could not open. No PDF was attached.");
+      return false;
+    }
+    return view.attachPdf();
   }
 
   openCardExport(options, onDone) {

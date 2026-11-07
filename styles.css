@@ -12853,3 +12853,71 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 .qt-chat-budget-warning {
   color: var(--text-warning);
 }
+
+
+/* Study agent plan-then-act: one reviewable step at a time. */
+.qt-chat-plan {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s, 6px);
+  margin: 8px 0;
+  padding: 8px;
+}
+.qt-chat-plan-head {
+  gap: 6px;
+  align-items: baseline;
+}
+.qt-chat-plan-title {
+  font-weight: var(--font-semibold, 600);
+}
+.qt-chat-plan-steps {
+  margin: 6px 0;
+  padding-left: 22px;
+}
+.qt-chat-plan-step {
+  margin: 6px 0;
+}
+.qt-chat-plan-step.is-done,
+.qt-chat-plan-step.is-skipped {
+  opacity: 0.72;
+}
+.qt-chat-plan-step.is-declined,
+.qt-chat-plan-step.is-failed {
+  border-left: 2px solid var(--text-error);
+  padding-left: 6px;
+}
+.qt-chat-plan-status {
+  margin-left: 6px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller, 0.85em);
+}
+.qt-chat-plan-note {
+  display: block;
+  margin-top: 2px;
+}
+.qt-chat-plan-message.is-stopped {
+  color: var(--text-warning);
+}
+
+/* Study agent PDF attachments: local text, one bounded block per attached PDF. */
+.qt-chat-pdfs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 0;
+}
+.qt-chat-pdf {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-secondary);
+  font-size: var(--font-ui-smaller);
+}
+.qt-chat-pdf button {
+  padding: 0 4px;
+  height: auto;
+  line-height: 1.2;
+  font-size: var(--font-ui-smaller);
+}

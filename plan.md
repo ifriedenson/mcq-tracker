@@ -13,9 +13,9 @@ surfaces, so unfinished ideas are not disguised as checked work.
 §3.9.6 is the gate table, §3.10 is the licence allow-list, and
 [docs/plan-decisions.md](docs/plan-decisions.md) is the owner decision sheet.
 
-**Verified at this commit:** `node --test` → 2,341 tests pass, 0 fail;
-`npm run check` clean (no dynamic code across 331 source files, vendor guard,
-bundle up to date); `main.js` generated from 334 modules at 6,626,257 bytes.
+**Verified at this commit:** `node --test` → 2,357 tests pass, 0 fail;
+`npm run check` clean (no dynamic code across 334 source files, vendor guard,
+bundle up to date); `main.js` generated from 337 modules at 6,680,960 bytes.
 Re-run both before quoting these numbers.
 
 **Nov 6, 2026 working tree (no version bump):** Quick Ask, saved study
@@ -35,6 +35,24 @@ bookmarked and linked; the link restores its conversation and focuses that
 message, and a deleted target is reported plainly. The clean-room Copilot
 inventory is §5.18.1; no AGPL code, prompt or stylesheet was used.
 
+**Nov 7, 2026 working tree (no version bump):** the Study agent adds
+**plan-then-act** and **general PDF attachments**. A plan is model output from
+the existing abortable chat request, parsed defensively in `src/chat-plan.js`;
+every step is shown before it runs, **Approve**/**Skip** controls are per step,
+and **Run approved** sends one step at a time through the normal chat path, so
+any write still goes through the existing review window. A declined write,
+failure, Stop or reload stops later steps honestly, and plan state persists with
+the conversation in `settings.ai.studyChatPlan`. PDF attachments in
+`src/chat-pdf.js` and `src/chat-pdf-modal.js` let the **PDF** button or
+**Study agent: attach a PDF** pick up to three vault PDFs and a page range
+(default 1-20, at most 40 pages each). Text is read locally through the existing
+`readPdfPages`, labelled as untrusted material, cited as
+`[[path#page=N]]`, and counted in the same 12,000-token budget; a missing,
+image-only or unreadable PDF refuses the send. Paths and page ranges persist
+with the chat, and no extracted text is written to `data.json`. No new
+dependency, provider, network call or write path is added. Focused tests:
+`tests/chat-plan.test.js` and `tests/chat-pdf.test.js`.
+
 **How to read this file.**
 
 | Part | What it holds |
@@ -49,10 +67,10 @@ file per version, `AGENTS.md` has the current-state summary, and the plan
 decision sheet lives in `docs/plan-decisions.md`. Duplicating that log in this
 file is what made it unreadable; it now points instead.
 
-## Handoff snapshot (updated Nov 6, 2026 at v1.281.0)
+## Handoff snapshot (updated Nov 7, 2026 at v1.281.0)
 
 - **State:** 0 unchecked core rows; Quick Chat, message bookmarks, per-message rewind and fork, Quick Ask, saved study commands, vault skills, chat projects, opt-in local memory, Markdown conversation export and local cost estimates are in the Nov 6, 2026 working tree without a version bump; Mother cram and card answer dictation shipped; 3 `[~]` partials (the owner visual, device and screenshot passes now being run); four former gates decided on Nov 6, 2026 (§B).
-- **Newest feature:** The Nov 6, 2026 working tree adds **Quick Chat**, **message bookmarks with chat links**, **per-message rewind and fork**, **vault skills**, **local chat projects**, **opt-in local memory**, **per-conversation Markdown export**, **local cost estimates** (per send and per conversation), a **compact context ring**, a **local diagnostics bundle**, **Quick Ask**, **saved study commands**, **`@` note/folder mentions**, a **context/token footer** and a **searchable, pinned, archived conversation library** without a release or version bump. In 1.281.0, **Mother cram** is the practice-only Cards loop
+- **Newest feature:** The Nov 7, 2026 working tree adds **plan-then-act** and **general PDF attachments**, alongside the Nov 6 additions: **Quick Chat**, **message bookmarks with chat links**, **per-message rewind and fork**, **vault skills**, **local chat projects**, **opt-in local memory**, **per-conversation Markdown export**, **local cost estimates** (per send and per conversation), a **compact context ring**, a **local diagnostics bundle**, **Quick Ask**, **saved study commands**, **`@` note/folder mentions**, a **context/token footer** and a **searchable, pinned, archived conversation library** without a release or version bump. In 1.281.0, **Mother cram** is the practice-only Cards loop
   in the current deck: flip the card, then choose **Do not know** (send it to the
   back) or **Know** (remove it) until the queue is empty. It writes no attempt,
   grade, history or due date. 1.280.0 added **cram sessions** with exact
@@ -70,9 +88,17 @@ file is what made it unreadable; it now points instead.
   device, no provider key, no Anki desktop or CouchDB server. Rows that need
   those stay `[~]` and say so rather than claiming a pass.
 
-## Current focus (Nov 6, 2026)
+## Current focus (Nov 7, 2026)
 
-No tracked core implementation row is open. The Nov 6, 2026 working tree adds
+No tracked core implementation row is open. The Nov 7, 2026 working tree adds
+**plan-then-act** and **general PDF attachments** to the Study agent. A plan is
+model output from the existing chat request; every step is approved or skipped
+before **Run approved** sends it through the same send and write-review paths,
+and a stop, decline, error or reload is reported instead of being called
+complete. **PDF** or **Study agent: attach a PDF** reads up to three vault PDFs
+locally, sends a labelled untrusted block with page citations, and refuses a
+missing, image-only or unreadable file; no OCR, upload or new dependency is
+added. The Nov 6, 2026 working tree adds
 **Quick Chat**, **message bookmarks with chat links**, **Quick Ask** and **saved study commands**: selection or whole-note context,
 seven actions, follow-ups, copy/insert/replace, and `/name` prompts with
 context that obeys the chat's existing switches. The same tree adds explicit
@@ -1590,7 +1616,7 @@ an owner decision, or is outside this plugin's study identity.
 | Chat links and bookmarks | Link to a message or bookmark it. | ✅ Nov 6, 2026. **Bookmark** appears on every user and assistant message; **Copy link** writes an `obsidian://mcq-tracker-chat` URL carrying the chat, role, index and content hash. Opening it restores that conversation and focuses the message. Bookmarks persist on the existing chat record (`settings.ai.studyChatBookmarks` or `chatSessions[].bookmarks`), and a deleted chat, role mismatch or trimmed message falls back to a content-hash search before a plain Notice. No parallel store. |
 | Queued messages | Queue a follow-up while a reply streams. | ✅ Nov 6, 2026. Send becomes **Queue** while a reply is streaming; a visible ordered strip supports per-item **Cancel**, drains one message at a time after the reply, and reuses the same model, mention, context and 12,000-token budget checks. The queue is stored with its conversation, survives tab switches and reload, still delivers after Stop or a provider error, and reports a refused queued send instead of swallowing it. |
 | `/compact` | Summarise a long conversation to save context. | ✅ Nov 6, 2026. `/compact` folds older Direct API turns into a bounded deterministic local summary, keeps the newest turns verbatim, writes through `settings.ai.studyChat`, and updates the token footer. It makes no provider call; a short chat reports that there is nothing old enough, recent turns that alone exceed the budget are refused, and OpenCode explains that its server owns the history. |
-| Plan proposals | Agent proposes a multi-step plan before acting. | ⛔ Nov 7, 2026 audit: a real plan must be generated by the model and carried out step by step, which needs a multi-step executor and per-step approvals this plugin does not have. The existing per-write review is the safe surface; a fixed template would be a fake. |
+| Plan proposals | Agent proposes a multi-step plan before acting. | ✅ Nov 7, 2026. **Study agent: plan a multi-step task** asks for a goal, sends it through the existing abortable chat request, and parses a numbered plan defensively in `src/chat-plan.js`; prose, empty steps and `NO_PLAN` leave the prior plan and vault untouched. The Study panel shows each step with **Approve**/**Skip** and **Run approved**, and the plan is stored with the conversation. Each approved step runs through the same send path, so any write still goes through the existing proposal window; a declined, failed or aborted step stops the run instead of being reported complete. Covered by `tests/chat-plan.test.js`. |
 | Background subagents / multi-agent | Delegated workers and several agents. | ⛔ Requires an external agent runtime and entitlements; no second runtime. |
 | Web viewer, YouTube and X tools | Fetch or browse remote content. | ⛔ Owner decision 5: no web lookup or off-device retrieval. |
 | Obsidian CLI tool | Drive Obsidian commands from chat. | ⛔ Shell/arbitrary command execution is excluded. |
@@ -1610,7 +1636,7 @@ an owner decision, or is outside this plugin's study identity.
 | Local vault search | Retrieve relevant passages with citations. | ✅ Bounded lexical search, `[[path#L12]]` citations. |
 | Full-vault index | Opt into paths-only file context. | ✅ Opt-in and off by default. |
 | Relevant Notes sidebar | A persistent list of related notes. | ✅ Search results are clickable and cited; not a separate persistent pane. |
-| PDF context | Ask about a PDF passage. | ◐ Nov 7, 2026 audit: a selected PDF passage can be sent as a scoped question through `src/reading-companion.js` (`passagePrompt`), cited by page/annotation and covered by `tests/reading-companion.test.js`. General PDF attachment is deliberately not built; annotations and links stay the reader's job. |
+| PDF context | Ask about a PDF passage. | ✅ Nov 7, 2026. A selected passage still goes through `src/reading-companion.js` (`passagePrompt`), cited by page/annotation and covered by `tests/reading-companion.test.js`. General attachment now also ships: **PDF** in the Study agent or **Study agent: attach a PDF** picks up to three vault PDFs and a page range (default 1-20, at most 40 pages each), reads the text layer locally through the existing `readPdfPages`, and adds a labelled untrusted block with `[[path#page=N]]` citations to the next request. Missing, image-only or unreadable PDFs refuse the send; chips remove attachments; paths and pages persist with the conversation. No OCR, upload, dependency or new write path; `src/chat-pdf.js`, `src/chat-pdf-modal.js` and `tests/chat-pdf.test.js`. |
 | Web-page context | Attach a URL and extract its content. | ⛔ Owner decision 5. |
 | Image context | Attach screenshots or figures to a chat. | ⛔ Vision exists only for OCR/handwriting, not general chat attachments. |
 | Miyo semantic search | Embedding-based vault retrieval. | ⛔ Nov 7, 2026 audit: embeddings need an embedding model and index, which this dependency-free plugin does not bundle or call. Local lexical retrieval with citations is the shipped path. |
@@ -1650,7 +1676,7 @@ an owner decision, or is outside this plugin's study identity.
 | Prompt-injection labelling | Treat notes and sources as untrusted data. | ✅ Shared note-context sanitiser and untrusted labels. |
 | Shell / code execution | Run commands. | ⛔ Excluded by security gate. |
 | MCP tools | Connect external tool servers. | ⛔ No MCP client or extra runtime. |
-| Plan-then-act | Multi-step plan approval. | ⛔ Nov 7, 2026 audit: the same boundary as plan proposals — model-generated multi-step work with a per-step executor; only per-write proposals ship. |
+| Plan-then-act | Multi-step plan approval. | ✅ Nov 7, 2026. Approved steps run one at a time through `ChatPanel.send`; the model, mention, budget, streaming, Stop and write-review paths are shared rather than duplicated. A step may be skipped; an abort, declined write, provider error or partial apply stops later steps and is reported, and an interrupted run restores paused with the running step approved for a retry. State persists on the tab/session and in `settings.ai.studyChatPlan`. Covered by `tests/chat-plan.test.js`. |
 | Background work | Continue a task after closing chat. | ⛔ No background daemon; Obsidian unload must stop work. |
 
 **E. Models, providers and operations**
@@ -1703,11 +1729,12 @@ would require separate product decisions and, for AGPL code, a different
 licence. The `@` mention picker, chat search/pins/archive, context/token footer, chat
 tabs/queue, per-command model settings, Quick Chat and message bookmarks shipped
 on Nov 6, 2026. Since then Projects, Skills, the diagnostics bundle and the
-token/cost display also ship. A Nov 7, 2026 audit re-read every non-✅ row:
-plan proposals/plan-then-act and Miyo need model-generated multi-step work or
-embeddings and are marked ⛔; the inline-diff presentation is adapted to the
-review modal (◐); PDF passage Q&A is verified in `src/reading-companion.js`.
-No row is left marked ○ as a locally implementable gap.
+token/cost display also ship. A Nov 7, 2026 pass re-read every non-✅ row. Plan proposals and
+plan-then-act now ship with model-generated plans, per-step approval and the
+existing write review; PDF context covers both passage Q&A and general vault
+attachments; Miyo still needs an embedding model and index and stays ⛔; the
+inline-diff presentation is adapted to the review modal (◐). No row is left
+marked ○ as a locally implementable gap.
 
 ---
 
@@ -2704,7 +2731,7 @@ The mission asked for every remaining plan item to be implemented. These cannot 
 
 **Sweep result (Nov 1, 2026).** `plan.md` has **122 checked `[x]` task items, 10 `[~]` partial/blocked items and 0 unchecked `[ ]` task items** (the literal `[ ]` in historical prose is an example, not a task). The 10 partials are the three manual visual/device/screenshot checks, the five OCR/audio/pronunciation rows and the two AP FRQ calibration rows; each is gated in §3.9.6. The 17 recommended defaults are recorded above; the minimal keyboard map, the Qwen preset and the local chemistry/biology/circuit renderers are shipped. No bundled provider credential, OCR/PDF engine, OAuth, code execution, web lookup, bundled STEM library or paid tier is added. Qwen is a BYOK preset and the STEM renderers are original local code. No new version or release was made.
 
-**Sweep result (Nov 7, 2026).** `plan.md` has **98 checked `[x]` roadmap rows, 3 `[~]` partial/blocked rows and 0 unchecked `[ ]` rows**. A further ~112 checked rows were release-log bullets at the top of the file; they now live in `docs/release-notes/` and `AGENTS.md` rather than being duplicated here. Four owner-decision rows closed on Nov 6, 2026 (TTS/audio, pronunciation, FRQ accuracy, pilot thresholds); the remaining three are the owner-manual visual, device and screenshot passes in [docs/plan-decisions.md](docs/plan-decisions.md). No implementation row is open: PDF→FRQ import shipped in §5.20.5. A Nov 7, 2026 audit of every §5.18.1 non-✅ row corrected the stale diagnostics entry to ✅, marked plan proposals/plan-then-act and Miyo ⛔ with their model/embedding reasons, recorded inline diff as ◐ and verified PDF passage Q&A in `src/reading-companion.js`; no ○ row remains.
+**Sweep result (Nov 7, 2026).** `plan.md` has **98 checked `[x]` roadmap rows, 3 `[~]` partial/blocked rows and 0 unchecked `[ ]` rows**. A further ~112 checked rows were release-log bullets at the top of the file; they now live in `docs/release-notes/` and `AGENTS.md` rather than being duplicated here. Four owner-decision rows closed on Nov 6, 2026 (TTS/audio, pronunciation, FRQ accuracy, pilot thresholds); the remaining three are the owner-manual visual, device and screenshot passes in [docs/plan-decisions.md](docs/plan-decisions.md). No implementation row is open: PDF→FRQ import shipped in §5.20.5. A Nov 7, 2026 pass corrected the stale diagnostics entry to ✅, shipped plan proposals/plan-then-act and general PDF attachments, recorded inline diff as ◐ and verified PDF passage Q&A in `src/reading-companion.js`; Miyo remains ⛔ because it needs an embedding model and index, and no ○ row remains.
 
 **The approved local implementation batch is complete.** The local study modules and the Quizzable slice shipped. The remaining provider/credential/fixture/security rows are explicitly gated by the §11 decisions above or by owner manual checks; no wave approval is pending.
 

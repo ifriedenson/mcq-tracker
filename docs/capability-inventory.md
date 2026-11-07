@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 417 groups, 2843 exports. **Commands:** 216. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 421 groups, 2892 exports. **Commands:** 218. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -89,11 +89,12 @@ the table and fails if a group, export count, command or citing test drifts.
 | `agentEditReview` | 9 | `tests/agent-edit-review.test.js` |
 | `agentNote` | 2 | `tests/agent-view.test.js` |
 | `agentRetrieval` | 14 | `tests/agent-retrieval.test.js` |
-| `agentView` | 5 | `tests/agent-view.test.js`, `tests/chat-branches.test.js`, `tests/chat-tabs-queue.test.js`, `tests/memory-export.test.js`, `tests/projects-cost.test.js`, `tests/quick-chat-bookmarks.test.js` |
+| `agentView` | 5 | `tests/agent-view.test.js`, `tests/chat-branches.test.js`, `tests/chat-pdf.test.js`, `tests/chat-plan.test.js`, `tests/chat-tabs-queue.test.js`, `tests/memory-export.test.js`, `tests/projects-cost.test.js`, `tests/quick-chat-bookmarks.test.js` |
 | `agentWriteGuard` | 3 | `tests/agent-write-guard.test.js` |
 | `aiContext` | 5 | `tests/ai-context.test.js` |
 | `aiReady` | 0 | `tests/empty-state.test.js` |
 | `aiService` | 27 | `tests/ai-service.test.js`, `tests/frq-handwriting.test.js` |
+| `aiToolReviewModal` | 1 | `tests/chat-plan.test.js` |
 | `aiTools` | 7 | `tests/ai-tools.test.js` |
 | `aiWriteGuard` | 7 | `tests/ai-write-guard.test.js` |
 | `aiWrites` | 7 | `tests/ai-writes.test.js` |
@@ -169,9 +170,12 @@ the table and fails if a group, export count, command or citing test drifts.
 | `chatMemory` | 12 | `tests/memory-export.test.js` |
 | `chatMentions` | 17 | `tests/chat-mentions.test.js` |
 | `chatModels` | 13 | `tests/chat-models.test.js` |
+| `chatPdf` | 20 | `tests/chat-pdf.test.js` |
+| `chatPdfModal` | 1 | `tests/chat-pdf.test.js` |
+| `chatPlan` | 27 | `tests/chat-plan.test.js` |
 | `chatPricing` | 8 | `tests/projects-cost.test.js`, `tests/skills-pricing.test.js` |
 | `chatProjects` | 14 | `tests/projects-cost.test.js` |
-| `chatSessions` | 13 | `tests/chat-sessions.test.js` |
+| `chatSessions` | 13 | `tests/chat-pdf.test.js`, `tests/chat-sessions.test.js` |
 | `chatSkills` | 9 | `tests/skills-pricing.test.js` |
 | `chatStream` | 5 | `tests/chat-stream.test.js` |
 | `chooseRelease` | 0 | `tests/opencode-compat.test.js` |
@@ -581,7 +585,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `cards-grade-pending` | Cards: grade pending typed answers | `flushPendingCardGrades` | `tests/cards.test.js`, `tests/today.test.js` |
 | `import-cards` | Cards: import existing decks | `openCardImport` | `tests/plugin.test.js` |
 | `cards-import-document` | Cards: extract cards from a PDF or Markdown file | `openDocumentCards` | `tests/command-effects.test.js` |
-| `open-study-agent` | Study agent: open the sidebar | `activateAgent` | `tests/agent-view.test.js`, `tests/chat-branches.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/quick-chat-bookmarks.test.js` |
+| `open-study-agent` | Study agent: open the sidebar | `activateAgent` | `tests/agent-view.test.js`, `tests/chat-branches.test.js`, `tests/chat-pdf.test.js`, `tests/chat-plan.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/quick-chat-bookmarks.test.js` |
 | `ai-quick-ask` | AI: Quick Ask about the selection or note | `openQuickAsk` | `tests/quick-ask.test.js` |
 | `study-agent-quick-chat` | Study agent: Quick Chat | `openQuickChat` | `tests/quick-chat-bookmarks.test.js` |
 | `study-agent-skill` | Study agent: create a skill note | `createSkillNote` | `tests/skills-pricing.test.js` |
@@ -591,6 +595,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `study-agent-export` | Study agent: export a conversation as Markdown | `exportChatAsMarkdown` | `tests/memory-export.test.js` |
 | `study-agent-rewind` | Study agent: rewind to the last question | `rewindLastQuestion` | `tests/chat-branches.test.js` |
 | `study-agent-fork` | Study agent: fork from the last question | `forkLastQuestion` | `tests/chat-branches.test.js` |
+| `study-agent-plan` | Study agent: plan a multi-step task | `promptStudyPlan` | `tests/chat-plan.test.js` |
+| `study-agent-attach-pdf` | Study agent: attach a PDF | `attachPdfToStudyAgent` | `tests/chat-pdf.test.js` |
 | `study-agent-diagnostics` | Study agent: save diagnostics bundle | `saveDiagnosticsBundle` | `tests/diagnostics-gauge.test.js` |
 | `cards-rescan-plain` | Cards: rescan plain Markdown folder | `moduleOff` | `tests/frq-review.test.js`, `tests/plain-cards.test.js`, `tests/views.test.js` |
 | `export-cards` | Cards: export to Quizlet, Anki package, Anki text, Mochi, LearnKit, Kahoot, Blooket or Gimkit | `openCardExport` | `tests/command-effects.test.js` |

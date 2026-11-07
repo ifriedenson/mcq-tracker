@@ -19,9 +19,12 @@ const chatCompact = require("./chat-compact");
 const chatQueue = require("./chat-queue");
 const chatPricing = require("./chat-pricing");
 const chatMemory = require("./chat-memory");
+const chatPlan = require("./chat-plan");
+const chatPdf = require("./chat-pdf");
+const { PdfAttachModal } = require("./chat-pdf-modal");
 
 function budgetRefusal(budget) {
-  return `Nothing was sent: the estimated ${chatBudget.formatTokenCount(budget.tokens)}-token context is over the local ${chatBudget.formatTokenCount(budget.limit)}-token chat budget. Remove a mention or shorten the message.`;
+  return `Nothing was sent: the estimated ${chatBudget.formatTokenCount(budget.tokens)}-token context is over the local ${chatBudget.formatTokenCount(budget.limit)}-token chat budget. Remove a mention or PDF attachment, or shorten the message.`;
 }
 
 function toolsForMode(mode, agentShell) {
@@ -68,6 +71,14 @@ class ChatPanel {
     this.lastBudget = null;
     this.queue = chatQueue.normalizeQueue(opts.getQueue ? opts.getQueue() : []);
     this.bookmarks = chatBookmarks.normalizeBookmarks(opts.getBookmarks ? opts.getBookmarks() : []);
+    this.plan = chatPlan.normalizePlan(opts.getPlan ? opts.getPlan() : null);
+    this.pdfs = chatPdf.normalizeAttachments(opts.getPdfs ? opts.getPdfs() : []);
+    this.pdfCache = new Map();
+    this.pdfBusy = false;
+    this.planRunToken = 0;
+    this.planStep = null;
+    this.planRequest = null;
+    this.planReviewModal = null;
     this.turnEls = [];
     this.draining = false;
     this.libraryQuery = "";
@@ -188,6 +199,8 @@ class ChatPanel {
     }
     this.hint = root.createDiv({ cls: "qt-hint" });
     this.updateHint();
+    this.planEl = root.createDiv({ cls: "qt-chat-plan" });
+    this.renderPlan();
     this.renderContextToggles(root);
     this.renderLibrary(root);
 
@@ -232,6 +245,8 @@ class ChatPanel {
       this.mentionRange = { start: this.input.value.length - 1, end: this.input.value.length };
       this.openMentionPicker("");
     });
+    this.pdfBtn = row.createEl("button", { text: "PDF", attr: { "aria-label": "Attach a PDF", title: "Attach a PDF" } });
+    this.pdfBtn.addEventListener("click", () => this.attachPdf());
     this.input.addEventListener("input", () => {
       const before = chatMentions.mentionQueryAt(this.input.value, this.input.value.length);
       if (before) this.openMentionPicker(before.query, before.start, before.end);
@@ -475,6 +490,8 @@ class ChatPanel {
       this.refreshTokenFooter();
     });
     this.mentionChipsEl = root.createDiv({ cls: "qt-chat-mentions" });
+    this.pdfChipsEl = root.createDiv({ cls: "qt-chat-pdfs" });
+    this.renderPdfChips();
     root.createDiv({
       cls: "qt-hint",
       text: "Off by default. Note text, selection and mentioned notes are sent only while their switch is on. Mentions are explicitly chosen with @ and are treated as untrusted data.",
@@ -674,6 +691,9 @@ class ChatPanel {
       { label: "history", text: this.historyText() },
       { label: "skills", text: this.includeSkills ? this.skillBlock : "" },
       { label: "memory", text: this.includeMemory ? chatMemory.factBlock(this.ai.chatMemory) : "" },
+      ...(str(context).includes(chatPdf.PDF_MARKER)
+        ? []
+        : [{ label: "pdfs", text: "x".repeat(chatPdf.totalChars(this.pdfs)) }]),
     ], { limit: chatBudget.CONTEXT_BUDGET_TOKENS });
   }
 
@@ -689,6 +709,7 @@ class ChatPanel {
     for (const target of this.mentionTargets()) {
       labels.push(`${target.kind} ${target.path}${this.includeMentions ? "" : " (off)"}`);
     }
+    for (const pdf of this.pdfs) labels.push(`PDF ${chatPdf.describeAttachment(pdf)}`);
     const draft = str(this.input && this.input.value).trim();
     if (/^\/[a-z0-9][a-z0-9-]*\b/i.test(draft)) labels.push(draft.split(/\s/)[0]);
     const history = this.view.plugin.backend() === "api" ? this.apiHistory().length : this.turns.length;
@@ -860,12 +881,192 @@ class ChatPanel {
     const note = this.opts.readNoteContext && (this.includeNote || this.includeSelection)
       ? await this.prepareContext()
       : "";
-    const context = [note, mention.block].filter(Boolean).join("\n\n");
+    const pdf = this.pdfs.length ? await this.resolvePdfBlock() : { ok: true, block: "" };
+    if (!pdf.ok) return { ok: false, context: "", mention, error: pdf.error };
+    const context = [note, mention.block, pdf.block].filter(Boolean).join("\n\n");
     const budget = this.budgetFor(message, context);
     this.lastBudget = budget;
     this.refreshTokenFooter();
     if (budget.over) return { ok: false, context, mention, budget, error: budgetRefusal(budget) };
     return { ok: true, context, mention, budget };
+  }
+
+  /** The PDFs a picker can offer: vault files only, path-sorted, bounded by the picker. */
+  listPdfs() {
+    const vault = this.view && this.view.app ? this.view.app.vault : null;
+    const files = vault && typeof vault.getFiles === "function" ? vault.getFiles() : [];
+    return files
+      .filter((file) => /\.pdf$/i.test(str(file && (file.path || file.name))))
+      .map((file) => ({ path: str(file.path), name: str(file.name || file.basename || file.path) }))
+      .filter((file) => file.path)
+      .sort((a, b) => a.path.localeCompare(b.path));
+  }
+
+  /** Open the vault picker; the panel owns reading so a failed read changes nothing. */
+  attachPdf() {
+    if (this.busy || this.pdfBusy || !this.ai.enabled) return false;
+    if (typeof this.opts.readPdf !== "function") {
+      if (this.status) this.status.setText("PDF attachment is unavailable in this view. Nothing was attached.");
+      return false;
+    }
+    if (this.pdfs.length >= chatPdf.MAX_PDFS) {
+      if (this.status) this.status.setText(`At most ${chatPdf.MAX_PDFS} PDFs can be attached to one chat. Remove one first.`);
+      return false;
+    }
+    const files = this.listPdfs();
+    if (!files.length) {
+      new Notice("No PDFs found in this vault. Add one first, then attach it in the Study agent.");
+      return false;
+    }
+    const modal = new PdfAttachModal(this.view.app, files, (choice) => this.addPdf(choice));
+    modal.open();
+    return true;
+  }
+
+  /** Read one PDF locally, then store only its path, pages and bounded size. */
+  async addPdf(choice) {
+    if (this.pdfs.length >= chatPdf.MAX_PDFS) {
+      return { ok: false, error: `At most ${chatPdf.MAX_PDFS} PDFs can be attached to one chat. Remove one first.` };
+    }
+    const specError = chatPdf.pageSpecError(choice && choice.pages);
+    if (specError) return { ok: false, error: specError };
+    const attachment = chatPdf.normalizeAttachment(choice);
+    if (!attachment) return { ok: false, error: "Choose a PDF from the vault." };
+    if (this.pdfs.some((item) => item.path === attachment.path)) {
+      return { ok: false, error: "That PDF is already attached. Remove it first to change the pages." };
+    }
+    if (typeof this.opts.readPdf !== "function") {
+      return { ok: false, error: "PDF attachment is unavailable in this view." };
+    }
+    this.pdfBusy = true;
+    if (this.status) this.status.setText(`Reading ${attachment.path}...`);
+    try {
+      const result = await this.opts.readPdf(attachment, (message) => {
+        if (this.status) this.status.setText(str(message) || "Reading the PDF...");
+      });
+      const built = chatPdf.buildBlock(attachment, result && result.pages, { maxChars: chatPdf.MAX_CHARS });
+      if (!built.ok) {
+        return {
+          ok: false,
+          error: `${attachment.path} has no extractable text layer. OCR it first, then attach the resulting note.`,
+        };
+      }
+      const next = {
+        ...attachment,
+        chars: built.chars,
+        totalPages: Math.max(0, Number(result && result.total) || 0),
+        truncated: built.truncated,
+      };
+      const total = this.pdfs.reduce((sum, item) => sum + item.chars, 0) + next.chars;
+      if (total > chatPdf.MAX_TOTAL_CHARS) {
+        return {
+          ok: false,
+          error: `Those PDFs would add more than ${chatPdf.MAX_TOTAL_CHARS} characters to this chat. Remove one or choose fewer pages.`,
+        };
+      }
+      this.pdfCache.set(chatPdf.key(next), result);
+      this.setPdfs([...this.pdfs, next]);
+      if (this.status) {
+        this.status.setText(`Attached ${chatPdf.describeAttachment(next)}. Its text is sent only when you press Send.`);
+      }
+      return { ok: true };
+    } catch (e) {
+      return {
+        ok: false,
+        error: `Could not read ${attachment.path}: ${str(e && e.message ? e.message : e) || "unknown error"}.`,
+      };
+    } finally {
+      this.pdfBusy = false;
+      this.refreshTokenFooter();
+    }
+  }
+
+  removePdf(target) {
+    const id = typeof target === "string" ? target : chatPdf.key(target);
+    const next = this.pdfs.filter((item) => chatPdf.key(item) !== id);
+    if (next.length === this.pdfs.length) return false;
+    this.setPdfs(next);
+    if (this.status) this.status.setText("Removed the PDF attachment. Its text is no longer sent.");
+    return true;
+  }
+
+  setPdfs(next) {
+    this.pdfs = chatPdf.normalizeAttachments(next);
+    const keep = new Set(this.pdfs.map((item) => chatPdf.key(item)));
+    for (const id of this.pdfCache.keys()) {
+      if (!keep.has(id)) this.pdfCache.delete(id);
+    }
+    if (typeof this.opts.savePdfs === "function") this.opts.savePdfs(this.pdfs.slice());
+    this.renderPdfChips();
+    this.refreshTokenFooter();
+  }
+
+  renderPdfChips() {
+    if (!this.pdfChipsEl) return;
+    this.pdfChipsEl.empty();
+    this.pdfChipsEl.toggleClass("qt-hidden", !this.pdfs.length);
+    for (const attachment of this.pdfs) {
+      const chip = this.pdfChipsEl.createEl("span", { cls: "qt-chat-pdf" });
+      chip.createEl("span", { text: `PDF: ${chatPdf.describeAttachment(attachment)}` });
+      const remove = chip.createEl("button", {
+        text: "×",
+        attr: { "aria-label": `Remove PDF ${attachment.path}` },
+      });
+      remove.addEventListener("click", () => this.removePdf(attachment));
+    }
+  }
+
+  /**
+   * Read every attached PDF and turn it into one labelled context block. A
+   * missing, unreadable or text-free PDF refuses the whole send rather than
+   * dropping the attachment behind the learner's back.
+   */
+  async resolvePdfBlock() {
+    if (!this.pdfs.length) return { ok: true, block: "" };
+    if (typeof this.opts.readPdf !== "function") {
+      return { ok: false, error: "Nothing was sent: PDF attachment is unavailable in this view." };
+    }
+    const blocks = [];
+    let remaining = chatPdf.MAX_TOTAL_CHARS;
+    let used = 0;
+    for (const attachment of this.pdfs) {
+      if (remaining <= 200 && blocks.length) {
+        blocks.push(`[${attachment.path} was omitted because the local attachment limit was reached.]`);
+        break;
+      }
+      const id = chatPdf.key(attachment);
+      let result = this.pdfCache.get(id);
+      if (!result) {
+        try {
+          result = await this.opts.readPdf(attachment, (message) => {
+            if (this.status) this.status.setText(str(message) || "Reading the PDF...");
+          });
+        } catch (e) {
+          return {
+            ok: false,
+            error: `Nothing was sent: ${attachment.path} could not be read (${str(e && e.message ? e.message : e) || "unknown error"}). Remove it or restore the file, then try again.`,
+          };
+        }
+        this.pdfCache.set(id, result);
+      }
+      const built = chatPdf.buildBlock(attachment, result && result.pages, {
+        maxChars: Math.max(1, Math.min(chatPdf.MAX_CHARS, remaining)),
+      });
+      if (!built.ok) {
+        return {
+          ok: false,
+          error: `Nothing was sent: ${attachment.path} has no extractable text layer. Remove it or OCR it first.`,
+        };
+      }
+      blocks.push(built.text);
+      used += built.chars;
+      remaining -= built.chars;
+      if (remaining <= 0) break;
+    }
+    if (used > 0 && remaining < 0) {
+      blocks.push("[Some PDF text was omitted to stay inside the local attachment limit.]");
+    }
+    return { ok: true, block: blocks.join("\n\n") };
   }
 
   async prepareContext() {
@@ -902,6 +1103,9 @@ class ChatPanel {
 
   /** Stop a Direct API reply mid-stream; the partial reply is kept once. */
   cancelApi() {
+    const wasPlan = Boolean(this.planRunToken || this.planStep || this.planRequest || (this.plan && this.plan.status === "running"));
+    this.settlePlanRequest({ kind: "aborted" });
+    this.settlePlanStep({ kind: "aborted" });
     const partial = this.streamText.trim();
     this.apiCancelToken = (this.apiCancelToken || 0) + 1;
     if (this.streamingController) {
@@ -926,11 +1130,14 @@ class ChatPanel {
     this.setBusy(false);
     if (this.status) this.status.setText(partial ? "Stopped. The partial reply was kept." : "Stopped waiting for the reply.");
     this.draw();
-    if (this.queueItems().length) this.drainQueue();
+    if (!wasPlan && this.queueItems().length) this.drainQueue();
   }
 
   /** The Stop button and Esc: cancel the current backend, keeping any partial reply. */
   async stop() {
+    const wasPlan = Boolean(this.planRunToken || this.planStep || this.planRequest || (this.plan && this.plan.status === "running"));
+    this.settlePlanRequest({ kind: "aborted" });
+    this.settlePlanStep({ kind: "aborted" });
     if (this.view.plugin.backend() === "api") {
       this.cancelApi();
       return;
@@ -957,7 +1164,7 @@ class ChatPanel {
     this.setBusy(false);
     if (this.status) this.status.setText("Stopped.");
     this.draw();
-    if (this.queueItems().length) this.drainQueue();
+    if (!wasPlan && this.queueItems().length) this.drainQueue();
   }
 
   newChat() {
@@ -968,6 +1175,8 @@ class ChatPanel {
     }
     this.opts.setSessionId("");
     this.setQueue([]);
+    this.setPlan(null);
+    this.setPdfs([]);
     this.apiHistory().length = 0;
     this.persistApiHistory();
     this.loadConversation([]);
@@ -1514,6 +1723,7 @@ class ChatPanel {
       }
     }
     const guard = ai.mode === "agent" && typeof plugin.snapshotProtectedState === "function" ? plugin.snapshotProtectedState() : null;
+    let stepOutcome = null;
     this.error = "";
     this.input.value = "";
     this.syncMentionChips();
@@ -1550,7 +1760,7 @@ class ChatPanel {
       const model = modelFromString(modelPlan.model);
       if (model) body.model = model;
       if (str(ai.agent).trim()) body.agent = ai.agent.trim();
-      const tools = toolsForMode(ai.mode, ai.agentShell);
+      const tools = toolsForMode(this.planRequest ? "tutor" : ai.mode, ai.agentShell);
       if (tools) body.tools = tools;
       // The POST blocks until the reply is done, so poll the transcript meanwhile for live progress.
       const mySid = sid;
@@ -1574,6 +1784,7 @@ class ChatPanel {
       const stopped = this.cancelled || (e && (e.name === "AbortError" || (this.streamingController && this.streamingController.signal && this.streamingController.signal.aborted)));
       if (stopped) this.keepPartial = this.streamText.trim();
       else this.error = friendlyError(e, plugin.openCode().base());
+      stepOutcome = { kind: stopped ? "aborted" : "error", message: this.error || "The step request failed." };
     } finally {
       if (timer) activeWindow.clearInterval(timer);
       if (guard && typeof plugin.restoreProtectedState === "function") {
@@ -1603,19 +1814,340 @@ class ChatPanel {
       this.keepPartial = "";
       this.draw();
       if (staged.length) {
-        new AgentEditReviewModal(this.view.app, plugin, staged).open();
+        if (this.planRequest) {
+          this.settlePlanRequest({ kind: "reply", text: "" });
+          this.settlePlanStep({ kind: "refused", message: "The plan request tried to change a note; nothing was applied." });
+        } else {
+          const modal = new AgentEditReviewModal(this.view.app, plugin, staged, (result) => {
+            const applied = result && Array.isArray(result.applied) ? result.applied.length : 0;
+            this.settlePlanStep(applied ? { kind: "applied", errors: (result && result.conflicts) || [] } : { kind: "declined" });
+          });
+          if (this.planStep) this.planReviewModal = modal;
+          modal.open();
+        }
         if (this.status) {
           this.status.setText(
             `Agent changes to ${staged.length} note${staged.length === 1 ? "" : "s"} are paused. Review them before applying.`
           );
         }
+      } else {
+        this.settlePlanStep(stepOutcome || { kind: "reply" });
+        if (this.planRequest) {
+          const last = [...this.turns].reverse().find((turn) => turn.role === "assistant");
+          this.settlePlanRequest(
+            stepOutcome && stepOutcome.kind !== "reply"
+              ? stepOutcome
+              : { kind: "reply", text: last ? last.texts.join("\n") : "" }
+          );
+        }
       }
-      if (this.queueItems().length) this.drainQueue();
+      if (!this.planStep && this.queueItems().length) this.drainQueue();
     }
     return true;
   }
 
+  /** Persist and repaint the plan; the caller owns where the plan lives. */
+  setPlan(plan) {
+    this.plan = chatPlan.normalizePlan(plan);
+    if (typeof this.opts.savePlan === "function") this.opts.savePlan(this.plan);
+    this.renderPlan();
+    return this.plan;
+  }
+
+  planStatus(text) {
+    if (this.status && text) this.status.setText(text);
+  }
+
+  /** The inline plan, rendered only from stored state so it survives a redraw. */
+  renderPlan() {
+    if (!this.planEl) return;
+    this.planEl.empty();
+    const plan = this.plan;
+    this.planEl.toggleClass("qt-hidden", !plan);
+    if (!plan) return;
+    const head = this.planEl.createDiv({ cls: "qt-row qt-small-row qt-chat-plan-head" });
+    head.createSpan({ cls: "qt-chat-plan-title", text: "Plan" });
+    if (plan.goal) head.createSpan({ cls: "qt-hint", text: chatMemory.redactSecrets(plan.goal) });
+    head.createSpan({ cls: "qt-hint", text: chatPlan.progressText(plan) });
+    const list = this.planEl.createEl("ol", { cls: "qt-chat-plan-steps" });
+    plan.steps.forEach((step, index) => {
+      const row = list.createEl("li", { cls: `qt-chat-plan-step is-${step.status}` });
+      row.createSpan({ cls: "qt-chat-plan-text", text: chatMemory.redactSecrets(step.text) });
+      row.createSpan({ cls: "qt-chat-plan-status", text: chatPlan.stepStatusLabel(step.status) });
+      if (step.note) row.createSpan({ cls: "qt-hint qt-chat-plan-note", text: chatMemory.redactSecrets(step.note) });
+      const actions = row.createDiv({ cls: "qt-row qt-small-row" });
+      const locked = plan.status === "running" || step.status === "running" || step.status === "done";
+      const approve = actions.createEl("button", { text: step.status === "approved" ? "Approved" : "Approve" });
+      approve.disabled = locked;
+      approve.addEventListener("click", () => this.approvePlanStep(index));
+      const skip = actions.createEl("button", { text: step.status === "skipped" ? "Skipped" : "Skip" });
+      skip.disabled = locked;
+      skip.addEventListener("click", () => this.skipPlanStep(index));
+    });
+    const actions = this.planEl.createDiv({ cls: "qt-row qt-small-row qt-chat-plan-actions" });
+    const run = actions.createEl("button", {
+      text: plan.status === "running" ? "Running..." : "Run approved",
+      cls: "mod-cta",
+    });
+    run.disabled = plan.status === "running" || !chatPlan.approvedIndexes(plan).length;
+    run.addEventListener("click", () => this.runApprovedPlan());
+    if (plan.status === "running") {
+      const stop = actions.createEl("button", { text: "Stop plan" });
+      stop.addEventListener("click", () => this.stopPlan());
+    }
+    const clear = actions.createEl("button", { text: "Clear plan" });
+    clear.disabled = plan.status === "running";
+    clear.addEventListener("click", () => this.clearPlan());
+    const message = chatPlan.stopMessage(plan);
+    if (message) {
+      this.planEl.createDiv({
+        cls: `qt-hint qt-chat-plan-message${plan.stopReason ? " is-stopped" : ""}`,
+        text: message,
+      });
+    }
+  }
+
+  approvePlanStep(index) {
+    if (!this.plan || this.plan.status === "running") return false;
+    const next = chatPlan.approveStep(this.plan, index);
+    if (!next) return false;
+    this.setPlan(next);
+    this.planStatus("Step approved. Run approved steps when you are ready.");
+    return true;
+  }
+
+  skipPlanStep(index) {
+    if (!this.plan || this.plan.status === "running") return false;
+    const next = chatPlan.skipStep(this.plan, index);
+    if (!next) return false;
+    this.setPlan(next);
+    this.planStatus("Step skipped. Nothing runs for it.");
+    return true;
+  }
+
+  clearPlan() {
+    if (!this.plan || this.plan.status === "running") return false;
+    this.setPlan(null);
+    this.planStatus("Plan cleared.");
+    return true;
+  }
+
+  /**
+   * Ask for a numbered plan through the existing chat path. The request is
+   * abortable, nothing is written and no step runs until it is approved.
+   */
+  async startPlan(goal) {
+    if (!this.ai.enabled) {
+      this.planStatus("Turn on AI features before asking for a plan.");
+      return false;
+    }
+    if (this.busy || this.planRequest || this.planRunToken) {
+      this.planStatus("Wait for the current reply or plan run to finish.");
+      return false;
+    }
+    const prompt = chatPlan.planPrompt(goal);
+    if (!prompt) {
+      this.planStatus("Type a goal first.");
+      return false;
+    }
+    const previous = this.plan;
+    let resolve;
+    const done = new Promise((r) => {
+      resolve = r;
+    });
+    this.planRequest = { resolve };
+    let sent;
+    try {
+      sent = await this.send(prompt);
+    } catch (e) {
+      this.settlePlanRequest({ kind: "error", message: str(e && e.message ? e.message : e) || "The plan request failed." });
+      sent = true;
+    }
+    if (sent === false) this.settlePlanRequest({ kind: "refused", message: this.error || "The request was not sent." });
+    const outcome = await done;
+    if (outcome.kind !== "reply") {
+      this.setPlan(previous);
+      this.planStatus(
+        outcome.kind === "aborted"
+          ? chatPlan.reasonText("aborted")
+          : outcome.kind === "refused"
+            ? outcome.message || chatPlan.reasonText("refused")
+            : outcome.kind === "error"
+              ? outcome.message || chatPlan.reasonText("error")
+              : chatPlan.reasonText("empty")
+      );
+      return false;
+    }
+    const parsed = chatPlan.parsePlan(outcome.text);
+    if (!parsed.ok) {
+      this.setPlan(previous);
+      this.planStatus(chatPlan.reasonText(parsed.reason));
+      return false;
+    }
+    const next = chatPlan.createPlan(goal, parsed.steps, Date.now());
+    if (!next) {
+      this.setPlan(previous);
+      this.planStatus(chatPlan.reasonText("empty"));
+      return false;
+    }
+    this.setPlan(next);
+    this.planStatus(
+      `Plan ready: ${next.steps.length} step${next.steps.length === 1 ? "" : "s"}. Approve the steps you want, then Run approved.`
+    );
+    return true;
+  }
+
+  /** Run approved steps in order; each step still goes through the normal send path. */
+  async runApprovedPlan() {
+    if (!this.plan || this.plan.status === "running" || this.planRunToken) return false;
+    if (this.busy) {
+      this.planStatus("Wait for the current reply to finish before running the plan.");
+      return false;
+    }
+    const approved = chatPlan.approvedIndexes(this.plan);
+    if (!approved.length) {
+      this.planStatus("Approve at least one step first. Nothing was run.");
+      return false;
+    }
+    const token = (this.planRunToken = (this.planRunToken || 0) + 1);
+    this.setPlan(chatPlan.startPlan(this.plan));
+    let stopped = null;
+    try {
+      for (const index of approved) {
+        if (this.planRunToken !== token) {
+          stopped = { reason: "aborted", index };
+          break;
+        }
+        if (this.busy) {
+          stopped = { reason: "error", index, message: "Another reply was still running, so this step was not sent." };
+          break;
+        }
+        const step = this.plan && this.plan.steps[index];
+        if (!step || step.status !== "approved") continue;
+        this.setPlan(chatPlan.markStep(this.plan, index, "running"));
+        const outcome = await this.runPlanStep(chatPlan.stepPrompt(this.plan, index));
+        if (this.planRunToken !== token) {
+          if (this.plan && this.plan.steps[index]) this.setPlan(chatPlan.markStep(this.plan, index, "approved"));
+          stopped = { reason: "aborted", index };
+          break;
+        }
+        if (outcome.kind === "reply" || outcome.kind === "applied") {
+          if (outcome.errors && outcome.errors.length) {
+            this.setPlan(chatPlan.markStep(this.plan, index, "failed", outcome.errors[0]));
+            stopped = { reason: "error", index, message: outcome.errors[0] };
+            break;
+          }
+          this.setPlan(chatPlan.markStep(this.plan, index, "done"));
+          continue;
+        }
+        if (outcome.kind === "partial") {
+          const note = `Applied ${outcome.applied} proposed action${outcome.applied === 1 ? "" : "s"}; ${outcome.declined} declined.`;
+          this.setPlan(chatPlan.markStep(this.plan, index, "failed", note));
+          stopped = { reason: "partial", index, message: note };
+          break;
+        }
+        if (outcome.kind === "declined") {
+          this.setPlan(chatPlan.markStep(this.plan, index, "declined", "The proposed writes were not applied."));
+          stopped = { reason: "declined", index };
+          break;
+        }
+        if (outcome.kind === "aborted") {
+          this.setPlan(chatPlan.markStep(this.plan, index, "approved"));
+          stopped = { reason: "aborted", index };
+          break;
+        }
+        if (outcome.kind === "refused") {
+          this.setPlan(chatPlan.markStep(this.plan, index, "approved", outcome.message || ""));
+          stopped = { reason: "refused", index, message: outcome.message || "" };
+          break;
+        }
+        this.setPlan(chatPlan.markStep(this.plan, index, "failed", outcome.message || ""));
+        stopped = { reason: "error", index, message: outcome.message || "" };
+        break;
+      }
+    } finally {
+      this.planRunToken = 0;
+      this.planStep = null;
+      this.planReviewModal = null;
+    }
+    const final = stopped
+      ? chatPlan.pausePlan(this.plan, stopped.reason, stopped.index)
+      : chatPlan.finishPlan(this.plan, "not-approved");
+    this.setPlan(final);
+    const message = stopped && stopped.message ? `${chatPlan.stopMessage(final)} ${stopped.message}`.trim() : chatPlan.stopMessage(final);
+    this.planStatus(message);
+    if (this.queueItems().length) this.drainQueue();
+    return !stopped;
+  }
+
+  async runPlanStep(prompt) {
+    const text = str(prompt).trim();
+    if (!text) return { kind: "refused", message: "That step had no text, so nothing was sent." };
+    let resolve;
+    const done = new Promise((r) => {
+      resolve = r;
+    });
+    this.planStep = { resolve, token: this.planRunToken };
+    let sent;
+    try {
+      sent = await this.send(text);
+    } catch (e) {
+      this.settlePlanStep({ kind: "error", message: str(e && e.message ? e.message : e) || "The step request failed." });
+      return done;
+    }
+    if (sent === false) this.settlePlanStep({ kind: "refused", message: this.error || "The step could not be sent." });
+    return done;
+  }
+
+  settlePlanRequest(outcome) {
+    const pending = this.planRequest;
+    if (!pending) return false;
+    this.planRequest = null;
+    pending.resolve(outcome || { kind: "aborted" });
+    return true;
+  }
+
+  settlePlanStep(outcome) {
+    const pending = this.planStep;
+    if (!pending) return false;
+    this.planStep = null;
+    pending.resolve(outcome || { kind: "aborted" });
+    return true;
+  }
+
+  /** Stop the whole plan: no later step starts and an open review is discarded. */
+  stopPlan() {
+    const active = Boolean(this.plan && this.plan.status === "running") || Boolean(this.planRequest);
+    if (!active) {
+      this.planStatus("No plan is running.");
+      return false;
+    }
+    this.planRunToken = 0;
+    if (this.planReviewModal) {
+      const modal = this.planReviewModal;
+      this.planReviewModal = null;
+      try {
+        modal.close();
+      } catch (e) {
+        /* the review window may already be gone */
+      }
+    }
+    this.settlePlanStep({ kind: "aborted" });
+    this.settlePlanRequest({ kind: "aborted" });
+    if (this.busy) this.cancelApi();
+    const plan = this.plan;
+    if (plan && plan.status === "running") {
+      const index = plan.steps.findIndex((step) => step.status === "running");
+      const next = index >= 0 ? chatPlan.markStep(plan, index, "approved") : plan;
+      this.setPlan(chatPlan.pausePlan(next, "aborted", index));
+    }
+    this.planStatus("Plan stopped. No later step was run.");
+    return true;
+  }
+
+
   async sendApi(text, currentNote, resend, model) {
+    const planning = Boolean(this.planRequest);
     const budget = this.budgetFor(text, currentNote);
     if (budget.over) {
       this.error = budgetRefusal(budget);
@@ -1641,6 +2173,8 @@ class ChatPanel {
     let proposals = [];
     let partial = "";
     let stoppedNote = "";
+    let stepOutcome = null;
+    let planningReply = "";
     const onDelta = (delta) => {
       if (token !== this.apiCancelToken) return;
       const chunk = str(delta);
@@ -1665,11 +2199,12 @@ class ChatPanel {
       if (token !== this.apiCancelToken) return;
       const finalText = str(reply).trim() || partial.trim();
       if (!finalText) throw new Error("The provider returned an empty reply.");
+      if (planning) planningReply = finalText;
       hist.push(...(resend ? [] : [{ role: "user", content: text }]), { role: "assistant", content: finalText });
       this.persistApiHistory();
       this.pending = "";
       this.streamText = "";
-      if (agent && typeof this.view.plugin.parseByokToolProposals === "function") {
+      if (agent && !planning && typeof this.view.plugin.parseByokToolProposals === "function") {
         const parsed = this.view.plugin.parseByokToolProposals(finalText);
         proposals = parsed.proposals;
         if (parsed.errors.length) new Notice(`Some AI actions were ignored: ${parsed.errors.join(" ")}`, 8000);
@@ -1689,19 +2224,51 @@ class ChatPanel {
       this.pending = "";
       this.streamText = "";
       this.error = stopped ? "" : friendlyApiError(e);
+      stepOutcome = { kind: stopped ? "aborted" : "error", message: this.error || "The step request failed." };
+      if (planning) this.settlePlanRequest(stepOutcome);
       if (!stopped && !kept) this.input.value = text;
     } finally {
-      if (token === this.apiCancelToken) {
+      const current = token === this.apiCancelToken;
+      if (current) {
         this.streamingController = null;
         this.setBusy(false);
         if (stoppedNote && this.status) this.status.setText(stoppedNote);
         this.turns = apiTurns(hist);
         this.refreshTokenFooter();
         this.draw();
-        if (proposals.length) new AiToolReviewModal(this.view.app, this.view.plugin, proposals).open();
+      }
+      if (proposals.length && current) {
+        const total = proposals.length;
+        let finished = false;
+        const modal = new AiToolReviewModal(this.view.app, this.view.plugin, proposals, {
+          onDone: (result) => {
+            if (finished) return;
+            finished = true;
+            if (this.planReviewModal === modal) this.planReviewModal = null;
+            const applied = Math.max(0, Number(result && result.applied) || 0);
+            const declined = Math.max(0, total - applied);
+            this.settlePlanStep({
+              kind: applied ? (declined ? "partial" : "applied") : "declined",
+              applied,
+              declined,
+              errors: (result && result.errors) || [],
+            });
+          },
+        });
+        if (this.planStep) this.planReviewModal = modal;
+        modal.open();
+      } else {
+        this.settlePlanStep(stepOutcome || { kind: "reply" });
+      }
+      if (planning) {
+        this.settlePlanRequest(
+          planningReply
+            ? { kind: "reply", text: planningReply }
+            : stepOutcome || { kind: "error", message: "The plan request returned no text." }
+        );
       }
     }
-    if (this.queueItems().length) this.drainQueue();
+    if (!this.planStep && this.queueItems().length) this.drainQueue();
     return true;
   }
 

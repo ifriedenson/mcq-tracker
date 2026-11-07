@@ -9,12 +9,21 @@ const TOOL_LABELS = {
 };
 
 class AiToolReviewModal extends Modal {
-  constructor(app, plugin, proposals) {
+  constructor(app, plugin, proposals, options) {
     super(app);
     this.plugin = plugin;
     this.proposals = Array.isArray(proposals) ? proposals : [];
     this.boxes = [];
     this.applying = false;
+    this.onDone = options && typeof options.onDone === "function" ? options.onDone : null;
+    this.finished = false;
+  }
+
+  /** Report the review result once, whether it was applied, discarded or closed. */
+  finish(outcome) {
+    if (this.finished) return;
+    this.finished = true;
+    if (this.onDone) this.onDone(outcome);
   }
 
   onOpen() {
@@ -49,6 +58,7 @@ class AiToolReviewModal extends Modal {
     if (this.applying || !this.plugin || typeof this.plugin.applyByokToolProposals !== "function") return;
     const selected = this.boxes.filter((item) => item.check && item.check.checked).map((item) => item.proposal);
     if (!selected.length) {
+      this.finish({ applied: 0, declined: this.proposals.length, errors: [], cancelled: true });
       this.close();
       return;
     }
@@ -63,6 +73,13 @@ class AiToolReviewModal extends Modal {
       if (result.errors && result.errors.length) {
         new Notice(`${result.errors.length} action${result.errors.length === 1 ? "" : "s"} could not be applied: ${result.errors[0]}`, 10000);
       }
+      const applied = Math.max(0, Number(result.created) || 0) + Math.max(0, Number(result.updated) || 0);
+      this.finish({
+        applied,
+        declined: Math.max(0, this.proposals.length - selected.length),
+        errors: result.errors || [],
+        cancelled: false,
+      });
       this.close();
     } catch (e) {
       this.applyButton.disabled = false;
@@ -75,6 +92,7 @@ class AiToolReviewModal extends Modal {
 
   onClose() {
     this.contentEl.empty();
+    this.finish({ applied: 0, declined: this.proposals.length, errors: [], cancelled: true });
   }
 }
 

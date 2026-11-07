@@ -21,6 +21,9 @@ const chatSkills = require("./chat-skills");
 const chatProjects = require("./chat-projects");
 const chatExport = require("./chat-export");
 const chatBranches = require("./chat-branches");
+const chatPlan = require("./chat-plan");
+const chatPdf = require("./chat-pdf");
+const { readPdfPages } = require("./pdf");
 const { archiveSession, libraryRows, newChatId, normalizeSessions, removeSession, renameSession, setArchivedSession, setPinnedSession, titleFromMessages } = require("./chat-sessions");
 
 const MAX_TABS = 6;
@@ -155,6 +158,8 @@ class AgentView extends ItemView {
       project: str(ai.studyChatProject).trim(),
       queue: chatQueue.normalizeQueue(ai.studyChatQueue),
       bookmarks: chatBookmarks.normalizeBookmarks(ai.studyChatBookmarks),
+      plan: chatPlan.restoredPlan(ai.studyChatPlan),
+      pdfs: chatPdf.normalizeAttachments(ai.studyChatPdfs),
       sessionId: str(ai.sessionId).trim(),
       pinned: ai.studyChatPinned === true,
       archived: false,
@@ -191,6 +196,8 @@ class AgentView extends ItemView {
       project: str(record.project).trim(),
       queue: chatQueue.normalizeQueue(record.queue),
       bookmarks: chatBookmarks.normalizeBookmarks(record.bookmarks),
+      plan: chatPlan.restoredPlan(record.plan),
+      pdfs: chatPdf.normalizeAttachments(record.pdfs),
       sessionId: str(record.sessionId).trim(),
       pinned: record.pinned === true,
       archived: record.archived === true,
@@ -216,6 +223,11 @@ class AgentView extends ItemView {
       saveQueue: (queue) => this.updateTab(tab, { queue }),
       getBookmarks: () => tab.bookmarks,
       saveBookmarks: (bookmarks) => this.updateTab(tab, { bookmarks }),
+      getPlan: () => tab.plan,
+      savePlan: (plan) => this.updateTab(tab, { plan }),
+      getPdfs: () => tab.pdfs,
+      savePdfs: (pdfs) => this.updateTab(tab, { pdfs }),
+      readPdf: (attachment, progress) => this.readPdf(attachment, progress),
       bookmarkLink: (bookmark) => this.bookmarkLink(bookmark, tab),
       getSessionId: () => tab.sessionId,
       setSessionId: (id) => this.updateTab(tab, { sessionId: str(id).trim() }),
@@ -397,7 +409,13 @@ class AgentView extends ItemView {
     if (!this.newTab()) return false;
     const fork = this.activeTab();
     if (!fork) return false;
-    this.updateTab(fork, { title: plan.title, model: source.model, project: source.project, bookmarks: [] });
+    this.updateTab(fork, {
+      title: plan.title,
+      model: source.model,
+      project: source.project,
+      bookmarks: [],
+      pdfs: (tab.pdfs || []).slice(),
+    });
     this.saveTabHistory(fork, plan.messages);
     new Notice(`Forked this conversation into "${plan.title}". The original is unchanged.`, 7000);
     return true;
@@ -471,6 +489,8 @@ class AgentView extends ItemView {
       project: str(ai.studyChatProject).trim(),
       queue: chatQueue.normalizeQueue(ai.studyChatQueue),
       bookmarks: chatBookmarks.normalizeBookmarks(ai.studyChatBookmarks),
+      plan: chatPlan.normalizePlan(ai.studyChatPlan),
+      pdfs: chatPdf.normalizeAttachments(ai.studyChatPdfs),
       pinned: ai.studyChatPinned === true,
       open: true,
     };
@@ -631,6 +651,8 @@ class AgentView extends ItemView {
     ai.studyChatModel = str(tab.model).trim();
     ai.studyChatQueue = chatQueue.normalizeQueue(tab.queue);
     ai.studyChatBookmarks = chatBookmarks.normalizeBookmarks(tab.bookmarks);
+    ai.studyChatPlan = chatPlan.normalizePlan(tab.plan);
+    ai.studyChatPdfs = chatPdf.normalizeAttachments(tab.pdfs);
     ai.studyChatProject = str(tab.project).trim();
     ai.studyChatTabOrder = Number(tab.tabOrder) || 0;
     ai.sessionId = str(tab.sessionId).trim();
@@ -659,6 +681,8 @@ class AgentView extends ItemView {
       project: str(tab.project).trim(),
       queue: chatQueue.normalizeQueue(tab.queue),
       bookmarks: chatBookmarks.normalizeBookmarks(tab.bookmarks),
+      plan: chatPlan.normalizePlan(tab.plan),
+      pdfs: chatPdf.normalizeAttachments(tab.pdfs),
       pinned: tab.pinned === true,
       archived: tab.archived === true,
       open: opts.open === true ? true : false,
@@ -673,6 +697,8 @@ class AgentView extends ItemView {
     if (Object.prototype.hasOwnProperty.call(next, "messages")) setTabMessages(tab, next.messages);
     if (Object.prototype.hasOwnProperty.call(next, "queue")) tab.queue = chatQueue.normalizeQueue(next.queue);
     if (Object.prototype.hasOwnProperty.call(next, "bookmarks")) tab.bookmarks = chatBookmarks.normalizeBookmarks(next.bookmarks);
+    if (Object.prototype.hasOwnProperty.call(next, "plan")) tab.plan = chatPlan.normalizePlan(next.plan);
+    if (Object.prototype.hasOwnProperty.call(next, "pdfs")) tab.pdfs = chatPdf.normalizeAttachments(next.pdfs);
     if (Object.prototype.hasOwnProperty.call(next, "model")) tab.model = str(next.model).trim().slice(0, 200);
     if (Object.prototype.hasOwnProperty.call(next, "project")) tab.project = str(next.project).trim().slice(0, 80);
     if (Object.prototype.hasOwnProperty.call(next, "sessionId")) tab.sessionId = str(next.sessionId).trim();
@@ -759,6 +785,8 @@ class AgentView extends ItemView {
       project: "",
       queue: [],
       bookmarks: [],
+      plan: null,
+      pdfs: [],
       sessionId: "",
       pinned: false,
       archived: false,
@@ -797,6 +825,8 @@ class AgentView extends ItemView {
       project: "",
       queue: [],
       bookmarks: [],
+      plan: null,
+      pdfs: [],
       sessionId: "",
       pinned: false,
       archived: false,
@@ -859,6 +889,36 @@ class AgentView extends ItemView {
       this.removeTabPanel(current);
     }
     return this.openEmptyTab();
+  }
+
+  /** Read a vault PDF for the chat; extraction is local and bounded by the caller. */
+  async readPdf(attachment, progress) {
+    const item = chatPdf.normalizeAttachment(attachment);
+    if (!item) throw new Error("that PDF path is not valid");
+    const file = typeof this.app.vault.getAbstractFileByPath === "function"
+      ? this.app.vault.getAbstractFileByPath(item.path)
+      : null;
+    if (!file) throw new Error("the PDF is no longer in the vault");
+    const buffer = await this.app.vault.readBinary(file);
+    return readPdfPages(
+      buffer,
+      chatPdf.readSpec(item),
+      typeof progress === "function" ? progress : () => {}
+    );
+  }
+
+  /** Palette command: open the PDF picker in the active Study agent panel. */
+  attachPdf() {
+    const panel = this.chatPanel;
+    if (!panel || typeof panel.attachPdf !== "function") return false;
+    return panel.attachPdf();
+  }
+
+  /** Ask the active panel for a numbered plan; nothing runs until every step is approved. */
+  async startPlan(goal) {
+    const panel = this.chatPanel;
+    if (!panel || typeof panel.startPlan !== "function") return false;
+    return panel.startPlan(goal);
   }
 
   /** Continue an archived conversation: it moves (not copies) back into a tab. */
@@ -951,6 +1011,7 @@ class AgentView extends ItemView {
         ai.studyChatModel = "";
         ai.studyChatQueue = [];
         ai.studyChatBookmarks = [];
+        ai.studyChatPdfs = [];
         ai.studyChatProject = "";
         ai.sessionId = "";
         this.apiHistory = [];

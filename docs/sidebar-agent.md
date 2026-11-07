@@ -123,6 +123,24 @@ view does not stop the configured AI provider.
   do the same. Both work on this device's Direct API transcript (OpenCode keeps
   its history on its server) and refuse the first question, because there is
   nothing before it to keep.
+- **Plan before acting.** Run **Study agent: plan a multi-step task** and
+  describe the goal. The model's numbered plan appears in the panel before
+  anything runs; every step starts unapproved. **Approve** or **Skip** each
+  step, then **Run approved** sends the approved steps one at a time through the
+  same `ChatPanel.send` path, so model resolution, mentions, budget, streaming,
+  Stop and the write-review window are shared. A skipped step never runs; a
+  declined write, provider failure, Stop or reload stops later steps and is
+  reported, and an interrupted run restores paused. The plan is stored with the
+  conversation. No second provider client or implicit write path is added.
+- **Attach a PDF.** Press **PDF** beside the composer or run **Study agent:
+  attach a PDF**. Choose up to three vault PDFs and a page range (default
+  1-20, at most 40 pages each). The text layer is read on this device through
+  the existing `readPdfPages` pipeline, added to the next request as untrusted
+  material with `[[path#page=N]]` citations, and counted in the same
+  12,000-token budget. A missing, image-only or unreadable PDF refuses the send;
+  a chip removes one from later requests. Paths and pages persist with the
+  conversation. No OCR, upload, extra dependency or extracted-text storage is
+  used.
 - **Group chats into projects.** The library has a **This chat** picker for the
   open conversation, a **Filter** picker for All / Unassigned / one project, a
   project name on each matching row, and **Remove project** to delete the label
@@ -193,7 +211,11 @@ switch, refusal, footer, picker, model selector, `/compact` and library
 controls end to end. `tests/chat-tabs-queue.test.js` covers tab history and
 model isolation across a reload, closing a tab back into the library, queue
 ordering and exactly-once delivery, cancel, tab-switch and reload persistence,
-and delivery after a provider error or Stop.
+and delivery after a provider error or Stop. `tests/chat-plan.test.js` covers
+plan parsing, per-step approval, a declined write, an aborted step, degraded
+replies and persistence. `tests/chat-pdf.test.js` covers page bounds, the vault
+picker, local reading, send inclusion, missing/text-free refusal, removal and
+reload persistence.
 
 ## Manual gate
 
