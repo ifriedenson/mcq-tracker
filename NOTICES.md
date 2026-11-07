@@ -16,6 +16,54 @@ AP questions, rubrics, scoring guidelines, sample responses, videos, unit guides
 banks, and it does not scrape AP Classroom. AP is a trademark of the College Board; this
 plugin is not affiliated with or endorsed by the College Board.
 
+## Grill
+
+- **Project:** [grill](https://github.com/theadamdanielsson/grill) (Obsidian plugin)
+- **Author:** Adam Danielsson
+- **License:** MIT, Copyright (c) 2026 Adam Danielsson (verified in the repository's `LICENSE` on November 7, 2026)
+- **Baseline:** commit `6dd05d884f8f9d77e684d6c814e160aaa5d2ea83` (version 8.7.12)
+- **What was absorbed:** the idea of a persistent per-concept record, deterministic concept
+  extraction from note structure, the 8-concept coverage target and 80% known band, source-hash
+  reopening, reconciliation with orphan retention, and the shape of a bounded learner digest
+  and misconception evidence.
+- **Files in this repository that contain adapted work:**
+  - `src/knowledge-record.js` — extraction, reconciliation, coverage, misconceptions and digest
+  - `src/knowledge-store.js` — local, rebuildable index
+  - `src/insights-view.js` — the Knowledge record panel, written in this plugin's own UI
+  - `src/plugin.js` — commands, opt-in settings, attempt refresh and chat digest wiring
+  - `tests/knowledge-record.test.js` — tests for the adapted logic
+- **Marked as modified.** These are not verbatim copies: the logic was rewritten for this
+  plugin's plain-JavaScript module layout, question-level FSRS model, `source_note` /
+  `source_heading` links, error taxonomy, settings and Insights UI. Grill's theme, home, chat and
+  test-session interfaces were not copied. Concept scheduling is projected from the existing
+  question schedule instead of creating a second scheduler. See `plan.md` §5.27.
+
+The MIT notice that applies to those adapted parts:
+
+```
+MIT License
+
+Copyright (c) 2026 Adam Danielsson
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ## University Schedule and Calendar
 
 - **Project:** [obsidian-uni-calendar](https://github.com/Cesemess/obsidian-uni-calendar) (plugin id `university-calendar`, "University Schedule and Calendar")

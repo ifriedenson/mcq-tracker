@@ -29,10 +29,11 @@ function fakePlugin() {
 }
 
 test("AI context: every toggle is off by default and only true values survive normalization", () => {
-  assert.deepEqual(context.normalizeAiContext(undefined), { stats: false, due: false, exams: false });
-  assert.deepEqual(context.normalizeAiContext({ stats: true, due: "yes", exams: 1 }), { stats: true, due: false, exams: false });
+  assert.deepEqual(context.normalizeAiContext(undefined), { stats: false, due: false, exams: false, record: false });
+  assert.deepEqual(context.normalizeAiContext({ stats: true, due: "yes", exams: 1, record: "yes" }), { stats: true, due: false, exams: false, record: false });
   assert.equal(context.anyContext({}), false);
   assert.equal(context.anyContext({ exams: true }), true);
+  assert.equal(context.anyContext({ record: true }), true);
   assert.equal(context.buildStudyContext(fakePlugin(), {}), "", "nothing is built while every toggle is off");
 });
 
@@ -51,6 +52,12 @@ test("AI context: selected toggles add only their own aggregate lines", () => {
 
   const exams = context.buildStudyContext(plugin, { exams: true });
   assert.match(exams, /Next exam: AP Biology Exam on \d{4}-\d{2}-\d{2} \(in 5 days\)/);
+});
+
+test("AI context: the knowledge record digest is opt-in", () => {
+  const plugin = Object.assign(fakePlugin(), { learnerDigest: () => "KNOWLEDGE RECORD\nCoverage: 2 concepts." });
+  assert.doesNotMatch(context.buildStudyContext(plugin, {}), /KNOWLEDGE RECORD/);
+  assert.match(context.buildStudyContext(plugin, { record: true }), /KNOWLEDGE RECORD/);
 });
 
 test("AI context: the general assistant prompt includes study context only when it is enabled", () => {

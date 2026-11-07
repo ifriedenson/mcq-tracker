@@ -12921,3 +12921,73 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   line-height: 1.2;
   font-size: var(--font-ui-smaller);
 }
+
+
+/* Knowledge record: concept coverage, misconceptions and the learner digest. */
+.qt-knowledge-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0;
+}
+.qt-knowledge-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+}
+.qt-knowledge-kpi b {
+  font-size: 1.35em;
+  line-height: 1.1;
+}
+.qt-knowledge-kpi span {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+.qt-knowledge-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+.qt-knowledge-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.qt-knowledge-mis-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.qt-knowledge-mis-label,
+.qt-knowledge-concept-label {
+  font-weight: var(--font-semibold, 600);
+}
+.qt-knowledge-state {
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: var(--font-ui-smaller);
+  border: 1px solid var(--background-modifier-border);
+}
+.qt-knowledge-state.is-open {
+  color: var(--text-error);
+  border-color: var(--text-error);
+}
+.qt-knowledge-state.is-fixed {
+  color: var(--text-muted);
+}
+.qt-knowledge-note.is-strong .qt-meter-fill,
+.qt-knowledge-note.is-strong .qt-link {
+  color: var(--text-success);
+}
+@media (max-width: 600px) {
+  .qt-knowledge-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

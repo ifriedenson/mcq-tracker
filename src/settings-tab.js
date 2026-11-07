@@ -904,6 +904,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       { key: "stats", name: "Practice statistics", desc: "Question and attempt counts, accuracy and the weakest skill with at least three attempts." },
       { key: "due", name: "Due work", desc: "Due and unseen question counts, plus due and new card counts." },
       { key: "exams", name: "Next exam", desc: "The next upcoming calendar exam, its date and countdown." },
+      { key: "record", name: "Knowledge record", desc: "Concept labels, coverage and error tags from the local knowledge record. This includes short concept names and last-miss notes, so it stays off until you build and enable the record." },
     ];
     for (const item of contextOptions) {
       new Setting(containerEl)
@@ -918,6 +919,47 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           })
         );
     }
+    new Setting(containerEl).setName("Knowledge record").setHeading();
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "An opt-in local index of the concepts your notes teach, built from headings, definitions, terms and formulas and linked to the questions you practise. It is saved as MCQ Tracker/knowledge-record.json, can be rebuilt at any time, and is never sent anywhere unless you turn on the Knowledge record study-context toggle above.",
+    });
+    const recordCfg = this.plugin.knowledgeRecordSettings();
+    new Setting(containerEl)
+      .setName("Build a concept record from my notes")
+      .setDesc("Reads note structure on this device and writes the local index. Notes remain authoritative; deleting the index only loses the cached view, not any study data.")
+      .addToggle((t) =>
+        t.setValue(recordCfg.enabled).onChange(async (v) => {
+          if (v) {
+            await this.plugin.enableKnowledgeRecord();
+          } else {
+            this.plugin.settings.knowledgeRecord = Object.assign({}, this.plugin.knowledgeRecordSettings(), { enabled: false });
+            await this.plugin.save();
+          }
+          this.plugin.refreshViews();
+          this.display();
+        })
+      );
+    new Setting(containerEl)
+      .setName("Rebuild the record")
+      .setDesc("Refresh concept extraction and the practice projected onto each concept. Useful after renaming headings or adding questions.")
+      .addButton((b) =>
+        b.setButtonText("Rebuild now").onClick(async () => {
+          if (!this.plugin.knowledgeRecordSettings().enabled) {
+            new Notice("Turn on the knowledge record first.");
+            return;
+          }
+          b.setButtonText("Building…");
+          b.setDisabled(true);
+          try {
+            await this.plugin.rebuildKnowledgeRecord();
+          } finally {
+            b.setButtonText("Rebuild now");
+            b.setDisabled(false);
+            this.display();
+          }
+        })
+      );
     if (Platform.isDesktopApp) {
       new Setting(containerEl)
         .setName("AI backend")

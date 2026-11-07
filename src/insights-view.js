@@ -1,5 +1,5 @@
 "use strict";
-const { ItemView } = require("obsidian");
+const { ItemView, Notice } = require("obsidian");
 const { WEAK_MIN_ATTEMPTS, computeStats, errorLog, fmtPct, overallStats, trendBy, trendDelta, weakestRow, weeklyAccuracy } = require("./stats");
 const { fmtClock, localDate, str } = require("./util");
 const { STAT_FIELDS } = require("./constants");
@@ -8,6 +8,7 @@ const { buildDashboard } = require("./analytics");
 const { courseHealthReport } = require("./course-health");
 const { courseDashboard } = require("./study-workspace");
 const { conceptMasteryRows } = require("./concept-mastery");
+const knowledgeRecord = require("./knowledge-record");
 const { renderBreakdown, renderCalibration, renderGrade, renderHeatmap, renderRetention, renderSkips } = require("./analytics-embed");
 const { MASTERY_POOL_NOTE, MASTERY_WINDOWS, bandQuestions, buildProgress, masteryScopes, masteryTrendText, masteryWindowDays, scopeQuestions: questionsInScope } = require("./progress");
 
@@ -120,6 +121,7 @@ class InsightsView extends ItemView {
       return;
     }
     if (this.tab === "concepts") {
+      this.renderKnowledgeRecord(root);
       this.renderConcepts(root, questions);
       el.scrollTop = top;
       return;
@@ -660,6 +662,142 @@ class InsightsView extends ItemView {
       const go = row.createEl("button", { text: "Practice" });
       go.addEventListener("click", () => p.practiceWith({ [this.field]: [r.value] }, "smart"));
     }
+  }
+
+  /**
+   * Grill-inspired knowledge record, in this plugin's own UI: concept coverage,
+   * the misconceptions the error tags reveal, and the concepts to revisit.
+   */
+  renderKnowledgeRecord(root) {
+    const plugin = this.plugin;
+    if (!plugin.knowledgeRecordSettings) return;
+    const cfg = plugin.knowledgeRecordSettings();
+    root.createEl("h3", { cls: "qt-today-section", text: "Knowledge record" });
+    root.createDiv({
+      cls: "qt-hint",
+      text: "What your notes teach, linked to the practice you have done. Built locally from headings, terms and error tags; your notes remain the source of truth.",
+    });
+    if (!cfg.enabled) {
+      const empty = root.createDiv({ cls: "qt-empty qt-knowledge-empty" });
+      empty.createDiv({ cls: "qt-hint", text: "Off by default. Building the record reads note structure on this device and writes a small JSON index. Nothing is sent anywhere." });
+      const button = empty.createEl("button", { cls: "mod-cta", text: "Build my knowledge record" });
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        try {
+          await plugin.enableKnowledgeRecord();
+          this.render();
+        } catch (e) {
+          new Notice("The knowledge record could not be built.");
+        }
+      });
+      return;
+    }
+    const record = plugin.knowledgeRecord || knowledgeRecord.emptyRecord();
+    const summary = knowledgeRecord.recordSummary(record, new Date());
+    if (!summary.concepts) {
+      const empty = root.createDiv({ cls: "qt-empty qt-knowledge-empty" });
+      empty.createDiv({ cls: "qt-hint", text: "No concepts are indexed yet. Build the record to read headings and terms from your notes." });
+      const button = empty.createEl("button", { cls: "mod-cta", text: "Build now" });
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        try {
+          await plugin.rebuildKnowledgeRecord();
+          this.render();
+        } catch (e) {
+          new Notice("The knowledge record could not be built.");
+        }
+      });
+      return;
+    }
+
+    const kpis = root.createDiv({ cls: "qt-knowledge-kpis" });
+    for (const [value, label] of [
+      [summary.notes, "Notes"],
+      [summary.concepts, "Concepts"],
+      [summary.known, "Known"],
+      [summary.due, "Due"],
+    ]) {
+      const card = kpis.createDiv({ cls: "qt-knowledge-kpi" });
+      card.createEl("b", { text: String(value) });
+      card.createSpan({ text: label });
+    }
+    const actions = root.createDiv({ cls: "qt-knowledge-actions" });
+    const rebuild = actions.createEl("button", { text: "Rebuild record" });
+    rebuild.addEventListener("click", async () => {
+      rebuild.disabled = true;
+      try {
+        await plugin.rebuildKnowledgeRecord();
+        this.render();
+      } catch (e) {
+        new Notice("The knowledge record could not be rebuilt.");
+        rebuild.disabled = false;
+      }
+    });
+    const copy = actions.createEl("button", { text: "Copy learner digest" });
+    copy.addEventListener("click", () => plugin.copyLearnerDigest());
+
+    const rows = knowledgeRecord.noteRows(record, new Date()).slice(0, 8);
+    if (rows.length) {
+      root.createDiv({ cls: "qt-label", text: "Coverage by note" });
+      const list = root.createDiv({ cls: "qt-ins-list qt-knowledge-notes" });
+      for (const row of rows) {
+        const line = list.createDiv({ cls: `qt-ins-row qt-knowledge-note is-${row.band}` });
+        const main = line.createDiv({ cls: "qt-ins-main" });
+        const link = main.createEl("a", { cls: `qt-link is-${row.band}`, text: row.label });
+        link.addEventListener("click", () => this.openKnowledgeNote(row.path));
+        main.createDiv({
+          cls: "qt-hint",
+          text: `${row.known}/${row.total} concepts known · ${row.tested} tested · ${row.due} due`,
+        });
+        const meter = line.createDiv({ cls: "qt-ins-meter" });
+        const band = row.band === "strong" ? "is-high" : row.band === "developing" ? "is-mid" : row.band === "weak" ? "is-low" : "";
+        meter.createDiv({ cls: "qt-meter-track" }).createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round(row.coverage * 100)}%` });
+        meter.createSpan({ cls: "qt-ins-pct", text: `${Math.round(row.coverage * 100)}%` });
+      }
+    }
+
+    const misconceptions = knowledgeRecord.topMisconceptions(record, 6);
+    if (misconceptions.length) {
+      root.createDiv({ cls: "qt-label", text: "Misconceptions" });
+      const list = root.createDiv({ cls: "qt-ins-list qt-knowledge-misconceptions" });
+      for (const row of misconceptions) {
+        const line = list.createDiv({ cls: `qt-ins-row qt-knowledge-misconception is-${row.open ? "open" : "fixed"}` });
+        const main = line.createDiv({ cls: "qt-ins-main" });
+        const title = main.createDiv({ cls: "qt-knowledge-mis-title" });
+        title.createSpan({ cls: "qt-knowledge-mis-label", text: row.label });
+        title.createSpan({ cls: `qt-knowledge-state is-${row.open ? "open" : "fixed"}`, text: row.open ? "Open" : "Fixed" });
+        main.createDiv({
+          cls: "qt-hint",
+          text: `${row.count} miss${row.count === 1 ? "" : "es"} across ${row.notes.length} note${row.notes.length === 1 ? "" : "s"}${row.concepts.length ? ` · ${row.concepts.join(", ")}` : ""}`,
+        });
+      }
+    }
+
+    const weak = knowledgeRecord
+      .allConcepts(record)
+      .filter((concept) => concept.attempts > 0)
+      .sort((a, b) => b.incorrect - a.incorrect || b.partial - a.partial || a.label.localeCompare(b.label))
+      .slice(0, 6);
+    if (weak.length) {
+      root.createDiv({ cls: "qt-label", text: "Concepts to revisit" });
+      const list = root.createDiv({ cls: "qt-ins-list qt-knowledge-weak" });
+      for (const concept of weak) {
+        const line = list.createDiv({ cls: "qt-ins-row qt-knowledge-concept" });
+        const main = line.createDiv({ cls: "qt-ins-main" });
+        main.createDiv({ cls: "qt-knowledge-concept-label", text: concept.label });
+        main.createDiv({
+          cls: "qt-hint",
+          text: `${concept.noteLabel} · ${concept.correct}/${concept.attempts} right${concept.lastError ? ` · ${knowledgeRecord.tagLabel(concept.lastError).toLowerCase()}` : ""}`,
+        });
+      }
+    }
+    root.createDiv({ cls: "qt-hint", text: "The record is a local index, not a second schedule: a concept's due date is projected from the questions linked to its note. Edit a note and rebuild to refresh it." });
+  }
+
+  openKnowledgeNote(path) {
+    const file = this.app.vault.getAbstractFileByPath(path) || (this.app.metadataCache.getFirstLinkpathDest ? this.app.metadataCache.getFirstLinkpathDest(path, "") : null);
+    if (file) this.app.workspace.getLeaf("tab").openFile(file);
+    else new Notice(`That source note is no longer in the vault: ${path}`);
   }
 
   /** Mastery per source note, weakest first. A local list, not an upload. */

@@ -7,6 +7,8 @@ const { PracticeView } = require("./practice-view");
 const { parseQuickPracticeUri } = require("./quick-practice");
 const practiceFullscreen = require("./practice-fullscreen");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
+const knowledgeRecord = require("./knowledge-record");
+const knowledgeStore = require("./knowledge-store");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
 const { TodayView } = require("./today-view");
 const { ConfirmModal, FindQuestionModal, NameModal, QuestionFolderModal } = require("./modals");
@@ -325,6 +327,10 @@ class QuestionTrackerPlugin extends Plugin {
     this.pdfPlusUiDepth = 0;
     this._pdfPlusQueue = Promise.resolve();
     await this.loadSettings();
+    this.knowledgeRecord = knowledgeRecord.emptyRecord();
+    this._knowledgeRecordLoaded = false;
+    this._knowledgeRecordBuild = null;
+    this._knowledgeRecordSaveTimer = null;
     this.plainCardIndex = new Map();
     this._calendarNoteIndex = null;
     this._calendarFolders = null;
@@ -353,6 +359,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.app.workspace.onLayoutReady(() => {
       this.startPdfPlus().catch(() => {});
       this.startDeferredStartup();
+      this.loadKnowledgeRecord().catch(() => {});
       if (welcomeShouldShow(this.app)) activeWindow.setTimeout(() => this.openWelcome(), 1200);
       const ai = this.settings.ai;
       if (Platform.isDesktopApp && ai.enabled && ai.managed && ai.preStart && this.backend() === "opencode") {
@@ -974,6 +981,9 @@ class QuestionTrackerPlugin extends Plugin {
     });
     this.addCommand({ id: "weak-spots", name: "Show weak spots", callback: () => this.activateInsights("weak") });
     this.addCommand({ id: "error-log", name: "Show error log", callback: () => this.activateInsights("errors") });
+    this.addCommand({ id: "knowledge-record", name: "Open the knowledge record", callback: () => this.activateInsights("concepts") });
+    this.addCommand({ id: "rebuild-knowledge-record", name: "Knowledge record: rebuild from notes", callback: () => this.rebuildKnowledgeRecord() });
+    this.addCommand({ id: "copy-learner-digest", name: "Knowledge record: copy learner digest", callback: () => this.copyLearnerDigest() });
     this.addCommand({ id: "find-question", name: "Find a question by ID", callback: () => new FindQuestionModal(this.app, this).open() });
     this.addCommand({
       id: "rename-source-id",
@@ -1273,6 +1283,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.examBlockMode = this.settings.examBlockMode === "answer" ? "answer" : "study";
     this.settings.knownDaysByCourse = normalizeCourseDays(saved.knownDaysByCourse);
     this.settings.historyLimit = normalizeHistoryLimit(this.settings.historyLimit);
+    this.settings.knowledgeRecord = knowledgeRecord.normalizeSettings(saved.knowledgeRecord);
     this.settings.studyPlanDays = normalizeStudyPlanDays(this.settings.studyPlanDays);
     this.settings.leechThreshold = Math.max(0, Math.min(50, Math.round(Number(this.settings.leechThreshold) || 0)));
     this.settings.leechAction = this.settings.leechAction === "suspend" ? "suspend" : "flag";
@@ -1493,6 +1504,165 @@ class QuestionTrackerPlugin extends Plugin {
     }
     await view.startQuick("count", list.length, { pool: list, label });
     return view;
+  }
+
+  knowledgeRecordSettings() {
+    return knowledgeRecord.normalizeSettings(this.settings && this.settings.knowledgeRecord);
+  }
+
+  async loadKnowledgeRecord() {
+    if (this._knowledgeRecordLoaded) return this.knowledgeRecord;
+    this._knowledgeRecordLoaded = true;
+    try {
+      this.knowledgeRecord = await knowledgeStore.loadRecord(this.app);
+    } catch (e) {
+      this.knowledgeRecord = knowledgeRecord.emptyRecord();
+    }
+    if (this.knowledgeRecordSettings().enabled && Object.keys(this.knowledgeRecord.notes || {}).length) this.refreshViews();
+    return this.knowledgeRecord;
+  }
+
+  /** Build the opt-in local index from note structure and linked question history. */
+  async rebuildKnowledgeRecord(options) {
+    const quiet = !!(options && options.quiet);
+    if (this._knowledgeRecordBuild) return this._knowledgeRecordBuild;
+    if (!this.knowledgeRecordSettings().enabled) {
+      if (!quiet) new Notice("Turn on the knowledge record in Settings, AI, Knowledge record first.");
+      return null;
+    }
+    this._knowledgeRecordBuild = (async () => {
+      const now = new Date();
+      const files = (this.app.vault.getMarkdownFiles ? this.app.vault.getMarkdownFiles() : [])
+        .filter((file) => {
+          if (!file || !str(file.path).endsWith(".md")) return false;
+          if (file.path.startsWith("MCQ Tracker/") || file.path.startsWith(".")) return false;
+          const fm = (this.app.metadataCache.getFileCache(file) || {}).frontmatter || {};
+          return !isCardNote(fm) && !str(fm.question_id).trim();
+        })
+        .slice(0, 1000);
+      const bySource = new Map();
+      const byBase = new Map();
+      for (const question of this.getQuestions()) {
+        const fm = (question && question.fm) || {};
+        const source = knowledgeRecord.normalizePath(fm.source_note);
+        if (!source) continue;
+        if (!bySource.has(source)) bySource.set(source, []);
+        bySource.get(source).push(question);
+        const base = source.split("/").pop();
+        if (!byBase.has(base)) byBase.set(base, []);
+        byBase.get(base).push(question);
+      }
+      const previous = this.knowledgeRecord || knowledgeRecord.emptyRecord();
+      const next = knowledgeRecord.emptyRecord();
+      let read = 0;
+      let failed = 0;
+      for (const file of files) {
+        try {
+          const text = await this.app.vault.cachedRead(file);
+          if (str(text).length < 40) continue;
+          const source = knowledgeRecord.normalizePath(file.path);
+          const base = source.split("/").pop();
+          const questions = bySource.get(source) || byBase.get(base) || [];
+          const entry = knowledgeRecord.buildNoteEntry(source, text, questions, previous.notes && previous.notes[source], now);
+          if (!entry.concepts.length) continue;
+          next.notes[source] = entry;
+          read++;
+        } catch (e) {
+          failed++;
+        }
+      }
+      next.updatedAt = now.toISOString();
+      this.knowledgeRecord = next;
+      this._knowledgeRecordLoaded = true;
+      await knowledgeStore.saveRecord(this.app, next);
+      const summary = knowledgeRecord.recordSummary(next, now);
+      this.settings.knowledgeRecord = Object.assign(this.knowledgeRecordSettings(), {
+        lastBuilt: now.toISOString(),
+        notes: summary.notes,
+        concepts: summary.concepts,
+        known: summary.known,
+        due: summary.due,
+      });
+      await this.save();
+      if (!quiet) {
+        new Notice(`Knowledge record: ${summary.concepts} concepts from ${summary.notes} notes (${summary.known} known, ${summary.due} due).`, 7000);
+      }
+      if (failed) new Notice(`${failed} note${failed === 1 ? "" : "s"} could not be read and were skipped.`, 5000);
+      this.refreshViews();
+      return Object.assign({ read, failed }, summary);
+    })();
+    try {
+      return await this._knowledgeRecordBuild;
+    } finally {
+      this._knowledgeRecordBuild = null;
+    }
+  }
+
+  async enableKnowledgeRecord() {
+    this.settings.knowledgeRecord = Object.assign(this.knowledgeRecordSettings(), { enabled: true });
+    await this.save();
+    this._knowledgeRecordLoaded = false;
+    return this.rebuildKnowledgeRecord({ quiet: true });
+  }
+
+  /** Update one source note after an attempt, without rescanning the whole vault. */
+  async refreshKnowledgeRecordFor(file) {
+    if (!this.knowledgeRecordSettings().enabled) return null;
+    const fm = (this.app.metadataCache.getFileCache(file) || {}).frontmatter || {};
+    const source = knowledgeRecord.normalizePath(fm.source_note);
+    if (!source) return null;
+    const note =
+      this.app.vault.getAbstractFileByPath(source) ||
+      (this.app.metadataCache.getFirstLinkpathDest ? this.app.metadataCache.getFirstLinkpathDest(source, "") : null);
+    if (!note) return null;
+    try {
+      const text = await this.app.vault.cachedRead(note);
+      const base = source.split("/").pop();
+      const questions = this.getQuestions().filter((question) => {
+        const qSource = knowledgeRecord.normalizePath(question && question.fm && question.fm.source_note);
+        return qSource === source || (!qSource.includes("/") && qSource === base);
+      });
+      const previous = this.knowledgeRecord && this.knowledgeRecord.notes ? this.knowledgeRecord.notes[source] : null;
+      const entry = knowledgeRecord.buildNoteEntry(source, text, questions, previous, new Date());
+      if (!this.knowledgeRecord) this.knowledgeRecord = knowledgeRecord.emptyRecord();
+      this.knowledgeRecord.notes[source] = entry;
+      this.knowledgeRecord.updatedAt = new Date().toISOString();
+      this.scheduleKnowledgeRecordSave();
+      return entry;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  scheduleKnowledgeRecordSave() {
+    if (this._knowledgeRecordSaveTimer) activeWindow.clearTimeout(this._knowledgeRecordSaveTimer);
+    this._knowledgeRecordSaveTimer = activeWindow.setTimeout(() => {
+      this._knowledgeRecordSaveTimer = null;
+      if (this.knowledgeRecord) knowledgeStore.saveRecord(this.app, this.knowledgeRecord).catch(() => {});
+    }, 1500);
+  }
+
+  learnerDigest(focusPath) {
+    if (!this.knowledgeRecordSettings().enabled) return "";
+    const active = focusPath || (this.app.workspace.getActiveFile ? (this.app.workspace.getActiveFile() || {}).path : "");
+    return knowledgeRecord.buildLearnerDigest(this.knowledgeRecord, { focusPath: active, now: new Date() });
+  }
+
+  async copyLearnerDigest() {
+    const text = this.learnerDigest();
+    if (!text) {
+      new Notice("Build the knowledge record first, then copy its digest.");
+      return false;
+    }
+    try {
+      if (typeof navigator === "undefined" || !navigator.clipboard || !navigator.clipboard.writeText) throw new Error("Clipboard unavailable.");
+      await navigator.clipboard.writeText(text);
+      new Notice("Learner digest copied.");
+      return true;
+    } catch (e) {
+      new Notice("Could not reach the clipboard. The digest is in Insights, Concepts.");
+      return false;
+    }
   }
 
   async activateInsights(tab) {
@@ -10334,6 +10504,7 @@ ${body}
     if (summary && summary.sm2Error) {
       new Notice("SM-2 couldn't schedule this item, so the simple ladder was used.");
     }
+    this.refreshKnowledgeRecordFor(file).catch(() => {});
     return { ...summary, queued: false, attemptId: attempt.attemptId };
   }
 

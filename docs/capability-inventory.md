@@ -1,11 +1,11 @@
 # Capability inventory — derived from the bundle
 
-Generated Nov 6, 2026 from the built `main.js` (`T`, the plugin's test surface) and the
+Generated Nov 7, 2026 from the built `main.js` (`T`, the plugin's test surface) and the
 plugin's registered commands, not from prose. Each row names the exports a group carries
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 422 groups, 2902 exports. **Commands:** 218. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 424 groups, 2936 exports. **Commands:** 221. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -28,7 +28,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `CardView` | 0 | `tests/card-cram.test.js`, `tests/card-learning.test.js`, `tests/card-mother-cram.test.js`, `tests/card-reveal.test.js`, `tests/card-speech.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/interval-preview.test.js`, `tests/mobile-module-layout.test.js`, `tests/source-recall.test.js`, `tests/study-status.test.js` |
 | `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/chat-branches.test.js`, `tests/chat-panel-mentions.test.js`, `tests/diagnostics-gauge.test.js`, `tests/memory-export.test.js`, `tests/note-context.test.js`, `tests/quick-ask.test.js`, `tests/security-hardening.test.js`, `tests/skills-pricing.test.js`, `tests/think-first.test.js` |
 | `CourseOverviewModal` | 0 | `tests/core-values.test.js` |
-| `DEFAULT_SETTINGS` | 113 | `tests/grading.test.js` |
+| `DEFAULT_SETTINGS` | 114 | `tests/grading.test.js` |
 | `DocumentReviewModal` | 0 | `tests/feature-surfaces.test.js` |
 | `DueQueueModal` | 0 | `tests/feature-surfaces.test.js` |
 | `EpubReaderModal` | 0 | `tests/epub.test.js` |
@@ -39,7 +39,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `FrqImportPreviewModal` | 0 | `tests/frq-import.test.js` |
 | `FrqPdfPickerModal` | 0 | `tests/frq-import.test.js` |
 | `GLOBAL_TABS` | 3 | `tests/modules.test.js` |
-| `InsightsView` | 0 | `tests/study-plan.test.js`, `tests/views.test.js` |
+| `InsightsView` | 0 | `tests/knowledge-view.test.js`, `tests/study-plan.test.js`, `tests/views.test.js` |
 | `LocalEventModal` | 0 | `tests/feature-surfaces.test.js` |
 | `LocalEventsView` | 0 | `tests/mobile-calendar-agenda.test.js` |
 | `MAX_OPENCODE_MAJOR` | 0 | `tests/feature-surfaces.test.js` |
@@ -261,6 +261,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `intervalPreview` | 4 | `tests/interval-preview.test.js` |
 | `isDue` | 0 | `tests/card-cram.test.js`, `tests/study-status.test.js` |
 | `isExamReady` | 0 | `tests/exam-ready.test.js` |
+| `knowledgeRecord` | 29 | `tests/knowledge-record.test.js`, `tests/knowledge-store.test.js`, `tests/knowledge-view.test.js` |
+| `knowledgeStore` | 4 | `tests/knowledge-store.test.js` |
 | `learnkit` | 6 | `tests/learnkit.test.js` |
 | `lectureCompiler` | 6 | `tests/study-modules-2.test.js` |
 | `loadQuestionData` | 0 | `tests/parameterized.test.js`, `tests/study-modes.test.js`, `tests/study-skin.test.js` |
@@ -557,7 +559,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `feynman-ai-feedback` | Feynman: get AI feedback on an explanation | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |
 | `pdf-annotation-index` | PDF annotations: index the vault sidecars | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |
 | `new-assignment` | Assignments: add an assignment | `openNewAssignment` | `tests/plugin.test.js` |
-| `new-exam` | Exams: add an exam | `refreshViews` | `tests/core-values.test.js` |
+| `new-exam` | Exams: add an exam | `refreshViews` | `tests/core-values.test.js`, `tests/knowledge-view.test.js` |
 | `calendar-class-attended` | Calendar: mark this class note attended | `classNoteEvent` | `tests/command-effects.test.js` |
 | `calendar-class-absent` | Calendar: mark this class note absent | `classNoteEvent` | `tests/command-effects.test.js` |
 | `course-overview` | Courses: open the course overview | `openCourseOverview` | `tests/core-values.test.js`, `tests/study-workspace-tabs.test.js` |
@@ -621,6 +623,9 @@ the table and fails if a group, export count, command or citing test drifts.
 | `manage-study-status` | Manage hidden study items | `openStudyStatusManager` | `tests/today.test.js` |
 | `weak-spots` | Show weak spots | `activateInsights` | `tests/modules.test.js`, `tests/plugin.test.js`, `tests/views.test.js` |
 | `error-log` | Show error log | `activateInsights` | `tests/modules.test.js`, `tests/plugin.test.js`, `tests/views.test.js` |
+| `knowledge-record` | Open the knowledge record | `activateInsights` | `tests/knowledge-commands.test.js`, `tests/knowledge-store.test.js`, `tests/modules.test.js`, `tests/views.test.js` |
+| `rebuild-knowledge-record` | Knowledge record: rebuild from notes | `rebuildKnowledgeRecord` | `tests/knowledge-commands.test.js`, `tests/knowledge-view.test.js` |
+| `copy-learner-digest` | Knowledge record: copy learner digest | `copyLearnerDigest` | `tests/knowledge-commands.test.js`, `tests/knowledge-view.test.js` |
 | `find-question` | Find a question by ID | — | `tests/plugin.test.js` |
 | `rename-source-id` | Rename old source_question_id properties to official_question_id | `migrateOfficialIds` | `tests/plugin.test.js` |
 | `open-ai-assistant` | Open AI assistant (OpenCode) | `activateView` | `tests/calendar.test.js`, `tests/cards-extract.test.js`, `tests/daily-quiz.test.js`, `tests/modules.test.js`, `tests/plugin.test.js`, `tests/quick-practice-uri.test.js`, `tests/today.test.js`, `tests/views.test.js` |

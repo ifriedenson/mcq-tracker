@@ -3,7 +3,7 @@
 Recorded Nov 5, 2026, from the shipped `src/` tree. `tests/security-inventory.test.js` re-derives
 each list below and fails when a file starts or stops matching it, so this document is enforced
 rather than descriptive. `scripts/check-no-dynamic-code.js` runs in `npm run check` over all
-**297** source files.
+**336** source files.
 
 ## 1. Network transport
 
@@ -56,10 +56,10 @@ Everything else is built with Obsidian's `createEl`/`setText`, which cannot inje
 
 ## 5. Filesystem writes
 
-Thirteen files write to the vault: `src/agent-note.js`, `src/agent-view.js`, `src/calendar-notes.js`,
-`src/course-notes.js`, `src/graph-3d-panel.js`, `src/import-modal.js`, `src/ocr-modal.js`,
-`src/paper-scanner.js`, `src/pdf-annotation-modal.js`, `src/pdf-editor-modal.js`, `src/pdf-ink-modal.js`,
-`src/plugin.js`, `src/reference-view.js`.
+Fourteen files write to the vault: `src/agent-note.js`, `src/agent-view.js`, `src/calendar-notes.js`,
+`src/course-notes.js`, `src/graph-3d-panel.js`, `src/import-modal.js`, `src/knowledge-store.js`,
+`src/ocr-modal.js`, `src/paper-scanner.js`, `src/pdf-annotation-modal.js`, `src/pdf-editor-modal.js`,
+`src/pdf-ink-modal.js`, `src/plugin.js`, `src/reference-view.js`.
 
 Two contracts keep them bounded:
 

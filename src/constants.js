@@ -220,6 +220,7 @@ const DEFAULT_SETTINGS = {
   noteReviewDock: { enabled: true, keyboard: true, lapseThreshold: 8, requeueEnabled: true, requeueLimit: 3, gradeLayout: "auto", reportEnabled: false, reportFolder: "" }, // docked whole-note review bar
   reviewCalendar: { enabled: true, noteMinutes: 2, cardMinutes: 1, showCards: true, detectMainNote: true, weekStartsOn: "monday" }, // due-date calendar and workload
   studyStats: { enabled: true, leechThreshold: 5, maxRows: 200, durableRecall: true, durableDays: 2, heatmapWeeks: 12 }, // Anki-style statistics and two-day durability
+  knowledgeRecord: { enabled: false, lastBuilt: "", notes: 0, concepts: 0, known: 0, due: 0 }, // opt-in local concept index; notes stay authoritative
   studyCounters: { version: 1, days: {}, updated: "" }, // permanent per-day counters; survive history trimming
   pomodoro: { enabled: true, workMinutes: 25, shortBreakMinutes: 5, longBreakMinutes: 15, longBreakEvery: 4, autoStartBreaks: false, autoStartWork: false, state: { phase: "work", remainingSec: 1500, running: false, startedAt: 0, workSessions: 0, completed: 0, skipped: 0, lastCompleted: "" } }, // independent focus timer
   localEvents: { enabled: true, defaultCategory: "study", weekStartsOn: "monday", events: [] }, // local-only event calendar

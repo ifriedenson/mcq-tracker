@@ -11,8 +11,8 @@ const { isDue } = require("./filters");
 const { examCountdown, upcomingExams } = require("./calendar-model");
 const { localDate, str } = require("./util");
 
-const DEFAULT_AI_CONTEXT = { stats: false, due: false, exams: false };
-const CONTEXT_KEYS = ["stats", "due", "exams"];
+const DEFAULT_AI_CONTEXT = { stats: false, due: false, exams: false, record: false };
+const CONTEXT_KEYS = ["stats", "due", "exams", "record"];
 
 function normalizeAiContext(value) {
   const saved = value && typeof value === "object" ? value : {};
@@ -112,6 +112,12 @@ function buildStudyContext(plugin, options, now) {
       `Due today: ${due} question${due === 1 ? "" : "s"} (${unseen} unseen), ` +
         `${dueCards} card${dueCards === 1 ? "" : "s"} due (${newCards} new).`,
     );
+  }
+
+  if (context.record) {
+    const digest = typeof plugin.learnerDigest === "function" ? plugin.learnerDigest() : "";
+    if (digest) lines.push(digest);
+    else lines.push("Knowledge record: no concepts have been built yet.");
   }
 
   if (context.exams) {

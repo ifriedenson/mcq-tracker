@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status: v1.282.0 (Nov 7, 2026).** One MIT, dependency-free Obsidian plugin
+**Status: v1.283.0 (Nov 7, 2026).** One MIT, dependency-free Obsidian plugin
 (`mcq-tracker`) covering exam practice, cards and vocabulary, courses and
 calendars, study planning, document ingestion, reference/STEM tools and an
 optional BYOK/OpenCode AI layer.
@@ -13,9 +13,9 @@ surfaces, so unfinished ideas are not disguised as checked work.
 §3.9.6 is the gate table, §3.10 is the licence allow-list, and
 [docs/plan-decisions.md](docs/plan-decisions.md) is the owner decision sheet.
 
-**Verified at this commit:** `node --test` → 2,365 tests pass, 0 fail;
-`npm run check` clean (no dynamic code across 334 source files, vendor guard,
-bundle up to date); `main.js` generated from 337 modules at 6,684,348 bytes.
+**Verified at this commit:** `node --test` → 2,378 tests pass, 0 fail;
+`npm run check` clean (no dynamic code across 336 source files, vendor guard,
+bundle up to date); `main.js` generated from 339 modules at 6,736,675 bytes.
 Re-run both before quoting these numbers.
 
 **Shipped in 1.282.0 (Nov 7, 2026):** Quick Ask, saved study
@@ -67,10 +67,10 @@ file per version, `AGENTS.md` has the current-state summary, and the plan
 decision sheet lives in `docs/plan-decisions.md`. Duplicating that log in this
 file is what made it unreadable; it now points instead.
 
-## Handoff snapshot (updated Nov 7, 2026 at v1.282.0)
+## Handoff snapshot (updated Nov 7, 2026 at v1.283.0)
 
 - **State:** 0 unchecked core rows; Quick Chat, message bookmarks, per-message rewind and fork, Quick Ask, saved study commands, vault skills, chat projects, opt-in local memory, Markdown conversation export and local cost estimates ship in 1.282.0; Mother cram and card answer dictation shipped; 3 `[~]` partials (the owner visual, device and screenshot passes remain; no result has been pasted); four former gates decided on Nov 6, 2026 (§B).
-- **Newest feature:** 1.282.0 adds **plan-then-act**, **general PDF attachments**, a **Quick Practice home-screen URI** and a **sample-vault math/chemistry audit note**, alongside the Nov 6 additions: **Quick Chat**, **message bookmarks with chat links**, **per-message rewind and fork**, **vault skills**, **local chat projects**, **opt-in local memory**, **per-conversation Markdown export**, **local cost estimates** (per send and per conversation), a **compact context ring**, a **local diagnostics bundle**, **Quick Ask**, **saved study commands**, **`@` note/folder mentions**, a **context/token footer** and a **searchable, pinned, archived conversation library** in one release. In 1.281.0, **Mother cram** is the practice-only Cards loop
+- **Newest feature:** 1.283.0 adds the opt-in **knowledge record** (§5.27): concept extraction, coverage, misconceptions and a bounded Study-agent digest, with its UI in Insights → Concepts. 1.282.0 added **plan-then-act**, **general PDF attachments**, a **Quick Practice home-screen URI** and a **sample-vault math/chemistry audit note**, alongside the Nov 6 additions: **Quick Chat**, **message bookmarks with chat links**, **per-message rewind and fork**, **vault skills**, **local chat projects**, **opt-in local memory**, **per-conversation Markdown export**, **local cost estimates** (per send and per conversation), a **compact context ring**, a **local diagnostics bundle**, **Quick Ask**, **saved study commands**, **`@` note/folder mentions**, a **context/token footer** and a **searchable, pinned, archived conversation library** in one release. In 1.281.0, **Mother cram** is the practice-only Cards loop
   in the current deck: flip the card, then choose **Do not know** (send it to the
   back) or **Know** (remove it) until the queue is empty. It writes no attempt,
   grade, history or due date. 1.280.0 added **cram sessions** with exact
@@ -3140,6 +3140,50 @@ is therefore not claimed.
 gate; full Advanced Tables parity approved and since shipped; none of the
 UI/theme/navigation plugins adopted; local alternatives kept for Copilot, Desmos
 and Excalidraw; WordNet imported locally in full rather than as a bundled subset.
+
+### 5.27 Grill concept record — Nov 7, 2026, v1.283.0
+
+**Source:** [theadamdanielsson/grill](https://github.com/theadamdanielsson/grill), MIT, pinned at commit
+`6dd05d884f8f9d77e684d6c814e160aaa5d2ea83` (8.7.12). Grill's distinctive idea is a persistent
+per-concept learning record: concepts extracted from a note, coverage and mastery over time,
+a misconception registry, and a compact learner digest the tutor reads at the start of a chat.
+MCQ Tracker already had question-level FSRS, note-level mastery, an error log and an Insights
+Concepts tab, but the tab grouped practice by source note; it did not name the ideas inside a note
+or carry a misconception across notes.
+
+**What shipped (UI is ours):**
+
+- `src/knowledge-record.js` — deterministic concept extraction adapted from Grill's
+  `generate-local.ts`: headings, bold terms, definition lines, display formulas and authored
+  cards, with generic headings, code, tables and link-only lines skipped. Stable ids and source
+  hashes, reconciliation that keeps evidence, reopens a changed source and preserves orphans.
+  Coverage uses Grill's 8-concept target and 80% known band.
+- `src/knowledge-store.js` — opt-in local `MCQ Tracker/knowledge-record.json` index. It is
+  rebuildable and holds no study data that is not already in notes or question history.
+- **Projection, not a second scheduler:** each concept's counters, due date, last miss and error
+  tags are rolled up from the questions with the matching `source_note` and `source_heading`.
+  `next_review` remains question-level; the record never invents a parallel FSRS state.
+- **Insights → Concepts:** a Knowledge record card above the existing concept-mastery list with
+  notes/concepts/known/due totals, coverage by note, open/fixed misconceptions, concepts to
+  revisit, Rebuild and Copy learner digest. It uses the existing `qt-ins-*` list and meter classes.
+- **Study agent:** an opt-in `Knowledge record` study-context toggle adds a bounded (~3,000
+  character) digest of concept evidence, open misconceptions and due concepts. It is off by
+  default and names only concept labels, counts and short last-miss text.
+- **Commands:** Open the knowledge record, Rebuild from notes, Copy learner digest.
+- **Recording:** after an attempt on a linked question, only that source note's entry is rebuilt
+  and saved on a short debounce; no vault-wide rescan.
+
+**Grill features intentionally not copied:** its theme, home/chat/test-session UI, agentic
+Safe/Plan/Auto chat loop, question-generation formats, embedded PDF quizzes, knowledge graph,
+Excalidraw tests, TTS, semantic embedding index, MCP servers/web search, Grill Cloud and
+`grill-mcp`. MCQ Tracker already has its own chat, test, card, PDF and generation paths; the
+external services are boundary-only. Per-concept FSRS is represented as a projection of the
+existing question schedule rather than a competing schedule. This is a focused incorporation of
+Grill's record idea, not a claim of line-for-line parity with all 29k lines of Grill.
+
+**Tests:** `tests/knowledge-record.test.js` covers extraction and generic-heading skips, stable
+ids/source hashes, reconciliation/orphans, question-history projection, coverage, misconceptions,
+digest bounds and malformed saved data. Full-suite results are recorded in the release notes.
 
 ## Appendix: Archived brainstorms and superseded drafts
 
