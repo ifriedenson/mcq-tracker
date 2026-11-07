@@ -660,6 +660,7 @@ class PdfImportModal extends Modal {
       const body = row.createDiv({ cls: "qt-imp-body" });
       const text = str(q.sec.question).replace(/\s+/g, " ");
       const num = q.fm.number !== undefined && q.fm.number !== null && q.fm.number !== "" ? `${q.fm.number}. ` : "";
+      cb.setAttribute("aria-label", `Include ${num}${text.length > 80 ? text.slice(0, 80) + "..." : text}`);
       body.createDiv({ cls: "qt-imp-title", text: `${num}${text.length > 130 ? text.slice(0, 130) + "..." : text}` });
       const f = aiFlags(q.fm, q.sec);
       const tags = [q.sec.choices.length ? `${q.sec.choices.length} choices` : "no answer choices"];

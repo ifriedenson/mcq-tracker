@@ -63,6 +63,7 @@ class FrqImportPreviewModal extends Modal {
     const courseRow = root.createDiv({ cls: "qt-row" });
     courseRow.createEl("label", { text: "Course for this batch" });
     const course = courseRow.createEl("select", { cls: "dropdown" });
+    course.setAttribute("aria-label", "Course for this batch");
     for (const item of FRQ_COURSES) course.createEl("option", { text: item.name, value: item.id });
     course.value = this.courseId;
     course.addEventListener("change", () => {
@@ -74,6 +75,7 @@ class FrqImportPreviewModal extends Modal {
     const kindRow = root.createDiv({ cls: "qt-row" });
     kindRow.createEl("label", { text: "Question type" });
     const kind = kindRow.createEl("select", { cls: "dropdown" });
+    kind.setAttribute("aria-label", "Question type");
     for (const preset of presetsForCourse(this.courseId)) kind.createEl("option", { text: preset.label, value: preset.id });
     kind.value = this.kind;
     kind.addEventListener("change", () => {
@@ -100,6 +102,7 @@ class FrqImportPreviewModal extends Modal {
 
       card.createEl("label", { text: "Title" });
       const title = card.createEl("input", { type: "text", cls: "qt-modal-input" });
+      title.setAttribute("aria-label", "Title");
       title.value = item.title;
       title.addEventListener("input", () => {
         item.title = title.value;
@@ -107,6 +110,7 @@ class FrqImportPreviewModal extends Modal {
 
       card.createEl("label", { text: "Prompt" });
       const prompt = card.createEl("textarea", { cls: "qt-frq-answer", attr: { rows: "5" } });
+      prompt.setAttribute("aria-label", "Prompt");
       prompt.value = item.prompt;
       prompt.addEventListener("input", () => {
         item.prompt = prompt.value;
@@ -114,6 +118,7 @@ class FrqImportPreviewModal extends Modal {
 
       card.createEl("label", { text: "Rubric" });
       const rubric = card.createEl("textarea", { cls: "qt-frq-answer", attr: { rows: "6" } });
+      rubric.setAttribute("aria-label", "Rubric");
       rubric.value = item.rubricText;
       rubric.addEventListener("input", () => {
         item.rubricText = rubric.value;

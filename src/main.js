@@ -214,7 +214,7 @@ const { DocumentReviewModal } = require("./document-review-modal");
 const ocr = require("./ocr");
 const { OcrModal } = require("./ocr-modal");
 const { QUICK_START_URL, aiReady, emptyState, hasValidQuestion, scanQuestionNotes } = require("./empty-state");
-const { isExamReady, loadQuestionData, normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
+const { isExamReady, loadQuestionData, makeKeyboardClickable, normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const offline = require("./offline");
 const documents = require("./documents");
 const calendarIcs = require("./calendar-ics");
@@ -269,6 +269,7 @@ const support = require("./support");
 
 module.exports = QuestionTrackerPlugin;
 QuestionTrackerPlugin.__test = {
+  makeKeyboardClickable,
   graphExport: require("./graph-export"),
   graphExamples: require("./graph-examples"),
   statistics: require("./statistics"),

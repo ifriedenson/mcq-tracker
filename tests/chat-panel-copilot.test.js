@@ -191,6 +191,16 @@ test("study agent layout: user turns are cards and assistant turns are flat, wit
   assert.ok(dom.texts().includes("Copy"));
 });
 
+test("study agent composer: the short hint and add-context affordance are exact", async () => {
+  const { panel, dom } = await apiPanel();
+  assert.equal(panel.input.__own.meta.attr.placeholder, "Type a question · @ mentions · / commands");
+  const add = dom.all.find((element) => (element.meta.attr || {})["aria-label"] === "Add context");
+  assert.ok(add, "the add-context control is rendered");
+  assert.equal(add.meta.attr["data-glyph"], "+");
+  assert.equal(add.meta.attr.title, "Attach a note or folder");
+  assert.equal(add.meta.text, "Add context");
+});
+
 test("study agent layout: mode and history/settings controls sit below the transcript, not in a brand header", async () => {
   const { panel, dom } = await apiPanel({ onSaveChat() {} });
   assert.equal(dom.all.some((element) => element.classes && element.classes.has("qt-agent-head")), false);
@@ -254,4 +264,18 @@ test("study agent phone layout: full-screen class and bottom-sheet grip are wire
   assert.equal(panel.toggleFullscreen(false), false);
   assert.equal(dom.root.classes.has("qt-agent-fullscreen"), false);
   assert.equal(panel.fullscreenBtn.getAttr("aria-pressed"), "false");
+});
+
+test("study agent phone layout: Escape exits full screen from the controls strip", async () => {
+  const { panel, dom } = await apiPanel();
+  panel.toggleFullscreen();
+  assert.equal(dom.root.classes.has("qt-agent-fullscreen"), true);
+  const keydown = dom.root.__own.handlers.find((handler) => handler.ev === "keydown");
+  assert.ok(keydown, "the pane owns an Escape handler");
+
+  let prevented = false;
+  keydown.fn({ key: "Escape", defaultPrevented: false, preventDefault: () => (prevented = true) });
+  assert.equal(prevented, true);
+  assert.equal(dom.root.classes.has("qt-agent-fullscreen"), false);
+  assert.equal(panel.fullscreenBtn.getAttr("aria-label"), "Open the chat full screen");
 });

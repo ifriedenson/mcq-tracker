@@ -563,12 +563,14 @@ class NewFrqNoteModal extends Modal {
     const courseRow = root.createDiv({ cls: "qt-row" });
     courseRow.createEl("label", { text: "Course" });
     const course = courseRow.createEl("select", { cls: "dropdown" });
+    course.setAttribute("aria-label", "Course");
     for (const item of FRQ_COURSES) course.createEl("option", { text: item.name, value: item.id });
     course.value = this.courseId;
 
     const kindRow = root.createDiv({ cls: "qt-row" });
     kindRow.createEl("label", { text: "Question type" });
     const kind = kindRow.createEl("select", { cls: "dropdown" });
+    kind.setAttribute("aria-label", "Question type");
     const fillKinds = () => {
       kind.empty();
       for (const preset of presetsForCourse(this.courseId)) kind.createEl("option", { text: preset.label, value: preset.id });
@@ -587,12 +589,14 @@ class NewFrqNoteModal extends Modal {
 
     root.createEl("label", { text: "Rubric" });
     const rubric = root.createEl("textarea", { cls: "qt-frq-answer", attr: { rows: "8" } });
+    rubric.setAttribute("aria-label", "Rubric");
     rubric.value = presetText(this.courseId, this.kind);
     root.createDiv({ cls: "qt-hint", text: "One criterion per line: - [points] Name: what earns the point. A Markdown table with a points column also works." });
 
     const sourceRow = root.createDiv({ cls: "qt-row" });
     sourceRow.createEl("label", { text: "Rubric source" });
     const source = sourceRow.createEl("select", { cls: "dropdown" });
+    source.setAttribute("aria-label", "Rubric source");
     source.createEl("option", { text: "My own rubric", value: "user" });
     source.createEl("option", { text: "Official or teacher-supplied rubric (pasted)", value: "official" });
     source.value = this.rubricSource;

@@ -67,6 +67,7 @@ const STUDY_TOOL_SETTINGS_MODULES = [
   { id: "card-archive", label: "Card archive", icon: "archive" },
   { id: "study-nudge", label: "Study nudge", icon: "bell" },
   { id: "course-templates", label: "Course templates", icon: "file-plus" },
+  { id: "web-browser", label: "Web browser", icon: "globe" },
 ];
 
 const DISABLED_HINT = "Off keeps its settings and your notes; it only hides the view, ribbon entry and command.";
@@ -1101,6 +1102,7 @@ function renderStudyToolSettings(containerEl, plugin, redisplay, moduleId) {
 }
 
 module.exports = {
+  STUDY_TOOL_SETTINGS_PAGE_IDS: Object.keys(PAGES),
   STUDY_TOOL_SETTINGS_BY_ID,
   STUDY_TOOL_SETTINGS_MODULES,
   renderStudyToolSettings,

@@ -86,6 +86,7 @@ class TranscriptPracticeModal extends Modal {
     const modeWrap = el.createDiv({ cls: "qt-field" });
     modeWrap.createEl("label", { text: "What should it make?" });
     const mode = modeWrap.createEl("select", { cls: "qt-select" });
+    mode.setAttribute("aria-label", "What should it make?");
     mode.createEl("option", { value: "cards", text: ai ? "Flashcards (AI)" : "Flashcards from headings (no AI)" });
     mode.createEl("option", {
       value: "questions",
@@ -102,6 +103,7 @@ class TranscriptPracticeModal extends Modal {
     const countWrap = el.createDiv({ cls: "qt-field" });
     countWrap.createEl("label", { text: "How many?" });
     const count = countWrap.createEl("select", { cls: "qt-select" });
+    count.setAttribute("aria-label", "How many items?");
     for (const n of [5, 8, 10, 12, 15, 20]) count.createEl("option", { value: String(n), text: `${n} items` });
     count.value = String(this.count);
     count.addEventListener("change", () => (this.count = Number(count.value)));
@@ -110,6 +112,7 @@ class TranscriptPracticeModal extends Modal {
       const diffWrap = el.createDiv({ cls: "qt-field" });
       diffWrap.createEl("label", { text: "Difficulty" });
       const diff = diffWrap.createEl("select", { cls: "qt-select" });
+      diff.setAttribute("aria-label", "Difficulty");
       for (const [value, label] of [["mixed", "Mixed"], ["easy", "Easy"], ["medium", "Medium"], ["hard", "Hard"]]) {
         diff.createEl("option", { value, text: label });
       }

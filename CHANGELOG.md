@@ -1,3 +1,7 @@
+## 1.288.3 - 2026-11-07
+
+- **Accessible study surfaces and release integrity.** The Web browser settings page is exposed in Settings → Global, Modules, so the opt-in browser can be enabled. Custom controls across views and modals now carry accessible names and respond to Enter and Space, narrow-width PDF, Settings, Study Stats, cards and time-block layouts wrap or scroll instead of clipping, and the current 20-image evidence set is committed. The plan is reconciled to 36 per-tool settings pages, 2,409 tests and 98 checked / 3 partial / 0 unchecked roadmap rows; the three partials are the unperformed owner manual passes. No provider, note schema or dependency changed.
+
 ## 1.288.2 - 2026-11-07
 
 - **Study agent narrow-pane polish.** At 320 px the tutor role and per-chat model controls keep compact labels, the first table column stays on one line, all five context chips fit on one row, and the empty-state suggestion shows its full description. Full role and model names remain available in option titles and Settings. The patch also ships 16 current-tree captures at 320/420/560 px in light and dark (thread, empty, busy and error) plus the unchanged settings pair; the evidence README records the measured zero horizontal overflow, centered empty card and Send/Stop swap. No behaviour, provider, note schema or dependency changed.

@@ -23,7 +23,9 @@ class AssignmentModal extends Modal {
     const field = (label, placeholder) => {
       const wrap = contentEl.createDiv({ cls: "qt-field" });
       wrap.createEl("label", { text: label });
-      return wrap.createEl("input", { type: "text", attr: { placeholder: placeholder || "" } });
+      const input = wrap.createEl("input", { type: "text", attr: { placeholder: placeholder || "" } });
+      input.setAttribute("aria-label", label);
+      return input;
     };
 
     const title = field("Title", "e.g. Unit 4 problem set");
@@ -35,17 +37,20 @@ class AssignmentModal extends Modal {
     const typeWrap = contentEl.createDiv({ cls: "qt-field" });
     typeWrap.createEl("label", { text: "Type" });
     const type = typeWrap.createEl("select", { cls: "dropdown" });
+    type.setAttribute("aria-label", "Type");
     for (const t of ASSIGNMENT_TYPES) type.createEl("option", { text: t.label, value: t.id });
     type.value = a ? a.type : "homework";
 
     const dueWrap = contentEl.createDiv({ cls: "qt-field" });
     dueWrap.createEl("label", { text: "Due date" });
     const due = dueWrap.createEl("input", { type: "date" });
+    due.setAttribute("aria-label", "Due date");
     due.value = a ? normalizeDate(a.due) : normalizeDate(this.options.due) || localDate();
 
     const statusWrap = contentEl.createDiv({ cls: "qt-field" });
     statusWrap.createEl("label", { text: "Status" });
     const status = statusWrap.createEl("select", { cls: "dropdown" });
+    status.setAttribute("aria-label", "Status");
     for (const s of ASSIGNMENT_STATUSES) status.createEl("option", { text: s.label, value: s.id });
     status.value = a ? a.status : "todo";
 

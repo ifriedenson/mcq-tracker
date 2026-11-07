@@ -2,6 +2,11 @@
 
 For the current Copilot-aligned pane, see `../study-agent-ui/README.md`.
 
+These 28 files are the historical 1.286.1 capture set. Their composer hint is
+`Ask about a note, or plan a session…` — an earlier original placeholder, not
+the Copilot-style hint and not the current hint. The current 18 captures and the
+current composer hint are in `../study-agent-ui/`.
+
 These images are not mockups. Each one is the markup `ChatPanel.build()` and
 `ChatPanel.draw()` actually produce, serialized into an Obsidian-like sidebar
 leaf, loaded with the plugin's real `styles.css` and Obsidian's default theme

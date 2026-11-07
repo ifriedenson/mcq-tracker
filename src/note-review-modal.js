@@ -74,6 +74,7 @@ class NoteReviewModal extends Modal {
         text: `${item.set} · ${item.priority} priority · ${item.isNew ? "new" : `due ${item.dueDate}`} · ${this.index + 1}/${this.queue.length}`,
       });
       const grow = head.createEl("select", { cls: "qt-select" });
+      grow.setAttribute("aria-label", "Note priority");
       for (const value of ["high", "normal", "low"]) grow.createEl("option", { value, text: `${value} priority` });
       grow.value = item.priority;
       grow.addEventListener("change", async () => {

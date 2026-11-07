@@ -155,6 +155,20 @@ test("study agent chat: the @ picker offers vault notes and folders", async () =
   assert.equal(panel.mentionPicker.classes.has("qt-hidden"), true);
 });
 
+test("study agent chat: Escape closes the mention picker", async () => {
+  const app = makeApp([{ path: "Biology/Cells.md", text: "Cells use ATP." }]);
+  const { panel } = await apiPanel(app);
+  panel.openMentionPicker("cells");
+  assert.equal(panel.mentionPicker.classes.has("qt-hidden"), false);
+
+  let prevented = false;
+  for (const handler of panel.input.handlers.filter((entry) => entry.ev === "keydown")) {
+    handler.fn({ key: "Escape", preventDefault: () => { prevented = true; } });
+  }
+  assert.equal(panel.mentionPicker.classes.has("qt-hidden"), true, "Escape closes the popover");
+  assert.equal(prevented, true, "Escape is consumed by the popover");
+});
+
 test("study agent chat: typing @ in the composer opens the mention picker", async () => {
   const app = makeApp([{ path: "Biology/Cells.md", text: "Cells use ATP." }]);
   const { panel, dom } = await apiPanel(app);

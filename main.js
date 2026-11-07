@@ -260,8 +260,9 @@
  * the existing `src/chat-panel.js`) is original code written for MCQ Tracker. It
  * is covered by this repository's MIT license. No Obsidian Copilot source,
  * stylesheet, prompt or other AGPL-licensed code was copied into it, and no
- * Copilot package or runtime is bundled. The panel reuses this plugin's existing
- * AI provider settings and write-review guards. See
+ * Copilot package or runtime is bundled. The current composer hint is original
+ * wording for this plugin; no Copilot prompt text is reproduced. The panel reuses
+ * this plugin's existing AI provider settings and write-review guards. See
  * [docs/sidebar-agent.md](docs/sidebar-agent.md).
  *
  * ## Not absorbed (yet)
@@ -1576,19 +1577,9 @@ class AgentView extends ItemView {
       root.createDiv({ cls: "qt-hint", text: "Turn on AI under Settings > MCQ Tracker > OpenCode (AI) to chat. Local vault search still works below." });
     }
 
-    const searchRow = root.createDiv({ cls: "qt-row" });
-    this.searchInput = searchRow.createEl("input", { type: "text", attr: { placeholder: "Search your vault..." } });
-    this.searchInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") this.search();
-    });
-    searchRow.createEl("button", { text: "Search" }).addEventListener("click", () => this.search());
-    const contextLabel = root.createEl("label", { cls: "qt-row" });
-    this.vaultToggle = contextLabel.createEl("input", { type: "checkbox" });
-    contextLabel.appendText(" Include a full-vault file index in chat (opt-in)");
-    this.vaultToggle.addEventListener("change", () => {
-      this.includeVaultIndex = this.vaultToggle.checked;
-    });
-    this.resultsEl = root.createDiv({ cls: "qt-agent-results" });
+    // The tab strip is the first thing in the chat surface. Local search and
+    // the opt-in index stay available behind a quiet disclosure instead of
+    // occupying the top of every conversation.
     this.chatEl = root.createDiv({ cls: "qt-agent-chat" });
     this.renderChat();
   }
@@ -1599,9 +1590,34 @@ class AgentView extends ItemView {
     this.chatTabs = [];
     this.activeTabId = "";
     this.chatPanel = null;
+    this.searchDetails = null;
     this.tabBar = this.chatEl.createDiv({ cls: "qt-chat-tabs" });
+    this.renderVaultSearch();
     this.chatPanelsEl = this.chatEl.createDiv({ cls: "qt-chat-tab-panels" });
     this.restoreTabs();
+  }
+
+  /** Local, read-only search and the opt-in full-vault index. */
+  renderVaultSearch() {
+    const details = this.chatEl.createEl("details", { cls: "qt-agent-vault-search" });
+    this.searchDetails = details;
+    const summary = details.createEl("summary");
+    summary.createSpan({ cls: "qt-agent-search-label", text: "Search vault" });
+    summary.createSpan({ cls: "qt-agent-search-hint", text: "Local only" });
+    const body = details.createDiv({ cls: "qt-agent-search-body" });
+    const searchRow = body.createDiv({ cls: "qt-agent-search-row" });
+    this.searchInput = searchRow.createEl("input", { type: "text", attr: { placeholder: "Search your vault..." } });
+    this.searchInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") this.search();
+    });
+    searchRow.createEl("button", { text: "Search" }).addEventListener("click", () => this.search());
+    const contextLabel = body.createEl("label", { cls: "qt-agent-search-toggle" });
+    this.vaultToggle = contextLabel.createEl("input", { type: "checkbox" });
+    contextLabel.appendText(" Include a full-vault file index in chat (opt-in)");
+    this.vaultToggle.addEventListener("change", () => {
+      this.includeVaultIndex = this.vaultToggle.checked;
+    });
+    this.resultsEl = body.createDiv({ cls: "qt-agent-results" });
   }
 
   /** The active conversation is stored in settings; open tabs share the same chatSessions store. */
@@ -2090,8 +2106,8 @@ class AgentView extends ItemView {
     }
     const add = this.tabBar.createEl("button", {
       cls: "qt-chat-tab-new",
-      text: "New tab",
-      attr: { "aria-label": "Open another conversation tab" },
+      text: "+",
+      attr: { "aria-label": "Open another conversation tab", title: "New conversation tab" },
     });
     add.disabled = this.chatTabs.length >= MAX_TABS;
     add.addEventListener("click", () => this.newTab());
@@ -2716,6 +2732,7 @@ class AgentView extends ItemView {
   async search() {
     const query = str(this.searchInput.value).trim();
     if (!query) return;
+    if (this.searchDetails) this.searchDetails.open = true;
     this.resultsEl.setText("Searching...");
     try {
       this.results = await searchVault(this.app, query, 8);
@@ -8645,7 +8662,9 @@ class AssignmentModal extends Modal {
     const field = (label, placeholder) => {
       const wrap = contentEl.createDiv({ cls: "qt-field" });
       wrap.createEl("label", { text: label });
-      return wrap.createEl("input", { type: "text", attr: { placeholder: placeholder || "" } });
+      const input = wrap.createEl("input", { type: "text", attr: { placeholder: placeholder || "" } });
+      input.setAttribute("aria-label", label);
+      return input;
     };
 
     const title = field("Title", "e.g. Unit 4 problem set");
@@ -8657,17 +8676,20 @@ class AssignmentModal extends Modal {
     const typeWrap = contentEl.createDiv({ cls: "qt-field" });
     typeWrap.createEl("label", { text: "Type" });
     const type = typeWrap.createEl("select", { cls: "dropdown" });
+    type.setAttribute("aria-label", "Type");
     for (const t of ASSIGNMENT_TYPES) type.createEl("option", { text: t.label, value: t.id });
     type.value = a ? a.type : "homework";
 
     const dueWrap = contentEl.createDiv({ cls: "qt-field" });
     dueWrap.createEl("label", { text: "Due date" });
     const due = dueWrap.createEl("input", { type: "date" });
+    due.setAttribute("aria-label", "Due date");
     due.value = a ? normalizeDate(a.due) : normalizeDate(this.options.due) || localDate();
 
     const statusWrap = contentEl.createDiv({ cls: "qt-field" });
     statusWrap.createEl("label", { text: "Status" });
     const status = statusWrap.createEl("select", { cls: "dropdown" });
+    status.setAttribute("aria-label", "Status");
     for (const s of ASSIGNMENT_STATUSES) status.createEl("option", { text: s.label, value: s.id });
     status.value = a ? a.status : "todo";
 
@@ -9721,6 +9743,7 @@ class AutoAnkiModal extends Modal {
     const source = el.createDiv({ cls: "qt-field" });
     source.createEl("label", { text: "Source" });
     const select = source.createEl("select", { cls: "qt-select" });
+    select.setAttribute("aria-label", "Source");
     if (this.context.selection) select.createEl("option", { value: "selection", text: "Selected text" });
     select.createEl("option", { value: "note", text: "Whole note" });
     select.value = this.source;
@@ -9736,6 +9759,7 @@ class AutoAnkiModal extends Modal {
     const countWrap = row.createDiv({ cls: "qt-field qt-grow" });
     countWrap.createEl("label", { text: "How many cards?" });
     const count = countWrap.createEl("select", { cls: "qt-select" });
+    count.setAttribute("aria-label", "How many cards?");
     for (const n of [3, 5, 8, 10, 12, 15, 20]) count.createEl("option", { value: String(n), text: `${n} cards` });
     count.value = String(this.config.count);
     count.addEventListener("change", () => (this.config.count = Number(count.value)));
@@ -13761,6 +13785,7 @@ class StudySlotModal extends Modal {
       if (slots.length > 1) {
         body.createDiv({ cls: "uni-study-slot-label", text: "Free period" });
         const pick = body.createEl("select", { cls: "dropdown" });
+        pick.setAttribute("aria-label", "Free period");
         slots.forEach((candidate, index) => {
           pick.createEl("option", {
             value: String(index),
@@ -13807,6 +13832,7 @@ class StudySlotModal extends Modal {
       if (slot.subject) choices.push({ id: "course", label: `Next class: ${slot.subject}` });
       let filter = "current";
       const select = body.createEl("select", { cls: "dropdown" });
+      select.setAttribute("aria-label", "Questions for this session");
       for (const choice of choices) {
         const count = this.plugin.quickPracticePool(choice.id, slot.subject).length;
         select.createEl("option", { value: choice.id, text: `${choice.label} (${count})` });
@@ -16393,6 +16419,7 @@ class CardGeneratorModal extends Modal {
     const source = el.createDiv({ cls: "qt-field" });
     source.createEl("label", { text: "Source" });
     const sourceSelect = source.createEl("select", { cls: "qt-select" });
+    sourceSelect.setAttribute("aria-label", "Source");
     for (const item of CARD_GENERATOR_SOURCES) {
       if (item.id === "selection" && !this.context.selection) continue;
       sourceSelect.createEl("option", { value: item.id, text: item.label });
@@ -16407,6 +16434,7 @@ class CardGeneratorModal extends Modal {
     const countWrap = row.createDiv({ cls: "qt-field qt-grow" });
     countWrap.createEl("label", { text: "How many cards?" });
     const count = countWrap.createEl("select", { cls: "qt-select" });
+    count.setAttribute("aria-label", "How many cards?");
     for (const n of [3, 5, 8, 10, 12, 15, 20]) count.createEl("option", { value: String(n), text: `${n} cards` });
     count.value = String(this.config.count);
     count.addEventListener("change", () => (this.config.count = Number(count.value)));
@@ -16414,6 +16442,7 @@ class CardGeneratorModal extends Modal {
     const outputWrap = row.createDiv({ cls: "qt-field qt-grow" });
     outputWrap.createEl("label", { text: "Output" });
     const output = outputWrap.createEl("select", { cls: "qt-select" });
+    output.setAttribute("aria-label", "Output");
     for (const item of CARD_GENERATOR_OUTPUTS) output.createEl("option", { value: item.id, text: item.label });
     output.value = this.config.output;
     output.disabled = !!this.lockedOutput;
@@ -16433,6 +16462,7 @@ class CardGeneratorModal extends Modal {
       const styleWrap = el.createDiv({ cls: "qt-field" });
       styleWrap.createEl("label", { text: "Card layout" });
       const style = styleWrap.createEl("select", { cls: "qt-select" });
+      style.setAttribute("aria-label", "Card layout");
       for (const item of CARD_GENERATOR_STYLES) style.createEl("option", { value: item.id, text: item.label });
       style.value = this.config.style;
       style.addEventListener("change", () => {
@@ -16449,6 +16479,7 @@ class CardGeneratorModal extends Modal {
 
       const hideWrap = el.createDiv({ cls: "qt-check" });
       const hide = hideWrap.createEl("input", { type: "checkbox" });
+      hide.setAttribute("aria-label", "Hide the inserted block in reading view");
       hide.checked = this.config.hideInPreview;
       hide.addEventListener("change", () => (this.config.hideInPreview = hide.checked));
       hideWrap.createSpan({ text: " Hide the inserted block in reading view (wraps it in %%)" });
@@ -17251,6 +17282,7 @@ class CardModal extends Modal {
     const kindWrap = contentEl.createDiv({ cls: "qt-field" });
     kindWrap.createEl("label", { text: "Type" });
     const kind = kindWrap.createEl("select", { cls: "dropdown" });
+    kind.setAttribute("aria-label", "Type");
     kind.createEl("option", { text: "Flashcard", value: "card" });
     kind.createEl("option", { text: "Vocabulary", value: "vocab" });
     kind.value = this.kind;
@@ -17258,6 +17290,7 @@ class CardModal extends Modal {
     const typeWrap = contentEl.createDiv({ cls: "qt-field" });
     typeWrap.createEl("label", { text: "Card style" });
     const typeSel = typeWrap.createEl("select", { cls: "dropdown" });
+    typeSel.setAttribute("aria-label", "Card style");
     cardTypeOptions(typeSel);
     typeSel.value = "basic";
     this.cardType = "basic";
@@ -17269,6 +17302,7 @@ class CardModal extends Modal {
     const deckWrap = contentEl.createDiv({ cls: "qt-field" });
     deckWrap.createEl("label", { text: "Deck" });
     const deck = deckWrap.createEl("select", { cls: "dropdown" });
+    deck.setAttribute("aria-label", "Deck");
     const decks = p.cardDecks().map((d) => d.name);
     // Keep the preferred/default deck selectable even before it has a note or
     // a saved deck entry.
@@ -17303,6 +17337,7 @@ class CardModal extends Modal {
     const schedulerWrap = contentEl.createDiv({ cls: "qt-field" });
     schedulerWrap.createEl("label", { text: "Scheduler (optional)" });
     const scheduler = schedulerWrap.createEl("select", { cls: "dropdown" });
+    scheduler.setAttribute("aria-label", "Scheduler");
     scheduler.createEl("option", { text: "Use deck or global scheduler", value: "" });
     scheduler.createEl("option", { text: "Simple ladder (Leitner)", value: "ladder" });
     scheduler.createEl("option", { text: "SM-2", value: "sm2" });
@@ -17352,6 +17387,7 @@ class CardModal extends Modal {
     const exampleWrap = contentEl.createDiv({ cls: "qt-field qt-hidden" });
     exampleWrap.createEl("label", { text: "Example sentence (optional)" });
     const example = exampleWrap.createEl("textarea", { attr: { rows: "2" } });
+    example.setAttribute("aria-label", "Example sentence");
 
     const metaWrap = contentDiv(contentEl, "qt-field qt-hidden");
     metaWrap.createEl("label", { text: "Part of speech and language (optional)" });
@@ -25734,6 +25770,12 @@ class ChatPanel {
     this.view = view;
     this.root = root;
     this.opts = opts;
+    // Escape must leave full-screen mode wherever focus sits in the pane, not
+    // only while the draft textarea owns it. The input handler stops a busy
+    // reply first; this handler skips events it already prevented.
+    if (root && typeof root.addEventListener === "function") {
+      root.addEventListener("keydown", (event) => this.handleRootKeydown(event));
+    }
     this.busy = false;
     this.apiCancelToken = 0;
     this.turns = [];
@@ -25979,12 +26021,17 @@ class ChatPanel {
       cls: "qt-chat-input qt-agent-input",
       attr: {
         rows: "2",
-        placeholder: "Ask about your notes, @ to add context, / for commands",
+        placeholder: "Type a question · @ mentions · / commands",
         title: "Enter to send · Shift+Enter for a new line",
       },
     });
     this.input.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
+        if (this.mentionPicker && !this.mentionPicker.hasClass("qt-hidden")) {
+          e.preventDefault();
+          this.closeMentionPicker();
+          return;
+        }
         if (this.busy) {
           e.preventDefault();
           this.stop();
@@ -26013,7 +26060,7 @@ class ChatPanel {
     this.atBtn = tools.createEl("button", {
       cls: "qt-agent-tool qt-agent-iconbtn",
       text: "Add context",
-      attr: { "aria-label": "Add context", title: "Attach a note or folder", "data-glyph": "@" },
+      attr: { "aria-label": "Add context", title: "Attach a note or folder", "data-glyph": "+" },
     });
     this.atBtn.addEventListener("click", () => {
       const prefix = this.input.value && !/\s$/.test(this.input.value) ? " " : "";
@@ -28147,6 +28194,14 @@ class ChatPanel {
     this.syncMentionChips();
     this.refreshTokenFooter();
     return true;
+  }
+
+  /** Escape returns from full screen when focus is on any control in the pane. */
+  handleRootKeydown(event) {
+    if (!event || event.key !== "Escape" || event.defaultPrevented || !this.fullscreen) return;
+    if (this.busy) return;
+    if (typeof event.preventDefault === "function") event.preventDefault();
+    this.toggleFullscreen(false);
   }
 
   /** Phone-width full-screen mode is a visual class; the callback clears its Escape state. */
@@ -36989,13 +37044,13 @@ class TestView extends ItemView {
         const name = row.createEl("input", { type: "text", cls: "qt-fsearch", attr: { placeholder: `Section ${i + 1}` } });
         name.value = section.name || `Section ${i + 1}`;
         name.addEventListener("input", () => (section.name = name.value));
-        const count = row.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", max: "200" } });
+        const count = row.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", max: "200", "aria-label": `Questions in section ${i + 1}` } });
         count.value = String(section.count || 1);
         count.addEventListener("input", () => {
           section.count = Math.max(1, parseInt(count.value, 10) || 1);
           refreshTotal();
         });
-        const mins = row.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", max: "300" } });
+        const mins = row.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", max: "300", "aria-label": `Minutes in section ${i + 1}` } });
         mins.value = String(section.minutes || 1);
         mins.addEventListener("input", () => {
           section.minutes = Math.max(1, parseInt(mins.value, 10) || 1);
@@ -37041,7 +37096,7 @@ class TestView extends ItemView {
     passIn.addEventListener("input", () => (this.passDraft = normalizePassScore(passIn.value)));
     root.createDiv({ cls: "qt-hint", text: "Shuffle changes the order of each multiple-choice question's choices; saved letters still match the note. A pass mark applies to objective questions; 0 or blank means none." });
     root.createDiv({ cls: "qt-label", text: "Pick questions" });
-    const sel = root.createEl("select", { cls: "qt-select" });
+    const sel = root.createEl("select", { cls: "qt-select", attr: { "aria-label": "Pick questions" } });
     for (const [v, t] of MODES) sel.createEl("option", { value: v, text: t });
     sel.value = st.mode;
 
@@ -37056,7 +37111,7 @@ class TestView extends ItemView {
 
     if (st.testBlueprints.length) {
       root.createDiv({ cls: "qt-label", text: "Saved blueprint" });
-      const bpSel = root.createEl("select", { cls: "qt-select" });
+      const bpSel = root.createEl("select", { cls: "qt-select", attr: { "aria-label": "Saved blueprint" } });
       bpSel.createEl("option", { value: "", text: "Choose a blueprint" });
       st.testBlueprints.forEach((bp, i) => bpSel.createEl("option", { value: String(i), text: `${bp.name} (${bp.count} questions · ${bp.minutes} min)` }));
       bpSel.addEventListener("change", () => {
@@ -40045,6 +40100,7 @@ class FrqImportPreviewModal extends Modal {
     const courseRow = root.createDiv({ cls: "qt-row" });
     courseRow.createEl("label", { text: "Course for this batch" });
     const course = courseRow.createEl("select", { cls: "dropdown" });
+    course.setAttribute("aria-label", "Course for this batch");
     for (const item of FRQ_COURSES) course.createEl("option", { text: item.name, value: item.id });
     course.value = this.courseId;
     course.addEventListener("change", () => {
@@ -40056,6 +40112,7 @@ class FrqImportPreviewModal extends Modal {
     const kindRow = root.createDiv({ cls: "qt-row" });
     kindRow.createEl("label", { text: "Question type" });
     const kind = kindRow.createEl("select", { cls: "dropdown" });
+    kind.setAttribute("aria-label", "Question type");
     for (const preset of presetsForCourse(this.courseId)) kind.createEl("option", { text: preset.label, value: preset.id });
     kind.value = this.kind;
     kind.addEventListener("change", () => {
@@ -40082,6 +40139,7 @@ class FrqImportPreviewModal extends Modal {
 
       card.createEl("label", { text: "Title" });
       const title = card.createEl("input", { type: "text", cls: "qt-modal-input" });
+      title.setAttribute("aria-label", "Title");
       title.value = item.title;
       title.addEventListener("input", () => {
         item.title = title.value;
@@ -40089,6 +40147,7 @@ class FrqImportPreviewModal extends Modal {
 
       card.createEl("label", { text: "Prompt" });
       const prompt = card.createEl("textarea", { cls: "qt-frq-answer", attr: { rows: "5" } });
+      prompt.setAttribute("aria-label", "Prompt");
       prompt.value = item.prompt;
       prompt.addEventListener("input", () => {
         item.prompt = prompt.value;
@@ -40096,6 +40155,7 @@ class FrqImportPreviewModal extends Modal {
 
       card.createEl("label", { text: "Rubric" });
       const rubric = card.createEl("textarea", { cls: "qt-frq-answer", attr: { rows: "6" } });
+      rubric.setAttribute("aria-label", "Rubric");
       rubric.value = item.rubricText;
       rubric.addEventListener("input", () => {
         item.rubricText = rubric.value;
@@ -40779,12 +40839,14 @@ class NewFrqNoteModal extends Modal {
     const courseRow = root.createDiv({ cls: "qt-row" });
     courseRow.createEl("label", { text: "Course" });
     const course = courseRow.createEl("select", { cls: "dropdown" });
+    course.setAttribute("aria-label", "Course");
     for (const item of FRQ_COURSES) course.createEl("option", { text: item.name, value: item.id });
     course.value = this.courseId;
 
     const kindRow = root.createDiv({ cls: "qt-row" });
     kindRow.createEl("label", { text: "Question type" });
     const kind = kindRow.createEl("select", { cls: "dropdown" });
+    kind.setAttribute("aria-label", "Question type");
     const fillKinds = () => {
       kind.empty();
       for (const preset of presetsForCourse(this.courseId)) kind.createEl("option", { text: preset.label, value: preset.id });
@@ -40803,12 +40865,14 @@ class NewFrqNoteModal extends Modal {
 
     root.createEl("label", { text: "Rubric" });
     const rubric = root.createEl("textarea", { cls: "qt-frq-answer", attr: { rows: "8" } });
+    rubric.setAttribute("aria-label", "Rubric");
     rubric.value = presetText(this.courseId, this.kind);
     root.createDiv({ cls: "qt-hint", text: "One criterion per line: - [points] Name: what earns the point. A Markdown table with a points column also works." });
 
     const sourceRow = root.createDiv({ cls: "qt-row" });
     sourceRow.createEl("label", { text: "Rubric source" });
     const source = sourceRow.createEl("select", { cls: "dropdown" });
+    source.setAttribute("aria-label", "Rubric source");
     source.createEl("option", { text: "My own rubric", value: "user" });
     source.createEl("option", { text: "Official or teacher-supplied rubric (pasted)", value: "official" });
     source.value = this.rubricSource;
@@ -48226,6 +48290,7 @@ class PdfImportModal extends Modal {
       const body = row.createDiv({ cls: "qt-imp-body" });
       const text = str(q.sec.question).replace(/\s+/g, " ");
       const num = q.fm.number !== undefined && q.fm.number !== null && q.fm.number !== "" ? `${q.fm.number}. ` : "";
+      cb.setAttribute("aria-label", `Include ${num}${text.length > 80 ? text.slice(0, 80) + "..." : text}`);
       body.createDiv({ cls: "qt-imp-title", text: `${num}${text.length > 130 ? text.slice(0, 130) + "..." : text}` });
       const f = aiFlags(q.fm, q.sec);
       const tags = [q.sec.choices.length ? `${q.sec.choices.length} choices` : "no answer choices"];
@@ -48815,6 +48880,7 @@ __defs["insights-view"] = function (module, exports, require) {
 const { ItemView, Notice } = require("obsidian");
 const { WEAK_MIN_ATTEMPTS, computeStats, errorLog, fmtPct, overallStats, trendBy, trendDelta, weakestRow, weeklyAccuracy } = require("./stats");
 const { fmtClock, localDate, str } = require("./util");
+const { makeKeyboardClickable } = require("./view-helpers");
 const { STAT_FIELDS } = require("./constants");
 const { folderLabel, officialIdOf } = require("./filters");
 const { buildDashboard } = require("./analytics");
@@ -49254,7 +49320,7 @@ class InsightsView extends ItemView {
     if (progress.masteryScopes.length) {
       const scopeRow = root.createDiv({ cls: "qt-progress-scope" });
       scopeRow.createSpan({ cls: "qt-hint", text: "Show mastery for" });
-      const picker = scopeRow.createEl("select", { cls: "qt-select" });
+      const picker = scopeRow.createEl("select", { cls: "qt-select", attr: { "aria-label": "Show mastery for" } });
       picker.createEl("option", { value: "", text: "All questions" });
       for (const scope of progress.masteryScopes) picker.createEl("option", { value: scope, text: scope });
       picker.value = progress.masteryScope;
@@ -49563,7 +49629,7 @@ class InsightsView extends ItemView {
         const line = list.createDiv({ cls: `qt-ins-row qt-knowledge-note is-${row.band}` });
         const main = line.createDiv({ cls: "qt-ins-main" });
         const link = main.createEl("a", { cls: `qt-link is-${row.band}`, text: row.label });
-        link.addEventListener("click", () => this.openKnowledgeNote(row.path));
+        makeKeyboardClickable(link, () => this.openKnowledgeNote(row.path), { role: "link" });
         if (row.missing) line.addClass("is-missing");
         main.createDiv({
           cls: "qt-hint",
@@ -49640,11 +49706,15 @@ class InsightsView extends ItemView {
       const line = list.createDiv({ cls: `qt-ins-row qt-concept is-${row.band}` });
       const main = line.createDiv({ cls: "qt-ins-main" });
       const link = main.createEl("a", { text: row.label, cls: `qt-link qt-concept-link is-${row.band}` });
-      link.addEventListener("click", () => {
-        const file = this.app.vault.getAbstractFileByPath(row.path) || (this.app.metadataCache.getFirstLinkpathDest ? this.app.metadataCache.getFirstLinkpathDest(row.path, "") : null);
-        if (file) this.app.workspace.getLeaf("tab").openFile(file);
-        else root.createDiv({ cls: "qt-hint", text: `That source note is no longer in the vault: ${row.path}` });
-      });
+      makeKeyboardClickable(
+        link,
+        () => {
+          const file = this.app.vault.getAbstractFileByPath(row.path) || (this.app.metadataCache.getFirstLinkpathDest ? this.app.metadataCache.getFirstLinkpathDest(row.path, "") : null);
+          if (file) this.app.workspace.getLeaf("tab").openFile(file);
+          else root.createDiv({ cls: "qt-hint", text: `That source note is no longer in the vault: ${row.path}` });
+        },
+        { role: "link" }
+      );
       main.createDiv({
         cls: "qt-hint",
         text: row.attempts
@@ -49735,7 +49805,7 @@ class InsightsView extends ItemView {
       for (const q of shown) {
         const row = box.createDiv({ cls: "qt-ins-note" });
         const a = row.createEl("a", { text: officialIdOf(q.fm) || str(q.fm.question_id) || q.file.basename, cls: "qt-link" });
-        a.addEventListener("click", () => this.app.workspace.getLeaf("tab").openFile(q.file));
+        makeKeyboardClickable(a, () => this.app.workspace.getLeaf("tab").openFile(q.file), { role: "link" });
         const bits = [q.fm.skill, q.fm.difficulty, str(q.fm["date attempted"]).slice(0, 10)].filter(Boolean).join(" · ");
         if (bits) row.createSpan({ cls: "qt-hint", text: bits });
       }
@@ -51661,6 +51731,7 @@ const { ItemView, Modal, Notice, Platform } = require("obsidian");
 const { VIEW_TYPE_LOCAL_EVENTS } = require("./constants");
 const { LOCAL_EVENT_CATEGORIES, addDaysKey, eventsInRange, eventsOnDate, monthCells, todayKey } = require("./local-events");
 const { str } = require("./util");
+const { makeKeyboardClickable } = require("./view-helpers");
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -51695,7 +51766,7 @@ class LocalEventModal extends Modal {
     const field = (label, type, value, placeholder) => {
       const row = form.createDiv({ cls: "qt-study-field" });
       row.createEl("label", { text: label });
-      const input = row.createEl("input", { cls: "qt-input" });
+      const input = row.createEl("input", { cls: "qt-input", attr: { "aria-label": label } });
       input.type = type || "text";
       input.value = value || "";
       if (placeholder) input.placeholder = placeholder;
@@ -51708,17 +51779,17 @@ class LocalEventModal extends Modal {
     const end = field("End time", "time", current.endTime);
     const categoryRow = form.createDiv({ cls: "qt-study-field" });
     categoryRow.createEl("label", { text: "Category" });
-    const category = categoryRow.createEl("select", { cls: "dropdown" });
+    const category = categoryRow.createEl("select", { cls: "dropdown", attr: { "aria-label": "Category" } });
     for (const item of LOCAL_EVENT_CATEGORIES) category.createEl("option", { value: item.id, text: item.label });
     category.value = current.category || this.plugin.settings.localEvents.defaultCategory || "study";
     const colorRow = form.createDiv({ cls: "qt-study-field" });
     colorRow.createEl("label", { text: "Colour" });
-    const color = colorRow.createEl("input", { cls: "qt-input" });
+    const color = colorRow.createEl("input", { cls: "qt-input", attr: { "aria-label": "Colour" } });
     color.type = "color";
     color.value = current.color || "#4f9d69";
     const repeatRow = form.createDiv({ cls: "qt-study-field" });
     repeatRow.createEl("label", { text: "Repeat" });
-    const repeat = repeatRow.createEl("select", { cls: "dropdown" });
+    const repeat = repeatRow.createEl("select", { cls: "dropdown", attr: { "aria-label": "Repeat" } });
     for (const [value, label] of [["none", "Does not repeat"], ["daily", "Daily"], ["weekly", "Weekly"], ["monthly", "Monthly"], ["yearly", "Yearly"]]) {
       repeat.createEl("option", { value, text: label });
     }
@@ -51729,7 +51800,7 @@ class LocalEventModal extends Modal {
     const until = field("Repeat until", "date", current.repeatUntil);
     const notesRow = form.createDiv({ cls: "qt-study-field qt-study-field-wide" });
     notesRow.createEl("label", { text: "Notes" });
-    const notes = notesRow.createEl("textarea", { cls: "qt-study-bulk" });
+    const notes = notesRow.createEl("textarea", { cls: "qt-study-bulk", attr: { "aria-label": "Notes" } });
     notes.rows = 3;
     notes.value = current.notes || "";
     const actions = el.createDiv({ cls: "qt-row qt-study-actions" });
@@ -51872,15 +51943,23 @@ class LocalEventsView extends ItemView {
       for (const event of dayEvents.slice(0, 3)) {
         const tab = day.createDiv({ cls: "qt-local-events-tab-item", text: event.title });
         if (tab.style) tab.style.backgroundColor = event.color;
-        tab.addEventListener("click", (ev) => {
-          if (ev && ev.stopPropagation) ev.stopPropagation();
-          this.openEdit(event.id);
-        });
+        makeKeyboardClickable(
+          tab,
+          (ev) => {
+            if (ev && ev.stopPropagation) ev.stopPropagation();
+            this.openEdit(event.id);
+          },
+          { label: event.title || "Event" }
+        );
       }
-      day.addEventListener("click", () => {
-        this.selected = cell.key;
-        this.render();
-      });
+      makeKeyboardClickable(
+        day,
+        () => {
+          this.selected = cell.key;
+          this.render();
+        },
+        { label: dayLabel(cell.key) }
+      );
     }
 
     const listCard = root.createDiv({ cls: "qt-study-card" });
@@ -51940,7 +52019,7 @@ class LocalEventsView extends ItemView {
       cell.createDiv({ cls: "qt-day-agenda-day-number", text: String(Number(key.slice(8))) });
       const total = counts.get(key) || 0;
       cell.createDiv({ cls: "qt-day-agenda-day-count", text: total ? String(total) : "·" });
-      cell.addEventListener("click", () => this.selectDay(key));
+      makeKeyboardClickable(cell, () => this.selectDay(key));
     }
 
     const listCard = agenda.createDiv({ cls: "qt-study-card qt-day-agenda-list" });
@@ -53822,6 +53901,7 @@ class NameModal extends Modal {
     const { contentEl } = this;
     contentEl.createEl("h3", { text: this.title });
     const input = contentEl.createEl("input", { type: "text", cls: "qt-modal-input" });
+    input.setAttribute("aria-label", this.title || "Name");
     input.value = this.initial;
     const go = () => {
       const v = input.value.trim();
@@ -54932,6 +55012,7 @@ class NoteReviewModal extends Modal {
         text: `${item.set} · ${item.priority} priority · ${item.isNew ? "new" : `due ${item.dueDate}`} · ${this.index + 1}/${this.queue.length}`,
       });
       const grow = head.createEl("select", { cls: "qt-select" });
+      grow.setAttribute("aria-label", "Note priority");
       for (const value of ["high", "normal", "low"]) grow.createEl("option", { value, text: `${value} priority` });
       grow.value = item.priority;
       grow.addEventListener("change", async () => {
@@ -56518,6 +56599,7 @@ class OcrModal extends Modal {
     this.results.forEach((page, index) => {
       el.createEl("h4", { text: `Page ${page.n}` });
       const area = el.createEl("textarea", { cls: "qt-ocr-text" });
+      area.setAttribute("aria-label", `Page ${page.n} text`);
       area.value = page.text;
       area.rows = Math.max(6, Math.min(18, page.text.split("\n").length + 2));
       area.addEventListener("input", () => (this.results[index].text = area.value));
@@ -59964,6 +60046,7 @@ function renderSidebar(container, model, handlers) {
 
   const filters = wrap.createDiv({ cls: "qt-pdf-sidebar-filters" });
   const search = filters.createEl("input", { cls: "qt-input", type: "search" });
+  search.setAttribute("aria-label", "Search annotations");
   search.placeholder = "Search notes, quotes and tags";
   search.value = str(data.query);
   search.addEventListener("input", () => h.onQuery && h.onQuery(search.value));
@@ -59990,9 +60073,22 @@ function renderSidebar(container, model, handlers) {
       cls: `qt-pdf-sidebar-row${row.selected ? " is-selected" : ""}`,
       attr: { "data-annotation-id": row.id, "data-page": String(row.page) },
     });
-    const jump = () => h.onSelect && h.onSelect(row.id);
+    const jump = (event) => {
+      if (event && event.stopPropagation) event.stopPropagation();
+      if (h.onSelect) h.onSelect(row.id);
+    };
     const top = item.createDiv({ cls: "qt-pdf-sidebar-row-top" });
-    top.createSpan({ cls: "qt-pdf-sidebar-type", text: row.label }).addEventListener("click", jump);
+    const jumpTarget = top.createSpan({
+      cls: "qt-pdf-sidebar-type",
+      text: row.label,
+      attr: { role: "button", tabindex: "0", "aria-label": `Open ${row.label} annotation` },
+    });
+    jumpTarget.addEventListener("click", jump);
+    jumpTarget.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      if (event.preventDefault) event.preventDefault();
+      jump(event);
+    });
     top.createSpan({ cls: "qt-pdf-sidebar-color", text: row.color }).addEventListener("click", jump);
     top.addEventListener("click", jump);
     item.addEventListener("click", jump);
@@ -60003,40 +60099,50 @@ function renderSidebar(container, model, handlers) {
       for (const tag of row.tags) tags.createSpan({ cls: "qt-pdf-tag", text: `#${tag}` });
     }
     const actions = item.createDiv({ cls: "qt-pdf-sidebar-actions" });
-    actions.createEl("button", { text: "Edit note" }).addEventListener("click", () => h.onEditNote && h.onEditNote(row.id));
-    actions.createEl("button", { text: "Edit tags" }).addEventListener("click", () => h.onEditTags && h.onEditTags(row.id));
-    if (row.canAsk) {
-      actions
-        .createEl("button", { text: "Ask AI", cls: "qt-pdf-sidebar-ask" })
-        .addEventListener("click", (event) => {
-          if (event && event.stopPropagation) event.stopPropagation();
-          h.onAsk && h.onAsk(row.id);
-        });
-    }
-    actions
-      .createEl("button", { text: "Delete", cls: "qt-danger" })
-      .addEventListener("click", () => h.onDelete && h.onDelete(row.id));
+    const action = (label, cls, handler) =>
+      actions.createEl("button", { text: label, cls }).addEventListener("click", (event) => {
+        if (event && event.stopPropagation) event.stopPropagation();
+        if (handler) handler(row.id);
+      });
+    action("Edit note", "", h.onEditNote);
+    action("Edit tags", "", h.onEditTags);
+    if (row.canAsk) action("Ask AI", "qt-pdf-sidebar-ask", h.onAsk);
+    action("Delete", "qt-danger", h.onDelete);
 
     if (data.editingNoteId === row.id) {
       const editor = item.createDiv({ cls: "qt-pdf-sidebar-editor" });
       const area = editor.createEl("textarea", { cls: "qt-pdf-ink-textarea" });
+      area.setAttribute("aria-label", "Annotation note");
       area.value = row.note;
       const buttons = editor.createDiv({ cls: "qt-row qt-pdf-sidebar-actions" });
       buttons
         .createEl("button", { text: "Save note", cls: "mod-cta" })
-        .addEventListener("click", () => h.onSaveNote && h.onSaveNote(row.id, area.value));
-      buttons.createEl("button", { text: "Cancel" }).addEventListener("click", () => h.onCancelEdit && h.onCancelEdit());
+        .addEventListener("click", (event) => {
+          if (event && event.stopPropagation) event.stopPropagation();
+          if (h.onSaveNote) h.onSaveNote(row.id, area.value);
+        });
+      buttons.createEl("button", { text: "Cancel" }).addEventListener("click", (event) => {
+        if (event && event.stopPropagation) event.stopPropagation();
+        if (h.onCancelEdit) h.onCancelEdit();
+      });
     }
     if (data.editingTagsId === row.id) {
       const editor = item.createDiv({ cls: "qt-pdf-sidebar-editor" });
       const input = editor.createEl("input", { cls: "qt-input", type: "text" });
+      input.setAttribute("aria-label", "Annotation tags");
       input.value = row.tags.map((tag) => `#${tag}`).join(" ");
       editor.createDiv({ cls: "qt-hint", text: "Up to 6 tags, comma separated, no hash needed." });
       const buttons = editor.createDiv({ cls: "qt-row qt-pdf-sidebar-actions" });
       buttons
         .createEl("button", { text: "Save tags", cls: "mod-cta" })
-        .addEventListener("click", () => h.onSaveTags && h.onSaveTags(row.id, input.value));
-      buttons.createEl("button", { text: "Cancel" }).addEventListener("click", () => h.onCancelEdit && h.onCancelEdit());
+        .addEventListener("click", (event) => {
+          if (event && event.stopPropagation) event.stopPropagation();
+          if (h.onSaveTags) h.onSaveTags(row.id, input.value);
+        });
+      buttons.createEl("button", { text: "Cancel" }).addEventListener("click", (event) => {
+        if (event && event.stopPropagation) event.stopPropagation();
+        if (h.onCancelEdit) h.onCancelEdit();
+      });
     }
   }
   return wrap;
@@ -65783,12 +65889,14 @@ class TextBoxPromptModal extends Modal {
       this.linkStatusEl = el.createDiv({ cls: "qt-hint" });
     }
     this.textEl = el.createEl("textarea", { cls: "qt-pdf-ink-textarea" });
+    this.textEl.setAttribute("aria-label", "Annotation text");
     this.textEl.rows = 5;
     this.textEl.value = this.options.text || "";
     this.tagEl = null;
     if (Array.isArray(this.options.tags)) {
       el.createDiv({ cls: "qt-hint", text: "Tags (optional, comma separated, up to 6, no hash needed)." });
       this.tagEl = el.createEl("input", { cls: "qt-input", type: "text" });
+      this.tagEl.setAttribute("aria-label", "Annotation tags");
       this.tagEl.placeholder = "e.g. exam, weak-spot";
       this.tagEl.value = this.options.tags.map((tag) => `#${tag}`).join(" ");
     }
@@ -66093,6 +66201,7 @@ class PdfInkModal extends Modal {
     prev.addEventListener("click", () => this.stepPage(-1));
     const pageLabel = nav.createEl("label", { cls: "qt-pdf-ink-page-label", text: "Page" });
     this.pageInputEl = pageLabel.createEl("input", { type: "number", cls: "qt-pdf-ink-page-input" });
+    this.pageInputEl.setAttribute("aria-label", "Page number");
     this.pageInputEl.min = "1";
     this.pageInputEl.value = String(this.page);
     this.pageInputEl.addEventListener("change", () => this.goToPage(this.pageInputEl.value));
@@ -82090,7 +82199,7 @@ module.exports = { practiceKeyboardAction };
 __defs["practice-view"] = function (module, exports, require) {
 const { ItemView, Notice, Platform, TFile, setIcon } = require("obsidian");
 const { FILTER_FIELDS, MODES, VIEW_TYPE } = require("./constants");
-const { loadQuestionData, renderMarkdownInto, renderMatchPicker } = require("./view-helpers");
+const { loadQuestionData, makeKeyboardClickable, renderMarkdownInto, renderMatchPicker } = require("./view-helpers");
 const { fmtClock, fmtDate, str } = require("./util");
 const { MODE_PRED, filterOptionCounts, folderLabel, fvals, hasFilters, isDue, pickQuestion } = require("./filters");
 const { extractRationale } = require("./notes");
@@ -82725,7 +82834,7 @@ class PracticeView extends ItemView {
 
     // presets
     const prow = root.createDiv({ cls: "qt-row" });
-    const psel = prow.createEl("select", { cls: "qt-select qt-grow" });
+    const psel = prow.createEl("select", { cls: "qt-select qt-grow", attr: { "aria-label": "Filter preset" } });
     psel.createEl("option", { value: "", text: "- Custom -" });
     for (const pr of st.presets) psel.createEl("option", { value: pr.id, text: pr.name });
     psel.value = st.activePreset || "";
@@ -82856,7 +82965,7 @@ class PracticeView extends ItemView {
     // mode
     const mrow = root.createDiv({ cls: "qt-field" });
     mrow.createEl("label", { text: "Pick questions" });
-    const msel = mrow.createEl("select", { cls: "qt-select" });
+    const msel = mrow.createEl("select", { cls: "qt-select", attr: { "aria-label": "Pick questions" } });
     for (const [v, t] of MODES) msel.createEl("option", { value: v, text: t });
     msel.value = st.mode;
     msel.addEventListener("change", () => {
@@ -82945,10 +83054,14 @@ class PracticeView extends ItemView {
       det.createDiv({ cls: "qt-onboard-problem", text: `${problem} (${paths.length})` });
       for (const path of paths.slice(0, SHOW)) {
         const a = det.createEl("a", { text: path.replace(/^.*\//, "").replace(/\.md$/i, ""), cls: "qt-onboard-note", attr: { title: path } });
-        a.addEventListener("click", () => {
-          const f = this.app.vault.getAbstractFileByPath(path);
-          if (f instanceof TFile) this.app.workspace.getLeaf("tab").openFile(f);
-        });
+        makeKeyboardClickable(
+          a,
+          () => {
+            const f = this.app.vault.getAbstractFileByPath(path);
+            if (f instanceof TFile) this.app.workspace.getLeaf("tab").openFile(f);
+          },
+          { role: "link" }
+        );
       }
       if (paths.length > SHOW) det.createDiv({ cls: "qt-hint", text: `and ${paths.length - SHOW} more` });
     }
@@ -82992,7 +83105,7 @@ class PracticeView extends ItemView {
       body.empty();
       if (Platform.isDesktopApp) {
         body.createDiv({ cls: "qt-label", text: "How do you want to connect?" });
-        const how = body.createEl("select", { cls: "qt-select" });
+        const how = body.createEl("select", { cls: "qt-select", attr: { "aria-label": "Connection method" } });
         how.createEl("option", { value: "api", text: "My own API key" });
         how.createEl("option", { value: "opencode", text: "OpenCode (runs on this computer)" });
         how.value = useApi ? "api" : "opencode";
@@ -83006,7 +83119,7 @@ class PracticeView extends ItemView {
     };
     const drawApi = () => {
       body.createDiv({ cls: "qt-label", text: "Provider" });
-      const prov = body.createEl("select", { cls: "qt-select" });
+      const prov = body.createEl("select", { cls: "qt-select", attr: { "aria-label": "Provider" } });
       for (const [id, pr] of Object.entries(API_PRESETS)) prov.createEl("option", { value: id, text: pr.label });
       prov.value = api.provider;
       prov.addEventListener("change", () => {
@@ -83223,11 +83336,11 @@ class PracticeView extends ItemView {
     root.createDiv({ cls: "qt-hint", text: "A short, one-handed session using your current filters and pick mode. Your progress is saved if Obsidian closes." });
     root.createDiv({ cls: "qt-count", text: `${inMode} question${inMode === 1 ? "" : "s"} available in ${mode === "smart" ? "Smart mix" : mode}.` });
     root.createDiv({ cls: "qt-label", text: "Session length" });
-    const kind = root.createEl("select", { cls: "qt-select" });
+    const kind = root.createEl("select", { cls: "qt-select", attr: { "aria-label": "Session length" } });
     kind.createEl("option", { value: "time", text: "By time" });
     kind.createEl("option", { value: "count", text: "By question count" });
     kind.value = "time";
-    const value = root.createEl("select", { cls: "qt-select" });
+    const value = root.createEl("select", { cls: "qt-select", attr: { "aria-label": "Session length value" } });
     const recEl = root.createDiv({ cls: "qt-hint" });
     let rec = recommendFor("time");
     const fill = () => {
@@ -87070,6 +87183,7 @@ class QuizGeneratorModal extends Modal {
     const countWrap = row.createDiv({ cls: "qt-field qt-grow" });
     countWrap.createEl("label", { text: "How many?" });
     const count = countWrap.createEl("select", { cls: "qt-select" });
+    count.setAttribute("aria-label", "How many questions?");
     for (const n of [5, 8, 10, 12, 15, 20]) count.createEl("option", { value: String(n), text: `${n} questions` });
     count.value = String(this.count);
     count.addEventListener("change", () => (this.count = Number(count.value)));
@@ -87077,6 +87191,7 @@ class QuizGeneratorModal extends Modal {
     const languageWrap = row.createDiv({ cls: "qt-field qt-grow" });
     languageWrap.createEl("label", { text: "Output language" });
     const language = languageWrap.createEl("select", { cls: "qt-select" });
+    language.setAttribute("aria-label", "Output language");
     for (const name of QUIZ_LANGUAGES) language.createEl("option", { value: name, text: name });
     language.value = this.language;
     language.addEventListener("change", () => (this.language = language.value));
@@ -95775,7 +95890,7 @@ class ReferenceView extends ItemView {
     const makeSelect = (label, value, onChange) => {
       const field = controls.createEl("label", { cls: "qt-ref-punnett-field" });
       field.createSpan({ text: label });
-      const select = field.createEl("select", { cls: "qt-ref-unit" });
+      const select = field.createEl("select", { cls: "qt-ref-unit", attr: { "aria-label": label } });
       for (const genotype of PUNNETT_GENOTYPES) select.createEl("option", { text: genotype, value: genotype });
       select.value = value;
       select.addEventListener("change", () => onChange(select.value));
@@ -95820,7 +95935,7 @@ class ReferenceView extends ItemView {
 
     const controls = root.createDiv({ cls: "qt-row qt-ap-controls" });
     controls.createEl("label", { cls: "qt-ap-label", text: "Course" });
-    const select = controls.createEl("select", { cls: "dropdown" });
+    const select = controls.createEl("select", { cls: "dropdown", attr: { "aria-label": "AP course" } });
     for (const course of AP_RESOURCE_COURSES) select.createEl("option", { text: course.name, value: course.id });
     select.value = pack.course.id;
     select.addEventListener("change", () => {
@@ -95878,7 +95993,7 @@ class ReferenceView extends ItemView {
 
     const controls = root.createDiv({ cls: "qt-row qt-ap-controls" });
     controls.createEl("label", { cls: "qt-ap-label", text: "Exam" });
-    const select = controls.createEl("select", { cls: "dropdown" });
+    const select = controls.createEl("select", { cls: "dropdown", attr: { "aria-label": "Exam" } });
     for (const item of AP_PROFILES) select.createEl("option", { text: item.name, value: item.id });
     select.value = profile.id;
     select.addEventListener("change", () => {
@@ -95928,7 +96043,7 @@ class ReferenceView extends ItemView {
 
     const reverse = root.createDiv({ cls: "qt-row qt-ap-controls" });
     reverse.createEl("label", { cls: "qt-ap-label", text: "What do I need for a" });
-    const target = reverse.createEl("select", { cls: "dropdown" });
+    const target = reverse.createEl("select", { cls: "dropdown", attr: { "aria-label": "Target AP score" } });
     for (const score of [5, 4, 3, 2]) target.createEl("option", { text: String(score), value: String(score) });
     target.value = this.apTarget;
     target.addEventListener("change", () => {
@@ -96649,6 +96764,7 @@ const { ItemView, Notice, Platform } = require("obsidian");
 const { VIEW_TYPE_REVIEW_CALENDAR } = require("./constants");
 const { addDays, calendarCells, workloadLabel } = require("./review-calendar");
 const { localDate, str } = require("./util");
+const { makeKeyboardClickable } = require("./view-helpers");
 
 const WEEK_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -96806,7 +96922,7 @@ class ReviewCalendarView extends ItemView {
       cell.createDiv({ cls: "qt-day-agenda-day-number", text: String(Number(key.slice(8))) });
       const total = byDay.has(key) ? byDay.get(key).total : 0;
       cell.createDiv({ cls: "qt-day-agenda-day-count", text: total ? String(total) : "·" });
-      cell.addEventListener("click", () => this.selectDay(key));
+      makeKeyboardClickable(cell, () => this.selectDay(key));
     }
   }
 
@@ -96820,10 +96936,14 @@ class ReviewCalendarView extends ItemView {
       cell.createDiv({ cls: "qt-review-calendar-day-label", text: day.date.slice(5) });
       cell.createDiv({ cls: "qt-review-calendar-day-count", text: String(day.total) });
       cell.createDiv({ cls: "qt-review-calendar-day-minutes", text: workloadLabel(day.minutes) });
-      cell.addEventListener("click", () => {
-        this.selected = day.date;
-        this.render();
-      });
+      makeKeyboardClickable(
+        cell,
+        () => {
+          this.selected = day.date;
+          this.render();
+        },
+        { label: dayLabel(day.date) }
+      );
     }
   }
 
@@ -96842,10 +96962,14 @@ class ReviewCalendarView extends ItemView {
       if (cell.key === this.selected) day.addClass("is-selected");
       day.createDiv({ cls: "qt-review-calendar-cell-day", text: String(cell.day) });
       if (cell.total) day.createDiv({ cls: "qt-review-calendar-cell-count", text: `${cell.total}` });
-      day.addEventListener("click", () => {
-        this.selected = cell.key;
-        this.render();
-      });
+      makeKeyboardClickable(
+        day,
+        () => {
+          this.selected = cell.key;
+          this.render();
+        },
+        { label: dayLabel(cell.key) }
+      );
     }
   }
 
@@ -107036,6 +107160,7 @@ const { MATURITY_ORDER, WEEK_DAYS } = require("./study-stats");
 const { counterDay } = require("./study-counters");
 const { workloadLabel } = require("./review-calendar");
 const { str } = require("./util");
+const { makeKeyboardClickable } = require("./view-helpers");
 
 function pct(value) {
   return value === null || value === undefined ? "—" : `${Math.round(Number(value) * 100)}%`;
@@ -107207,7 +107332,7 @@ class StudyStatsView extends ItemView {
         cell.setAttr("data-date", day.date);
         cell.setAttr("aria-label", `${day.date}: ${day.reviews} review${day.reviews === 1 ? "" : "s"}, ${day.minutes} minutes`);
         if (day.future) cell.addClass("is-future");
-        cell.addEventListener("click", () => {
+        makeKeyboardClickable(cell, () => {
           this.selectedHeatDay = this.selectedHeatDay === day.date ? "" : day.date;
           this.render();
         });
@@ -107702,6 +107827,7 @@ class StudyStatusModal extends Modal {
     );
     if (courses.length > 1) {
       const select = controls.createEl("select", { cls: "dropdown qt-status-course" });
+      select.setAttribute("aria-label", "Course filter");
       const all = select.createEl("option", { text: "All courses" });
       all.value = "all";
       for (const course of courses) {
@@ -107866,6 +107992,7 @@ const STUDY_TOOL_SETTINGS_MODULES = [
   { id: "card-archive", label: "Card archive", icon: "archive" },
   { id: "study-nudge", label: "Study nudge", icon: "bell" },
   { id: "course-templates", label: "Course templates", icon: "file-plus" },
+  { id: "web-browser", label: "Web browser", icon: "globe" },
 ];
 
 const DISABLED_HINT = "Off keeps its settings and your notes; it only hides the view, ribbon entry and command.";
@@ -108900,6 +109027,7 @@ function renderStudyToolSettings(containerEl, plugin, redisplay, moduleId) {
 }
 
 module.exports = {
+  STUDY_TOOL_SETTINGS_PAGE_IDS: Object.keys(PAGES),
   STUDY_TOOL_SETTINGS_BY_ID,
   STUDY_TOOL_SETTINGS_MODULES,
   renderStudyToolSettings,
@@ -111019,6 +111147,7 @@ __defs["study-workspace-view"] = function (module, exports, require) {
 const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_STUDY_WORKSPACE } = require("./constants");
 const { localDate, str } = require("./util");
+const { makeKeyboardClickable } = require("./view-helpers");
 const timeBlocks = require("./time-blocks");
 const citations = require("./citations");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
@@ -111367,7 +111496,7 @@ class StudyWorkspaceView extends ItemView {
   renderSelect(form, label, options, value) {
     const field = form.createDiv({ cls: "qt-study-field" });
     field.createEl("label", { text: label });
-    const select = field.createEl("select", { cls: "dropdown" });
+    const select = field.createEl("select", { cls: "dropdown", attr: { "aria-label": label } });
     for (const option of options) {
       const el = select.createEl("option", { text: option.label, value: option.value });
       if (option.value === value) el.selected = true;
@@ -111500,7 +111629,7 @@ class StudyWorkspaceView extends ItemView {
       for (const dimension of ["clarity", "accuracy", "simplicity"]) {
         const label = scoreRow.createDiv({ cls: "qt-study-field" });
         label.createEl("label", { text: SCORE_LABELS[dimension] });
-        const select = label.createEl("select", { cls: "dropdown qt-feynman-score" });
+        const select = label.createEl("select", { cls: "dropdown qt-feynman-score", attr: { "aria-label": SCORE_LABELS[dimension] } });
         select.dataset.score = dimension;
         this.feynmanScoreSelects[dimension] = select;
         for (let value = 1; value <= 5; value++) {
@@ -113442,11 +113571,15 @@ class StudyWorkspaceView extends ItemView {
         row.addEventListener("dragstart", (event) => {
           if (event.dataTransfer) event.dataTransfer.setData("text/plain", JSON.stringify({ blockId: block.id }));
         });
-        row.addEventListener("click", () => {
-          this.timeBlockDate = day.date;
-          this.timeBlockView = "day";
-          this.render();
-        });
+        makeKeyboardClickable(
+          row,
+          () => {
+            this.timeBlockDate = day.date;
+            this.timeBlockView = "day";
+            this.render();
+          },
+          { label: `${block.title} on ${day.date}` }
+        );
       }
       column.createEl("button", { text: "Open day", cls: "qt-link" }).addEventListener("click", () => {
         this.timeBlockDate = day.date;
@@ -114418,19 +114551,23 @@ class StudyWorkspaceView extends ItemView {
     plan.sentences.forEach((sentence, index) => {
       const line = list.createDiv({ cls: "qt-read-aloud-sentence", text: sentence });
       if (index === this.readAloudIndex) line.addClass("is-speaking");
-      line.addEventListener("click", () => {
-        if (!this.readAloudPlan) return;
-        const synth = this.speech();
-        if (synth) {
-          try {
-            synth.cancel();
-          } catch (e) {
-            /* nothing to cancel */
+      makeKeyboardClickable(
+        line,
+        () => {
+          if (!this.readAloudPlan) return;
+          const synth = this.speech();
+          if (synth) {
+            try {
+              synth.cancel();
+            } catch (e) {
+              /* nothing to cancel */
+            }
           }
-        }
-        this.readAloudPlaying = true;
-        this.speakSentence(index);
-      });
+          this.readAloudPlaying = true;
+          this.speakSentence(index);
+        },
+        { label: `Read sentence ${index + 1} aloud` }
+      );
     });
   }
 
@@ -114827,6 +114964,7 @@ class TableCsvModal extends Modal {
     tabCheckbox.checked = this.useTabs;
     tabLabel.createSpan({ text: "Separate with tabs" });
     const area = el.createEl("textarea", { cls: "qt-table-csv-text" });
+    area.setAttribute("aria-label", "CSV output");
     area.readOnly = true;
     area.value = this.csv();
     const render = () => {
@@ -121286,7 +121424,7 @@ class TodayView extends ItemView {
       if (scopes.length) {
         const scopeRow = container.createDiv({ cls: "qt-progress-scope" });
         scopeRow.createSpan({ cls: "qt-hint", text: "Show mastery for" });
-        const picker = scopeRow.createEl("select", { cls: "qt-select" });
+        const picker = scopeRow.createEl("select", { cls: "qt-select", attr: { "aria-label": "Show mastery for" } });
         picker.createEl("option", { value: "", text: "All questions" });
         for (const entry of scopes) picker.createEl("option", { value: entry, text: entry });
         picker.value = scope;
@@ -122202,6 +122340,7 @@ class TranscriptPracticeModal extends Modal {
     const modeWrap = el.createDiv({ cls: "qt-field" });
     modeWrap.createEl("label", { text: "What should it make?" });
     const mode = modeWrap.createEl("select", { cls: "qt-select" });
+    mode.setAttribute("aria-label", "What should it make?");
     mode.createEl("option", { value: "cards", text: ai ? "Flashcards (AI)" : "Flashcards from headings (no AI)" });
     mode.createEl("option", {
       value: "questions",
@@ -122218,6 +122357,7 @@ class TranscriptPracticeModal extends Modal {
     const countWrap = el.createDiv({ cls: "qt-field" });
     countWrap.createEl("label", { text: "How many?" });
     const count = countWrap.createEl("select", { cls: "qt-select" });
+    count.setAttribute("aria-label", "How many items?");
     for (const n of [5, 8, 10, 12, 15, 20]) count.createEl("option", { value: String(n), text: `${n} items` });
     count.value = String(this.count);
     count.addEventListener("change", () => (this.count = Number(count.value)));
@@ -122226,6 +122366,7 @@ class TranscriptPracticeModal extends Modal {
       const diffWrap = el.createDiv({ cls: "qt-field" });
       diffWrap.createEl("label", { text: "Difficulty" });
       const diff = diffWrap.createEl("select", { cls: "qt-select" });
+      diff.setAttribute("aria-label", "Difficulty");
       for (const [value, label] of [["mixed", "Mixed"], ["easy", "Easy"], ["medium", "Medium"], ["hard", "Hard"]]) {
         diff.createEl("option", { value, text: label });
       }
@@ -123718,6 +123859,29 @@ async function loadQuestionData(plugin, q, options) {
   return { file: q.file, fm: { ...q.fm }, sections, key, mode, variant, pairs };
 }
 
+/**
+ * Makes a non-button element operable like a button: focusable, announced as a
+ * control, and activated by Enter or Space as well as a pointer click.
+ */
+function makeKeyboardClickable(el, handler, options) {
+  const opts = options || {};
+  if (el.setAttr) {
+    el.setAttr("role", opts.role || "button");
+    el.setAttr("tabindex", "0");
+    if (opts.label) el.setAttr("aria-label", opts.label);
+  }
+  if (el.addEventListener) {
+    el.addEventListener("click", handler);
+    el.addEventListener("keydown", (event) => {
+      const key = event && (event.key || event.code);
+      if (key !== "Enter" && key !== " " && key !== "Spacebar" && key !== "Space") return;
+      if (event && typeof event.preventDefault === "function") event.preventDefault();
+      handler(event);
+    });
+  }
+  return el;
+}
+
 /** One matching row per pair, with the right column in `order`. */
 function renderMatchPicker(options) {
   const opts = options || {};
@@ -123729,7 +123893,7 @@ function renderMatchPicker(options) {
   pairs.forEach((pair, i) => {
     const row = list.createDiv({ cls: "qt-match-row" });
     opts.renderLeft(pair.left, row.createDiv({ cls: "qt-match-left" }));
-    const sel = row.createEl("select", { cls: "qt-select qt-match-select" });
+    const sel = row.createEl("select", { cls: "qt-select qt-match-select", attr: { "aria-label": `Match item ${i + 1}` } });
     sel.createEl("option", { value: "", text: "Choose..." });
     for (const idx of order) if (pairs[idx]) sel.createEl("option", { value: String(idx), text: str(pairs[idx].right) });
     sel.value = Number.isInteger(picks[i]) && picks[i] >= 0 ? String(picks[i]) : "";
@@ -123746,6 +123910,7 @@ module.exports = {
   normalizeExamReadyPasses,
   renderMarkdownInto,
   loadQuestionData,
+  makeKeyboardClickable,
   renderMatchPicker,
 };
 };
@@ -124000,6 +124165,7 @@ class WeakSpotModal extends Modal {
     const skillWrap = el.createDiv({ cls: "qt-field" });
     skillWrap.createEl("label", { text: "Weak spot" });
     const skill = skillWrap.createEl("select", { cls: "qt-select" });
+    skill.setAttribute("aria-label", "Weak spot");
     for (const row of this.rows) {
       const pct = Math.round((row.accuracy || 0) * 100);
       skill.createEl("option", { value: row.value, text: `${row.value} (${pct}%, ${row.attempts} attempts)` });
@@ -124010,6 +124176,7 @@ class WeakSpotModal extends Modal {
     const kindWrap = el.createDiv({ cls: "qt-field" });
     kindWrap.createEl("label", { text: "What should it make?" });
     const kind = kindWrap.createEl("select", { cls: "qt-select" });
+    kind.setAttribute("aria-label", "What should it make?");
     kind.createEl("option", { value: "questions", text: "Multiple-choice questions" });
     kind.createEl("option", { value: "cards", text: "Flashcards" });
     kind.value = this.kind;
@@ -124022,6 +124189,7 @@ class WeakSpotModal extends Modal {
     const countWrap = el.createDiv({ cls: "qt-field" });
     countWrap.createEl("label", { text: "How many?" });
     const count = countWrap.createEl("select", { cls: "qt-select" });
+    count.setAttribute("aria-label", "How many items?");
     for (const n of [5, 8, 10, 12, 15, 20]) count.createEl("option", { value: String(n), text: `${n} items` });
     count.value = String(this.count);
     count.addEventListener("change", () => (this.count = Number(count.value)));
@@ -126035,7 +126203,7 @@ const { DocumentReviewModal } = require("./document-review-modal");
 const ocr = require("./ocr");
 const { OcrModal } = require("./ocr-modal");
 const { QUICK_START_URL, aiReady, emptyState, hasValidQuestion, scanQuestionNotes } = require("./empty-state");
-const { isExamReady, loadQuestionData, normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
+const { isExamReady, loadQuestionData, makeKeyboardClickable, normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const offline = require("./offline");
 const documents = require("./documents");
 const calendarIcs = require("./calendar-ics");
@@ -126090,6 +126258,7 @@ const support = require("./support");
 
 module.exports = QuestionTrackerPlugin;
 QuestionTrackerPlugin.__test = {
+  makeKeyboardClickable,
   graphExport: require("./graph-export"),
   graphExamples: require("./graph-examples"),
   statistics: require("./statistics"),

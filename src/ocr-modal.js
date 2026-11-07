@@ -191,6 +191,7 @@ class OcrModal extends Modal {
     this.results.forEach((page, index) => {
       el.createEl("h4", { text: `Page ${page.n}` });
       const area = el.createEl("textarea", { cls: "qt-ocr-text" });
+      area.setAttribute("aria-label", `Page ${page.n} text`);
       area.value = page.text;
       area.rows = Math.max(6, Math.min(18, page.text.split("\n").length + 2));
       area.addEventListener("input", () => (this.results[index].text = area.value));

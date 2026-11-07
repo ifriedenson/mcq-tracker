@@ -1,7 +1,7 @@
 "use strict";
 const { ItemView, Notice, Platform, TFile, setIcon } = require("obsidian");
 const { FILTER_FIELDS, MODES, VIEW_TYPE } = require("./constants");
-const { loadQuestionData, renderMarkdownInto, renderMatchPicker } = require("./view-helpers");
+const { loadQuestionData, makeKeyboardClickable, renderMarkdownInto, renderMatchPicker } = require("./view-helpers");
 const { fmtClock, fmtDate, str } = require("./util");
 const { MODE_PRED, filterOptionCounts, folderLabel, fvals, hasFilters, isDue, pickQuestion } = require("./filters");
 const { extractRationale } = require("./notes");
@@ -636,7 +636,7 @@ class PracticeView extends ItemView {
 
     // presets
     const prow = root.createDiv({ cls: "qt-row" });
-    const psel = prow.createEl("select", { cls: "qt-select qt-grow" });
+    const psel = prow.createEl("select", { cls: "qt-select qt-grow", attr: { "aria-label": "Filter preset" } });
     psel.createEl("option", { value: "", text: "- Custom -" });
     for (const pr of st.presets) psel.createEl("option", { value: pr.id, text: pr.name });
     psel.value = st.activePreset || "";
@@ -767,7 +767,7 @@ class PracticeView extends ItemView {
     // mode
     const mrow = root.createDiv({ cls: "qt-field" });
     mrow.createEl("label", { text: "Pick questions" });
-    const msel = mrow.createEl("select", { cls: "qt-select" });
+    const msel = mrow.createEl("select", { cls: "qt-select", attr: { "aria-label": "Pick questions" } });
     for (const [v, t] of MODES) msel.createEl("option", { value: v, text: t });
     msel.value = st.mode;
     msel.addEventListener("change", () => {
@@ -856,10 +856,14 @@ class PracticeView extends ItemView {
       det.createDiv({ cls: "qt-onboard-problem", text: `${problem} (${paths.length})` });
       for (const path of paths.slice(0, SHOW)) {
         const a = det.createEl("a", { text: path.replace(/^.*\//, "").replace(/\.md$/i, ""), cls: "qt-onboard-note", attr: { title: path } });
-        a.addEventListener("click", () => {
-          const f = this.app.vault.getAbstractFileByPath(path);
-          if (f instanceof TFile) this.app.workspace.getLeaf("tab").openFile(f);
-        });
+        makeKeyboardClickable(
+          a,
+          () => {
+            const f = this.app.vault.getAbstractFileByPath(path);
+            if (f instanceof TFile) this.app.workspace.getLeaf("tab").openFile(f);
+          },
+          { role: "link" }
+        );
       }
       if (paths.length > SHOW) det.createDiv({ cls: "qt-hint", text: `and ${paths.length - SHOW} more` });
     }
@@ -903,7 +907,7 @@ class PracticeView extends ItemView {
       body.empty();
       if (Platform.isDesktopApp) {
         body.createDiv({ cls: "qt-label", text: "How do you want to connect?" });
-        const how = body.createEl("select", { cls: "qt-select" });
+        const how = body.createEl("select", { cls: "qt-select", attr: { "aria-label": "Connection method" } });
         how.createEl("option", { value: "api", text: "My own API key" });
         how.createEl("option", { value: "opencode", text: "OpenCode (runs on this computer)" });
         how.value = useApi ? "api" : "opencode";
@@ -917,7 +921,7 @@ class PracticeView extends ItemView {
     };
     const drawApi = () => {
       body.createDiv({ cls: "qt-label", text: "Provider" });
-      const prov = body.createEl("select", { cls: "qt-select" });
+      const prov = body.createEl("select", { cls: "qt-select", attr: { "aria-label": "Provider" } });
       for (const [id, pr] of Object.entries(API_PRESETS)) prov.createEl("option", { value: id, text: pr.label });
       prov.value = api.provider;
       prov.addEventListener("change", () => {
@@ -1134,11 +1138,11 @@ class PracticeView extends ItemView {
     root.createDiv({ cls: "qt-hint", text: "A short, one-handed session using your current filters and pick mode. Your progress is saved if Obsidian closes." });
     root.createDiv({ cls: "qt-count", text: `${inMode} question${inMode === 1 ? "" : "s"} available in ${mode === "smart" ? "Smart mix" : mode}.` });
     root.createDiv({ cls: "qt-label", text: "Session length" });
-    const kind = root.createEl("select", { cls: "qt-select" });
+    const kind = root.createEl("select", { cls: "qt-select", attr: { "aria-label": "Session length" } });
     kind.createEl("option", { value: "time", text: "By time" });
     kind.createEl("option", { value: "count", text: "By question count" });
     kind.value = "time";
-    const value = root.createEl("select", { cls: "qt-select" });
+    const value = root.createEl("select", { cls: "qt-select", attr: { "aria-label": "Session length value" } });
     const recEl = root.createDiv({ cls: "qt-hint" });
     let rec = recommendFor("time");
     const fill = () => {

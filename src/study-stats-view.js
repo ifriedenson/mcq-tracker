@@ -6,6 +6,7 @@ const { MATURITY_ORDER, WEEK_DAYS } = require("./study-stats");
 const { counterDay } = require("./study-counters");
 const { workloadLabel } = require("./review-calendar");
 const { str } = require("./util");
+const { makeKeyboardClickable } = require("./view-helpers");
 
 function pct(value) {
   return value === null || value === undefined ? "—" : `${Math.round(Number(value) * 100)}%`;
@@ -177,7 +178,7 @@ class StudyStatsView extends ItemView {
         cell.setAttr("data-date", day.date);
         cell.setAttr("aria-label", `${day.date}: ${day.reviews} review${day.reviews === 1 ? "" : "s"}, ${day.minutes} minutes`);
         if (day.future) cell.addClass("is-future");
-        cell.addEventListener("click", () => {
+        makeKeyboardClickable(cell, () => {
           this.selectedHeatDay = this.selectedHeatDay === day.date ? "" : day.date;
           this.render();
         });

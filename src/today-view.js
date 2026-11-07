@@ -256,7 +256,7 @@ class TodayView extends ItemView {
       if (scopes.length) {
         const scopeRow = container.createDiv({ cls: "qt-progress-scope" });
         scopeRow.createSpan({ cls: "qt-hint", text: "Show mastery for" });
-        const picker = scopeRow.createEl("select", { cls: "qt-select" });
+        const picker = scopeRow.createEl("select", { cls: "qt-select", attr: { "aria-label": "Show mastery for" } });
         picker.createEl("option", { value: "", text: "All questions" });
         for (const entry of scopes) picker.createEl("option", { value: entry, text: entry });
         picker.value = scope;

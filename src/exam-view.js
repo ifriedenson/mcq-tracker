@@ -340,13 +340,13 @@ class TestView extends ItemView {
         const name = row.createEl("input", { type: "text", cls: "qt-fsearch", attr: { placeholder: `Section ${i + 1}` } });
         name.value = section.name || `Section ${i + 1}`;
         name.addEventListener("input", () => (section.name = name.value));
-        const count = row.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", max: "200" } });
+        const count = row.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", max: "200", "aria-label": `Questions in section ${i + 1}` } });
         count.value = String(section.count || 1);
         count.addEventListener("input", () => {
           section.count = Math.max(1, parseInt(count.value, 10) || 1);
           refreshTotal();
         });
-        const mins = row.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", max: "300" } });
+        const mins = row.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", max: "300", "aria-label": `Minutes in section ${i + 1}` } });
         mins.value = String(section.minutes || 1);
         mins.addEventListener("input", () => {
           section.minutes = Math.max(1, parseInt(mins.value, 10) || 1);
@@ -392,7 +392,7 @@ class TestView extends ItemView {
     passIn.addEventListener("input", () => (this.passDraft = normalizePassScore(passIn.value)));
     root.createDiv({ cls: "qt-hint", text: "Shuffle changes the order of each multiple-choice question's choices; saved letters still match the note. A pass mark applies to objective questions; 0 or blank means none." });
     root.createDiv({ cls: "qt-label", text: "Pick questions" });
-    const sel = root.createEl("select", { cls: "qt-select" });
+    const sel = root.createEl("select", { cls: "qt-select", attr: { "aria-label": "Pick questions" } });
     for (const [v, t] of MODES) sel.createEl("option", { value: v, text: t });
     sel.value = st.mode;
 
@@ -407,7 +407,7 @@ class TestView extends ItemView {
 
     if (st.testBlueprints.length) {
       root.createDiv({ cls: "qt-label", text: "Saved blueprint" });
-      const bpSel = root.createEl("select", { cls: "qt-select" });
+      const bpSel = root.createEl("select", { cls: "qt-select", attr: { "aria-label": "Saved blueprint" } });
       bpSel.createEl("option", { value: "", text: "Choose a blueprint" });
       st.testBlueprints.forEach((bp, i) => bpSel.createEl("option", { value: String(i), text: `${bp.name} (${bp.count} questions · ${bp.minutes} min)` }));
       bpSel.addEventListener("change", () => {

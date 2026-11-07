@@ -105,19 +105,9 @@ class AgentView extends ItemView {
       root.createDiv({ cls: "qt-hint", text: "Turn on AI under Settings > MCQ Tracker > OpenCode (AI) to chat. Local vault search still works below." });
     }
 
-    const searchRow = root.createDiv({ cls: "qt-row" });
-    this.searchInput = searchRow.createEl("input", { type: "text", attr: { placeholder: "Search your vault..." } });
-    this.searchInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") this.search();
-    });
-    searchRow.createEl("button", { text: "Search" }).addEventListener("click", () => this.search());
-    const contextLabel = root.createEl("label", { cls: "qt-row" });
-    this.vaultToggle = contextLabel.createEl("input", { type: "checkbox" });
-    contextLabel.appendText(" Include a full-vault file index in chat (opt-in)");
-    this.vaultToggle.addEventListener("change", () => {
-      this.includeVaultIndex = this.vaultToggle.checked;
-    });
-    this.resultsEl = root.createDiv({ cls: "qt-agent-results" });
+    // The tab strip is the first thing in the chat surface. Local search and
+    // the opt-in index stay available behind a quiet disclosure instead of
+    // occupying the top of every conversation.
     this.chatEl = root.createDiv({ cls: "qt-agent-chat" });
     this.renderChat();
   }
@@ -128,9 +118,34 @@ class AgentView extends ItemView {
     this.chatTabs = [];
     this.activeTabId = "";
     this.chatPanel = null;
+    this.searchDetails = null;
     this.tabBar = this.chatEl.createDiv({ cls: "qt-chat-tabs" });
+    this.renderVaultSearch();
     this.chatPanelsEl = this.chatEl.createDiv({ cls: "qt-chat-tab-panels" });
     this.restoreTabs();
+  }
+
+  /** Local, read-only search and the opt-in full-vault index. */
+  renderVaultSearch() {
+    const details = this.chatEl.createEl("details", { cls: "qt-agent-vault-search" });
+    this.searchDetails = details;
+    const summary = details.createEl("summary");
+    summary.createSpan({ cls: "qt-agent-search-label", text: "Search vault" });
+    summary.createSpan({ cls: "qt-agent-search-hint", text: "Local only" });
+    const body = details.createDiv({ cls: "qt-agent-search-body" });
+    const searchRow = body.createDiv({ cls: "qt-agent-search-row" });
+    this.searchInput = searchRow.createEl("input", { type: "text", attr: { placeholder: "Search your vault..." } });
+    this.searchInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") this.search();
+    });
+    searchRow.createEl("button", { text: "Search" }).addEventListener("click", () => this.search());
+    const contextLabel = body.createEl("label", { cls: "qt-agent-search-toggle" });
+    this.vaultToggle = contextLabel.createEl("input", { type: "checkbox" });
+    contextLabel.appendText(" Include a full-vault file index in chat (opt-in)");
+    this.vaultToggle.addEventListener("change", () => {
+      this.includeVaultIndex = this.vaultToggle.checked;
+    });
+    this.resultsEl = body.createDiv({ cls: "qt-agent-results" });
   }
 
   /** The active conversation is stored in settings; open tabs share the same chatSessions store. */
@@ -619,8 +634,8 @@ class AgentView extends ItemView {
     }
     const add = this.tabBar.createEl("button", {
       cls: "qt-chat-tab-new",
-      text: "New tab",
-      attr: { "aria-label": "Open another conversation tab" },
+      text: "+",
+      attr: { "aria-label": "Open another conversation tab", title: "New conversation tab" },
     });
     add.disabled = this.chatTabs.length >= MAX_TABS;
     add.addEventListener("click", () => this.newTab());
@@ -1245,6 +1260,7 @@ class AgentView extends ItemView {
   async search() {
     const query = str(this.searchInput.value).trim();
     if (!query) return;
+    if (this.searchDetails) this.searchDetails.open = true;
     this.resultsEl.setText("Searching...");
     try {
       this.results = await searchVault(this.app, query, 8);

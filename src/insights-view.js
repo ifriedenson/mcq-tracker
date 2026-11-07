@@ -2,6 +2,7 @@
 const { ItemView, Notice } = require("obsidian");
 const { WEAK_MIN_ATTEMPTS, computeStats, errorLog, fmtPct, overallStats, trendBy, trendDelta, weakestRow, weeklyAccuracy } = require("./stats");
 const { fmtClock, localDate, str } = require("./util");
+const { makeKeyboardClickable } = require("./view-helpers");
 const { STAT_FIELDS } = require("./constants");
 const { folderLabel, officialIdOf } = require("./filters");
 const { buildDashboard } = require("./analytics");
@@ -441,7 +442,7 @@ class InsightsView extends ItemView {
     if (progress.masteryScopes.length) {
       const scopeRow = root.createDiv({ cls: "qt-progress-scope" });
       scopeRow.createSpan({ cls: "qt-hint", text: "Show mastery for" });
-      const picker = scopeRow.createEl("select", { cls: "qt-select" });
+      const picker = scopeRow.createEl("select", { cls: "qt-select", attr: { "aria-label": "Show mastery for" } });
       picker.createEl("option", { value: "", text: "All questions" });
       for (const scope of progress.masteryScopes) picker.createEl("option", { value: scope, text: scope });
       picker.value = progress.masteryScope;
@@ -750,7 +751,7 @@ class InsightsView extends ItemView {
         const line = list.createDiv({ cls: `qt-ins-row qt-knowledge-note is-${row.band}` });
         const main = line.createDiv({ cls: "qt-ins-main" });
         const link = main.createEl("a", { cls: `qt-link is-${row.band}`, text: row.label });
-        link.addEventListener("click", () => this.openKnowledgeNote(row.path));
+        makeKeyboardClickable(link, () => this.openKnowledgeNote(row.path), { role: "link" });
         if (row.missing) line.addClass("is-missing");
         main.createDiv({
           cls: "qt-hint",
@@ -827,11 +828,15 @@ class InsightsView extends ItemView {
       const line = list.createDiv({ cls: `qt-ins-row qt-concept is-${row.band}` });
       const main = line.createDiv({ cls: "qt-ins-main" });
       const link = main.createEl("a", { text: row.label, cls: `qt-link qt-concept-link is-${row.band}` });
-      link.addEventListener("click", () => {
-        const file = this.app.vault.getAbstractFileByPath(row.path) || (this.app.metadataCache.getFirstLinkpathDest ? this.app.metadataCache.getFirstLinkpathDest(row.path, "") : null);
-        if (file) this.app.workspace.getLeaf("tab").openFile(file);
-        else root.createDiv({ cls: "qt-hint", text: `That source note is no longer in the vault: ${row.path}` });
-      });
+      makeKeyboardClickable(
+        link,
+        () => {
+          const file = this.app.vault.getAbstractFileByPath(row.path) || (this.app.metadataCache.getFirstLinkpathDest ? this.app.metadataCache.getFirstLinkpathDest(row.path, "") : null);
+          if (file) this.app.workspace.getLeaf("tab").openFile(file);
+          else root.createDiv({ cls: "qt-hint", text: `That source note is no longer in the vault: ${row.path}` });
+        },
+        { role: "link" }
+      );
       main.createDiv({
         cls: "qt-hint",
         text: row.attempts
@@ -922,7 +927,7 @@ class InsightsView extends ItemView {
       for (const q of shown) {
         const row = box.createDiv({ cls: "qt-ins-note" });
         const a = row.createEl("a", { text: officialIdOf(q.fm) || str(q.fm.question_id) || q.file.basename, cls: "qt-link" });
-        a.addEventListener("click", () => this.app.workspace.getLeaf("tab").openFile(q.file));
+        makeKeyboardClickable(a, () => this.app.workspace.getLeaf("tab").openFile(q.file), { role: "link" });
         const bits = [q.fm.skill, q.fm.difficulty, str(q.fm["date attempted"]).slice(0, 10)].filter(Boolean).join(" · ");
         if (bits) row.createSpan({ cls: "qt-hint", text: bits });
       }

@@ -16,6 +16,7 @@ class NameModal extends Modal {
     const { contentEl } = this;
     contentEl.createEl("h3", { text: this.title });
     const input = contentEl.createEl("input", { type: "text", cls: "qt-modal-input" });
+    input.setAttribute("aria-label", this.title || "Name");
     input.value = this.initial;
     const go = () => {
       const v = input.value.trim();

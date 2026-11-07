@@ -8,6 +8,20 @@ const { T, Plugin: QT } = load();
 const a = T.agentView;
 const note = T.agentNote;
 
+async function mountedAgentView(options) {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.ai.enabled = true;
+  plugin.settings.ai.backend = "api";
+  if (options && options.title) plugin.settings.ai.studyChatTitle = options.title;
+  const dom = makeDom();
+  const view = new a.AgentView({ app }, plugin);
+  view.contentEl = dom.root;
+  await view.onOpen();
+  return { dom, view };
+}
+
 test("study agent: local search ranks matching notes and cites path and line", async () => {
   const app = {
     vault: {
@@ -132,15 +146,7 @@ test("study agent: ask-about-note turns on note context and sends the note", asy
 });
 
 test("study agent: the mounted view renders assistant markdown", async () => {
-  const app = makeApp([]);
-  const plugin = new QT(app);
-  await plugin.onload();
-  plugin.settings.ai.enabled = true;
-  plugin.settings.ai.backend = "api";
-  const dom = makeDom();
-  const view = new a.AgentView({ app }, plugin);
-  view.contentEl = dom.root;
-  await view.onOpen();
+  const { dom, view } = await mountedAgentView();
 
   assert.equal(
     dom.all.some((element) => element.meta.tag === "h4"),
@@ -157,6 +163,25 @@ test("study agent: the mounted view renders assistant markdown", async () => {
   view.chatPanel.sig = "";
   assert.doesNotThrow(() => view.chatPanel.draw());
   assert.ok(dom.texts().includes("Insert into active note"));
+});
+
+test("study agent: the chat tab strip leads the pane and local search stays collapsed", async () => {
+  const { dom, view } = await mountedAgentView({ title: "ATP and cell energy" });
+
+  assert.equal(view.chatEl.children[0].classes.has("qt-chat-tabs"), true, "tabs are the first chat element");
+  assert.equal(view.chatEl.children[1].classes.has("qt-agent-vault-search"), true, "search is a compact disclosure");
+  assert.equal(view.searchDetails.__own.open, undefined, "search starts closed");
+  const searchLabel = dom.all.find((element) => element.classes && element.classes.has("qt-agent-search-label"));
+  const searchHint = dom.all.find((element) => element.classes && element.classes.has("qt-agent-search-hint"));
+  assert.equal(searchLabel.meta.text, "Search vault", "the search label is exact");
+  assert.equal(searchHint.meta.text, "Local only", "the search hint is exact");
+  assert.ok(dom.texts().includes("ATP and cell energy"));
+
+  const add = dom.all.find((element) => element.classes && element.classes.has("qt-chat-tab-new"));
+  assert.ok(add, "the new-tab control is rendered");
+  assert.equal(add.meta.text, "+", "the new-tab control is the compact Copilot plus");
+  assert.equal(add.meta.attr["aria-label"], "Open another conversation tab");
+  assert.equal(add.meta.attr.title, "New conversation tab");
 });
 
 test("study agent: insert action writes an assistant reply into the active note", async () => {

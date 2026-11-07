@@ -4,6 +4,7 @@ const { ItemView, Modal, Notice, Platform } = require("obsidian");
 const { VIEW_TYPE_LOCAL_EVENTS } = require("./constants");
 const { LOCAL_EVENT_CATEGORIES, addDaysKey, eventsInRange, eventsOnDate, monthCells, todayKey } = require("./local-events");
 const { str } = require("./util");
+const { makeKeyboardClickable } = require("./view-helpers");
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -38,7 +39,7 @@ class LocalEventModal extends Modal {
     const field = (label, type, value, placeholder) => {
       const row = form.createDiv({ cls: "qt-study-field" });
       row.createEl("label", { text: label });
-      const input = row.createEl("input", { cls: "qt-input" });
+      const input = row.createEl("input", { cls: "qt-input", attr: { "aria-label": label } });
       input.type = type || "text";
       input.value = value || "";
       if (placeholder) input.placeholder = placeholder;
@@ -51,17 +52,17 @@ class LocalEventModal extends Modal {
     const end = field("End time", "time", current.endTime);
     const categoryRow = form.createDiv({ cls: "qt-study-field" });
     categoryRow.createEl("label", { text: "Category" });
-    const category = categoryRow.createEl("select", { cls: "dropdown" });
+    const category = categoryRow.createEl("select", { cls: "dropdown", attr: { "aria-label": "Category" } });
     for (const item of LOCAL_EVENT_CATEGORIES) category.createEl("option", { value: item.id, text: item.label });
     category.value = current.category || this.plugin.settings.localEvents.defaultCategory || "study";
     const colorRow = form.createDiv({ cls: "qt-study-field" });
     colorRow.createEl("label", { text: "Colour" });
-    const color = colorRow.createEl("input", { cls: "qt-input" });
+    const color = colorRow.createEl("input", { cls: "qt-input", attr: { "aria-label": "Colour" } });
     color.type = "color";
     color.value = current.color || "#4f9d69";
     const repeatRow = form.createDiv({ cls: "qt-study-field" });
     repeatRow.createEl("label", { text: "Repeat" });
-    const repeat = repeatRow.createEl("select", { cls: "dropdown" });
+    const repeat = repeatRow.createEl("select", { cls: "dropdown", attr: { "aria-label": "Repeat" } });
     for (const [value, label] of [["none", "Does not repeat"], ["daily", "Daily"], ["weekly", "Weekly"], ["monthly", "Monthly"], ["yearly", "Yearly"]]) {
       repeat.createEl("option", { value, text: label });
     }
@@ -72,7 +73,7 @@ class LocalEventModal extends Modal {
     const until = field("Repeat until", "date", current.repeatUntil);
     const notesRow = form.createDiv({ cls: "qt-study-field qt-study-field-wide" });
     notesRow.createEl("label", { text: "Notes" });
-    const notes = notesRow.createEl("textarea", { cls: "qt-study-bulk" });
+    const notes = notesRow.createEl("textarea", { cls: "qt-study-bulk", attr: { "aria-label": "Notes" } });
     notes.rows = 3;
     notes.value = current.notes || "";
     const actions = el.createDiv({ cls: "qt-row qt-study-actions" });
@@ -215,15 +216,23 @@ class LocalEventsView extends ItemView {
       for (const event of dayEvents.slice(0, 3)) {
         const tab = day.createDiv({ cls: "qt-local-events-tab-item", text: event.title });
         if (tab.style) tab.style.backgroundColor = event.color;
-        tab.addEventListener("click", (ev) => {
-          if (ev && ev.stopPropagation) ev.stopPropagation();
-          this.openEdit(event.id);
-        });
+        makeKeyboardClickable(
+          tab,
+          (ev) => {
+            if (ev && ev.stopPropagation) ev.stopPropagation();
+            this.openEdit(event.id);
+          },
+          { label: event.title || "Event" }
+        );
       }
-      day.addEventListener("click", () => {
-        this.selected = cell.key;
-        this.render();
-      });
+      makeKeyboardClickable(
+        day,
+        () => {
+          this.selected = cell.key;
+          this.render();
+        },
+        { label: dayLabel(cell.key) }
+      );
     }
 
     const listCard = root.createDiv({ cls: "qt-study-card" });
@@ -283,7 +292,7 @@ class LocalEventsView extends ItemView {
       cell.createDiv({ cls: "qt-day-agenda-day-number", text: String(Number(key.slice(8))) });
       const total = counts.get(key) || 0;
       cell.createDiv({ cls: "qt-day-agenda-day-count", text: total ? String(total) : "·" });
-      cell.addEventListener("click", () => this.selectDay(key));
+      makeKeyboardClickable(cell, () => this.selectDay(key));
     }
 
     const listCard = agenda.createDiv({ cls: "qt-study-card qt-day-agenda-list" });

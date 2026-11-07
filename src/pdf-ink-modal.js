@@ -118,12 +118,14 @@ class TextBoxPromptModal extends Modal {
       this.linkStatusEl = el.createDiv({ cls: "qt-hint" });
     }
     this.textEl = el.createEl("textarea", { cls: "qt-pdf-ink-textarea" });
+    this.textEl.setAttribute("aria-label", "Annotation text");
     this.textEl.rows = 5;
     this.textEl.value = this.options.text || "";
     this.tagEl = null;
     if (Array.isArray(this.options.tags)) {
       el.createDiv({ cls: "qt-hint", text: "Tags (optional, comma separated, up to 6, no hash needed)." });
       this.tagEl = el.createEl("input", { cls: "qt-input", type: "text" });
+      this.tagEl.setAttribute("aria-label", "Annotation tags");
       this.tagEl.placeholder = "e.g. exam, weak-spot";
       this.tagEl.value = this.options.tags.map((tag) => `#${tag}`).join(" ");
     }
@@ -428,6 +430,7 @@ class PdfInkModal extends Modal {
     prev.addEventListener("click", () => this.stepPage(-1));
     const pageLabel = nav.createEl("label", { cls: "qt-pdf-ink-page-label", text: "Page" });
     this.pageInputEl = pageLabel.createEl("input", { type: "number", cls: "qt-pdf-ink-page-input" });
+    this.pageInputEl.setAttribute("aria-label", "Page number");
     this.pageInputEl.min = "1";
     this.pageInputEl.value = String(this.page);
     this.pageInputEl.addEventListener("change", () => this.goToPage(this.pageInputEl.value));

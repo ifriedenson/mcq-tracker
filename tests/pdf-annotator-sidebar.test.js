@@ -83,6 +83,8 @@ test("pdf sidebar: the renderer lists rows, filters and routes every action", as
     onDelete: (id) => calls.push(["delete", id]),
   };
   sidebars.renderSidebar(dom.root, { rows: sidebars.sidebarRows(ROWS, {}), total: 3, types: ["highlight", "quote", "underline"] }, handlers);
+  const searchBox = dom.all.find((entry) => entry.meta && entry.meta.tag === "input" && entry.meta.type === "search");
+  assert.equal(searchBox.meta.attrs["aria-label"], "Search annotations");
 
   for (const text of ["quote · page 2", "remember ATP", "#bio", "#key-idea", "underline · page 4", "3 of 3"]) {
     assert.ok(dom.texts().includes(text), `the sidebar shows ${text}`);
@@ -113,6 +115,36 @@ test("pdf sidebar: the renderer lists rows, filters and routes every action", as
   assert.ok(filtered.texts().includes("No annotation matches that filter."));
 });
 
+test("pdf sidebar: row labels jump from the keyboard and actions never select", async () => {
+  const dom = makeDom();
+  const calls = [];
+  sidebars.renderSidebar(dom.root, { rows: sidebars.sidebarRows(ROWS, {}), total: 3, types: [] }, {
+    onSelect: (id) => calls.push(["select", id]),
+    onEditNote: (id) => calls.push(["edit-note", id]),
+  });
+
+  const jump = dom.all.find((entry) => entry.meta && entry.classes && entry.classes.has("qt-pdf-sidebar-type"));
+  assert.ok(jump, "the row label is the keyboard jump target");
+  assert.equal(jump.meta.attr.role, "button");
+  assert.equal(jump.meta.attr.tabindex, "0");
+  assert.equal(jump.meta.attr["aria-label"], "Open quote · page 2 annotation");
+
+  let prevented = false;
+  for (const handler of jump.handlers.filter((entry) => entry.ev === "keydown")) {
+    handler.fn({ key: "Enter", preventDefault: () => (prevented = true) });
+  }
+  assert.deepEqual(calls.pop(), ["select", "ann-1"], "Enter opens the annotation");
+  assert.equal(prevented, true, "Enter does not also submit a surrounding form");
+
+  const edit = dom.all.find((entry) => entry.meta && entry.meta.text === "Edit note");
+  let stopped = false;
+  for (const handler of edit.handlers.filter((entry) => entry.ev === "click")) {
+    await handler.fn({ stopPropagation: () => (stopped = true) });
+  }
+  assert.deepEqual(calls.pop(), ["edit-note", "ann-1"]);
+  assert.equal(stopped, true, "an action does not also trigger the row jump");
+});
+
 test("pdf sidebar: inline note and tag editors show the saved values and report edits", async () => {
   const dom = makeDom();
   let savedNote = null;
@@ -121,6 +153,7 @@ test("pdf sidebar: inline note and tag editors show the saved values and report 
   sidebars.renderSidebar(dom.root, { rows, total: 3, types: ["quote"], editingNoteId: "ann-1" }, { onSaveNote: (id, text) => { savedNote = [id, text]; }, onCancelEdit: () => {} });
   const textarea = dom.all.find((entry) => entry.meta && entry.meta.tag === "textarea");
   assert.equal(textarea.value, "remember ATP", "the editor starts from the saved note");
+  assert.equal(textarea.meta.attrs["aria-label"], "Annotation note");
   textarea.value = "edited in the reader";
   await dom.click("Save note");
   assert.deepEqual(savedNote, ["ann-1", "edited in the reader"]);
@@ -129,6 +162,7 @@ test("pdf sidebar: inline note and tag editors show the saved values and report 
   sidebars.renderSidebar(tagDom.root, { rows, total: 3, types: ["quote"], editingTagsId: "ann-1" }, { onSaveTags: (id, text) => { savedTags = [id, text]; }, onCancelEdit: () => {} });
   const input = tagDom.all.find((entry) => entry.meta && entry.meta.tag === "input" && entry.meta.type === "text");
   assert.equal(input.value, "#bio #key-idea", "the tag editor starts from the saved tags");
+  assert.equal(input.meta.attrs["aria-label"], "Annotation tags");
   input.value = "#revised";
   await tagDom.click("Save tags");
   assert.deepEqual(savedTags, ["ann-1", "#revised"]);
@@ -334,7 +368,9 @@ test("pdf reader: the mark prompt sets tags at creation time", async () => {
   prompt.close = () => {};
   prompt.onOpen();
   assert.equal(prompt.tagEl.value, "#exam", "the prompt starts from the layer's tags");
+  assert.equal(prompt.tagEl.meta.attrs["aria-label"], "Annotation tags");
   const textarea = dom.all.find((entry) => entry.meta && entry.meta.tag === "textarea");
+  assert.equal(textarea.meta.attrs["aria-label"], "Annotation text");
   textarea.value = "created with tags";
   prompt.tagEl.value = "created, #at-create";
   prompt.commit();

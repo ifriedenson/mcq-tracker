@@ -15,6 +15,8 @@ async function setup() {
 
 test("study tool settings: every study tool has its own settings module in the sidebar", () => {
   const ids = STS.STUDY_TOOL_SETTINGS_MODULES.map((module) => module.id);
+  assert.deepEqual([...STS.STUDY_TOOL_SETTINGS_PAGE_IDS].sort(), [...ids].sort(), "every settings page is reachable from the module nav");
+  assert.ok(ids.includes("web-browser"), "web browser is exposed in the settings nav");
   assert.equal(new Set(ids).size, ids.length, "module ids are unique");
   assert.ok(ids.length >= 27, `expected at least 27 study tool pages, got ${ids.length}`);
   for (const id of ids) {

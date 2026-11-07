@@ -42,6 +42,7 @@ class TableCsvModal extends Modal {
     tabCheckbox.checked = this.useTabs;
     tabLabel.createSpan({ text: "Separate with tabs" });
     const area = el.createEl("textarea", { cls: "qt-table-csv-text" });
+    area.setAttribute("aria-label", "CSV output");
     area.readOnly = true;
     area.value = this.csv();
     const render = () => {

@@ -83,6 +83,29 @@ async function loadQuestionData(plugin, q, options) {
   return { file: q.file, fm: { ...q.fm }, sections, key, mode, variant, pairs };
 }
 
+/**
+ * Makes a non-button element operable like a button: focusable, announced as a
+ * control, and activated by Enter or Space as well as a pointer click.
+ */
+function makeKeyboardClickable(el, handler, options) {
+  const opts = options || {};
+  if (el.setAttr) {
+    el.setAttr("role", opts.role || "button");
+    el.setAttr("tabindex", "0");
+    if (opts.label) el.setAttr("aria-label", opts.label);
+  }
+  if (el.addEventListener) {
+    el.addEventListener("click", handler);
+    el.addEventListener("keydown", (event) => {
+      const key = event && (event.key || event.code);
+      if (key !== "Enter" && key !== " " && key !== "Spacebar" && key !== "Space") return;
+      if (event && typeof event.preventDefault === "function") event.preventDefault();
+      handler(event);
+    });
+  }
+  return el;
+}
+
 /** One matching row per pair, with the right column in `order`. */
 function renderMatchPicker(options) {
   const opts = options || {};
@@ -94,7 +117,7 @@ function renderMatchPicker(options) {
   pairs.forEach((pair, i) => {
     const row = list.createDiv({ cls: "qt-match-row" });
     opts.renderLeft(pair.left, row.createDiv({ cls: "qt-match-left" }));
-    const sel = row.createEl("select", { cls: "qt-select qt-match-select" });
+    const sel = row.createEl("select", { cls: "qt-select qt-match-select", attr: { "aria-label": `Match item ${i + 1}` } });
     sel.createEl("option", { value: "", text: "Choose..." });
     for (const idx of order) if (pairs[idx]) sel.createEl("option", { value: String(idx), text: str(pairs[idx].right) });
     sel.value = Number.isInteger(picks[i]) && picks[i] >= 0 ? String(picks[i]) : "";
@@ -111,5 +134,6 @@ module.exports = {
   normalizeExamReadyPasses,
   renderMarkdownInto,
   loadQuestionData,
+  makeKeyboardClickable,
   renderMatchPicker,
 };

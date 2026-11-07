@@ -310,9 +310,12 @@ test("the CSV dialog copies with or without the header row", async () => {
 
   const table = editor.parseTables(NOTE)[0];
   const modal = new TableCsvModal(plugin.app, table);
-  modal.contentEl = makeDom().root;
+  const dom = makeDom();
+  modal.contentEl = dom.root;
   modal.onOpen();
   assert.equal(modal.csv(), "Term,Meaning\nATP,Energy\nADP,Phosphate\n");
+  const area = dom.all.find((entry) => entry.meta && entry.meta.tag === "textarea");
+  assert.equal(area.meta.attrs["aria-label"], "CSV output", "the CSV preview has an accessible name");
   modal.includeHeader = false;
   assert.equal(modal.csv(), "ATP,Energy\nADP,Phosphate\n");
   await modal.copy();

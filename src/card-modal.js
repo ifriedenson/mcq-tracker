@@ -32,6 +32,7 @@ class CardModal extends Modal {
     const kindWrap = contentEl.createDiv({ cls: "qt-field" });
     kindWrap.createEl("label", { text: "Type" });
     const kind = kindWrap.createEl("select", { cls: "dropdown" });
+    kind.setAttribute("aria-label", "Type");
     kind.createEl("option", { text: "Flashcard", value: "card" });
     kind.createEl("option", { text: "Vocabulary", value: "vocab" });
     kind.value = this.kind;
@@ -39,6 +40,7 @@ class CardModal extends Modal {
     const typeWrap = contentEl.createDiv({ cls: "qt-field" });
     typeWrap.createEl("label", { text: "Card style" });
     const typeSel = typeWrap.createEl("select", { cls: "dropdown" });
+    typeSel.setAttribute("aria-label", "Card style");
     cardTypeOptions(typeSel);
     typeSel.value = "basic";
     this.cardType = "basic";
@@ -50,6 +52,7 @@ class CardModal extends Modal {
     const deckWrap = contentEl.createDiv({ cls: "qt-field" });
     deckWrap.createEl("label", { text: "Deck" });
     const deck = deckWrap.createEl("select", { cls: "dropdown" });
+    deck.setAttribute("aria-label", "Deck");
     const decks = p.cardDecks().map((d) => d.name);
     // Keep the preferred/default deck selectable even before it has a note or
     // a saved deck entry.
@@ -84,6 +87,7 @@ class CardModal extends Modal {
     const schedulerWrap = contentEl.createDiv({ cls: "qt-field" });
     schedulerWrap.createEl("label", { text: "Scheduler (optional)" });
     const scheduler = schedulerWrap.createEl("select", { cls: "dropdown" });
+    scheduler.setAttribute("aria-label", "Scheduler");
     scheduler.createEl("option", { text: "Use deck or global scheduler", value: "" });
     scheduler.createEl("option", { text: "Simple ladder (Leitner)", value: "ladder" });
     scheduler.createEl("option", { text: "SM-2", value: "sm2" });
@@ -133,6 +137,7 @@ class CardModal extends Modal {
     const exampleWrap = contentEl.createDiv({ cls: "qt-field qt-hidden" });
     exampleWrap.createEl("label", { text: "Example sentence (optional)" });
     const example = exampleWrap.createEl("textarea", { attr: { rows: "2" } });
+    example.setAttribute("aria-label", "Example sentence");
 
     const metaWrap = contentDiv(contentEl, "qt-field qt-hidden");
     metaWrap.createEl("label", { text: "Part of speech and language (optional)" });

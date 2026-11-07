@@ -3343,7 +3343,7 @@ class ReferenceView extends ItemView {
     const makeSelect = (label, value, onChange) => {
       const field = controls.createEl("label", { cls: "qt-ref-punnett-field" });
       field.createSpan({ text: label });
-      const select = field.createEl("select", { cls: "qt-ref-unit" });
+      const select = field.createEl("select", { cls: "qt-ref-unit", attr: { "aria-label": label } });
       for (const genotype of PUNNETT_GENOTYPES) select.createEl("option", { text: genotype, value: genotype });
       select.value = value;
       select.addEventListener("change", () => onChange(select.value));
@@ -3388,7 +3388,7 @@ class ReferenceView extends ItemView {
 
     const controls = root.createDiv({ cls: "qt-row qt-ap-controls" });
     controls.createEl("label", { cls: "qt-ap-label", text: "Course" });
-    const select = controls.createEl("select", { cls: "dropdown" });
+    const select = controls.createEl("select", { cls: "dropdown", attr: { "aria-label": "AP course" } });
     for (const course of AP_RESOURCE_COURSES) select.createEl("option", { text: course.name, value: course.id });
     select.value = pack.course.id;
     select.addEventListener("change", () => {
@@ -3446,7 +3446,7 @@ class ReferenceView extends ItemView {
 
     const controls = root.createDiv({ cls: "qt-row qt-ap-controls" });
     controls.createEl("label", { cls: "qt-ap-label", text: "Exam" });
-    const select = controls.createEl("select", { cls: "dropdown" });
+    const select = controls.createEl("select", { cls: "dropdown", attr: { "aria-label": "Exam" } });
     for (const item of AP_PROFILES) select.createEl("option", { text: item.name, value: item.id });
     select.value = profile.id;
     select.addEventListener("change", () => {
@@ -3496,7 +3496,7 @@ class ReferenceView extends ItemView {
 
     const reverse = root.createDiv({ cls: "qt-row qt-ap-controls" });
     reverse.createEl("label", { cls: "qt-ap-label", text: "What do I need for a" });
-    const target = reverse.createEl("select", { cls: "dropdown" });
+    const target = reverse.createEl("select", { cls: "dropdown", attr: { "aria-label": "Target AP score" } });
     for (const score of [5, 4, 3, 2]) target.createEl("option", { text: String(score), value: String(score) });
     target.value = this.apTarget;
     target.addEventListener("change", () => {

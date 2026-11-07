@@ -113,6 +113,12 @@ test("FRQ import: preview writes nothing until confirm, then creates gradable no
   assert.ok(dom.texts().includes("Question 2"));
   assert.ok(dom.texts().includes("Create 2 notes"));
   assert.equal(app.created, undefined, "drawing the preview must not create a note");
+  const fields = dom.all.filter((entry) => entry.meta && ["input", "select", "textarea"].includes(entry.meta.tag));
+  assert.ok(fields.length > 0, "the preview renders form controls");
+  for (const field of fields) {
+    if (field.meta.type === "checkbox") continue;
+    assert.ok(field.meta.attrs && field.meta.attrs["aria-label"], `${field.meta.tag} carries an accessible name`);
+  }
 
   modal.courseId = "ap-chemistry";
   modal.kind = T.frq.presetsForCourse("ap-chemistry")[0].id;

@@ -7,6 +7,7 @@
 const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_STUDY_WORKSPACE } = require("./constants");
 const { localDate, str } = require("./util");
+const { makeKeyboardClickable } = require("./view-helpers");
 const timeBlocks = require("./time-blocks");
 const citations = require("./citations");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
@@ -355,7 +356,7 @@ class StudyWorkspaceView extends ItemView {
   renderSelect(form, label, options, value) {
     const field = form.createDiv({ cls: "qt-study-field" });
     field.createEl("label", { text: label });
-    const select = field.createEl("select", { cls: "dropdown" });
+    const select = field.createEl("select", { cls: "dropdown", attr: { "aria-label": label } });
     for (const option of options) {
       const el = select.createEl("option", { text: option.label, value: option.value });
       if (option.value === value) el.selected = true;
@@ -488,7 +489,7 @@ class StudyWorkspaceView extends ItemView {
       for (const dimension of ["clarity", "accuracy", "simplicity"]) {
         const label = scoreRow.createDiv({ cls: "qt-study-field" });
         label.createEl("label", { text: SCORE_LABELS[dimension] });
-        const select = label.createEl("select", { cls: "dropdown qt-feynman-score" });
+        const select = label.createEl("select", { cls: "dropdown qt-feynman-score", attr: { "aria-label": SCORE_LABELS[dimension] } });
         select.dataset.score = dimension;
         this.feynmanScoreSelects[dimension] = select;
         for (let value = 1; value <= 5; value++) {
@@ -2430,11 +2431,15 @@ class StudyWorkspaceView extends ItemView {
         row.addEventListener("dragstart", (event) => {
           if (event.dataTransfer) event.dataTransfer.setData("text/plain", JSON.stringify({ blockId: block.id }));
         });
-        row.addEventListener("click", () => {
-          this.timeBlockDate = day.date;
-          this.timeBlockView = "day";
-          this.render();
-        });
+        makeKeyboardClickable(
+          row,
+          () => {
+            this.timeBlockDate = day.date;
+            this.timeBlockView = "day";
+            this.render();
+          },
+          { label: `${block.title} on ${day.date}` }
+        );
       }
       column.createEl("button", { text: "Open day", cls: "qt-link" }).addEventListener("click", () => {
         this.timeBlockDate = day.date;
@@ -3406,19 +3411,23 @@ class StudyWorkspaceView extends ItemView {
     plan.sentences.forEach((sentence, index) => {
       const line = list.createDiv({ cls: "qt-read-aloud-sentence", text: sentence });
       if (index === this.readAloudIndex) line.addClass("is-speaking");
-      line.addEventListener("click", () => {
-        if (!this.readAloudPlan) return;
-        const synth = this.speech();
-        if (synth) {
-          try {
-            synth.cancel();
-          } catch (e) {
-            /* nothing to cancel */
+      makeKeyboardClickable(
+        line,
+        () => {
+          if (!this.readAloudPlan) return;
+          const synth = this.speech();
+          if (synth) {
+            try {
+              synth.cancel();
+            } catch (e) {
+              /* nothing to cancel */
+            }
           }
-        }
-        this.readAloudPlaying = true;
-        this.speakSentence(index);
-      });
+          this.readAloudPlaying = true;
+          this.speakSentence(index);
+        },
+        { label: `Read sentence ${index + 1} aloud` }
+      );
     });
   }
 

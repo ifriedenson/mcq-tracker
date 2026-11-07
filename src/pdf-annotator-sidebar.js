@@ -100,6 +100,7 @@ function renderSidebar(container, model, handlers) {
 
   const filters = wrap.createDiv({ cls: "qt-pdf-sidebar-filters" });
   const search = filters.createEl("input", { cls: "qt-input", type: "search" });
+  search.setAttribute("aria-label", "Search annotations");
   search.placeholder = "Search notes, quotes and tags";
   search.value = str(data.query);
   search.addEventListener("input", () => h.onQuery && h.onQuery(search.value));
@@ -126,9 +127,22 @@ function renderSidebar(container, model, handlers) {
       cls: `qt-pdf-sidebar-row${row.selected ? " is-selected" : ""}`,
       attr: { "data-annotation-id": row.id, "data-page": String(row.page) },
     });
-    const jump = () => h.onSelect && h.onSelect(row.id);
+    const jump = (event) => {
+      if (event && event.stopPropagation) event.stopPropagation();
+      if (h.onSelect) h.onSelect(row.id);
+    };
     const top = item.createDiv({ cls: "qt-pdf-sidebar-row-top" });
-    top.createSpan({ cls: "qt-pdf-sidebar-type", text: row.label }).addEventListener("click", jump);
+    const jumpTarget = top.createSpan({
+      cls: "qt-pdf-sidebar-type",
+      text: row.label,
+      attr: { role: "button", tabindex: "0", "aria-label": `Open ${row.label} annotation` },
+    });
+    jumpTarget.addEventListener("click", jump);
+    jumpTarget.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      if (event.preventDefault) event.preventDefault();
+      jump(event);
+    });
     top.createSpan({ cls: "qt-pdf-sidebar-color", text: row.color }).addEventListener("click", jump);
     top.addEventListener("click", jump);
     item.addEventListener("click", jump);
@@ -139,40 +153,50 @@ function renderSidebar(container, model, handlers) {
       for (const tag of row.tags) tags.createSpan({ cls: "qt-pdf-tag", text: `#${tag}` });
     }
     const actions = item.createDiv({ cls: "qt-pdf-sidebar-actions" });
-    actions.createEl("button", { text: "Edit note" }).addEventListener("click", () => h.onEditNote && h.onEditNote(row.id));
-    actions.createEl("button", { text: "Edit tags" }).addEventListener("click", () => h.onEditTags && h.onEditTags(row.id));
-    if (row.canAsk) {
-      actions
-        .createEl("button", { text: "Ask AI", cls: "qt-pdf-sidebar-ask" })
-        .addEventListener("click", (event) => {
-          if (event && event.stopPropagation) event.stopPropagation();
-          h.onAsk && h.onAsk(row.id);
-        });
-    }
-    actions
-      .createEl("button", { text: "Delete", cls: "qt-danger" })
-      .addEventListener("click", () => h.onDelete && h.onDelete(row.id));
+    const action = (label, cls, handler) =>
+      actions.createEl("button", { text: label, cls }).addEventListener("click", (event) => {
+        if (event && event.stopPropagation) event.stopPropagation();
+        if (handler) handler(row.id);
+      });
+    action("Edit note", "", h.onEditNote);
+    action("Edit tags", "", h.onEditTags);
+    if (row.canAsk) action("Ask AI", "qt-pdf-sidebar-ask", h.onAsk);
+    action("Delete", "qt-danger", h.onDelete);
 
     if (data.editingNoteId === row.id) {
       const editor = item.createDiv({ cls: "qt-pdf-sidebar-editor" });
       const area = editor.createEl("textarea", { cls: "qt-pdf-ink-textarea" });
+      area.setAttribute("aria-label", "Annotation note");
       area.value = row.note;
       const buttons = editor.createDiv({ cls: "qt-row qt-pdf-sidebar-actions" });
       buttons
         .createEl("button", { text: "Save note", cls: "mod-cta" })
-        .addEventListener("click", () => h.onSaveNote && h.onSaveNote(row.id, area.value));
-      buttons.createEl("button", { text: "Cancel" }).addEventListener("click", () => h.onCancelEdit && h.onCancelEdit());
+        .addEventListener("click", (event) => {
+          if (event && event.stopPropagation) event.stopPropagation();
+          if (h.onSaveNote) h.onSaveNote(row.id, area.value);
+        });
+      buttons.createEl("button", { text: "Cancel" }).addEventListener("click", (event) => {
+        if (event && event.stopPropagation) event.stopPropagation();
+        if (h.onCancelEdit) h.onCancelEdit();
+      });
     }
     if (data.editingTagsId === row.id) {
       const editor = item.createDiv({ cls: "qt-pdf-sidebar-editor" });
       const input = editor.createEl("input", { cls: "qt-input", type: "text" });
+      input.setAttribute("aria-label", "Annotation tags");
       input.value = row.tags.map((tag) => `#${tag}`).join(" ");
       editor.createDiv({ cls: "qt-hint", text: "Up to 6 tags, comma separated, no hash needed." });
       const buttons = editor.createDiv({ cls: "qt-row qt-pdf-sidebar-actions" });
       buttons
         .createEl("button", { text: "Save tags", cls: "mod-cta" })
-        .addEventListener("click", () => h.onSaveTags && h.onSaveTags(row.id, input.value));
-      buttons.createEl("button", { text: "Cancel" }).addEventListener("click", () => h.onCancelEdit && h.onCancelEdit());
+        .addEventListener("click", (event) => {
+          if (event && event.stopPropagation) event.stopPropagation();
+          if (h.onSaveTags) h.onSaveTags(row.id, input.value);
+        });
+      buttons.createEl("button", { text: "Cancel" }).addEventListener("click", (event) => {
+        if (event && event.stopPropagation) event.stopPropagation();
+        if (h.onCancelEdit) h.onCancelEdit();
+      });
     }
   }
   return wrap;

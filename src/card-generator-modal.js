@@ -56,6 +56,7 @@ class CardGeneratorModal extends Modal {
     const source = el.createDiv({ cls: "qt-field" });
     source.createEl("label", { text: "Source" });
     const sourceSelect = source.createEl("select", { cls: "qt-select" });
+    sourceSelect.setAttribute("aria-label", "Source");
     for (const item of CARD_GENERATOR_SOURCES) {
       if (item.id === "selection" && !this.context.selection) continue;
       sourceSelect.createEl("option", { value: item.id, text: item.label });
@@ -70,6 +71,7 @@ class CardGeneratorModal extends Modal {
     const countWrap = row.createDiv({ cls: "qt-field qt-grow" });
     countWrap.createEl("label", { text: "How many cards?" });
     const count = countWrap.createEl("select", { cls: "qt-select" });
+    count.setAttribute("aria-label", "How many cards?");
     for (const n of [3, 5, 8, 10, 12, 15, 20]) count.createEl("option", { value: String(n), text: `${n} cards` });
     count.value = String(this.config.count);
     count.addEventListener("change", () => (this.config.count = Number(count.value)));
@@ -77,6 +79,7 @@ class CardGeneratorModal extends Modal {
     const outputWrap = row.createDiv({ cls: "qt-field qt-grow" });
     outputWrap.createEl("label", { text: "Output" });
     const output = outputWrap.createEl("select", { cls: "qt-select" });
+    output.setAttribute("aria-label", "Output");
     for (const item of CARD_GENERATOR_OUTPUTS) output.createEl("option", { value: item.id, text: item.label });
     output.value = this.config.output;
     output.disabled = !!this.lockedOutput;
@@ -96,6 +99,7 @@ class CardGeneratorModal extends Modal {
       const styleWrap = el.createDiv({ cls: "qt-field" });
       styleWrap.createEl("label", { text: "Card layout" });
       const style = styleWrap.createEl("select", { cls: "qt-select" });
+      style.setAttribute("aria-label", "Card layout");
       for (const item of CARD_GENERATOR_STYLES) style.createEl("option", { value: item.id, text: item.label });
       style.value = this.config.style;
       style.addEventListener("change", () => {
@@ -112,6 +116,7 @@ class CardGeneratorModal extends Modal {
 
       const hideWrap = el.createDiv({ cls: "qt-check" });
       const hide = hideWrap.createEl("input", { type: "checkbox" });
+      hide.setAttribute("aria-label", "Hide the inserted block in reading view");
       hide.checked = this.config.hideInPreview;
       hide.addEventListener("change", () => (this.config.hideInPreview = hide.checked));
       hideWrap.createSpan({ text: " Hide the inserted block in reading view (wraps it in %%)" });

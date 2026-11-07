@@ -94,6 +94,12 @@ class ChatPanel {
     this.view = view;
     this.root = root;
     this.opts = opts;
+    // Escape must leave full-screen mode wherever focus sits in the pane, not
+    // only while the draft textarea owns it. The input handler stops a busy
+    // reply first; this handler skips events it already prevented.
+    if (root && typeof root.addEventListener === "function") {
+      root.addEventListener("keydown", (event) => this.handleRootKeydown(event));
+    }
     this.busy = false;
     this.apiCancelToken = 0;
     this.turns = [];
@@ -339,12 +345,17 @@ class ChatPanel {
       cls: "qt-chat-input qt-agent-input",
       attr: {
         rows: "2",
-        placeholder: "Ask about your notes, @ to add context, / for commands",
+        placeholder: "Type a question · @ mentions · / commands",
         title: "Enter to send · Shift+Enter for a new line",
       },
     });
     this.input.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
+        if (this.mentionPicker && !this.mentionPicker.hasClass("qt-hidden")) {
+          e.preventDefault();
+          this.closeMentionPicker();
+          return;
+        }
         if (this.busy) {
           e.preventDefault();
           this.stop();
@@ -373,7 +384,7 @@ class ChatPanel {
     this.atBtn = tools.createEl("button", {
       cls: "qt-agent-tool qt-agent-iconbtn",
       text: "Add context",
-      attr: { "aria-label": "Add context", title: "Attach a note or folder", "data-glyph": "@" },
+      attr: { "aria-label": "Add context", title: "Attach a note or folder", "data-glyph": "+" },
     });
     this.atBtn.addEventListener("click", () => {
       const prefix = this.input.value && !/\s$/.test(this.input.value) ? " " : "";
@@ -2507,6 +2518,14 @@ class ChatPanel {
     this.syncMentionChips();
     this.refreshTokenFooter();
     return true;
+  }
+
+  /** Escape returns from full screen when focus is on any control in the pane. */
+  handleRootKeydown(event) {
+    if (!event || event.key !== "Escape" || event.defaultPrevented || !this.fullscreen) return;
+    if (this.busy) return;
+    if (typeof event.preventDefault === "function") event.preventDefault();
+    this.toggleFullscreen(false);
   }
 
   /** Phone-width full-screen mode is a visual class; the callback clears its Escape state. */

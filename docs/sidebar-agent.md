@@ -27,9 +27,11 @@ view does not stop the configured AI provider.
 - **Ask against the vault.** Before each chat request the agent runs a local,
   read-only search over Markdown notes. Matching excerpts are added to the
   system context as path-and-line citations, and the transcript is instructed
-  to cite vault material as `[[path]]` or `[[path#L12]]`.
+  to cite vault material as `[[path]]` or `[[path#L12]]`. The manual search form
+  and its opt-in index checkbox live behind the **Search vault** disclosure, so
+  the conversation tab strip and transcript stay first.
 - **Opt in to a full-vault index.** Paths-only file context stays off until the
-  checkbox is selected.
+  checkbox inside **Search vault** is selected.
 - **Insert a reply.** Every completed assistant reply has **Insert into active
   note**. It writes only after the button is pressed, inserting at the editor
   cursor (or replacing the selection). If the note is open without an editor,

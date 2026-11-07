@@ -47,6 +47,7 @@ class WeakSpotModal extends Modal {
     const skillWrap = el.createDiv({ cls: "qt-field" });
     skillWrap.createEl("label", { text: "Weak spot" });
     const skill = skillWrap.createEl("select", { cls: "qt-select" });
+    skill.setAttribute("aria-label", "Weak spot");
     for (const row of this.rows) {
       const pct = Math.round((row.accuracy || 0) * 100);
       skill.createEl("option", { value: row.value, text: `${row.value} (${pct}%, ${row.attempts} attempts)` });
@@ -57,6 +58,7 @@ class WeakSpotModal extends Modal {
     const kindWrap = el.createDiv({ cls: "qt-field" });
     kindWrap.createEl("label", { text: "What should it make?" });
     const kind = kindWrap.createEl("select", { cls: "qt-select" });
+    kind.setAttribute("aria-label", "What should it make?");
     kind.createEl("option", { value: "questions", text: "Multiple-choice questions" });
     kind.createEl("option", { value: "cards", text: "Flashcards" });
     kind.value = this.kind;
@@ -69,6 +71,7 @@ class WeakSpotModal extends Modal {
     const countWrap = el.createDiv({ cls: "qt-field" });
     countWrap.createEl("label", { text: "How many?" });
     const count = countWrap.createEl("select", { cls: "qt-select" });
+    count.setAttribute("aria-label", "How many items?");
     for (const n of [5, 8, 10, 12, 15, 20]) count.createEl("option", { value: String(n), text: `${n} items` });
     count.value = String(this.count);
     count.addEventListener("change", () => (this.count = Number(count.value)));

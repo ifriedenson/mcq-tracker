@@ -752,6 +752,7 @@ test("view: free time opens a study-slot chooser with durations and a buffer", a
   plugin.activateView = async () => ({ startQuick: async (...args) => (captured = args) });
   modal.close = () => {};
   const select = dom.all.find((o) => o.meta && o.meta.tag === "select");
+  assert.equal(select.meta.attrs["aria-label"], "Questions for this session", "the question filter has an accessible name");
   select.value = "course";
   for (const handler of select.handlers.filter((h) => h.ev === "change")) await handler.fn({});
   const start = dom.find("Start 5 minutes")[0];
@@ -937,6 +938,11 @@ test("stylesheet: ported calendar selectors stay scoped to the calendar or its m
     }
   }
   assert.deepEqual(unscoped, [], `global calendar selectors: ${unscoped.join(" | ")}`);
+  assert.equal(css.includes("#10b981"), false, "the calendar note badge must use theme colours");
+  assert.equal(css.includes("rgba(124, 58, 237"), false, "the keyword action shadow must use the theme accent");
+  assert.match(css, /\.uni-note-status-badge\.has-note \{[^}]*color: var\(--text-success, var\(--color-green\)\)/s);
+  assert.match(css, /\.uni-keyword-btn\.mod-cta:hover \{[^}]*color-mix\(in srgb, var\(--interactive-accent\) 35%/s);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.uni-event-countdown,[\s\S]*?animation: none/s);
 });
 
 test("courses: registry fields normalize, then drive folders, colors and note variables", () => {

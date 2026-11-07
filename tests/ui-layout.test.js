@@ -107,6 +107,30 @@ test("study agent keeps the empty state bounded and the persona visible at sideb
   assert.ok(narrow.includes(".qt-agent-role"), "the 420 px controls block still names the persona");
   assert.doesNotMatch(narrow, /\.qt-agent-role\s*\{\s*display:\s*none/s);
   assert.match(narrow, /\.qt-agent-role\s*\{[^}]*max-width/s);
+
+  const close = (css.match(/\.qt-chat-tab-close \{[^}]*\}/s) || [])[0] || "";
+  assert.match(close, /opacity:\s*0/);
+  assert.match(close, /pointer-events:\s*none/, "a hidden close control must not take the click");
+  assert.match(css, /\.qt-chat-tab:hover \.qt-chat-tab-close,[\s\S]*?\.qt-chat-tab-close:focus-visible \{[^}]*opacity: 1;\s*pointer-events: auto;/s);
+});
+
+test("plugin UI keeps keyboard and touch affordances", () => {
+  assert.match(css, /\.qt-pdf-sidebar-type\[role="button"\]\s*\{[^}]*cursor:\s*pointer/s);
+  assert.match(
+    css,
+    /\.qt-pdf-sidebar-type\[role="button"\]:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--interactive-accent\)/s
+  );
+  assert.match(
+    css,
+    /@media \(hover: none\) \{[\s\S]*?\.qt-chat-tab-close \{[^}]*opacity: 1;[^}]*pointer-events: auto;/s
+  );
+  assert.match(css, /\.qt-agent-suggestion-dot::after \{[^}]*inset: -6px/s);
+  assert.match(css, /\.qt-agent-composer:focus-within \{[^}]*border-color: var\(--interactive-accent\)/s);
+  assert.match(css, /\.qt-hidden\.qt-hidden \{[^}]*display: none/s);
+  assert.match(
+    css,
+    /\.qt-agent-suggestion-dot:focus-visible \{[^}]*outline: 2px solid var\(--interactive-accent\)/s
+  );
 });
 
 test("long navigation is a compact picker instead of a clipped rail", () => {
@@ -116,4 +140,41 @@ test("long navigation is a compact picker instead of a clipped rail", () => {
   assert.match(css, /\.qt-settings-module-picker \{\s*display: block/s);
   assert.match(css, /\.qt-ref-tabs\.qt-small-row \{\s*display: none/s);
   assert.match(css, /\.qt-ref-picker \{\s*display: block/s);
+});
+
+test("audited surfaces wrap or scroll at a narrow width", () => {
+  assert.match(css, /\.qt-pdf-editor-toolbar \{[^}]*flex-wrap:\s*wrap/s);
+  assert.match(css, /\.qt-pdf-editor-row \{[^}]*flex-wrap:\s*wrap/s);
+  assert.match(css, /\.qt-pdf-editor-file \{[^}]*word-break:\s*break-all/s);
+  assert.match(css, /\.qt-pdf-sidebar-note \{[^}]*white-space:\s*pre-wrap/s);
+  assert.match(css, /\.qt-settings-tabs \{\s*flex-wrap:\s*nowrap;\s*overflow-x:\s*auto/s);
+  assert.match(css, /\.uni-study-slot \.dropdown \{\s*width:\s*100%/s);
+});
+
+test("the swept views keep wide content scrollable or stacked at 360px", () => {
+  assert.match(css, /\.qt-screen \.qt-tabbar \{[^}]*flex-wrap:\s*nowrap;[^}]*overflow-x:\s*auto/s);
+  assert.match(css, /\.qt-cards-row-title \{[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis;[^}]*white-space:\s*nowrap/s);
+  assert.match(css, /\.qt-ref-periodic-wrap \{[^}]*overflow-x:\s*auto/s);
+  assert.match(css, /\.qt-time-blocks-grid \{\s*overflow-x:\s*auto/s);
+  assert.match(css, /@media \(max-width: 700px\) \{[\s\S]*?\.qt-cards-hero \{[^}]*flex-direction:\s*column/s);
+  assert.match(css, /@(media|container)[^{]*700px[\s\S]*?\.qt-assignment-overview \{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/s);
+});
+
+test("the PDF reader stacks its fixed sidebar before the pane can overflow", () => {
+  assert.match(css, /@media \(max-width: 700px\) \{\s*\.qt-pdf-ink-layout \{\s*flex-direction: column;/s);
+  assert.match(
+    css,
+    /\.qt-pdf-ink-sidebar-host \{[^}]*flex: 0 1 auto;[^}]*width: 100%;[^}]*padding-left: 0;/s
+  );
+  assert.match(css, /\.qt-pdf-sidebar-note \{[^}]*overflow-wrap: anywhere/s);
+  assert.match(css, /\.qt-pdf-tag \{[^}]*min-width: 0;[^}]*max-width: 100%;[^}]*overflow-wrap: anywhere/s);
+});
+
+test("the 360px study-stats floor is reset before the pane is that narrow", () => {
+  assert.match(css, /\.qt-screen \.qt-study-stats-row \{[^}]*min-width: 360px/s, "wide table floor");
+  assert.match(
+    css,
+    /@container qt-screen \(max-width: 460px\) \{[\s\S]*?\.qt-screen \.qt-study-stats-row \{[^}]*min-width: 0;/s,
+    "the 460px container query must reset the floor before 360px"
+  );
 });

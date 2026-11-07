@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 424 groups, 2939 exports. **Commands:** 221. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 425 groups, 2941 exports. **Commands:** 221. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -67,7 +67,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `REFERENCE_TABS` | 2 | `tests/modules.test.js` |
 | `ReferenceView` | 0 | `tests/ap-exam-history.test.js`, `tests/ap-resource-notes.test.js`, `tests/ap-score.test.js`, `tests/calculator.test.js`, `tests/complex.test.js`, `tests/geometry.test.js`, `tests/graph-3d.test.js`, `tests/graph-complex.test.js`, `tests/matrix.test.js`, `tests/mobile-reference-stats.test.js`, `tests/reference-advanced.test.js`, `tests/reference-sheets.test.js`, `tests/reference-tools.test.js`, `tests/reference.test.js` |
 | `ReviewCalendarView` | 0 | `tests/mobile-calendar-agenda.test.js` |
-| `SETTINGS_MODULES` | 46 | `tests/calendar.test.js`, `tests/modules.test.js`, `tests/review-calendar.test.js`, `tests/study-tool-settings.test.js` |
+| `SETTINGS_MODULES` | 47 | `tests/calendar.test.js`, `tests/modules.test.js`, `tests/review-calendar.test.js`, `tests/study-tool-settings.test.js` |
 | `SimpleNoteQuizModal` | 0 | `tests/simple-note-quiz.test.js` |
 | `SpacedEverythingCaptureModal` | 0 | `tests/feature-surfaces.test.js` |
 | `StudyMatchModal` | 0 | `tests/study-modes.test.js` |
@@ -268,6 +268,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `loadQuestionData` | 0 | `tests/parameterized.test.js`, `tests/study-modes.test.js`, `tests/study-skin.test.js` |
 | `localEvents` | 18 | `tests/local-events.test.js` |
 | `localModels` | 5 | `tests/local-models.test.js` |
+| `makeKeyboardClickable` | 0 | `tests/ui-view-accessibility.test.js` |
 | `masteryBandOf` | 0 | `tests/progress.test.js` |
 | `masteryPicker` | 15 | `tests/mastery-picker.test.js` |
 | `masteryScopes` | 0 | `tests/progress.test.js` |
@@ -396,7 +397,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `studySkin` | 18 | `tests/study-modes.test.js`, `tests/study-skin.test.js` |
 | `studyStats` | 18 | `tests/study-stats.test.js` |
 | `studyStatus` | 18 | `tests/study-status.test.js` |
-| `studyToolSettings` | 3 | `tests/calendar.test.js`, `tests/modules.test.js`, `tests/reading-library.test.js`, `tests/settings-consolidation.test.js`, `tests/study-tool-settings.test.js`, `tests/table-editor.test.js` |
+| `studyToolSettings` | 4 | `tests/calendar.test.js`, `tests/modules.test.js`, `tests/reading-library.test.js`, `tests/settings-consolidation.test.js`, `tests/study-tool-settings.test.js`, `tests/table-editor.test.js` |
 | `studyTools` | 19 | `tests/core-values.test.js`, `tests/study-modules-2.test.js`, `tests/study-tools.test.js` |
 | `studyWorkspace` | 79 | `tests/core-values.test.js`, `tests/quiz-attempts.test.js`, `tests/settings-consolidation.test.js`, `tests/study-workspace-health.test.js`, `tests/study-workspace.test.js`, `tests/subject-projects.test.js`, `tests/vocab-stats.test.js` |
 | `suggestMinutes` | 0 | `tests/stats.test.js` |
@@ -475,7 +476,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `pdf-open-link` | PDF: open a copied deep link | `openPdfDeepLink` | `tests/pdf-deep-link.test.js` |
 | `epub-read` | EPUB: open the reader | `openActiveEpubReader` | `tests/epub.test.js` |
 | `epub-annotations` | EPUB: open this book's annotations | `openEpubAnnotations` | `tests/epub.test.js` |
-| `pdf-edit` | PDF: open the editor (pages and forms) | `openActivePdfEditor` | `tests/pdf-editor-history.test.js`, `tests/pdf-editor-record.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-editor.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/security-inventory.test.js` |
+| `pdf-edit` | PDF: open the editor (pages and forms) | `openActivePdfEditor` | `tests/pdf-editor-history.test.js`, `tests/pdf-editor-record.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-editor.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/security-inventory.test.js`, `tests/ui-layout.test.js` |
 | `pdf-export-notes` | PDF: export annotations to Markdown | `exportActivePdfAnnotations` | `tests/pdf-annotator.test.js` |
 | `pdf-open-annotations` | PDF: open annotations | `openPdfAnnotations` | `tests/command-effects.test.js` |
 | `practice-folder` | Practice a folder... | `practiceFolder` | `tests/plugin.test.js` |

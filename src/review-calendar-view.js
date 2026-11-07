@@ -4,6 +4,7 @@ const { ItemView, Notice, Platform } = require("obsidian");
 const { VIEW_TYPE_REVIEW_CALENDAR } = require("./constants");
 const { addDays, calendarCells, workloadLabel } = require("./review-calendar");
 const { localDate, str } = require("./util");
+const { makeKeyboardClickable } = require("./view-helpers");
 
 const WEEK_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -161,7 +162,7 @@ class ReviewCalendarView extends ItemView {
       cell.createDiv({ cls: "qt-day-agenda-day-number", text: String(Number(key.slice(8))) });
       const total = byDay.has(key) ? byDay.get(key).total : 0;
       cell.createDiv({ cls: "qt-day-agenda-day-count", text: total ? String(total) : "·" });
-      cell.addEventListener("click", () => this.selectDay(key));
+      makeKeyboardClickable(cell, () => this.selectDay(key));
     }
   }
 
@@ -175,10 +176,14 @@ class ReviewCalendarView extends ItemView {
       cell.createDiv({ cls: "qt-review-calendar-day-label", text: day.date.slice(5) });
       cell.createDiv({ cls: "qt-review-calendar-day-count", text: String(day.total) });
       cell.createDiv({ cls: "qt-review-calendar-day-minutes", text: workloadLabel(day.minutes) });
-      cell.addEventListener("click", () => {
-        this.selected = day.date;
-        this.render();
-      });
+      makeKeyboardClickable(
+        cell,
+        () => {
+          this.selected = day.date;
+          this.render();
+        },
+        { label: dayLabel(day.date) }
+      );
     }
   }
 
@@ -197,10 +202,14 @@ class ReviewCalendarView extends ItemView {
       if (cell.key === this.selected) day.addClass("is-selected");
       day.createDiv({ cls: "qt-review-calendar-cell-day", text: String(cell.day) });
       if (cell.total) day.createDiv({ cls: "qt-review-calendar-cell-count", text: `${cell.total}` });
-      day.addEventListener("click", () => {
-        this.selected = cell.key;
-        this.render();
-      });
+      makeKeyboardClickable(
+        day,
+        () => {
+          this.selected = cell.key;
+          this.render();
+        },
+        { label: dayLabel(cell.key) }
+      );
     }
   }
 

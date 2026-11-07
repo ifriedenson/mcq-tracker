@@ -895,6 +895,7 @@ class StudySlotModal extends Modal {
       if (slots.length > 1) {
         body.createDiv({ cls: "uni-study-slot-label", text: "Free period" });
         const pick = body.createEl("select", { cls: "dropdown" });
+        pick.setAttribute("aria-label", "Free period");
         slots.forEach((candidate, index) => {
           pick.createEl("option", {
             value: String(index),
@@ -941,6 +942,7 @@ class StudySlotModal extends Modal {
       if (slot.subject) choices.push({ id: "course", label: `Next class: ${slot.subject}` });
       let filter = "current";
       const select = body.createEl("select", { cls: "dropdown" });
+      select.setAttribute("aria-label", "Questions for this session");
       for (const choice of choices) {
         const count = this.plugin.quickPracticePool(choice.id, slot.subject).length;
         select.createEl("option", { value: choice.id, text: `${choice.label} (${count})` });

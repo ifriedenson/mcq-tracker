@@ -55,6 +55,7 @@ class QuizGeneratorModal extends Modal {
     const countWrap = row.createDiv({ cls: "qt-field qt-grow" });
     countWrap.createEl("label", { text: "How many?" });
     const count = countWrap.createEl("select", { cls: "qt-select" });
+    count.setAttribute("aria-label", "How many questions?");
     for (const n of [5, 8, 10, 12, 15, 20]) count.createEl("option", { value: String(n), text: `${n} questions` });
     count.value = String(this.count);
     count.addEventListener("change", () => (this.count = Number(count.value)));
@@ -62,6 +63,7 @@ class QuizGeneratorModal extends Modal {
     const languageWrap = row.createDiv({ cls: "qt-field qt-grow" });
     languageWrap.createEl("label", { text: "Output language" });
     const language = languageWrap.createEl("select", { cls: "qt-select" });
+    language.setAttribute("aria-label", "Output language");
     for (const name of QUIZ_LANGUAGES) language.createEl("option", { value: name, text: name });
     language.value = this.language;
     language.addEventListener("change", () => (this.language = language.value));

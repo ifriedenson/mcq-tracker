@@ -55,6 +55,7 @@ class AutoAnkiModal extends Modal {
     const source = el.createDiv({ cls: "qt-field" });
     source.createEl("label", { text: "Source" });
     const select = source.createEl("select", { cls: "qt-select" });
+    select.setAttribute("aria-label", "Source");
     if (this.context.selection) select.createEl("option", { value: "selection", text: "Selected text" });
     select.createEl("option", { value: "note", text: "Whole note" });
     select.value = this.source;
@@ -70,6 +71,7 @@ class AutoAnkiModal extends Modal {
     const countWrap = row.createDiv({ cls: "qt-field qt-grow" });
     countWrap.createEl("label", { text: "How many cards?" });
     const count = countWrap.createEl("select", { cls: "qt-select" });
+    count.setAttribute("aria-label", "How many cards?");
     for (const n of [3, 5, 8, 10, 12, 15, 20]) count.createEl("option", { value: String(n), text: `${n} cards` });
     count.value = String(this.config.count);
     count.addEventListener("change", () => (this.config.count = Number(count.value)));

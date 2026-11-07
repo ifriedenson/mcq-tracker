@@ -227,8 +227,9 @@ The right-sidebar **Study agent** (`src/agent-view.js`, `src/agent-note.js` and
 the existing `src/chat-panel.js`) is original code written for MCQ Tracker. It
 is covered by this repository's MIT license. No Obsidian Copilot source,
 stylesheet, prompt or other AGPL-licensed code was copied into it, and no
-Copilot package or runtime is bundled. The panel reuses this plugin's existing
-AI provider settings and write-review guards. See
+Copilot package or runtime is bundled. The current composer hint is original
+wording for this plugin; no Copilot prompt text is reproduced. The panel reuses
+this plugin's existing AI provider settings and write-review guards. See
 [docs/sidebar-agent.md](docs/sidebar-agent.md).
 
 ## Not absorbed (yet)

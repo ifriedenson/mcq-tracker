@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status: v1.288.2 (Nov 7, 2026).** One MIT, dependency-free Obsidian plugin
+**Status: v1.288.3 (Nov 7, 2026).** One MIT, dependency-free Obsidian plugin
 (`mcq-tracker`) covering exam practice, cards and vocabulary, courses and
 calendars, study planning, document ingestion, reference/STEM tools and an
 optional BYOK/OpenCode AI layer.
@@ -13,9 +13,9 @@ surfaces, so unfinished ideas are not disguised as checked work.
 §3.9.6 is the gate table, §3.10 is the licence allow-list, and
 [docs/plan-decisions.md](docs/plan-decisions.md) is the owner decision sheet.
 
-**Verified at this commit:** `node --test` → 2,392 tests pass, 0 fail;
+**Verified at this commit:** `node --test` → 2,409 tests pass, 0 fail;
 `npm run check` clean (no dynamic code across 336 source files, vendor guard,
-bundle up to date); `main.js` generated from 339 modules at 6,779,705 bytes.
+bundle up to date); `main.js` generated from 339 modules at 6,787,753 bytes.
 Re-run both before quoting these numbers.
 
 **Shipped in 1.282.0 (Nov 7, 2026):** Quick Ask, saved study
@@ -58,7 +58,7 @@ dependency, provider, network call or write path is added. Focused tests:
 | Part | What it holds |
 |---|---|
 | §A | What is shipped, by area, with the source that implements it |
-| §B | The three owner-run passes still open; four decided rows closed on Nov 6, 2026 |
+| §B | The three environment-blocked owner passes (unverified `[~]` rows); four decided rows closed on Nov 6, 2026 |
 | §C | What was decided against — do not re-propose without an owner decision |
 | §§0–13 | Product spec, confirmed decisions and the licence record |
 
@@ -67,7 +67,7 @@ file per version, `AGENTS.md` has the current-state summary, and the plan
 decision sheet lives in `docs/plan-decisions.md`. Duplicating that log in this
 file is what made it unreadable; it now points instead.
 
-## Handoff snapshot (updated Nov 7, 2026 at v1.288.2)
+## Handoff snapshot (updated Nov 7, 2026 at v1.288.3)
 
 - **1.287.0:** the Study agent exposes a **Chats** drawer control, the saved-conversation library no longer occupies the transcript, errors render as an alert card with **Retry**, and Settings → AI groups the assistant into Copilot-style cards (Study agent, Commands and skills, Session pacing and checks, Context and privacy, Knowledge record, AI backend, Models and request limits). Light and dark evidence is in `docs/render/study-agent-ui/`.
 
@@ -77,8 +77,10 @@ file is what made it unreadable; it now points instead.
 
 - **1.288.1:** the Study agent removes the remaining duplicate **Study agent** heading and intro from `AgentView`; the Obsidian leaf title is the only header. The empty suggestion card is centered and capped at `32rem` like Copilot's empty banner, the persona selector stays visible and compact at 420/320 px, rendered bodies carry Obsidian's `markdown-rendered` class, and code lines no longer wrap. Safety copy moves into **How replies work**. Tests: 2,392 pass. Notes: `docs/release-notes/1.288.1.md`.
 
-- **State:** 0 unchecked core rows; Quick Chat, message bookmarks, per-message rewind and fork, Quick Ask, saved study commands, vault skills, chat projects, opt-in local memory, Markdown conversation export and local cost estimates ship in 1.282.0; the 1.283.0 knowledge record is end-to-end scenario-verified in 1.285.0 and now follows a moved or renamed note; Mother cram and card answer dictation shipped; 3 `[~]` partials (the owner visual, device and screenshot passes remain; no result has been pasted); four former gates decided on Nov 6, 2026 (§B).
-- **Newest feature:** 1.288.1 uses Copilot's transcript-first chat surface: no branded header, a full-width user card per turn, flat assistant rows, a **ChatControls** strip below the transcript and the composer last. Fresh 1.288.1 light/dark evidence is in `docs/render/study-agent-ui/`. 1.288.1 removes the last AgentView heading/intro, centers and bounds the empty state, keeps the persona visible at sidebar widths, adds Obsidian's markdown container and stops code wrapping. The 1.286.1 render pass at 320/420/560 px remains in `docs/render/study-agent/`. 1.286.0 restyles the Study agent as a chat pane: an identity header with the chat model and conversation actions, avatar turns with bubbles, an empty state with starter prompts, and one rounded composer for context, draft and send. 1.285.0 proves the opt-in **knowledge record** (§5.27) survives a source-note move, rename, delete, recreation at a new path and restore: concept ids, `firstSeen`, aliases, attempt evidence and misconception state stay attached, the Insights card and learner digest keep the note linked, and repeated rebuilds do not duplicate it. 1.284.0 verified extraction, attempt updates, misconception opening/fixing, heading rename identity, deleted-source retention, idempotent rebuild, reload, Insights actions and the bounded Study-agent digest. 1.283.0 added it: concept extraction, coverage, misconceptions and the digest, with its UI in Insights → Concepts. 1.282.0 added **plan-then-act**, **general PDF attachments**, a **Quick Practice home-screen URI** and a **sample-vault math/chemistry audit note**, alongside the Nov 6 additions: **Quick Chat**, **message bookmarks with chat links**, **per-message rewind and fork**, **vault skills**, **local chat projects**, **opt-in local memory**, **per-conversation Markdown export**, **local cost estimates** (per send and per conversation), a **compact context ring**, a **local diagnostics bundle**, **Quick Ask**, **saved study commands**, **`@` note/folder mentions**, a **context/token footer** and a **searchable, pinned, archived conversation library** in one release. In 1.281.0, **Mother cram** is the practice-only Cards loop
+- **1.288.3:** this release packages the current tree after 1.288.2. It exposes the **Web browser** settings page in the module navigation (36 pages), adds accessible names and Enter/Space activation to custom controls, and hardens narrow-width PDF, Settings, Study Stats, cards, assignments and time-block layouts. The 20 current-tree captures (18 chat plus 2 settings) are in `docs/render/study-agent-ui/`; no Obsidian runtime is available, so the owner light/dark check remains open. Tests: 2,409 pass; `main.js` is 6,787,753 bytes. Notes: `docs/release-notes/1.288.3.md`.
+
+- **State:** 0 unchecked core rows; Quick Chat, message bookmarks, per-message rewind and fork, Quick Ask, saved study commands, vault skills, chat projects, opt-in local memory, Markdown conversation export and local cost estimates ship in 1.282.0; the 1.283.0 knowledge record is end-to-end scenario-verified in 1.285.0 and now follows a moved or renamed note; Mother cram and card answer dictation shipped; 3 `[~]` partials — the three owner manual passes (math/chemistry visual, real iOS/Android, README screenshots) are environment-blocked, recorded as partial rows in §7 and tracked with their blockers in §B, and none is claimed as a pass; four former gates decided on Nov 6, 2026 (§B).
+- **Newest feature:** 1.288.3 packages the current tree and restores the reachable **Web browser** settings page; 1.288.2 keeps Copilot's transcript-first chat surface: no branded header, a full-width user card per turn, flat assistant rows, a **ChatControls** strip below the transcript and the composer last. Fresh 1.288.2 light/dark evidence is in `docs/render/study-agent-ui/`. 1.288.1 removes the last AgentView heading/intro, centers and bounds the empty state, keeps the persona visible at sidebar widths, adds Obsidian's markdown container and stops code wrapping. The 1.286.1 render pass at 320/420/560 px remains in `docs/render/study-agent/`. 1.286.0 restyles the Study agent as a chat pane: an identity header with the chat model and conversation actions, avatar turns with bubbles, an empty state with starter prompts, and one rounded composer for context, draft and send. 1.285.0 proves the opt-in **knowledge record** (§5.27) survives a source-note move, rename, delete, recreation at a new path and restore: concept ids, `firstSeen`, aliases, attempt evidence and misconception state stay attached, the Insights card and learner digest keep the note linked, and repeated rebuilds do not duplicate it. 1.284.0 verified extraction, attempt updates, misconception opening/fixing, heading rename identity, deleted-source retention, idempotent rebuild, reload, Insights actions and the bounded Study-agent digest. 1.283.0 added it: concept extraction, coverage, misconceptions and the digest, with its UI in Insights → Concepts. 1.282.0 added **plan-then-act**, **general PDF attachments**, a **Quick Practice home-screen URI** and a **sample-vault math/chemistry audit note**, alongside the Nov 6 additions: **Quick Chat**, **message bookmarks with chat links**, **per-message rewind and fork**, **vault skills**, **local chat projects**, **opt-in local memory**, **per-conversation Markdown export**, **local cost estimates** (per send and per conversation), a **compact context ring**, a **local diagnostics bundle**, **Quick Ask**, **saved study commands**, **`@` note/folder mentions**, a **context/token footer** and a **searchable, pinned, archived conversation library** in one release. In 1.281.0, **Mother cram** is the practice-only Cards loop
   in the current deck: flip the card, then choose **Do not know** (send it to the
   back) or **Know** (remove it) until the queue is empty. It writes no attempt,
   grade, history or due date. 1.280.0 added **cram sessions** with exact
@@ -93,8 +95,9 @@ file is what made it unreadable; it now points instead.
   notes are the source of truth (schedules stay note-backed); AI is optional and
   only BYOK/OpenCode, with local model presets.
 - **What cannot be checked here:** no real Obsidian window, no iOS or Android
-  device, no provider key, no Anki desktop or CouchDB server. Rows that need
-  those stay `[~]` and say so rather than claiming a pass.
+  device, no provider key, no Anki desktop or CouchDB server. The three rows that need those are environment-blocked owner passes,
+  tracked with their blockers in §B; none is claimed as a pass, and each stays
+  a `[~]` partial row in §7 until the owner pastes a result.
 
 ## Current focus (Nov 7, 2026)
 
@@ -144,12 +147,17 @@ closed decisions; see [docs/plan-decisions.md](docs/plan-decisions.md).
 | **AI (optional)** | Direct API presets (OpenAI-compatible, Anthropic, Qwen/DashScope, Ollama, LM Studio, llama.cpp, Jan), OpenCode chat, streaming with Stop/Regenerate/Retry, tutor roles and slash commands, inline Quick Ask, Quick Chat, message bookmarks with chat links, per-message rewind and fork, saved study commands, per-chat and per-command model overrides with visible fallback, `/compact` local summarisation, `@` note/folder mentions, a context/token/model footer, a searchable conversation library with pins and archive, passage retrieval with citations, write guards with diff-confirm and undo journal, quiz generation with blind verification and distractor checks, AP FRQ rubric grader with second pass and history, Feynman feedback, PDF passage Q&A, offline local-model guide | `src/api-client.js`, `src/ai-*.js`, `src/agent-*.js`, `src/chat-*.js`, `src/quick-ask*.js`, `src/quick-chat-modal.js`, `src/study-commands.js`, `src/opencode-*.js`, `src/quiz-generator*.js`, `src/frq*.js`, `src/feynman-ai.js`, `src/reading-companion.js`, `src/local-models.js` |
 | **Documents and ingestion** | PDF annotator (ink, highlights, quotes, notes, tags, searchable index, digest export, deep links), PDF page/form editor on vendored pdf-lib (rotate, reorder, insert, duplicate, delete, merge, extract, split, live forms, links, bookmarks, 20-step undo), continuous reader, embedded PDF++, EPUB annotations and reader, paper scanner, document import (`.pptx`/`.pptm`/`.ppsx`/`.docx`/`.docm`/`.odt`/`.odp`/HTML/Markdown), BYOK vision OCR with editable page text, lecture-note compiler, transcript import, audio bookmarks | `src/pdf*.js`, `src/epub*.js`, `src/paper-scanner.js`, `src/documents.js`, `src/ocr*.js`, `src/lecture-compiler.js`, `src/transcript*.js`, `vendor/pdf-lib.js`, `vendor/pdf-plus.js` |
 | **Reference and STEM** | Graph with implicit, polar, parametric, 3D, sliders, regression, table, summation and complex modes; calculator, calculus, geometry, matrix/vector fields; constants and formula sheets; unit circle, trig identities, codon table, Punnett square; periodic-table data; local SMILES renderer; math-rendering audit and goldens; polynomial equivalence and numeric grading; computed-answer verification | `src/graph-*.js`, `src/calculator.js`, `src/calculus.js`, `src/geometry*.js`, `src/matrix.js`, `src/vector-*.js`, `src/reference-*.js`, `src/smiles.js`, `src/math-rendering.js`, `src/polynomial.js`, `src/numeric-grading.js` |
-| **Study workspace** | 32 per-tool settings pages plus a Global index, and the workspace tabs (Cornell, lecture log, goals, Feynman, Recall Scheduler, topic planner, Study Flow, Subject Manager, quiz index, course hub, tasks, annotations, Deep Notes, Retention, Vocabulary, Quiz Maker, SFC cards, CBT, SAT math, Read aloud, lecture notes, bookmarks, Feynman AI, PDF annotations, scheduler fitting, study map, vault search, card archive, study nudge, reading library, course templates), writing-session count, vault task index and tag rename, opt-in Web browser | `src/study-tool-settings.js`, `src/settings-global.js`, `src/study-workspace*.js`, `src/vault-task-index.js`, `src/web-browser*.js` |
+| **Study workspace** | 36 per-tool settings pages plus a Global index, and the workspace tabs (Cornell, lecture log, goals, Feynman, Recall Scheduler, topic planner, Study Flow, Subject Manager, quiz index, course hub, tasks, annotations, Deep Notes, Retention, Vocabulary, Quiz Maker, SFC cards, CBT, SAT math, Read aloud, lecture notes, bookmarks, Feynman AI, PDF annotations, scheduler fitting, study map, vault search, card archive, study nudge, reading library, course templates), writing-session count, vault task index and tag rename, opt-in Web browser | `src/study-tool-settings.js`, `src/settings-global.js`, `src/study-workspace*.js`, `src/vault-task-index.js`, `src/web-browser*.js` |
 | **Advanced Tables** | Upstream 0.23.2 parity: draft completion, cell editing and Tab/Enter navigation in reading and source views, row/column insert/delete/move, formatting and alignment, TBLFM formulas (datetime and duration aware), CSV/TSV import, transpose, header toggle, stable body-row sorting, merged cells, controls panel | `src/table-editor.js`, `src/table-formulas.js`, `src/table-controls-view.js`, `src/table-csv-modal.js` |
 | **Canvas** | Six clean-room slices: Canvas ⇄ Markdown, map walking and auto-layout, kanban columns, auto-link, query groups, presentations | `src/canvas-*.js` |
-| **Quality** | 2,390-test suite, capability and security inventories re-derived by tests, dynamic-code lint, vendor guard, one release note per version, licence audit and `NOTICES.md` | `tests/`, `docs/capability-inventory.md`, `docs/security-inventory.md`, `scripts/` |
+| **Quality** | 2,409-test suite, capability and security inventories re-derived by tests, dynamic-code lint, vendor guard, one release note per version, licence audit and `NOTICES.md` | `tests/`, `docs/capability-inventory.md`, `docs/security-inventory.md`, `scripts/` |
 
-## B. Partial rows (3) — owner manual passes still open
+## B. Owner manual passes (3) — environment-blocked, unverified `[~]` rows
+
+None of these three can run in this environment: there is no Obsidian window,
+no X server/Xvfb, and no iOS or Android device. They are recorded here with
+their blockers, are not claimed as passes, and stay `[~]` partial rows in §7
+until an owner pastes a result.
 
 The other four rows closed on Nov 6, 2026: TTS/audio stays device-speech-only,
 pronunciation is declined, the FRQ grader carries no accuracy claim, and the
@@ -382,13 +390,13 @@ without re-researching the licence.
 
 | Plugin | Licence | Feature MCQ Tracker did not have | Link | Status after this pass |
 |---|---|---|---|---|
-| **Smart Composer** | MIT ✅ | `@file` and `@folder` context mentions, web-page and image attachments, one-click vault edits with a diff. | [GitHub](https://github.com/glowingjade/obsidian-smart-composer) | **Next.** The Study agent has note/vault retrieval, reviewed writes and diffs, but not `@` mentions or URL/image attachments. |
+| **Smart Composer** | MIT ✅ | `@file` and `@folder` context mentions, web-page and image attachments, one-click vault edits with a diff. | [GitHub](https://github.com/glowingjade/obsidian-smart-composer) | **Adapted.** `@` note/folder mentions and reviewed writes with diffs ship; URL/web-page and image attachments remain outside the local scope. |
 | **Smart Second Brain** | MIT ✅ | Hybrid keyword + semantic search, an automatically grouped knowledge graph, and a local-first agent. | [GitHub](https://github.com/s2b-dev/smart-second-brain) | **Next.** Search is lexical and cited; there are no embeddings and no generated topic graph. |
 | **Text Generator** | MIT ✅ | Reusable prompt templates with variables, a community template library, and generation inserted into the current note. | [GitHub](https://github.com/nhaouari/obsidian-textgenerator-plugin) | **Adapted.** Saved study commands cover reusable prompts and `{selection}`/`{note}`/`{path}` variables; there is no template marketplace. |
 | **Local GPT** | MIT ✅ | Selection context-menu actions, an action palette, community actions, RAG over links/backlinks/PDFs, and image input. | [GitHub](https://github.com/pfrankov/obsidian-local-gpt) | **Adapted.** Quick Ask ships selection actions; there is no shared action library or link/PDF RAG. |
 | **Obsidian Ollama** | MIT ✅ | Built-in preprompts (summarize, explain, rewrite, caption), per-prompt model and temperature, and insert-at-cursor. | [GitHub](https://github.com/hinterdupfinger/obsidian-ollama) | **Adapted.** Study commands and Quick Ask cover the prompt/insert workflow; per-command model and temperature are still missing. |
 | **BMO Chatbot** | MIT ✅ | Named chatbot profiles with their own knowledge and presets, prompt-select-generate, and chat Markdown rendering. | [GitHub](https://github.com/longy2k/obsidian-bmo-chatbot) | **Adapted.** Tutor roles and the chat renderer cover part; user-defined profiles are not built. |
-| **Obsidian AI** (Maximophone) | MIT ✅ | Inline `<ai!>` generation blocks that read `[[links]]` as context, plus token and cost tracking. | [GitHub](https://github.com/Maximophone/obsidian-ai-plugin) | **Next.** Inline generation and visible cost tracking are not built. |
+| **Obsidian AI** (Maximophone) | MIT ✅ | Inline `<ai!>` generation blocks that read `[[links]]` as context, plus token and cost tracking. | [GitHub](https://github.com/Maximophone/obsidian-ai-plugin) | **Next.** Local token and cost tracking ship; inline `<ai!>` generation is not built. |
 | **AI Local Assistant** | MIT ✅ | Prompt mode over a selection plus DALL·E image generation and Whisper transcription. | [GitHub](https://github.com/ManOhMan28/obsidian-ai-local-assistant) | **Boundary.** Prompt mode is covered by Quick Ask; image generation and audio capture are outside the study-assistant scope and the plan's audio decisions. |
 
 **What shipped from this audit.** Quick Ask (selection or full-note context,
@@ -1715,14 +1723,14 @@ an owner decision, or is outside this plugin's study identity.
 
 | Copilot UI idea | MCQ decision |
 |---|---|
-| Compact right-sidebar chat with the composer pinned to the bottom | ✅ Nov 7, 2026. The pane is transcript-first: the message list fills the space, a **ChatControls** strip follows it, and the composer is pinned last. |
+| Compact right-sidebar chat with the composer pinned to the bottom | ✅ Nov 7, 2026. The pane is transcript-first: the conversation tab strip leads, local **Search vault** is a collapsed one-line disclosure, the message list fills the space, a **ChatControls** strip follows it, and the composer is pinned last. |
 | Visible context toggles rather than hidden vault access | ✅ Adopted; current note and selection reset on New chat. |
 | Source chips with clickable citations | ✅ 1.286.0. Mention and PDF chips live inside the composer card above the draft; citations remain clickable in replies. |
 | Model picker in the composer | ✅ Nov 6, 2026. The Chat model selector sits beside mode and role; the footer names the effective model and source. |
 | Assistant identity header | ✅ Nov 7, 2026; completed 1.288.1. Deliberately no branded header: Copilot's chat surface starts with the transcript, so the mode/role selector sits in the controls strip under it. **Settings**, **Chats**, **New chat**, **Save chat** and **Expand** share that strip. The leaf title is the only header; the 1.288.0 AgentView `h4`/intro was removed in 1.288.1. |
-| Chat bubbles with speaker avatars | ✅ Nov 7, 2026. Copilot-style rows: user turns are full-width bordered cards using `background-modifier-hover`; assistant turns are flat and unboxed with no avatars or speaker names. Message actions are compact icon buttons, and a caret marks streaming text. |
+| Chat bubbles with speaker avatars | ✅ Nov 7, 2026. Copilot-style rows: user turns are full-width filled cards using `background-secondary` with no border; assistant turns are flat and unboxed with no avatars or speaker names. Reasoning, sources and tool activity rows are flat too. Message actions are compact icon buttons, and a caret marks streaming text. |
 | Welcome screen with starter prompts | ✅ 1.286.0. An empty chat shows a greeting and three prompts (Explain this note, Quiz me on it, Plan my next hour) that send through the normal path; they hide once a turn exists. |
-| Rendered verification | ✅ Nov 7, 2026. The current tree is captured at 320/420/560 px in light and dark from the real `ChatPanel` markup and `styles.css`: 16 chat images in `docs/render/study-agent-ui/` (thread at all three widths, empty at all three, busy and error at 420) plus the unchanged settings fixture. The pass measured zero horizontal overflow, a centered 268/368/480 px empty card with equal margins, all five 320 px context chips on one row, the 320 px suggestion text unclipped, and the Send/Stop swap. It also fixed the 320 px persona and model labels, the 320 px table header wrap and the two-line suggestion clamp. **Limit:** no Obsidian app runtime; the final check is opening the rebuilt plugin in Obsidian light and dark. |
+| Rendered verification | ✅ Nov 7, 2026. The current tree is captured at 320/420/560 px in light and dark from the real `AgentView` + `ChatPanel` markup and `styles.css`: 18 chat images in `docs/render/study-agent-ui/` (thread at all three widths, empty at all three, busy and error at 420, and the 420 px idle and busy composer with a draft) plus the unchanged settings fixture. `docs/render/study-agent-ui/README.md` maps each Copilot region — tab/context strip, thread and role rows, message metadata, composer, empty and streaming states — to the plugin component and `qt-*`/Obsidian token that renders it. The pane now includes the active conversation tab and collapsed local **Search vault** disclosure. The pass measured zero document/transcript overflow, a centered 268/368/480 px empty card, a 168 px active tab, all five 320 px context chips on one row, a 404×156 px composer with no gap above it at 420 px, the 320 px suggestion text unclipped, and the Send/Stop swap. It also fixed the 320 px persona and model labels, the 320 px table header wrap and the two-line suggestion clamp. **Limit:** no Obsidian app runtime; the final check is opening the rebuilt plugin in Obsidian light and dark. |
 | Stop button that keeps partial text | ✅ Adopted; late replies are ignored. |
 | Diff card with Apply / Cancel | ✅ Nov 7, 2026. Agent proposals show a compact line diff in an inline transcript card, and the existing review modal still owns Apply/Cancel; nothing is written before review. |
 | Status cards for tool calls | ✅ Nov 7, 2026. OpenCode tool parts render as `qt-agent-tool-card` status cards with a tool label, file/command detail and running/done/error state; Direct AI proposals and staged note edits share the `qt-agent-proposal` card. |
@@ -1825,7 +1833,7 @@ Reuse the general FRQ model in §5.5 and add AP-specific structure.
 
 Shipped: `type: ap_frq` notes with `## Question`, optional `## Stimulus`, `## Rubric` and optional `## Sample Answer`; a **New FRQ note** creator with editable rubric presets for history DBQ/LEQ/SAQ, chemistry long/short, calculus and statistics; a grader that scores criterion by criterion, clamps every score to its maximum, shows `awarded / max`, flags low confidence and any point awarded without a quote, supports an optional second independent pass that reports per-criterion disagreement without averaging it away, lets the learner mark a pasted official or teacher-supplied rubric, and lets the learner override every line; self-grade mode with no network request; optional AI grading through the shared `frqGrading` feature and request limits; and saved attempts under `AP FRQ attempts/` plus `frq_last_*` properties on the prompt note.
 
-Still open: a human-scored agreement study and go/no-go evaluation. 1.104.0 shipped photo-of-handwritten-work reading, and 1.101.0 shipped the rubric category taxonomy (`[thesis]`, `[evidence]`, `[reasoning]`, `[calculation]`, `[units]`, `[notation]`, `[communication]`), shown in the grader and preserved in generated notes. Since 1.99.0, missed criteria drive the prompt's review date, appear in Today and the next exam's study plan, and link from Insights. No claim of reader-level accuracy is made.
+**Closed by owner decision:** no human-scored agreement study or go/no-go evaluation is planned; the grader remains an aid. 1.104.0 shipped photo-of-handwritten-work reading, and 1.101.0 shipped the rubric category taxonomy (`[thesis]`, `[evidence]`, `[reasoning]`, `[calculation]`, `[units]`, `[notation]`, `[communication]`), shown in the grader and preserved in generated notes. Since 1.99.0, missed criteria drive the prompt's review date, appear in Today and the next exam's study plan, and link from Insights. No claim of reader-level accuracy is made.
 
 #### 5.20.2 AP score calculator
 
@@ -2027,8 +2035,9 @@ and slash commands (1.20.0); GIFT (1.21.0), Moodle XML/QTI (1.22.0), Mochi and
 CrowdAnki (1.23.0), import preview and duplicate handling (1.24.0); interleaved
 mixed review (1.55.0); PDF sidecar annotations (1.27.0) with the pen and
 highlighter overlay (1.52.0) and text boxes (1.53.0); the PDF page and form
-editor (1.218.0). **Still open:** audio-only commute mode (provider TTS,
-§11 decision 2) and pronunciation feedback (see the decision sheet).
+editor (1.218.0). **Closed by owner decision:** provider TTS, audio-only
+commute mode and pronunciation feedback are declined (§11 decisions 2 and E5);
+device-voice Read aloud remains.
 
 The bullets below are the original idea record; every locally implementable one
 has shipped.
@@ -2371,10 +2380,10 @@ Names are proposals; keep existing ones unchanged.
 - [x] Item-type model (§4.2)
 - [x] Append-only `history` with unique attempt ids, duplicate-safe retries, a merge helper and phone/desktop conflict tests (§5.19) — shipped in 1.76.0; the repair command also rebuilds counters and streak, while scheduling is left unchanged
 - [x] Test suite, CI, and quality gates for agent-written code (§8.5)
-- [~] **Blocked — manual gate** Math/chemistry rendering audit on a test vault (§5.16.1) — renderer audit, golden tests, chemistry fallback and the studyable `samples/sample-vault/Questions/math-audit.md` note are shipped; the visual Obsidian pass needs a real window, which this environment does not have
-- [~] **Blocked** Mobile audit on real iOS and Android devices (§5.19) — `obsidian://mcq-tracker-quick` time/count/course links and the headless layout tests ship; no physical iOS or Android device is available here
 - [x] Confirm licenses of anything currently bundled (§9) — audited in NOTICES and `docs/license-audit.md`; every future candidate still needs a repo-level check before use
-- [~] **Partial** README, screenshots, and sample vault refresh (§10b) — README, docs and the five-question `samples/sample-vault` are done; the four screenshots need a real Obsidian window and are not fabricated here
+- [~] **Math/chemistry visual audit (§5.16.1)** — visual pass in a real Obsidian window (light/dark, narrow pane, timed test, cards, chat); not performed in this environment; blocker and checklist in §B / §11 E1.
+- [~] **Real iOS/Android audit (§5.19)** — physical iOS and Android device pass; not performed in this environment; blocker and checklist in §B / §11 E2.
+- [~] **README screenshots (§10b)** — four real-window screenshots; mock images are not acceptable; not produced in this environment; blocker in §B / §11 E1.
 
 ### Phase 1: Quick Practice and smarter scheduling
 

@@ -49,6 +49,7 @@ class StudyStatusModal extends Modal {
     );
     if (courses.length > 1) {
       const select = controls.createEl("select", { cls: "dropdown qt-status-course" });
+      select.setAttribute("aria-label", "Course filter");
       const all = select.createEl("option", { text: "All courses" });
       all.value = "all";
       for (const course of courses) {
