@@ -25724,6 +25724,7 @@ class ChatPanel {
     this.turnEls = [];
     this.draining = false;
     this.libraryQuery = "";
+    this.libraryOpen = false;
     this.libraryProject = "";
     this.showArchived = false;
     this.build();
@@ -25820,6 +25821,13 @@ class ChatPanel {
     titles.createDiv({ cls: "qt-agent-title", text: "Study agent" });
     this.modeLabel = titles.createDiv({ cls: "qt-agent-subtitle" });
     const headActions = head.createDiv({ cls: "qt-agent-head-actions" });
+    const chats = headActions.createEl("button", {
+      text: "Chats",
+      cls: "qt-agent-icon qt-agent-history",
+      attr: { "aria-expanded": "false", "aria-controls": "qt-agent-library" },
+    });
+    this.libraryButton = chats;
+    chats.addEventListener("click", () => this.toggleLibrary());
     const nc = headActions.createEl("button", { text: "New chat", cls: "qt-agent-icon" });
     nc.addEventListener("click", () => this.newChat());
     if (this.opts.onSaveChat) {
@@ -26894,7 +26902,8 @@ class ChatPanel {
   /** The in-panel conversation list; only the caller decides where conversations live. */
   renderLibrary(root) {
     if (typeof this.opts.getLibrary !== "function") return;
-    this.libraryWrap = root.createDiv({ cls: "qt-chat-library" });
+    this.libraryWrap = root.createDiv({ cls: "qt-chat-library qt-agent-library qt-hidden", attr: { id: "qt-agent-library" } });
+    this.libraryEl = this.libraryWrap;
     this.libraryWrap.createDiv({ cls: "qt-hint", text: "Conversations (pinned first, then newest)" });
     const searchRow = this.libraryWrap.createDiv({ cls: "qt-row qt-small-row" });
     this.librarySearch = searchRow.createEl("input", {
@@ -26941,6 +26950,16 @@ class ChatPanel {
     const remove = row.createEl("button", { text: "Delete" });
     remove.addEventListener("click", () => this.deleteActive());
     this.refreshLibrary();
+  }
+
+  /** The saved-conversation list is a drawer, closed by default like a chat app. */
+  toggleLibrary() {
+    this.libraryOpen = !this.libraryOpen;
+    if (this.libraryEl) this.libraryEl.toggleClass("qt-hidden", !this.libraryOpen);
+    if (this.libraryButton) {
+      this.libraryButton.setAttr("aria-expanded", this.libraryOpen ? "true" : "false");
+      this.libraryButton.toggleClass("is-selected", this.libraryOpen);
+    }
   }
 
   refreshLibrary() {
@@ -28105,9 +28124,23 @@ class ChatPanel {
       for (let i = 0; i < 3; i++) typing.createSpan({ cls: "qt-agent-dot" });
     }
     if (this.error) {
-      const boxed = box.createDiv({ cls: "qt-error", text: this.error });
+      const boxed = box.createDiv({
+        cls: "qt-error qt-agent-error",
+        attr: { role: "alert", "aria-live": "assertive" },
+      });
+      const head = boxed.createDiv({ cls: "qt-agent-error-head" });
+      head.createDiv({ cls: "qt-agent-error-mark", text: "!", attr: { "aria-hidden": "true" } });
+      head.createDiv({
+        cls: "qt-agent-error-title",
+        text: this.busy ? "Reply interrupted" : "That reply did not finish",
+      });
+      boxed.createDiv({ cls: "qt-agent-error-text", text: this.error });
       if (this.lastSent && !this.busy) {
-        const retry = boxed.createEl("button", { text: "Retry" });
+        const retry = boxed.createEl("button", {
+          text: "Retry",
+          cls: "qt-agent-error-retry",
+          attr: { "aria-label": "Retry the last message" },
+        });
         retry.addEventListener("click", () => this.retry());
       }
     }
@@ -99626,9 +99659,16 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     }
 
     if (this.activeMcqTab === "ai") {
-    new Setting(containerEl).setName("OpenCode (AI)").setHeading();
     const ai = st.ai;
-    new Setting(containerEl)
+    containerEl.addClass("qt-agent-settings");
+    const card = (title, desc) => {
+      const el = containerEl.createDiv({ cls: "qt-settings-card qt-agent-settings-card" });
+      el.createEl("h3", { text: title });
+      if (desc) el.createEl("p", { cls: "setting-item-description qt-agent-settings-desc", text: desc });
+      return el;
+    };
+    let section = card("Study agent", "Turn the assistant on, choose its default voice, and set the pace of a session.");
+    new Setting(section)
       .setName("Enable AI features")
       .setDesc("Adds 'Ask AI' to the result screen and an AI assistant chat.")
       .addToggle((t) =>
@@ -99638,7 +99678,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           this.plugin.refreshViews();
         })
       );
-    new Setting(containerEl)
+    new Setting(section)
       .setName("Tutor role")
       .setDesc("The default voice for Ask AI and the assistant chat. You can also change it in a chat.")
       .addDropdown((d) => {
@@ -99648,11 +99688,12 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           await this.plugin.save();
         });
       });
-    containerEl.createEl("p", {
+    section.createEl("p", {
       cls: "setting-item-description",
       text: `Tutor commands: ${TUTOR_COMMANDS.map((c) => `/${c.id}`).join(", ")}. Type one at the start of a chat message to steer the next reply.`,
     });
-    new Setting(containerEl)
+    section = card("Commands and skills", "Reusable prompts and optional instructions the Study agent can load. All of these stay off until you use them.");
+    new Setting(section)
       .setName("Study commands")
       .setDesc("One command per line: Name | Prompt. Use {} or {selection} for selected text, {note} or {activeNote} for the full note, and {path} for its path. Commands use the chat's context switches, so they cannot read a note the chat is not allowed to send.")
       .addTextArea((t) =>
@@ -99665,7 +99706,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             this.plugin.refreshViews();
           })
       );
-    new Setting(containerEl)
+    new Setting(section)
       .setName("Skills folder")
       .setDesc("Vault folder of user-authored Study agent skill notes. Each enabled Markdown note can add bounded instructions while Include skills is on. Nothing is read until that switch is on.")
       .addText((t) =>
@@ -99678,7 +99719,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             this.plugin.refreshViews();
           })
       );
-    new Setting(containerEl)
+    new Setting(section)
       .setName("Starter study commands")
       .setDesc("Replace the saved list with four examples you can edit. They cover explaining, quizzing, cards and common gaps.")
       .addButton((b) =>
@@ -99688,7 +99729,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           this.display();
         })
       );
-    new Setting(containerEl)
+    new Setting(section)
       .setName("Per-command model overrides")
       .setDesc("Optional. One line per slash command: command-id | model. A chat's own model wins, then this command override, then the global chat model. A model that is not in the fetched provider list falls back visibly instead of failing the send.")
       .addTextArea((t) =>
@@ -99701,7 +99742,8 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             this.plugin.refreshViews();
           })
       );
-    new Setting(containerEl)
+    section = card("Session pacing and checks", "Optional guardrails for how quickly a chat can send and how AI-written answers are checked.");
+    new Setting(section)
       .setName("Think-first timer")
       .setDesc(`Blocks chat sends until a countdown ends, so the first reply is not a reflex. Off by default; ${DEFAULT_THINK_FIRST_SECONDS} seconds is the default. The countdown starts when a chat opens or you press New chat, and applies to both AI backends.`)
       .addToggle((t) =>
@@ -99711,7 +99753,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           this.plugin.refreshViews();
         })
       );
-    new Setting(containerEl)
+    new Setting(section)
       .setName("Think-first delay (seconds)")
       .setDesc(`Seconds to wait before chat sending is allowed (${MIN_THINK_FIRST_SECONDS}-${MAX_THINK_FIRST_SECONDS}). The next chat uses the new value.`)
       .addSlider((s) =>
@@ -99724,7 +99766,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             await this.plugin.save();
           })
       );
-    new Setting(containerEl)
+    new Setting(section)
       .setName("Check AI-written answers")
       .setDesc("AI-written multiple-choice answers are checked by a second independent call. Numeric answers with a calculation or answer formula are checked locally by arithmetic. Flag a disagreement for review, or drop a mismatched multiple-choice item.")
       .addDropdown((d) =>
@@ -99737,8 +99779,8 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             await this.plugin.save();
           })
       );
-    new Setting(containerEl).setName("Study context (read-only)").setHeading();
-    containerEl.createEl("p", {
+    section = card("Context and privacy", "Choose which aggregate study signals the assistant may see. Nothing here includes note text, question text or answers.");
+    section.createEl("p", {
       cls: "setting-item-description",
       text: "Optional aggregate context for the AI assistant: counts, accuracy, weakest skill and the next exam. No note text, question text or answers are included. Everything is off by default, and nothing is sent unless AI features are on and you send a message.",
     });
@@ -99750,7 +99792,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       { key: "record", name: "Knowledge record", desc: "Concept labels, coverage and error tags from the local knowledge record. This includes short concept names and last-miss notes, so it stays off until you build and enable the record." },
     ];
     for (const item of contextOptions) {
-      new Setting(containerEl)
+      new Setting(section)
         .setName(item.name)
         .setDesc(item.desc)
         .addToggle((t) =>
@@ -99762,13 +99804,13 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           })
         );
     }
-    new Setting(containerEl).setName("Knowledge record").setHeading();
-    containerEl.createEl("p", {
+    section = card("Knowledge record", "Build the local concept index that connects your notes to the questions you practise.");
+    section.createEl("p", {
       cls: "setting-item-description",
       text: "An opt-in local index of the concepts your notes teach, built from headings, definitions, terms and formulas and linked to the questions you practise. It is saved as MCQ Tracker/knowledge-record.json, can be rebuilt at any time, and is never sent anywhere unless you turn on the Knowledge record study-context toggle above.",
     });
     const recordCfg = this.plugin.knowledgeRecordSettings();
-    new Setting(containerEl)
+    new Setting(section)
       .setName("Build a concept record from my notes")
       .setDesc("Reads note structure on this device and writes the local index. Notes remain authoritative; deleting the index only loses the cached view, not any study data.")
       .addToggle((t) =>
@@ -99783,7 +99825,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           this.display();
         })
       );
-    new Setting(containerEl)
+    new Setting(section)
       .setName("Rebuild the record")
       .setDesc("Refresh concept extraction and the practice projected onto each concept. Useful after renaming headings or adding questions.")
       .addButton((b) =>
@@ -99803,8 +99845,9 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           }
         })
       );
+    section = card("AI backend", "Pick how the assistant connects. Direct API works on phones; OpenCode can edit notes on this computer.");
     if (Platform.isDesktopApp) {
-      new Setting(containerEl)
+      new Setting(section)
         .setName("AI backend")
         .setDesc("OpenCode can edit your notes and runs on this computer. Direct API is a plain chat that also works on your phone (your phone always uses it).")
         .addDropdown((d) =>
@@ -99823,7 +99866,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
 
     const renderApi = () => {
       const api = ai.api;
-      new Setting(containerEl)
+      new Setting(section)
         .setName("Provider")
         .addDropdown((d) => {
           for (const [id, pr] of Object.entries(API_PRESETS)) d.addOption(id, pr.label);
@@ -99838,10 +99881,10 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
         });
       const preset = API_PRESETS[api.provider] || API_PRESETS.custom;
       if (preset.local) {
-        new Setting(containerEl).setName("Offline local model").setDesc(localModelGuide(api.provider).description);
+        new Setting(section).setName("Offline local model").setDesc(localModelGuide(api.provider).description);
       }
       if (preset.kind === "openai") {
-        new Setting(containerEl)
+        new Setting(section)
           .setName("Base URL")
           .setDesc("Leave empty to use the provider's standard address.")
           .addText((t) =>
@@ -99853,7 +99896,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           );
       }
       if (!preset.noKey) {
-        const keySetting = new Setting(containerEl).setName("API key");
+        const keySetting = new Setting(section).setName("API key");
         if (hasSecretStorage(this.app) && typeof SecretComponent === "function") {
           const current = (api.secrets || {})[api.provider] || "";
           keySetting
@@ -99884,7 +99927,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       }
       const discovered = Array.isArray(api.models) ? api.models : [];
       if (discovered.length) {
-        new Setting(containerEl)
+        new Setting(section)
           .setName("Fetched models")
           .setDesc("Choose a model, or type one below. This list came from your provider for the current address.")
           .addDropdown((d) => {
@@ -99897,7 +99940,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             });
           });
       }
-      new Setting(containerEl)
+      new Setting(section)
         .setName("Model")
         .setDesc("The model name exactly as your provider lists it.")
         .addText((t) =>
@@ -99906,7 +99949,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             await this.plugin.save();
           })
         );
-      new Setting(containerEl)
+      new Setting(section)
         .setName("Fetch available models")
         .setDesc("Ask the provider for its current chat models. Embedding, speech and image models are filtered out. This reads the list only and sends no prompt.")
         .addButton((b) =>
@@ -99925,7 +99968,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             }
           })
         );
-      new Setting(containerEl).setName("Test").addButton((b) =>
+      new Setting(section).setName("Test").addButton((b) =>
         b.setButtonText("Test").onClick(async () => {
           try {
             const r = await new ApiClient(ai, this.app).chat("You are a connection test.", [{ role: "user", content: "Reply with the single word OK." }]);
@@ -99938,7 +99981,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     };
 
     const renderOpenCode = () => {
-    new Setting(containerEl)
+    new Setting(section)
       .setName("Set up and run OpenCode for me")
       .setDesc(
         "Desktop only. The plugin runs OpenCode in the background (reachable only from this computer) when you use the AI chat, and stops it when Obsidian closes. " +
@@ -99953,7 +99996,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       );
 
     if (ai.managed) {
-      new Setting(containerEl)
+      new Setting(section)
         .setName("Start OpenCode when Obsidian opens")
         .setDesc("Starts it quietly in the background so your first AI message doesn't wait. It stops when Obsidian closes. Off by default.")
         .addToggle((t) =>
@@ -99963,7 +100006,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           })
         );
       const mgr = this.plugin.manager;
-      const status = new Setting(containerEl).setName("Status").setDesc("");
+      const status = new Setting(section).setName("Status").setDesc("");
       // Built only from saved settings, so drawing this page never touches the disk or starts a program.
       const statusText = () => {
         if (mgr.isRunning()) return `Running on ${mgr.conn.url}${ai.installedVersion ? ` (v${ai.installedVersion})` : ""}.`;
@@ -100007,15 +100050,15 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       // First time OpenCode is turned on: set it up automatically, after the page has drawn.
       if (!mgr.setupRun && !ai.managedBinary && !ai.binaryPath && !ai.autoDeclined && Platform.isDesktopApp) {
         activeWindow.setTimeout(() => {
-          if (!containerEl.isConnected || mgr.setupRun) return;
+          if (!section.isConnected || mgr.setupRun) return;
           mgr.setupMsg = "";
           const run = mgr.autoSetup((m) => {
             mgr.setupMsg = m;
-            if (containerEl.isConnected) showStatus();
+            if (section.isConnected) showStatus();
           });
           showStatus();
           run.then(() => {
-            if (containerEl.isConnected) this.display();
+            if (section.isConnected) this.display();
           });
         }, 300);
       }
@@ -100037,14 +100080,14 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             })
           )
         );
-      containerEl.createEl("p", {
+      section.createEl("p", {
         cls: "setting-item-description",
         text: `Download slow or stuck? You can skip it: download the Windows zip yourself from github.com/${OPENCODE_REPO}/releases (your browser is usually faster), unzip it, and enter the path to opencode.exe under "OpenCode program" below. Or use the Direct API backend, which needs no download at all.`,
       });
 
       let providerId = PROVIDERS[0][0];
       let apiKey = "";
-      new Setting(containerEl)
+      new Setting(section)
         .setName("Connect an AI provider")
         .setDesc(
           "Paste an API key and it is saved into OpenCode's own auth.json (merged with anything already there), not into your vault. " +
@@ -100072,7 +100115,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           })
         );
 
-      new Setting(containerEl)
+      new Setting(section)
         .setName("OpenCode program (optional)")
         .setDesc("Full path to an opencode program you installed yourself. Leave empty to use the downloaded one or the one on your PATH.")
         .addText((t) =>
@@ -100082,7 +100125,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           })
         );
     } else {
-      new Setting(containerEl)
+      new Setting(section)
         .setName("Server URL")
         .setDesc("For a server you start yourself with `opencode serve`. Default is http://127.0.0.1:4096")
         .addText((t) =>
@@ -100091,7 +100134,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             await this.plugin.save();
           })
         );
-      new Setting(containerEl)
+      new Setting(section)
         .setName("Username")
         .setDesc("Only used if you set OPENCODE_SERVER_PASSWORD. Defaults to opencode.")
         .addText((t) =>
@@ -100103,7 +100146,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       const secretStorage = hasSecretStorage(this.app);
       const secretPicker = secretStorage && typeof SecretComponent === "function";
       if (secretPicker) {
-        new Setting(containerEl)
+        new Setting(section)
           .setName("Password")
           .setDesc(
             "Stored in Obsidian's Secret Storage, outside data.json. Select or create a secret. Secret Storage may be per device."
@@ -100120,7 +100163,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           });
       } else {
         const savedPassword = secretStorage && ai.passwordSecret ? readSecretValue(this.app, ai.passwordSecret) : str(ai.password);
-        new Setting(containerEl)
+        new Setting(section)
           .setName("Password")
           .setDesc(
             secretStorage
@@ -100151,7 +100194,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             });
           });
         if (!secretStorage) {
-          new Setting(containerEl)
+          new Setting(section)
             .setName("Remember OpenCode password")
             .setDesc("Off by default. When on, the password is saved as plain text in data.json and syncs with the vault. Leave it off to enter the password again after restarting Obsidian.")
             .addToggle((t) =>
@@ -100165,7 +100208,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       }
     }
 
-    new Setting(containerEl)
+    new Setting(section)
       .setName("Model (optional)")
       .setDesc("Format provider/model, for example anthropic/claude-sonnet-4-5. Leave empty to use OpenCode's default.")
       .addText((t) =>
@@ -100174,7 +100217,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           await this.plugin.save();
         })
       );
-    new Setting(containerEl)
+    new Setting(section)
       .setName("Agent (optional)")
       .setDesc("An OpenCode agent name. Leave empty for the default. Use Test connection to see the names available.")
       .addText((t) =>
@@ -100183,7 +100226,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           await this.plugin.save();
         })
       );
-    new Setting(containerEl)
+    new Setting(section)
       .setName("Review agent edits before applying")
       .setDesc(
         "Agent mode only. The plugin pauses edits to your question, card and deck notes plus the current note, shows a diff, and writes only the files you approve. Closing the review discards the agent's changes. This review does not cover other files or shell commands. On by default."
@@ -100194,7 +100237,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           await this.plugin.save();
         })
       );
-    new Setting(containerEl)
+    new Setting(section)
       .setName("Allow shell commands in Agent mode")
       .setDesc("Off by default. When on, OpenCode may run shell commands on this computer in Agent mode. The Markdown edit review does not approve or undo those commands. Leave it off unless you deliberately need them.")
       .addToggle((t) =>
@@ -100203,7 +100246,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           await this.plugin.save();
         })
       );
-    new Setting(containerEl).setName("Test connection").addButton((b) =>
+    new Setting(section).setName("Test connection").addButton((b) =>
       b.setButtonText("Test").onClick(async () => {
         if (ai.managed && !this.plugin.manager.isRunning()) {
           return new Notice("OpenCode isn't running yet. It starts when you use the AI chat, or press Start above.", 8000);
@@ -100230,25 +100273,25 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     if (this.plugin.backend() === "api") renderApi();
     else renderOpenCode();
 
-    new Setting(containerEl).setName("Models and request limits").setHeading();
+    section = card("Models and request limits", "Per-feature models, local price estimates and the spending caps that apply to this device.");
     const backend = this.plugin.backend();
     const caps = this.plugin.aiCapabilities();
     const capText = Object.entries(CAPABILITY_LABELS)
       .map(([key, label]) => `${label}: ${caps[key] ? "yes" : "no"}`)
       .join(" · ");
-    containerEl.createEl("p", {
+    section.createEl("p", {
       cls: "setting-item-description",
       text: `This device uses ${backend === "opencode" ? "OpenCode" : "Direct AI"}. ${capText}. Features that need a capability this backend does not have say so instead of failing silently.`,
     });
     const budget = this.plugin.aiBudget();
     const countText = `${budget.used} request${budget.used === 1 ? "" : "s"} today (~${budget.tokens.toLocaleString()} tokens, estimated)`;
-    containerEl.createEl("p", {
+    section.createEl("p", {
       cls: "setting-item-description",
       text: `${countText}. ${budget.cap ? `${Math.max(0, budget.cap - budget.used)} left under the daily cap.` : "No daily cap is set."} Counts are kept on this device only.`,
     });
     ai.features = ai.features && typeof ai.features === "object" ? ai.features : {};
     ai.pricing = ai.pricing && typeof ai.pricing === "object" ? ai.pricing : {};
-    new Setting(containerEl)
+    new Setting(section)
       .setName("Local model pricing")
       .setDesc("Optional. One line per model: model | USD per 1M input tokens | USD per 1M output tokens. The footer uses this only for a local estimate; no price list is fetched and no request changes.")
       .addTextArea((t) =>
@@ -100265,7 +100308,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       const saved = ai.features[feature.id] && typeof ai.features[feature.id] === "object" ? ai.features[feature.id] : (ai.features[feature.id] = { model: "" });
       const support = this.plugin.aiCapabilities();
       const unsupported = !!(feature.requires && !support[feature.requires]);
-      new Setting(containerEl)
+      new Setting(section)
         .setName(`${feature.label} model`)
         .setDesc(
           unsupported
@@ -100283,7 +100326,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
         });
     }
     const limitRow = (name, desc, key, min, max, fallback) => {
-      new Setting(containerEl)
+      new Setting(section)
         .setName(name)
         .setDesc(desc)
         .addText((t) => {
@@ -100320,11 +100363,11 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       1000,
       20
     );
-    containerEl.createEl("p", { cls: "setting-item-description", text: "What each feature sends:" });
+    section.createEl("p", { cls: "setting-item-description", text: "What each feature sends:" });
     for (const feature of AI_FEATURES) {
-      containerEl.createEl("p", { cls: "setting-item-description", text: `${feature.label}: ${feature.sends}` });
+      section.createEl("p", { cls: "setting-item-description", text: `${feature.label}: ${feature.sends}` });
     }
-    containerEl.createEl("p", {
+    section.createEl("p", {
       cls: "setting-item-description",
       text: "Everything here is off until Enable AI features is on. Notes, pages and learner answers are treated as untrusted data, and keys are never logged.",
     });

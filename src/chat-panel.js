@@ -82,6 +82,7 @@ class ChatPanel {
     this.turnEls = [];
     this.draining = false;
     this.libraryQuery = "";
+    this.libraryOpen = false;
     this.libraryProject = "";
     this.showArchived = false;
     this.build();
@@ -178,6 +179,13 @@ class ChatPanel {
     titles.createDiv({ cls: "qt-agent-title", text: "Study agent" });
     this.modeLabel = titles.createDiv({ cls: "qt-agent-subtitle" });
     const headActions = head.createDiv({ cls: "qt-agent-head-actions" });
+    const chats = headActions.createEl("button", {
+      text: "Chats",
+      cls: "qt-agent-icon qt-agent-history",
+      attr: { "aria-expanded": "false", "aria-controls": "qt-agent-library" },
+    });
+    this.libraryButton = chats;
+    chats.addEventListener("click", () => this.toggleLibrary());
     const nc = headActions.createEl("button", { text: "New chat", cls: "qt-agent-icon" });
     nc.addEventListener("click", () => this.newChat());
     if (this.opts.onSaveChat) {
@@ -1252,7 +1260,8 @@ class ChatPanel {
   /** The in-panel conversation list; only the caller decides where conversations live. */
   renderLibrary(root) {
     if (typeof this.opts.getLibrary !== "function") return;
-    this.libraryWrap = root.createDiv({ cls: "qt-chat-library" });
+    this.libraryWrap = root.createDiv({ cls: "qt-chat-library qt-agent-library qt-hidden", attr: { id: "qt-agent-library" } });
+    this.libraryEl = this.libraryWrap;
     this.libraryWrap.createDiv({ cls: "qt-hint", text: "Conversations (pinned first, then newest)" });
     const searchRow = this.libraryWrap.createDiv({ cls: "qt-row qt-small-row" });
     this.librarySearch = searchRow.createEl("input", {
@@ -1299,6 +1308,16 @@ class ChatPanel {
     const remove = row.createEl("button", { text: "Delete" });
     remove.addEventListener("click", () => this.deleteActive());
     this.refreshLibrary();
+  }
+
+  /** The saved-conversation list is a drawer, closed by default like a chat app. */
+  toggleLibrary() {
+    this.libraryOpen = !this.libraryOpen;
+    if (this.libraryEl) this.libraryEl.toggleClass("qt-hidden", !this.libraryOpen);
+    if (this.libraryButton) {
+      this.libraryButton.setAttr("aria-expanded", this.libraryOpen ? "true" : "false");
+      this.libraryButton.toggleClass("is-selected", this.libraryOpen);
+    }
   }
 
   refreshLibrary() {
@@ -2463,9 +2482,23 @@ class ChatPanel {
       for (let i = 0; i < 3; i++) typing.createSpan({ cls: "qt-agent-dot" });
     }
     if (this.error) {
-      const boxed = box.createDiv({ cls: "qt-error", text: this.error });
+      const boxed = box.createDiv({
+        cls: "qt-error qt-agent-error",
+        attr: { role: "alert", "aria-live": "assertive" },
+      });
+      const head = boxed.createDiv({ cls: "qt-agent-error-head" });
+      head.createDiv({ cls: "qt-agent-error-mark", text: "!", attr: { "aria-hidden": "true" } });
+      head.createDiv({
+        cls: "qt-agent-error-title",
+        text: this.busy ? "Reply interrupted" : "That reply did not finish",
+      });
+      boxed.createDiv({ cls: "qt-agent-error-text", text: this.error });
       if (this.lastSent && !this.busy) {
-        const retry = boxed.createEl("button", { text: "Retry" });
+        const retry = boxed.createEl("button", {
+          text: "Retry",
+          cls: "qt-agent-error-retry",
+          attr: { "aria-label": "Retry the last message" },
+        });
         retry.addEventListener("click", () => this.retry());
       }
     }
