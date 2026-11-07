@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status: v1.281.0 (Nov 7, 2026).** One MIT, dependency-free Obsidian plugin
+**Status: v1.282.0 (Nov 7, 2026).** One MIT, dependency-free Obsidian plugin
 (`mcq-tracker`) covering exam practice, cards and vocabulary, courses and
 calendars, study planning, document ingestion, reference/STEM tools and an
 optional BYOK/OpenCode AI layer.
@@ -18,7 +18,7 @@ surfaces, so unfinished ideas are not disguised as checked work.
 bundle up to date); `main.js` generated from 337 modules at 6,684,348 bytes.
 Re-run both before quoting these numbers.
 
-**Nov 6, 2026 working tree (no version bump):** Quick Ask, saved study
+**Shipped in 1.282.0 (Nov 7, 2026):** Quick Ask, saved study
 commands, per-chat and per-command model overrides with visible fallback,
 local `/compact`, `@` note/folder mentions, a context/token/model footer, a
 searchable, pinned, archived conversation library, concurrent chat tabs, a
@@ -35,7 +35,7 @@ bookmarked and linked; the link restores its conversation and focuses that
 message, and a deleted target is reported plainly. The clean-room Copilot
 inventory is §5.18.1; no AGPL code, prompt or stylesheet was used.
 
-**Nov 7, 2026 working tree (no version bump):** the Study agent adds
+**Also in 1.282.0:** the Study agent adds
 **plan-then-act** and **general PDF attachments**. A plan is model output from
 the existing abortable chat request, parsed defensively in `src/chat-plan.js`;
 every step is shown before it runs, **Approve**/**Skip** controls are per step,
@@ -67,10 +67,10 @@ file per version, `AGENTS.md` has the current-state summary, and the plan
 decision sheet lives in `docs/plan-decisions.md`. Duplicating that log in this
 file is what made it unreadable; it now points instead.
 
-## Handoff snapshot (updated Nov 7, 2026 at v1.281.0)
+## Handoff snapshot (updated Nov 7, 2026 at v1.282.0)
 
-- **State:** 0 unchecked core rows; Quick Chat, message bookmarks, per-message rewind and fork, Quick Ask, saved study commands, vault skills, chat projects, opt-in local memory, Markdown conversation export and local cost estimates are in the Nov 6, 2026 working tree without a version bump; Mother cram and card answer dictation shipped; 3 `[~]` partials (the owner visual, device and screenshot passes remain; no result has been pasted); four former gates decided on Nov 6, 2026 (§B).
-- **Newest feature:** The Nov 7, 2026 working tree adds **plan-then-act**, **general PDF attachments**, a **Quick Practice home-screen URI** and a **sample-vault math/chemistry audit note**, alongside the Nov 6 additions: **Quick Chat**, **message bookmarks with chat links**, **per-message rewind and fork**, **vault skills**, **local chat projects**, **opt-in local memory**, **per-conversation Markdown export**, **local cost estimates** (per send and per conversation), a **compact context ring**, a **local diagnostics bundle**, **Quick Ask**, **saved study commands**, **`@` note/folder mentions**, a **context/token footer** and a **searchable, pinned, archived conversation library** without a release or version bump. In 1.281.0, **Mother cram** is the practice-only Cards loop
+- **State:** 0 unchecked core rows; Quick Chat, message bookmarks, per-message rewind and fork, Quick Ask, saved study commands, vault skills, chat projects, opt-in local memory, Markdown conversation export and local cost estimates ship in 1.282.0; Mother cram and card answer dictation shipped; 3 `[~]` partials (the owner visual, device and screenshot passes remain; no result has been pasted); four former gates decided on Nov 6, 2026 (§B).
+- **Newest feature:** 1.282.0 adds **plan-then-act**, **general PDF attachments**, a **Quick Practice home-screen URI** and a **sample-vault math/chemistry audit note**, alongside the Nov 6 additions: **Quick Chat**, **message bookmarks with chat links**, **per-message rewind and fork**, **vault skills**, **local chat projects**, **opt-in local memory**, **per-conversation Markdown export**, **local cost estimates** (per send and per conversation), a **compact context ring**, a **local diagnostics bundle**, **Quick Ask**, **saved study commands**, **`@` note/folder mentions**, a **context/token footer** and a **searchable, pinned, archived conversation library** in one release. In 1.281.0, **Mother cram** is the practice-only Cards loop
   in the current deck: flip the card, then choose **Do not know** (send it to the
   back) or **Know** (remove it) until the queue is empty. It writes no attempt,
   grade, history or due date. 1.280.0 added **cram sessions** with exact
@@ -90,7 +90,7 @@ file is what made it unreadable; it now points instead.
 
 ## Current focus (Nov 7, 2026)
 
-No tracked core implementation row is open. The Nov 7, 2026 working tree adds
+No tracked core implementation row is open. 1.282.0 adds
 **plan-then-act** and **general PDF attachments** to the Study agent. A plan is
 model output from the existing chat request; every step is approved or skipped
 before **Run approved** sends it through the same send and write-review paths,
@@ -98,10 +98,10 @@ and a stop, decline, error or reload is reported instead of being called
 complete. **PDF** or **Study agent: attach a PDF** reads up to three vault PDFs
 locally, sends a labelled untrusted block with page citations, and refuses a
 missing, image-only or unreadable file; no OCR, upload or new dependency is
-added. The Nov 6, 2026 working tree adds
+added. The same release adds
 **Quick Chat**, **message bookmarks with chat links**, **Quick Ask** and **saved study commands**: selection or whole-note context,
 seven actions, follow-ups, copy/insert/replace, and `/name` prompts with
-context that obeys the chat's existing switches. The same tree adds explicit
+context that obeys the chat's existing switches. It also adds explicit
 `@` note/folder mentions with bounded, switch-respecting injection, a
 context/token footer that warns on overrun, and a conversation library with
 search, pins, archive and restore persisted in `settings.ai`. **Quick Chat**
@@ -720,7 +720,7 @@ was copied and no provider, network or audio path was added.
 
 The Nov 1 audit table is superseded by §3.9.6 and by §B at the top of this file.
 Its conclusion — no locally implementable row is left open — still holds at
-1.281.0.
+1.282.0.
 
 ### 3.10 Licence allow-list: what may and may not be integrated
 
@@ -1533,9 +1533,9 @@ This saves cost, works offline for easy cases, and keeps latency low.
 
 **Shipped in 1.90.0:** Direct AI agent mode uses an allow-listed tool protocol rather than file access. It can propose a question note, a card note, or one replacement of a safe body section; each proposal is reviewed and checked before it is written, and the existing AI write roots and protected review properties still apply. OpenCode keeps its richer agent mode.
 
-**Shipped in the Nov 6, 2026 working tree (unversioned): Quick Ask and saved study commands.** Quick Ask opens on the selection (or the whole active note), runs the selected action through the existing `chat` feature, and offers copy, insert, replace and follow-ups. Replace writes only if the editor selection is unchanged. Saved study commands (`Name | Prompt`) appear in Settings → AI and as a ChatPanel dropdown; `/id` expands at send time, with `{selection}`, `{note}` and `{path}` available only when the chat already allows that context. The command list is bounded (40 commands, 2,000 characters each), text is escaped and URL schemes are ignored, and no second provider, key store or network path is introduced. Files: `src/quick-ask.js`, `src/quick-ask-modal.js`, `src/study-commands.js`, `tests/quick-ask.test.js`.
+**Shipped in 1.282.0: Quick Ask and saved study commands.** Quick Ask opens on the selection (or the whole active note), runs the selected action through the existing `chat` feature, and offers copy, insert, replace and follow-ups. Replace writes only if the editor selection is unchanged. Saved study commands (`Name | Prompt`) appear in Settings → AI and as a ChatPanel dropdown; `/id` expands at send time, with `{selection}`, `{note}` and `{path}` available only when the chat already allows that context. The command list is bounded (40 commands, 2,000 characters each), text is escaped and URL schemes are ignored, and no second provider, key store or network path is introduced. Files: `src/quick-ask.js`, `src/quick-ask-modal.js`, `src/study-commands.js`, `tests/quick-ask.test.js`.
 
-**Shipped in the same working tree: Quick Chat and message bookmarks.** **Study agent: Quick Chat** opens a compact prompt from the command palette or a user-assigned hotkey and submits through the active `ChatPanel`, so it uses the same model resolution, mention/context injection, chat budget and streaming/Stop/error path; it creates no provider client, and repeated invocation reuses the open prompt. Every user and assistant message can be bookmarked; **Copy link** writes an `obsidian://mcq-tracker-chat` link that restores the conversation and focuses the exact message. Bookmarks live on the existing conversation record (`settings.ai.studyChatBookmarks` or `chatSessions[].bookmarks`), survive reload, tab switches, archive and rename, and a deleted chat or message is reported in the UI rather than throwing. Files: `src/quick-chat-modal.js`, `src/chat-bookmarks.js`, `tests/quick-chat-bookmarks.test.js`.
+**Shipped in 1.282.0: Quick Chat and message bookmarks.** **Study agent: Quick Chat** opens a compact prompt from the command palette or a user-assigned hotkey and submits through the active `ChatPanel`, so it uses the same model resolution, mention/context injection, chat budget and streaming/Stop/error path; it creates no provider client, and repeated invocation reuses the open prompt. Every user and assistant message can be bookmarked; **Copy link** writes an `obsidian://mcq-tracker-chat` link that restores the conversation and focuses the exact message. Bookmarks live on the existing conversation record (`settings.ai.studyChatBookmarks` or `chatSessions[].bookmarks`), survive reload, tab switches, archive and rename, and a deleted chat or message is reported in the UI rather than throwing. Files: `src/quick-chat-modal.js`, `src/chat-bookmarks.js`, `tests/quick-chat-bookmarks.test.js`.
 
 **Surfaces**
 - Side-panel chat on desktop; full-screen chat on mobile. ✅ 1.90.0
