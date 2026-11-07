@@ -802,6 +802,7 @@ class AgentView extends ItemView {
     if (!tab) return;
     this.chatTabs = this.chatTabs.filter((item) => item.id !== tab.id);
     try {
+      if (typeof tab.panel.stopSuggestionRotation === "function") tab.panel.stopSuggestionRotation();
       tab.panel.stopThinkFirstTicker();
     } catch (e) {
       /* the panel may have been closed already */

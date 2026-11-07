@@ -31,10 +31,14 @@ function partsToTurns(messages) {
     const role = m && m.info && m.info.role === "user" ? "user" : "assistant";
     const texts = [];
     const tools = [];
+    const reasoning = [];
     for (const p of (m && m.parts) || []) {
       if (!p) continue;
       if (p.type === "text" && !p.synthetic && !p.ignored && str(p.text).trim()) texts.push(p.text);
-      else if (p.type === "tool") {
+      else if (p.type === "reasoning" || p.type === "thinking") {
+        const text = str(p.text || p.content).trim();
+        if (text) reasoning.push(text);
+      } else if (p.type === "tool") {
         const st = p.state || {};
         const inp = st.input || {};
         const detail =
@@ -45,7 +49,11 @@ function partsToTurns(messages) {
         tools.push([str(p.tool), str(st.status), detail].filter(Boolean).join(" · "));
       }
     }
-    if (texts.length || tools.length) turns.push({ role, texts, tools });
+    if (texts.length || tools.length) {
+      const turn = { role, texts, tools };
+      if (reasoning.length) turn.reasoning = reasoning;
+      turns.push(turn);
+    }
   }
   return turns;
 }

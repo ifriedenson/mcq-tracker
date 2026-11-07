@@ -2273,6 +2273,7 @@ class AgentView extends ItemView {
     if (!tab) return;
     this.chatTabs = this.chatTabs.filter((item) => item.id !== tab.id);
     try {
+      if (typeof tab.panel.stopSuggestionRotation === "function") tab.panel.stopSuggestionRotation();
       tab.panel.stopThinkFirstTicker();
     } catch (e) {
       /* the panel may have been closed already */
@@ -25651,7 +25652,8 @@ const { buildCurrentNoteContext } = require("./note-context");
 const { thinkFirstLabel, thinkFirstRemainingMs } = require("./think-first");
 const { AgentEditReviewModal } = require("./agent-edit-review-modal");
 const { AiToolReviewModal } = require("./ai-tool-review-modal");
-const { toolProtocol } = require("./ai-tools");
+const { toolProtocol, proposalPreview } = require("./ai-tools");
+const { summarize: summarizeEdits } = require("./agent-edit-review");
 const { chatMarkdown } = require("./chat-history");
 const chatBudget = require("./chat-budget");
 const chatMentions = require("./chat-mentions");
@@ -25664,6 +25666,58 @@ const chatMemory = require("./chat-memory");
 const chatPlan = require("./chat-plan");
 const chatPdf = require("./chat-pdf");
 const { PdfAttachModal } = require("./chat-pdf-modal");
+
+const SUGGESTION_ROTATE_MS = 7000;
+const DEFAULT_SUGGESTIONS = [
+  {
+    label: "Explain this note",
+    title: "Explain this note",
+    detail: "A plain-language walkthrough of the note you have open, with one worked example.",
+    prompt: "Explain the note I have open in plain language, with one worked example.",
+  },
+  {
+    label: "Quiz me on it",
+    title: "Quiz me on it",
+    detail: "One question at a time, using the note or course you are studying.",
+    prompt: "Quiz me on the note I have open. Ask one question at a time and wait for my answer.",
+  },
+  {
+    label: "Plan my next hour",
+    title: "Plan my next hour",
+    detail: "A short study plan built from what is due and what you want to finish.",
+    prompt: "Plan the next hour of study from what is due.",
+  },
+];
+const TOOL_TITLES = {
+  read: "Read file",
+  list: "Listed files",
+  glob: "Searched files",
+  grep: "Searched notes",
+  edit: "Edited file",
+  write: "Wrote file",
+  patch: "Patched file",
+  bash: "Ran command",
+  webfetch: "Fetched page",
+  todowrite: "Updated plan",
+  todoread: "Read plan",
+  task: "Started task",
+};
+const PROPOSAL_TOOL_LABELS = {
+  create_question: "New practice question",
+  create_card: "New flashcard",
+  update_section: "Section edit",
+};
+const PROPOSAL_STATUS_LABELS = {
+  pending: "Awaiting review",
+  applied: "Applied",
+  partial: "Partly applied",
+  declined: "Discarded",
+};
+const PROPOSAL_FILE_LABELS = {
+  added: "New note",
+  modified: "Changed",
+  deleted: "Deleted",
+};
 
 function budgetRefusal(budget) {
   return `Nothing was sent: the estimated ${chatBudget.formatTokenCount(budget.tokens)}-token context is over the local ${chatBudget.formatTokenCount(budget.limit)}-token chat budget. Remove a mention or PDF attachment, or shorten the message.`;
@@ -25727,6 +25781,12 @@ class ChatPanel {
     this.libraryOpen = false;
     this.libraryProject = "";
     this.showArchived = false;
+    this.suggestionIndex = 0;
+    this.suggestionTimer = 0;
+    this.emptyDeck = null;
+    this.suggestionDots = null;
+    this.proposalCard = null;
+    this.fullscreen = false;
     this.build();
     if (this.view.plugin.backend() === "api") {
       this.turns = apiTurns(this.apiHistory());
@@ -25812,49 +25872,11 @@ class ChatPanel {
       return;
     }
 
-    // Header: who is answering, the model this tab sends with, and the two
-    // conversation actions. Per-send controls stay with the composer.
-    const head = root.createDiv({ cls: "qt-agent-head" });
-    const brand = head.createDiv({ cls: "qt-agent-brand" });
-    brand.createDiv({ cls: "qt-agent-mark", text: "✦", attr: { "aria-hidden": "true" } });
-    const titles = brand.createDiv({ cls: "qt-agent-titles" });
-    titles.createDiv({ cls: "qt-agent-title", text: "Study agent" });
-    this.modeLabel = titles.createDiv({ cls: "qt-agent-subtitle" });
-    const headActions = head.createDiv({ cls: "qt-agent-head-actions" });
-    const chats = headActions.createEl("button", {
-      text: "Chats",
-      cls: "qt-agent-icon qt-agent-history",
-      attr: { "aria-expanded": "false", "aria-controls": "qt-agent-library" },
-    });
-    this.libraryButton = chats;
-    chats.addEventListener("click", () => this.toggleLibrary());
-    const nc = headActions.createEl("button", { text: "New chat", cls: "qt-agent-icon" });
-    nc.addEventListener("click", () => this.newChat());
-    if (this.opts.onSaveChat) {
-      const save = headActions.createEl("button", { text: "Save chat", cls: "qt-agent-icon" });
-      save.addEventListener("click", () => this.saveChat());
-    }
-
-    this.hint = root.createDiv({ cls: "qt-hint qt-agent-hintbar" });
-    this.updateHint();
     this.planEl = root.createDiv({ cls: "qt-chat-plan" });
     this.renderPlan();
-    this.renderLibrary(root);
 
-    this.quickEl = null;
-    if (this.opts.quick && this.opts.quick.length) {
-      const chips = root.createDiv({ cls: "qt-chips qt-agent-suggestions" });
-      this.quickEl = chips;
-      for (const q of this.opts.quick) {
-        const c = chips.createEl("button", { text: q.label, cls: "qt-chip" });
-        c.addEventListener("click", () => {
-          if (this.busy) return;
-          if (typeof q.run === "function") q.run.call(this);
-          else this.send(q.prompt);
-        });
-      }
-    }
-
+    // Copilot puts the transcript first. The view leaf already owns the title,
+    // so the chat pane does not draw a second branded header above it.
     this.transcript = root.createDiv({ cls: "qt-chat qt-agent-thread" });
     this.status = root.createDiv({ cls: "qt-hint qt-agent-status" });
     this.thinkFirstNote = root.createDiv({ cls: "qt-hint qt-think-first qt-hidden", text: "" });
@@ -25862,40 +25884,11 @@ class ChatPanel {
     this.queueEl = root.createDiv({ cls: "qt-chat-queue qt-hidden" });
     this.renderQueue();
 
-    // Composer: one rounded card. Context switches, the draft and the send
-    // controls live inside it, the way a chat app's input area reads.
-    const composer = root.createDiv({ cls: "qt-agent-composer" });
-    this.composerEl = composer;
-    this.renderContextToggles(composer);
-    const row = composer.createDiv({ cls: "qt-agent-inputrow" });
-    this.input = row.createEl("textarea", {
-      cls: "qt-chat-input qt-agent-input",
-      attr: {
-        rows: "2",
-        placeholder: "Ask about a note, or plan a session…",
-        title: "Enter to send · Shift+Enter for a new line",
-      },
-    });
-    this.input.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && this.busy) {
-        e.preventDefault();
-        this.stop();
-        return;
-      }
-      if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
-      e.preventDefault();
-      this.send(this.input.value);
-    });
-    this.input.addEventListener("input", () => {
-      const before = chatMentions.mentionQueryAt(this.input.value, this.input.value.length);
-      if (before) this.openMentionPicker(before.query, before.start, before.end);
-      else this.closeMentionPicker();
-      this.syncMentionChips();
-      this.refreshTokenFooter();
-    });
-
-    const toolbar = composer.createDiv({ cls: "qt-agent-toolbar" });
-    const modeSel = toolbar.createEl("select", {
+    // ChatControls, below the messages and above the composer: mode on the
+    // left; context usage and the conversation/settings actions on the right.
+    const controls = root.createDiv({ cls: "qt-agent-controls" });
+    const modes = controls.createDiv({ cls: "qt-agent-control-modes" });
+    const modeSel = modes.createEl("select", {
       cls: "qt-select qt-agent-mode",
       attr: { "aria-label": "Mode", title: "Tutor or agent" },
     });
@@ -25910,17 +25903,110 @@ class ChatPanel {
       this.view.plugin.save();
       this.updateHint();
     });
-    const role = toolbar.createEl("select", {
+    const role = modes.createEl("select", {
       cls: "qt-select qt-agent-role",
       attr: { "aria-label": "Tutor role", title: "Tutor role" },
     });
     for (const item of TUTOR_ROLES) role.createEl("option", { value: item.id, text: item.label });
     role.value = this.currentRole();
     role.addEventListener("change", () => this.setRole(role.value));
-    this.atBtn = toolbar.createEl("button", {
-      cls: "qt-agent-tool",
-      text: "@",
-      attr: { "aria-label": "Attach a note or folder", title: "Attach a note or folder" },
+
+    const controlActions = controls.createDiv({ cls: "qt-agent-control-actions" });
+    this.tokenGauge = controlActions.createDiv({
+      cls: "qt-chat-token-gauge qt-hidden",
+      attr: { role: "img", "aria-label": "Conversation context usage", "aria-hidden": "true" },
+    });
+    this.tokenGaugeRing = this.tokenGauge.createDiv({ cls: "qt-chat-token-ring" });
+    this.tokenGaugeRing.createDiv({ cls: "qt-chat-token-hole" });
+    this.tokenGaugeLabel = this.tokenGauge.createSpan({ cls: "qt-chat-token-label" });
+
+    const controlButton = (label, glyph, cls) => {
+      const button = controlActions.createEl("button", {
+        text: label,
+        cls: `qt-agent-iconbtn ${cls || ""}`.trim(),
+        attr: { "aria-label": label, title: label, "data-glyph": glyph },
+      });
+      return button;
+    };
+    const nc = controlButton("New chat", "+");
+    nc.addEventListener("click", () => this.newChat());
+    const chats = controlButton("Chats", "☰", "qt-agent-history");
+    chats.setAttr("aria-expanded", "false");
+    chats.setAttr("aria-controls", "qt-agent-library");
+    this.libraryButton = chats;
+    chats.addEventListener("click", () => this.toggleLibrary());
+    if (typeof this.view.plugin.openSettings === "function") {
+      const settings = controlButton("Settings", "⚙");
+      settings.addEventListener("click", () => this.view.plugin.openSettings());
+    }
+    if (this.opts.onSaveChat) {
+      const save = controlButton("Save chat", "↓");
+      save.addEventListener("click", () => this.saveChat());
+    }
+    this.fullscreenBtn = controlButton("Expand", "⤢", "qt-agent-expand");
+    this.fullscreenBtn.setAttr("aria-pressed", "false");
+    this.fullscreenBtn.addEventListener("click", () => this.toggleFullscreen());
+
+    this.renderLibrary(root);
+
+    // The long safety explanation stays available, but not as a wall of text
+    // above every chat. Copilot keeps this kind of detail behind a control.
+    const note = root.createDiv({ cls: "qt-agent-mode-note" });
+    const noteDetails = note.createEl("details");
+    noteDetails.createEl("summary", { text: "How replies work" });
+    this.hint = noteDetails.createDiv({ cls: "qt-hint qt-agent-hintbar" });
+    noteDetails.createDiv({
+      cls: "qt-hint qt-agent-context-note",
+      text: "Context is off by default. Note text, the selection and mentions are sent only while their chip is on.",
+    });
+    this.updateHint();
+
+    // Composer: Copilot's bordered input card, with context chips above the
+    // editor and one 28px row of context/model controls below it.
+    const composer = root.createDiv({ cls: "qt-agent-composer" });
+    this.composerEl = composer;
+    composer.createDiv({ cls: "qt-agent-composer-grip", attr: { "aria-hidden": "true" } });
+    this.renderContextToggles(composer);
+    const row = composer.createDiv({ cls: "qt-agent-inputrow" });
+    this.input = row.createEl("textarea", {
+      cls: "qt-chat-input qt-agent-input",
+      attr: {
+        rows: "2",
+        placeholder: "Ask about your notes, @ to add context, / for commands",
+        title: "Enter to send · Shift+Enter for a new line",
+      },
+    });
+    this.input.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        if (this.busy) {
+          e.preventDefault();
+          this.stop();
+          return;
+        }
+        if (this.fullscreen) {
+          e.preventDefault();
+          this.toggleFullscreen(false);
+          return;
+        }
+      }
+      if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
+      e.preventDefault();
+      this.send(this.input.value);
+    });
+    this.input.addEventListener("input", () => {
+      const before = chatMentions.mentionQueryAt(this.input.value, this.input.value.length);
+      if (before) this.openMentionPicker(before.query, before.start, before.end);
+      else this.closeMentionPicker();
+      this.syncMentionChips();
+      this.refreshTokenFooter();
+    });
+
+    const toolbar = composer.createDiv({ cls: "qt-agent-toolbar" });
+    const tools = toolbar.createDiv({ cls: "qt-agent-composer-tools" });
+    this.atBtn = tools.createEl("button", {
+      cls: "qt-agent-tool qt-agent-iconbtn",
+      text: "Add context",
+      attr: { "aria-label": "Add context", title: "Attach a note or folder", "data-glyph": "@" },
     });
     this.atBtn.addEventListener("click", () => {
       const prefix = this.input.value && !/\s$/.test(this.input.value) ? " " : "";
@@ -25928,17 +26014,17 @@ class ChatPanel {
       this.mentionRange = { start: this.input.value.length - 1, end: this.input.value.length };
       this.openMentionPicker("");
     });
-    this.pdfBtn = toolbar.createEl("button", {
-      cls: "qt-agent-tool",
-      text: "PDF",
-      attr: { "aria-label": "Attach a PDF", title: "Attach a PDF" },
+    this.pdfBtn = tools.createEl("button", {
+      cls: "qt-agent-tool qt-agent-iconbtn",
+      text: "Attach PDF",
+      attr: { "aria-label": "Attach a PDF", title: "Attach a PDF", "data-glyph": "PDF" },
     });
     this.pdfBtn.addEventListener("click", () => this.attachPdf());
-    const command = toolbar.createEl("select", {
+    const command = tools.createEl("select", {
       cls: "qt-select qt-agent-command",
       attr: { "aria-label": "Insert a tutor command", title: "Insert a tutor command" },
     });
-    command.createEl("option", { value: "", text: "Tutor commands…" });
+    command.createEl("option", { value: "", text: "Commands" });
     for (const item of TUTOR_COMMANDS) command.createEl("option", { value: item.id, text: `/${item.id} — ${item.label}` });
     command.addEventListener("change", () => {
       const chosen = TUTOR_COMMANDS.find((item) => item.id === command.value);
@@ -25950,11 +26036,11 @@ class ChatPanel {
     });
     const savedCommands = this.studyCommands();
     if (savedCommands.length) {
-      const saved = toolbar.createEl("select", {
+      const saved = tools.createEl("select", {
         cls: "qt-select qt-agent-saved-command",
         attr: { "aria-label": "Insert a study command", title: "Insert a study command" },
       });
-      saved.createEl("option", { value: "", text: "Study commands…" });
+      saved.createEl("option", { value: "", text: "Study" });
       for (const item of savedCommands) saved.createEl("option", { value: item.id, text: `/${item.id} — ${item.name}` });
       saved.addEventListener("change", () => {
         const chosen = savedCommands.find((item) => item.id === saved.value);
@@ -25965,10 +26051,7 @@ class ChatPanel {
         saved.value = "";
       });
     }
-    // The model belongs with the send controls, not in the header: a long
-    // model id there squeezed the title to nothing in a narrow sidebar.
-    const submit = toolbar.createDiv({ cls: "qt-agent-submit" });
-    this.modelSelect = submit.createEl("select", {
+    this.modelSelect = tools.createEl("select", {
       cls: "qt-select qt-agent-model",
       attr: { "aria-label": "Chat model", title: "Model for this chat" },
     });
@@ -25977,21 +26060,25 @@ class ChatPanel {
       this.setChatModel(chatModels.normalizeModel(this.modelSelect.value));
       this.refreshTokenFooter();
     });
+
+    const submit = toolbar.createDiv({ cls: "qt-agent-submit" });
     const sendGroup = submit.createDiv({ cls: "qt-agent-send" });
-    this.stopBtn = sendGroup.createEl("button", { text: "Stop", cls: "qt-agent-tool" });
-    this.stopBtn.addClass("qt-hidden");
+    this.stopBtn = sendGroup.createEl("button", {
+      text: "Stop",
+      cls: "qt-agent-send-btn qt-agent-stop-btn qt-hidden",
+      attr: { "aria-label": "Stop generating", title: "Stop generating", "data-glyph": "■" },
+    });
     this.stopBtn.addEventListener("click", () => this.stop());
-    this.sendBtn = sendGroup.createEl("button", { text: "Send", cls: "mod-cta qt-agent-send-btn" });
+    this.sendBtn = sendGroup.createEl("button", {
+      text: "Send",
+      cls: "mod-cta qt-agent-send-btn",
+      attr: { "aria-label": "Send message", title: "Send message", "data-glyph": "↑" },
+    });
     this.sendBtn.addEventListener("click", () => this.send(this.input.value));
 
-    this.budgetEl = composer.createDiv({ cls: "qt-chat-budget qt-agent-budget" });
-    this.tokenGauge = composer.createDiv({
-      cls: "qt-chat-token-gauge qt-hidden",
-      attr: { role: "img", "aria-label": "Conversation context usage", "aria-hidden": "true" },
-    });
-    this.tokenGaugeRing = this.tokenGauge.createDiv({ cls: "qt-chat-token-ring" });
-    this.tokenGaugeRing.createDiv({ cls: "qt-chat-token-hole" });
-    this.tokenGaugeLabel = this.tokenGauge.createSpan({ cls: "qt-chat-token-label" });
+    const usage = composer.createEl("details", { cls: "qt-agent-usage" });
+    usage.createEl("summary", { text: "Usage and context" });
+    this.budgetEl = usage.createDiv({ cls: "qt-chat-budget qt-agent-budget" });
     this.syncMentionChips();
     this.refreshTokenFooter();
     this.refreshContextPreview();
@@ -26123,7 +26210,6 @@ class ChatPanel {
 
   updateHint() {
     if (!this.hint) return;
-    if (this.modeLabel) this.modeLabel.setText(`${this.ai.mode === "agent" ? "Agent" : "Tutor"} · ${tutorRole(this.currentRole()).label}`);
     const role = tutorRole(this.currentRole());
     // The command list lives in the toolbar dropdown; repeating it here made
     // the hint bar four lines tall in a narrow sidebar.
@@ -26147,10 +26233,21 @@ class ChatPanel {
 
   /** Per-chat context switches. Nothing is read or sent while they are off. */
   renderContextToggles(root) {
-    const wrap = root.createDiv({ cls: "qt-chips qt-chat-context" });
+    const wrap = root.createDiv({ cls: "qt-chips qt-chat-context", attr: { "aria-label": "Context sent with the next message" } });
+    const chip = (short, full) => {
+      const button = wrap.createEl("button", {
+        cls: "qt-chip qt-agent-context-chip",
+        text: short,
+        attr: { title: full, "aria-label": full, "aria-pressed": "false" },
+      });
+      // Keep the full switch name for screen readers and the existing DOM
+      // checks while the visible control stays as short as Copilot's badges.
+      button.createSpan({ cls: "qt-sr-only", text: full });
+      return button;
+    };
     if (this.opts.readNoteContext) {
-      this.noteChip = wrap.createEl("button", { cls: "qt-chip", text: "Include current note" });
-      this.selectionChip = wrap.createEl("button", { cls: "qt-chip", text: "Include selection" });
+      this.noteChip = chip("Note", "Include current note");
+      this.selectionChip = chip("Selection", "Include selection");
       this.noteChip.addEventListener("click", () => {
         this.includeNote = !this.includeNote;
         this.currentNoteContext = "";
@@ -26164,14 +26261,14 @@ class ChatPanel {
         this.refreshContextPreview();
       });
     }
-    this.mentionChip = wrap.createEl("button", { cls: "qt-chip", text: "Include mentioned notes" });
+    this.mentionChip = chip("Mentions", "Include mentioned notes");
     this.mentionChip.addEventListener("click", () => {
       this.includeMentions = !this.includeMentions;
       this.paintContext();
       this.refreshContextPreview();
     });
     if (typeof this.opts.loadSkills === "function") {
-      this.skillChip = wrap.createEl("button", { cls: "qt-chip", text: "Include skills" });
+      this.skillChip = chip("Skills", "Include skills");
       this.skillChip.addEventListener("click", async () => {
         this.includeSkills = !this.includeSkills;
         if (this.includeSkills) await this.refreshSkills();
@@ -26184,7 +26281,7 @@ class ChatPanel {
         this.refreshTokenFooter();
       });
     }
-    this.memoryChip = wrap.createEl("button", { cls: "qt-chip", text: "Include memory" });
+    this.memoryChip = chip("Memory", "Include memory");
     this.memoryChip.addEventListener("click", () => {
       this.includeMemory = !this.includeMemory;
       this.paintContext();
@@ -26193,19 +26290,20 @@ class ChatPanel {
     this.mentionChipsEl = root.createDiv({ cls: "qt-chat-mentions" });
     this.pdfChipsEl = root.createDiv({ cls: "qt-chat-pdfs" });
     this.renderPdfChips();
-    root.createDiv({
-      cls: "qt-hint",
-      text: "Off by default — note text, selection and mentions are sent only while their switch is on. Mentions are untrusted data.",
-    });
     this.paintContext();
   }
 
   paintContext() {
-    if (this.noteChip) this.noteChip.toggleClass("is-selected", this.includeNote);
-    if (this.selectionChip) this.selectionChip.toggleClass("is-selected", this.includeSelection);
-    if (this.mentionChip) this.mentionChip.toggleClass("is-selected", this.includeMentions);
-    if (this.skillChip) this.skillChip.toggleClass("is-selected", this.includeSkills);
-    if (this.memoryChip) this.memoryChip.toggleClass("is-selected", this.includeMemory);
+    const paint = (chip, on) => {
+      if (!chip) return;
+      chip.toggleClass("is-selected", on);
+      chip.setAttr("aria-pressed", on ? "true" : "false");
+    };
+    paint(this.noteChip, this.includeNote);
+    paint(this.selectionChip, this.includeSelection);
+    paint(this.mentionChip, this.includeMentions);
+    paint(this.skillChip, this.includeSkills);
+    paint(this.memoryChip, this.includeMemory);
   }
 
   mentionTargets() {
@@ -26796,9 +26894,11 @@ class ChatPanel {
   setBusy(b) {
     this.busy = b;
     if (!this.sendBtn) return;
+    // Copilot swaps the single accent button between Send and Stop. Enter in
+    // the composer still queues a follow-up while a reply is running.
     this.stopBtn.toggleClass("qt-hidden", !b);
+    this.sendBtn.toggleClass("qt-hidden", b);
     this.sendBtn.disabled = this.thinkFirstRemaining() > 0;
-    this.sendBtn.setText(b ? "Queue" : "Send");
     this.status.setText(b ? "Working... You can type a follow-up and queue it." : "");
   }
 
@@ -26893,6 +26993,8 @@ class ChatPanel {
     this.keepPartial = "";
     this.lastSent = "";
     this.sig = "";
+    this.proposalCard = null;
+    this.suggestionIndex = 0;
     this.startThinkFirst();
     this.renderModelSelect();
     this.refreshTokenFooter();
@@ -27386,6 +27488,7 @@ class ChatPanel {
     text = str(text).trim();
     if (!text || !this.ai.enabled) return false;
     if (this.busy) return this.enqueue(text);
+    this.proposalCard = null;
     if (/^\/compact\b/i.test(text)) return this.compactChat();
 
     const modelPlan = this.modelPlan(text);
@@ -27527,12 +27630,16 @@ class ChatPanel {
       this.draw();
       if (staged.length) {
         if (this.planRequest) {
+          this.setProposalCard({ kind: "edits", status: "declined", changes: staged });
           this.settlePlanRequest({ kind: "reply", text: "" });
           this.settlePlanStep({ kind: "refused", message: "The plan request tried to change a note; nothing was applied." });
         } else {
+          this.setProposalCard({ kind: "edits", status: "pending", changes: staged });
           const modal = new AgentEditReviewModal(this.view.app, plugin, staged, (result) => {
             const applied = result && Array.isArray(result.applied) ? result.applied.length : 0;
-            this.settlePlanStep(applied ? { kind: "applied", errors: (result && result.conflicts) || [] } : { kind: "declined" });
+            const conflicts = result && Array.isArray(result.conflicts) ? result.conflicts : [];
+            this.finishProposalCard(applied ? (conflicts.length ? "partial" : "applied") : "declined");
+            this.settlePlanStep(applied ? { kind: "applied", errors: conflicts } : { kind: "declined" });
           });
           if (this.planStep) this.planReviewModal = modal;
           modal.open();
@@ -27857,8 +27964,8 @@ class ChatPanel {
     return true;
   }
 
-
   async sendApi(text, currentNote, resend, model) {
+    this.proposalCard = null;
     const planning = Boolean(this.planRequest);
     const budget = this.budgetFor(text, currentNote);
     if (budget.over) {
@@ -27952,6 +28059,7 @@ class ChatPanel {
       if (proposals.length && current) {
         const total = proposals.length;
         let finished = false;
+        this.setProposalCard({ kind: "tools", status: "pending", proposals: proposals.slice() });
         const modal = new AiToolReviewModal(this.view.app, this.view.plugin, proposals, {
           onDone: (result) => {
             if (finished) return;
@@ -27959,6 +28067,7 @@ class ChatPanel {
             if (this.planReviewModal === modal) this.planReviewModal = null;
             const applied = Math.max(0, Number(result && result.applied) || 0);
             const declined = Math.max(0, total - applied);
+            this.finishProposalCard(applied ? (declined ? "partial" : "applied") : "declined");
             this.settlePlanStep({
               kind: applied ? (declined ? "partial" : "applied") : "declined",
               applied,
@@ -28031,9 +28140,310 @@ class ChatPanel {
     return true;
   }
 
+  /** Phone-width full-screen mode is a visual class; the callback clears its Escape state. */
+  toggleFullscreen(force) {
+    const next = typeof force === "boolean" ? force : !this.fullscreen;
+    this.fullscreen = next;
+    if (this.root && typeof this.root.toggleClass === "function") this.root.toggleClass("qt-agent-fullscreen", next);
+    if (this.fullscreenBtn) {
+      this.fullscreenBtn.setText(next ? "Exit full screen" : "Expand");
+      this.fullscreenBtn.setAttr("aria-pressed", next ? "true" : "false");
+      this.fullscreenBtn.setAttr("aria-label", next ? "Exit full-screen chat" : "Open the chat full screen");
+      this.fullscreenBtn.setAttr("data-glyph", next ? "⤡" : "⤢");
+    }
+    if (this.status && !this.busy) {
+      this.status.setText(next ? "Full-screen chat. Press Escape or Exit to return." : "");
+    }
+    return next;
+  }
+
+  /** Starter actions are the caller's quick prompts when present, with study defaults behind them. */
+  suggestionItems() {
+    const quick = Array.isArray(this.opts.quick) ? this.opts.quick : [];
+    return DEFAULT_SUGGESTIONS.map((fallback, index) => {
+      const item = quick[index];
+      if (!item) return { ...fallback };
+      const label = str(item.label).trim() || fallback.label;
+      return {
+        label,
+        title: label,
+        detail: fallback.detail,
+        prompt: item.prompt !== undefined ? item.prompt : fallback.prompt,
+        run: typeof item.run === "function" ? item.run : null,
+      };
+    });
+  }
+
+  startSuggestionRotation() {
+    if (this.suggestionTimer || !this.emptyDeck || this.busy) return;
+    this.suggestionTimer = activeWindow.setInterval(() => {
+      if (!this.emptyDeck || this.busy) return;
+      if (!this.transcript || !this.transcript.classList || !this.transcript.classList.contains("is-empty")) return;
+      this.showSuggestion(this.suggestionIndex + 1);
+    }, SUGGESTION_ROTATE_MS);
+    if (this.suggestionTimer && typeof this.suggestionTimer.unref === "function") this.suggestionTimer.unref();
+    if (this.view && typeof this.view.registerInterval === "function") this.view.registerInterval(this.suggestionTimer);
+  }
+
+  stopSuggestionRotation() {
+    if (!this.suggestionTimer) return;
+    activeWindow.clearInterval(this.suggestionTimer);
+    this.suggestionTimer = 0;
+  }
+
+  showSuggestion(index) {
+    const items = this.suggestionItems();
+    if (!items.length) return null;
+    const next = ((Number(index) || 0) % items.length + items.length) % items.length;
+    this.suggestionIndex = next;
+    this.paintSuggestionDeck();
+    return items[next];
+  }
+
+  activateSuggestion(item) {
+    if (!item || this.busy) return false;
+    if (typeof item.run === "function") {
+      item.run.call(this);
+      return true;
+    }
+    if (item.prompt) {
+      this.send(item.prompt);
+      return true;
+    }
+    return false;
+  }
+
+  /** Stack three cards; only the front card is clickable, and the dots choose a card directly. */
+  paintSuggestionDeck() {
+    if (!this.emptyDeck) return;
+    const items = this.suggestionItems();
+    this.emptyDeck.empty();
+    if (this.suggestionDots) this.suggestionDots.empty();
+    if (!items.length) return;
+    const active = ((Number(this.suggestionIndex) || 0) % items.length + items.length) % items.length;
+    this.suggestionIndex = active;
+    items.forEach((item, index) => {
+      const offset = (index - active + items.length) % items.length;
+      const position = offset === 0 ? "active" : offset === 1 ? "next" : "far";
+      const card = this.emptyDeck.createEl("button", {
+        cls: `qt-agent-suggestion-card is-${position}`,
+        attr: { type: "button", "aria-hidden": offset === 0 ? "false" : "true", tabindex: offset === 0 ? "0" : "-1" },
+      });
+      card.createSpan({ cls: "qt-agent-suggestion-eyebrow", text: "Suggested action" });
+      card.createSpan({ cls: "qt-agent-suggestion-title", text: item.title });
+      card.createSpan({ cls: "qt-agent-suggestion-detail", text: item.detail });
+      if (offset === 0) card.addEventListener("click", () => this.activateSuggestion(item));
+      if (this.suggestionDots) {
+        const dot = this.suggestionDots.createEl("button", {
+          cls: `qt-agent-suggestion-dot${offset === 0 ? " is-active" : ""}`,
+          attr: {
+            type: "button",
+            "aria-label": `Show suggestion ${index + 1} of ${items.length}: ${item.label}`,
+            "aria-pressed": offset === 0 ? "true" : "false",
+          },
+        });
+        dot.addEventListener("click", () => this.showSuggestion(index));
+      }
+    });
+  }
+
+  renderEmptyState(box) {
+    const intro = box.createDiv({ cls: "qt-agent-empty" });
+    const head = intro.createDiv({ cls: "qt-agent-empty-head" });
+    head.createDiv({ cls: "qt-agent-empty-mark", text: "✦", attr: { "aria-hidden": "true" } });
+    head.createDiv({ cls: "qt-agent-empty-title", text: "How can I help you study?" });
+    intro.createDiv({
+      cls: "qt-agent-empty-text",
+      text: "Ask about the note you have open, generate practice from a course note, or plan a session. Nothing is sent until you choose a card.",
+    });
+    const shell = intro.createDiv({ cls: "qt-agent-suggestion-shell" });
+    this.emptyDeck = shell.createDiv({
+      cls: "qt-agent-suggestion-deck",
+      attr: { role: "group", "aria-label": "Suggested study actions" },
+    });
+    this.suggestionDots = shell.createDiv({ cls: "qt-agent-suggestion-dots", attr: { role: "group", "aria-label": "Suggestion choices" } });
+    this.paintSuggestionDeck();
+    this.startSuggestionRotation();
+  }
+
+  /** OpenCode tool parts become compact status cards instead of monospace lines. */
+  renderToolCard(parent, line) {
+    const raw = str(line).trim();
+    if (!raw) return;
+    const parts = raw.split(" · ");
+    const name = (parts[0] || "tool").trim();
+    const state = (parts[1] || "").trim().toLowerCase();
+    const detail = parts.slice(2).join(" · ").trim();
+    const failed = /error|fail|abort|cancel/.test(state);
+    const running = /run|pend|work|progress/.test(state);
+    const kind = failed ? "is-error" : running ? "is-running" : "is-done";
+    const label = failed ? "Failed" : running ? "Running" : state ? "Done" : "Used";
+    const card = parent.createDiv({ cls: `qt-agent-tool-card ${kind}`, attr: { role: "status" } });
+    card.createSpan({
+      cls: "qt-agent-tool-card-icon",
+      text: failed ? "!" : running ? "…" : "✓",
+      attr: { "aria-hidden": "true" },
+    });
+    const copy = card.createDiv({ cls: "qt-agent-tool-card-copy" });
+    copy.createSpan({
+      cls: "qt-agent-tool-card-title",
+      text: TOOL_TITLES[name] || name.replace(/^./, (char) => char.toUpperCase()) || "Tool",
+    });
+    if (detail) copy.createSpan({ cls: "qt-agent-tool-card-detail", text: detail });
+    card.createSpan({ cls: "qt-agent-tool-card-state", text: label });
+  }
+
+  /** A compact review card stays in the transcript after the modal closes, carrying the diff. */
+  renderProposalCard(parent) {
+    const proposal = this.proposalCard;
+    if (!proposal) return;
+    const status = PROPOSAL_STATUS_LABELS[proposal.status] ? proposal.status : "pending";
+    const card = parent.createDiv({ cls: `qt-agent-proposal is-${status}`, attr: { role: "status" } });
+    const head = card.createDiv({ cls: "qt-agent-proposal-head" });
+    head.createSpan({
+      cls: "qt-agent-proposal-mark",
+      text: status === "pending" ? "…" : status === "applied" ? "✓" : status === "declined" ? "×" : "!",
+      attr: { "aria-hidden": "true" },
+    });
+    const titles = head.createDiv({ cls: "qt-agent-proposal-titles" });
+    titles.createDiv({ cls: "qt-agent-proposal-title", text: proposal.kind === "tools" ? "Proposed study actions" : "Proposed note edits" });
+    if (proposal.kind === "tools") {
+      const items = Array.isArray(proposal.proposals) ? proposal.proposals : [];
+      titles.createDiv({
+        cls: "qt-agent-proposal-detail",
+        text: `${items.length} action${items.length === 1 ? "" : "s"} ready for review.`,
+      });
+      for (const item of items.slice(0, 4)) {
+        const row = card.createDiv({ cls: "qt-agent-proposal-file" });
+        row.createSpan({ cls: "qt-agent-proposal-path", text: PROPOSAL_TOOL_LABELS[item.tool] || str(item.tool) || "Action" });
+        const preview = proposalPreview(item).split("\n").filter(Boolean)[0] || "";
+        if (preview) row.createSpan({ cls: "qt-agent-proposal-file-state", text: preview });
+      }
+      if (items.length > 4) {
+        card.createDiv({ cls: "qt-agent-proposal-note", text: `And ${items.length - 4} more action${items.length - 4 === 1 ? "" : "s"}.` });
+      }
+    } else {
+      const changes = Array.isArray(proposal.changes) ? proposal.changes : [];
+      const summary = summarizeEdits(changes);
+      titles.createDiv({
+        cls: "qt-agent-proposal-detail",
+        text: `${summary.total} note${summary.total === 1 ? "" : "s"} changed: ${summary.added} added, ${summary.modified} modified, ${summary.deleted} deleted.`,
+      });
+      for (const change of changes.slice(0, 4)) {
+        const diff = change && change.diff ? change.diff : { lines: [], added: 0, removed: 0 };
+        const row = card.createDiv({ cls: "qt-agent-proposal-file" });
+        row.createSpan({ cls: "qt-agent-proposal-path", text: str(change.path) || "Note" });
+        row.createSpan({ cls: "qt-agent-proposal-file-state", text: PROPOSAL_FILE_LABELS[change.status] || "Changed" });
+        row.createSpan({ cls: "qt-agent-proposal-count", text: `+${Number(diff.added) || 0} -${Number(diff.removed) || 0}` });
+        const lines = Array.isArray(diff.lines) ? diff.lines.slice(0, 6) : [];
+        if (lines.length) {
+          const preview = card.createDiv({ cls: "qt-agent-proposal-diff", attr: { "aria-label": `Diff preview for ${change.path}` } });
+          for (const line of lines) {
+            const kind = line && line.kind === "add" ? "add" : line && line.kind === "del" ? "del" : "context";
+            const marker = kind === "add" ? "+" : kind === "del" ? "-" : " ";
+            preview.createDiv({ cls: `qt-agent-proposal-line is-${kind}`, text: `${marker}${str(line && line.text)}` });
+          }
+        }
+      }
+      if (changes.length > 4) {
+        card.createDiv({ cls: "qt-agent-proposal-note", text: `And ${changes.length - 4} more note${changes.length - 4 === 1 ? "" : "s"}.` });
+      }
+    }
+    head.createSpan({ cls: `qt-agent-proposal-status is-${status}`, text: PROPOSAL_STATUS_LABELS[status] });
+    card.createDiv({
+      cls: "qt-agent-proposal-note",
+      text:
+        status === "pending"
+          ? "Nothing is written until you apply the review window."
+          : status === "applied"
+            ? "Applied through the existing review guard."
+            : status === "partial"
+              ? "Some changes were skipped or could not be applied."
+              : "Discarded. Your notes are unchanged.",
+    });
+  }
+
+  setProposalCard(card) {
+    this.proposalCard = card && typeof card === "object" ? card : null;
+    this.sig = "";
+    this.draw();
+    return this.proposalCard;
+  }
+
+  finishProposalCard(status) {
+    if (!this.proposalCard) return false;
+    this.proposalCard.status = ["applied", "partial", "declined"].includes(status) ? status : "declined";
+    this.sig = "";
+    this.draw();
+    return true;
+  }
+
+  /** A compact icon action that keeps its full name as text for tooltips and tests. */
+  actionButton(parent, label, glyph, className, onClick) {
+    const button = parent.createEl("button", {
+      text: label,
+      cls: `qt-agent-action ${className || ""}`.trim(),
+      attr: { "aria-label": label, title: label, "data-glyph": glyph },
+    });
+    if (typeof onClick === "function") button.addEventListener("click", onClick);
+    return button;
+  }
+
+  /** OpenCode reasoning parts become the same collapsed activity block Copilot uses. */
+  renderReasoning(parent, steps) {
+    const rows = (Array.isArray(steps) ? steps : []).map((step) => str(step).trim()).filter(Boolean).slice(0, 12);
+    if (!rows.length) return;
+    const details = parent.createEl("details", { cls: "qt-agent-reasoning" });
+    const summary = details.createEl("summary", { cls: "qt-agent-reasoning-summary" });
+    summary.createSpan({ cls: "qt-agent-reasoning-mark", text: "✧", attr: { "aria-hidden": "true" } });
+    summary.createSpan({ text: "Thought for a while" });
+    const list = details.createEl("ul", { cls: "qt-agent-reasoning-steps" });
+    for (const row of rows) list.createEl("li", { text: chatMemory.redactSecrets(row) });
+  }
+
+  /** Unique vault links in an assistant reply become a compact sources block. */
+  citationPaths(texts) {
+    const paths = [];
+    const seen = new Set();
+    const re = /\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]/g;
+    for (const text of Array.isArray(texts) ? texts : []) {
+      for (const match of str(text).matchAll(re)) {
+        const path = str(match[1]).trim();
+        if (!path || seen.has(path)) continue;
+        if (match.index > 0 && str(text)[match.index - 1] === "!") continue;
+        seen.add(path);
+        paths.push(path);
+      }
+    }
+    return paths.slice(0, 8);
+  }
+
+  renderSources(parent, paths) {
+    if (!paths.length) return;
+    const details = parent.createEl("details", { cls: "qt-agent-sources" });
+    details.createEl("summary", { text: `Sources (${paths.length})` });
+    const list = details.createEl("ul", { cls: "qt-agent-sources-list" });
+    for (const path of paths) {
+      const item = list.createEl("li");
+      const link = item.createEl("a", {
+        cls: "qt-agent-source",
+        text: path,
+        attr: { href: "#", title: `Open ${path}` },
+      });
+      link.addEventListener("click", (event) => {
+        if (event && typeof event.preventDefault === "function") event.preventDefault();
+        try {
+          this.view.app.workspace.openLinkText(path, this.opts.sourcePath || "", false);
+        } catch (e) {
+          /* the note may have moved; the citation remains readable */
+        }
+      });
+    }
+  }
+
   draw() {
     if (!this.transcript) return;
-    const sig = JSON.stringify([this.turns, this.pending, this.error, this.busy, this.streamText, this.bookmarks]);
+    const sig = JSON.stringify([this.turns, this.pending, this.error, this.busy, this.streamText, this.bookmarks, this.proposalCard, this.ai.mode]);
     if (sig === this.sig) return;
     this.sig = sig;
     const box = this.transcript;
@@ -28041,29 +28451,31 @@ class ChatPanel {
     this.turnEls = [];
     const empty = !this.turns.length && !this.pending && !this.streamText && !this.error;
     box.toggleClass("is-empty", empty);
-    if (this.quickEl) this.quickEl.toggleClass("qt-hidden", !empty || !!this.busy);
+    // The stacked cards in the empty state replace the old row of chips.
+    if (this.quickEl) this.quickEl.toggleClass("qt-hidden", true);
     const lastAssistant = [...this.turns].reverse().find((turn) => turn.role === "assistant");
+    let lastAssistantStack = null;
     let userSeen = -1;
 
+    // Copilot's row: a full-width padded card. Only the user card has a
+    // border and hover fill; assistant replies sit directly on the pane.
     const turnRow = (role) => {
-      const turn = box.createDiv({ cls: `qt-agent-turn is-${role}` });
-      turn.createDiv({
-        cls: "qt-agent-avatar",
-        text: role === "user" ? "Y" : "✦",
-        attr: { "aria-hidden": "true" },
-      });
-      const stack = turn.createDiv({ cls: "qt-agent-stack" });
-      stack.createDiv({ cls: "qt-agent-name", text: role === "user" ? "You" : "Study agent" });
-      return stack;
+      const row = box.createDiv({ cls: `qt-agent-turn is-${role}` });
+      const card = row.createDiv({ cls: `qt-agent-message is-${role}` });
+      const body = card.createDiv({ cls: "qt-agent-message-body" });
+      const message = body.createDiv({ cls: `qt-msg is-${role}` });
+      return { card, body, message };
     };
 
     this.turns.forEach((t, index) => {
       if (t.role === "user") userSeen += 1;
-      const stack = turnRow(t.role);
-      const b = stack.createDiv({ cls: `qt-msg is-${t.role}` });
-      this.turnEls[index] = b;
-      for (const text of t.texts) this.view.md(text, b.createDiv({ cls: "qt-msg-text" }), this.opts.sourcePath || "");
-      for (const line of t.tools) b.createDiv({ cls: "qt-tool", text: line });
+      const { body, message } = turnRow(t.role);
+      if (t.role === "assistant") lastAssistantStack = body;
+      this.turnEls[index] = message;
+      if (t.role === "assistant") this.renderReasoning(message, t.reasoning);
+      for (const text of t.texts) this.view.md(text, message.createDiv({ cls: "qt-msg-text" }), this.opts.sourcePath || "");
+      if (t.role === "assistant") this.renderSources(message, this.citationPaths(t.texts));
+      for (const line of t.tools) this.renderToolCard(message, line);
       const bookmark = chatBookmarks.makeBookmark(t, index);
       const assistantActions = t.role === "assistant" && t.texts.length && !this.busy;
       const branchable =
@@ -28073,54 +28485,51 @@ class ChatPanel {
         typeof this.opts.onForkTurn === "function" &&
         !(typeof this.opts.canBranch === "function" && !this.opts.canBranch());
       if (!bookmark && !assistantActions && !branchable) return;
-      const actions = b.createDiv({ cls: "qt-msg-actions" });
+      const actions = message.createDiv({ cls: "qt-msg-actions qt-agent-message-actions" });
       if (bookmark) {
         const saved = chatBookmarks.isBookmarked(this.bookmarks, bookmark);
-        const toggle = actions.createEl("button", {
-          text: saved ? "Bookmarked" : "Bookmark",
-          cls: `qt-msg-bookmark${saved ? " is-bookmarked" : ""}`,
-          attr: { "aria-label": saved ? "Remove this message bookmark" : "Bookmark this message" },
-        });
-        toggle.addEventListener("click", () => this.toggleBookmark(index, t));
+        this.actionButton(
+          actions,
+          saved ? "Bookmarked" : "Bookmark",
+          saved ? "⚑" : "⚐",
+          `qt-msg-bookmark${saved ? " is-bookmarked" : ""}`,
+          () => this.toggleBookmark(index, t)
+        );
         if (saved) {
-          const copy = actions.createEl("button", { text: "Copy link", cls: "qt-msg-bookmark-link" });
-          copy.addEventListener("click", () => this.copyBookmarkLink(index, t));
+          this.actionButton(actions, "Copy link", "⛓", "qt-msg-bookmark-link", () => this.copyBookmarkLink(index, t));
         }
       }
       if (branchable) {
         const turn = userSeen;
-        const rewind = actions.createEl("button", { text: "Rewind" });
-        rewind.addEventListener("click", () => this.opts.onRewindTurn(turn));
-        const fork = actions.createEl("button", { text: "Fork" });
-        fork.addEventListener("click", () => this.opts.onForkTurn(turn));
+        this.actionButton(actions, "Rewind", "↺", "", () => this.opts.onRewindTurn(turn));
+        this.actionButton(actions, "Fork", "⑂", "", () => this.opts.onForkTurn(turn));
       }
       if (assistantActions) {
-        const copy = actions.createEl("button", { text: "Copy" });
-        copy.addEventListener("click", () => this.copyText(t.texts.join("\n\n")));
+        this.actionButton(actions, "Copy", "⧉", "", () => this.copyText(t.texts.join("\n\n")));
         if (this.opts.onSaveNote) {
-          const sv = actions.createEl("button", {
-            text: this.opts.saveNoteLabel || "Add to My Notes",
-            cls: "qt-save-note",
-          });
-          sv.addEventListener("click", () => this.opts.onSaveNote(t.texts.join("\n\n")));
+          this.actionButton(actions, this.opts.saveNoteLabel || "Add to My Notes", "↧", "qt-save-note", () => this.opts.onSaveNote(t.texts.join("\n\n")));
         }
         if (t === lastAssistant) {
-          const again = actions.createEl("button", { text: "Regenerate" });
-          again.addEventListener("click", () => this.regenerate());
+          this.actionButton(actions, "Regenerate", "↻", "", () => this.regenerate());
         }
       }
     });
     if (this.pending) {
-      const stack = turnRow("user");
-      stack.createDiv({ cls: "qt-msg is-user is-pending" }).createDiv({ cls: "qt-msg-text", text: this.pending });
+      const { message } = turnRow("user");
+      message.addClass("is-pending");
+      message.createDiv({ cls: "qt-msg-text", text: this.pending });
     }
     if (this.streamText) {
-      const stack = turnRow("assistant");
-      const live = stack.createDiv({ cls: "qt-msg is-assistant is-streaming" });
-      this.view.md(this.streamText, live.createDiv({ cls: "qt-msg-text" }), this.opts.sourcePath || "");
+      const { message } = turnRow("assistant");
+      message.addClass("is-streaming");
+      const liveText = message.createDiv({ cls: "qt-msg-text" });
+      this.view.md(this.streamText, liveText, this.opts.sourcePath || "");
+      liveText.createSpan({ cls: "qt-agent-caret", attr: { "aria-hidden": "true" } });
     } else if (this.busy) {
-      const stack = turnRow("assistant");
-      const typing = stack.createDiv({ cls: "qt-msg is-assistant is-typing", attr: { "aria-label": "The study agent is thinking" } });
+      const { message } = turnRow("assistant");
+      message.addClass("is-typing");
+      const typing = message.createDiv({ cls: "qt-agent-thinking", attr: { role: "status", "aria-live": "polite", "aria-label": "The study agent is thinking" } });
+      typing.createSpan({ cls: "qt-agent-thinking-label", text: "Thinking" });
       for (let i = 0; i < 3; i++) typing.createSpan({ cls: "qt-agent-dot" });
     }
     if (this.error) {
@@ -28144,23 +28553,13 @@ class ChatPanel {
         retry.addEventListener("click", () => this.retry());
       }
     }
+    if (this.proposalCard) this.renderProposalCard(lastAssistantStack || box);
     if (empty) {
-      const intro = box.createDiv({ cls: "qt-agent-empty" });
-      intro.createDiv({ cls: "qt-agent-empty-mark", text: "✦", attr: { "aria-hidden": "true" } });
-      intro.createDiv({ cls: "qt-agent-empty-title", text: "How can I help you study?" });
-      intro.createDiv({
-        cls: "qt-agent-empty-text",
-        text: "Ask about the note you have open, generate practice from a course note, or plan a session. Nothing is sent until you press Send.",
-      });
-      const actions = intro.createDiv({ cls: "qt-agent-empty-actions" });
-      for (const [label, prompt] of [
-        ["Explain this note", "Explain the note I have open in plain language, with one worked example."],
-        ["Quiz me on it", "Quiz me on the note I have open. Ask one question at a time and wait for my answer."],
-        ["Plan my next hour", "Plan the next hour of study from what is due."],
-      ]) {
-        const button = actions.createEl("button", { text: label, cls: "qt-chip" });
-        button.addEventListener("click", () => this.send(prompt));
-      }
+      this.renderEmptyState(box);
+    } else {
+      this.emptyDeck = null;
+      this.suggestionDots = null;
+      this.stopSuggestionRotation();
     }
     box.scrollTop = box.scrollHeight;
   }
@@ -56330,10 +56729,14 @@ function partsToTurns(messages) {
     const role = m && m.info && m.info.role === "user" ? "user" : "assistant";
     const texts = [];
     const tools = [];
+    const reasoning = [];
     for (const p of (m && m.parts) || []) {
       if (!p) continue;
       if (p.type === "text" && !p.synthetic && !p.ignored && str(p.text).trim()) texts.push(p.text);
-      else if (p.type === "tool") {
+      else if (p.type === "reasoning" || p.type === "thinking") {
+        const text = str(p.text || p.content).trim();
+        if (text) reasoning.push(text);
+      } else if (p.type === "tool") {
         const st = p.state || {};
         const inp = st.input || {};
         const detail =
@@ -56344,7 +56747,11 @@ function partsToTurns(messages) {
         tools.push([str(p.tool), str(st.status), detail].filter(Boolean).join(" · "));
       }
     }
-    if (texts.length || tools.length) turns.push({ role, texts, tools });
+    if (texts.length || tools.length) {
+      const turn = { role, texts, tools };
+      if (reasoning.length) turn.reasoning = reasoning;
+      turns.push(turn);
+    }
   }
   return turns;
 }

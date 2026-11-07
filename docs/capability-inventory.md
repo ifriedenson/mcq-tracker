@@ -26,7 +26,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `CardExtractModal` | 0 | `tests/feature-surfaces.test.js` |
 | `CardModal` | 0 | `tests/source-recall.test.js` |
 | `CardView` | 0 | `tests/card-cram.test.js`, `tests/card-learning.test.js`, `tests/card-mother-cram.test.js`, `tests/card-reveal.test.js`, `tests/card-speech.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/interval-preview.test.js`, `tests/mobile-module-layout.test.js`, `tests/source-recall.test.js`, `tests/study-status.test.js` |
-| `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/chat-branches.test.js`, `tests/chat-panel-mentions.test.js`, `tests/diagnostics-gauge.test.js`, `tests/memory-export.test.js`, `tests/note-context.test.js`, `tests/quick-ask.test.js`, `tests/security-hardening.test.js`, `tests/skills-pricing.test.js`, `tests/think-first.test.js` |
+| `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/chat-branches.test.js`, `tests/chat-panel-copilot.test.js`, `tests/chat-panel-mentions.test.js`, `tests/diagnostics-gauge.test.js`, `tests/memory-export.test.js`, `tests/note-context.test.js`, `tests/quick-ask.test.js`, `tests/security-hardening.test.js`, `tests/skills-pricing.test.js`, `tests/think-first.test.js` |
 | `CourseOverviewModal` | 0 | `tests/core-values.test.js` |
 | `DEFAULT_SETTINGS` | 114 | `tests/grading.test.js` |
 | `DocumentReviewModal` | 0 | `tests/feature-surfaces.test.js` |
@@ -307,7 +307,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `parseNote` | 0 | `tests/adaptive-parity.test.js`, `tests/empty-state.test.js`, `tests/hints.test.js`, `tests/import.test.js`, `tests/note-quiz-clipboard.test.js`, `tests/quick-add.test.js`, `tests/transcript.test.js` |
 | `parseScheduleBlock` | 0 | `tests/calendar.test.js` |
 | `parseSections` | 0 | `tests/grading.test.js`, `tests/hints.test.js`, `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/needs-fixing.test.js`, `tests/question-types.test.js`, `tests/views.test.js` |
-| `partsToTurns` | 0 | `tests/feature-surfaces.test.js` |
+| `partsToTurns` | 0 | `tests/chat-panel-copilot.test.js`, `tests/feature-surfaces.test.js` |
 | `pauseQuickSession` | 0 | `tests/uncited-groups.test.js` |
 | `pdf` | 17 | `tests/cards-import.test.js`, `tests/feature-engines.test.js`, `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-backlinks.test.js`, `tests/pdf-deep-link.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-latex.test.js`, `tests/pdf-plus-boot.test.js`, `tests/pdf-plus.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/study-modules-3.test.js` |
 | `pdfAnnotationIndex` | 7 | `tests/study-modules-3.test.js` |

@@ -1,5 +1,7 @@
 # Study agent render evidence
 
+For the current Copilot-aligned pane, see `../study-agent-ui/README.md`.
+
 These images are not mockups. Each one is the markup `ChatPanel.build()` and
 `ChatPanel.draw()` actually produce, serialized into an Obsidian-like sidebar
 leaf, loaded with the plugin's real `styles.css` and Obsidian's default theme
