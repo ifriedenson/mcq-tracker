@@ -1,3 +1,7 @@
+## 1.288.4 - 2026-11-07
+
+- **Community-review CSS cleanup.** The five `text-decoration-line` longhands are replaced by the scanner-supported `text-decoration` shorthand, and the phone full-screen panel drops the duplicate `100vh` fallback in favor of `100dvh`. The release-hygiene test now enforces both rules. The behavior findings are unchanged: the direct `fs`/`child_process` usage is the optional desktop OpenCode installer; the unmodified PDF++ vendor bundle adds its own `child_process` plus Electron IPC and `new Function`; and `main.js` remains 6,787,753 bytes. No feature, provider, note schema or dependency changed.
+
 ## 1.288.3 - 2026-11-07
 
 - **Accessible study surfaces and release integrity.** The Web browser settings page is exposed in Settings → Global, Modules, so the opt-in browser can be enabled. Custom controls across views and modals now carry accessible names and respond to Enter and Space, narrow-width PDF, Settings, Study Stats, cards and time-block layouts wrap or scroll instead of clipping, and the current 20-image evidence set is committed. The plan is reconciled to 36 per-tool settings pages, 2,409 tests and 98 checked / 3 partial / 0 unchecked roadmap rows; the three partials are the unperformed owner manual passes. No provider, note schema or dependency changed.

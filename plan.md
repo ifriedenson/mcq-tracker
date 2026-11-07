@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status: v1.288.3 (Nov 7, 2026).** One MIT, dependency-free Obsidian plugin
+**Status: v1.288.4 (Nov 7, 2026).** One MIT, dependency-free Obsidian plugin
 (`mcq-tracker`) covering exam practice, cards and vocabulary, courses and
 calendars, study planning, document ingestion, reference/STEM tools and an
 optional BYOK/OpenCode AI layer.
@@ -67,7 +67,7 @@ file per version, `AGENTS.md` has the current-state summary, and the plan
 decision sheet lives in `docs/plan-decisions.md`. Duplicating that log in this
 file is what made it unreadable; it now points instead.
 
-## Handoff snapshot (updated Nov 7, 2026 at v1.288.3)
+## Handoff snapshot (updated Nov 7, 2026 at v1.288.4)
 
 - **1.287.0:** the Study agent exposes a **Chats** drawer control, the saved-conversation library no longer occupies the transcript, errors render as an alert card with **Retry**, and Settings → AI groups the assistant into Copilot-style cards (Study agent, Commands and skills, Session pacing and checks, Context and privacy, Knowledge record, AI backend, Models and request limits). Light and dark evidence is in `docs/render/study-agent-ui/`.
 
@@ -76,6 +76,8 @@ file is what made it unreadable; it now points instead.
 - **1.288.0:** the Study agent ships Copilot's transcript-first chat surface. The 1.286 identity header is gone; the transcript is first, followed by a **ChatControls** strip (mode/role left; token gauge, **New chat**, **Chats**, **Settings**, **Save chat** and **Expand** right), then the composer. User turns are full-width bordered cards using `--background-modifier-hover`; assistant turns are flat and unboxed with no avatars or speaker names. The composer keeps context chips above a borderless draft, with `@`/PDF/Commands/model controls left and a circular accent **Send**/**Stop** right. Empty, streaming and error states stay in the same panel. Fresh light/dark evidence is in `docs/render/study-agent-ui/`; no Obsidian app runtime is available in this environment, so the final in-app theme check remains open. Notes are in `docs/release-notes/1.288.0.md`.
 
 - **1.288.1:** the Study agent removes the remaining duplicate **Study agent** heading and intro from `AgentView`; the Obsidian leaf title is the only header. The empty suggestion card is centered and capped at `32rem` like Copilot's empty banner, the persona selector stays visible and compact at 420/320 px, rendered bodies carry Obsidian's `markdown-rendered` class, and code lines no longer wrap. Safety copy moves into **How replies work**. Tests: 2,392 pass. Notes: `docs/release-notes/1.288.1.md`.
+
+- **1.288.4:** the 1.288.3 community-plugin review's two CSS findings are closed. The five `text-decoration-line` sites use the `text-decoration` shorthand and the phone full-screen panel keeps one `height: 100dvh`, with `tests/release-hygiene.test.js` enforcing both. The behavior warnings are unchanged: the direct `fs`/`child_process` usage is the optional desktop OpenCode installer, the unmodified PDF++ bundle adds its own `child_process`, Electron IPC and `new Function`, and `main.js` remains 6,787,753 bytes (Obsidian Sync Standard's 5 MB file limit still applies). Tests: 2,409 pass. Notes: `docs/release-notes/1.288.4.md`.
 
 - **1.288.3:** this release packages the current tree after 1.288.2. It exposes the **Web browser** settings page in the module navigation (36 pages), adds accessible names and Enter/Space activation to custom controls, and hardens narrow-width PDF, Settings, Study Stats, cards, assignments and time-block layouts. The 20 current-tree captures (18 chat plus 2 settings) are in `docs/render/study-agent-ui/`; no Obsidian runtime is available, so the owner light/dark check remains open. Tests: 2,409 pass; `main.js` is 6,787,753 bytes. Notes: `docs/release-notes/1.288.3.md`.
 

@@ -22,13 +22,17 @@ test("styles avoid browser features the release scanner flags", () => {
   const css = fs.readFileSync(path.join(root, "styles.css"), "utf8");
   assert.equal(css.includes(":has("), false, "SAT layout must use sibling selectors, not :has");
   assert.equal(css.includes("column-gap"), false, "use the supported gap shorthand");
-  assert.equal(/text-decoration\s*:/.test(css), false, "use text-decoration-line or a border");
+  assert.equal(
+    /text-decoration-(?:line|style|color|thickness)\s*:/.test(css),
+    false,
+    "use the text-decoration shorthand; the scanner flags its longhands",
+  );
 });
 
 test("styles avoid duplicate height declarations and !important", () => {
   const css = fs.readFileSync(path.join(root, "styles.css"), "utf8");
   assert.equal(css.includes("!important"), false);
-  const blocks = css.match(/\.qt-wrap\.qt-mobile\s*\{[^}]*\}/g) || [];
+  const blocks = css.match(/\{[^}]*\}/g) || [];
   for (const block of blocks) {
     const heights = block.match(/[;{]\s*height\s*:/g) || [];
     assert.ok(heights.length <= 1, `duplicate height in ${block.slice(0, 80)}`);

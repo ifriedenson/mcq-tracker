@@ -715,7 +715,7 @@
 }
 
 :is(.uni-calendar-container, .uni-schedule-embed) .uni-event-card.is-reading-week .uni-event-title {
-  text-decoration-line: line-through;
+  text-decoration: line-through;
 }
 
 :is(.uni-calendar-container, .uni-schedule-embed) .uni-event-term-badge {
@@ -4266,7 +4266,7 @@ body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tra
 .callout[data-callout="sat"] > .callout-content > ul:not(:first-child) > li.task-list-item[data-task="x"],
 .callout[data-callout="sat"] > .callout-content > ul:not(:first-child) > li.task-list-item[data-task="x"] * {
   color: var(--text-normal);
-  text-decoration-line: none;
+  text-decoration: none;
 }
 .callout[data-callout="sat"] > .callout-content > ul:not(:first-child) > li[data-task="x"] {
   border-color: var(--sat-select);
@@ -8308,7 +8308,7 @@ body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tra
   min-width: 0;
 }
 .qt-time-block-task-title { flex: 1 1 auto; overflow-wrap: anywhere; }
-.qt-time-block-task-title.is-done { color: var(--text-muted); text-decoration-line: line-through; }
+.qt-time-block-task-title.is-done { color: var(--text-muted); text-decoration: line-through; }
 .qt-time-block-task-add { align-items: center; }
 .qt-time-blocks-week {
   display: grid;
@@ -11565,7 +11565,7 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 
 .qt-task-list-row.is-done .qt-task-list-title {
   color: var(--text-muted);
-  text-decoration-line: line-through;
+  text-decoration: line-through;
 }
 
 .qt-task-list-meta {
@@ -12860,7 +12860,7 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 }
 .qt-time-block-status.is-half { color: var(--color-orange); }
 .qt-time-block-status.is-done { color: var(--color-green); }
-.qt-time-block-status.is-cancelled { color: var(--text-faint); text-decoration-line: line-through; }
+.qt-time-block-status.is-cancelled { color: var(--text-faint); text-decoration: line-through; }
 .qt-time-blocks-intensity {
   display: flex;
   align-items: flex-end;
@@ -14357,7 +14357,6 @@ body.is-mobile .qt-screen .qt-local-events-tab {
     display: flex;
     flex-direction: column;
     width: 100vw;
-    height: 100vh;
     height: 100dvh;
     max-height: 100dvh;
     padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
