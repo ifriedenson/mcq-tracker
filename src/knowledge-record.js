@@ -158,17 +158,29 @@ function sentenceAround(line, index) {
   return cleanContext(text.slice(start, end));
 }
 
-function conceptId(path, kind, label, anchor) {
+function conceptId(path, kind, label, anchor, noteId) {
+  const scope = str(noteId).trim() || hashText(normalizePath(path));
   const slot = str(anchor).trim();
-  return `${hashText(normalizePath(path))}-${hashText(`${kind}|${slot ? `anchor:${slot}` : normalizeLabel(label)}`)}`;
+  return `${scope}-${hashText(`${kind}|${slot ? `anchor:${slot}` : normalizeLabel(label)}`)}`;
+}
+
+function contentHash(text) {
+  return hashText(stripFrontmatter(text).replace(/\r\n/g, "\n"));
+}
+
+function notePathAliases(value, current) {
+  const now = normalizePath(current);
+  return [...new Set((Array.isArray(value) ? value : []).map(normalizePath).filter((path) => path && path !== now))].slice(-24);
 }
 
 /**
  * Deterministic concepts from note structure. No model, no network. The same
- * note always yields the same ids, so evidence survives a rebuild.
+ * note always yields the same ids, so evidence survives a rebuild. `noteId` is
+ * the stable note token, not the current path, so a moved note keeps its ids.
  */
-function extractConcepts(text, path) {
+function extractConcepts(text, path, noteId) {
   const note = normalizePath(path);
+  const scope = str(noteId).trim() || hashText(note);
   const lines = scrubBody(text);
   const out = [];
   const seen = new Set();
@@ -186,7 +198,7 @@ function extractConcepts(text, path) {
     if (!key || seen.has(key)) return;
     seen.add(key);
     out.push({
-      id: conceptId(note, kind, clean, anchor),
+      id: conceptId(note, kind, clean, anchor, scope),
       note,
       label: clean,
       kind,
@@ -581,8 +593,14 @@ function addEvidence(concept, evidence) {
 function buildNoteEntry(path, text, questions, previous, now) {
   const note = normalizePath(path);
   const at = now instanceof Date ? now : new Date();
-  const extracted = extractConcepts(text, note);
-  const previousConcepts = Array.isArray(previous) ? previous : previous && Array.isArray(previous.concepts) ? previous.concepts : [];
+  const previousEntry = !Array.isArray(previous) && previous && typeof previous === "object" ? previous : null;
+  const noteId = str(previousEntry && previousEntry.noteId) || hashText(note);
+  const pathAliases = notePathAliases(
+    [...((previousEntry && previousEntry.pathAliases) || []), ...(previousEntry && previousEntry.path ? [previousEntry.path] : [])],
+    note
+  );
+  const extracted = extractConcepts(text, note, noteId);
+  const previousConcepts = Array.isArray(previous) ? previous : previousEntry && Array.isArray(previousEntry.concepts) ? previousEntry.concepts : [];
   const reconciled = reconcileConcepts(previousConcepts, extracted, at);
   const active = reconciled.filter((concept) => !concept.orphanedAt).map(resetEvidence);
   const ordered = (Array.isArray(questions) ? questions : [])
@@ -601,7 +619,10 @@ function buildNoteEntry(path, text, questions, previous, now) {
   }
   return {
     path: note,
+    noteId,
     label: noteLabel(note),
+    pathAliases,
+    contentHash: contentHash(text),
     updatedAt: at.toISOString(),
     missingAt: null,
     concepts: reconciled.map((concept) => {
@@ -800,9 +821,12 @@ function normalizeRecord(raw) {
     const cleanPath = normalizePath(path);
     out.notes[cleanPath] = {
       path: cleanPath,
+      noteId: str(entry.noteId) || hashText(cleanPath),
       label: cleanLabel(entry.label) || noteLabel(cleanPath),
+      pathAliases: notePathAliases(entry.pathAliases, cleanPath),
+      contentHash: str(entry.contentHash),
       updatedAt: str(entry.updatedAt),
-      missingAt: str(entry.missingAt),
+      missingAt: str(entry.missingAt) || null,
       concepts,
     };
   }
@@ -843,12 +867,14 @@ module.exports = {
   cleanLabel,
   conceptForQuestion,
   conceptId,
+  contentHash,
   coverageOf,
   emptyRecord,
   extractConcepts,
   hashText,
   markNoteMissing,
   noteLabel,
+  notePathAliases,
   noteRows,
   normalizeLabel,
   normalizePath,

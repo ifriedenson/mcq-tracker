@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 424 groups, 2937 exports. **Commands:** 221. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 424 groups, 2939 exports. **Commands:** 221. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -261,7 +261,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `intervalPreview` | 4 | `tests/interval-preview.test.js` |
 | `isDue` | 0 | `tests/card-cram.test.js`, `tests/study-status.test.js` |
 | `isExamReady` | 0 | `tests/exam-ready.test.js` |
-| `knowledgeRecord` | 30 | `tests/knowledge-record-scenario.test.js`, `tests/knowledge-record.test.js`, `tests/knowledge-store.test.js`, `tests/knowledge-view.test.js` |
+| `knowledgeRecord` | 32 | `tests/knowledge-record-scenario.test.js`, `tests/knowledge-record.test.js`, `tests/knowledge-store.test.js`, `tests/knowledge-view.test.js` |
 | `knowledgeStore` | 4 | `tests/knowledge-record-scenario.test.js`, `tests/knowledge-store.test.js` |
 | `learnkit` | 6 | `tests/learnkit.test.js` |
 | `lectureCompiler` | 6 | `tests/study-modules-2.test.js` |

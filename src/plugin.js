@@ -331,6 +331,9 @@ class QuestionTrackerPlugin extends Plugin {
     this._knowledgeRecordLoaded = false;
     this._knowledgeRecordBuild = null;
     this._knowledgeRecordSaveTimer = null;
+    this._knowledgeRecordRefreshTimer = null;
+    this._knowledgeRecordRefreshPaths = new Set();
+    this._knowledgeRecordRebuildTimer = null;
     this.plainCardIndex = new Map();
     this._calendarNoteIndex = null;
     this._calendarFolders = null;
@@ -1235,6 +1238,20 @@ class QuestionTrackerPlugin extends Plugin {
         .catch(() => {});
     }
 
+    // The opt-in knowledge record follows a source note as it is edited, moved,
+    // renamed, deleted and restored.
+    const knowledgeRenamed = (file, oldPath) => this.handleKnowledgeRecordRename(file, oldPath).catch(() => null);
+    const knowledgeDeleted = (file) => this.handleKnowledgeRecordDelete(file).catch(() => null);
+    const knowledgeCreated = (file) => this.handleKnowledgeRecordCreate(file).catch(() => null);
+    const knowledgeModified = (file) => {
+      if (!this.knowledgeRecordScannable(file)) return;
+      this.scheduleKnowledgeRecordRefresh(file.path);
+    };
+    this.registerEvent(this.app.vault.on("rename", knowledgeRenamed));
+    this.registerEvent(this.app.vault.on("delete", knowledgeDeleted));
+    this.registerEvent(this.app.vault.on("create", knowledgeCreated));
+    this.registerEvent(this.app.vault.on("modify", knowledgeModified));
+
     // Today and plans can render without this index; refresh them once the
     // reading-plan fences have been collected.
     this.indexReadingPlans()
@@ -1532,13 +1549,9 @@ class QuestionTrackerPlugin extends Plugin {
     }
     this._knowledgeRecordBuild = (async () => {
       const now = new Date();
+      if (!this._knowledgeRecordLoaded) await this.loadKnowledgeRecord();
       const files = (this.app.vault.getMarkdownFiles ? this.app.vault.getMarkdownFiles() : [])
-        .filter((file) => {
-          if (!file || !str(file.path).endsWith(".md")) return false;
-          if (file.path.startsWith("MCQ Tracker/") || file.path.startsWith(".")) return false;
-          const fm = (this.app.metadataCache.getFileCache(file) || {}).frontmatter || {};
-          return !isCardNote(fm) && !str(fm.question_id).trim();
-        })
+        .filter((file) => this.knowledgeRecordScannable(file))
         .slice(0, 1000);
       const bySource = new Map();
       const byBase = new Map();
@@ -1552,9 +1565,23 @@ class QuestionTrackerPlugin extends Plugin {
         if (!byBase.has(base)) byBase.set(base, []);
         byBase.get(base).push(question);
       }
+      const questionsFor = (source, entry) => {
+        const paths = new Set(
+          [source, entry && entry.path, ...((entry && entry.pathAliases) || [])]
+            .map((path) => knowledgeRecord.normalizePath(path))
+            .filter(Boolean)
+        );
+        const bases = new Set([...paths].map((path) => path.split("/").pop()).filter(Boolean));
+        const found = new Map();
+        for (const path of paths) for (const question of bySource.get(path) || []) found.set(question.file.path, question);
+        for (const base of bases) for (const question of byBase.get(base) || []) found.set(question.file.path, question);
+        return [...found.values()];
+      };
       const previous = this.knowledgeRecord || knowledgeRecord.emptyRecord();
+      const previousNotes = previous.notes || {};
       const next = knowledgeRecord.emptyRecord();
       const currentPaths = new Set(files.map((file) => knowledgeRecord.normalizePath(file.path)));
+      const usedPrevious = new Set();
       let read = 0;
       let failed = 0;
       for (const file of files) {
@@ -1562,9 +1589,24 @@ class QuestionTrackerPlugin extends Plugin {
           const text = await this.app.vault.cachedRead(file);
           if (str(text).length < 40) continue;
           const source = knowledgeRecord.normalizePath(file.path);
-          const base = source.split("/").pop();
-          const questions = bySource.get(source) || byBase.get(base) || [];
-          const entry = knowledgeRecord.buildNoteEntry(source, text, questions, previous.notes && previous.notes[source], now);
+          let previousEntry = previousNotes[source] || null;
+          if (previousEntry) usedPrevious.add(source);
+          if (!previousEntry) {
+            // A note can be deleted and recreated at a new path without a
+            // rename event. Match the retained missing entry by content, never
+            // by stealing a note that still exists at its old path.
+            const hash = knowledgeRecord.contentHash(text);
+            for (const [path, candidate] of Object.entries(previousNotes)) {
+              if (!candidate || usedPrevious.has(path) || currentPaths.has(knowledgeRecord.normalizePath(path))) continue;
+              if (candidate.contentHash && candidate.contentHash === hash) {
+                previousEntry = candidate;
+                usedPrevious.add(path);
+                break;
+              }
+            }
+          }
+          const questions = questionsFor(source, previousEntry);
+          const entry = knowledgeRecord.buildNoteEntry(source, text, questions, previousEntry, now);
           if (!entry.concepts.length) continue;
           next.notes[source] = entry;
           read++;
@@ -1572,10 +1614,11 @@ class QuestionTrackerPlugin extends Plugin {
           failed++;
         }
       }
-      // A deleted source note keeps its last concepts as owed work instead of
-      // disappearing on the next rebuild.
-      for (const [path, entry] of Object.entries(previous.notes || {})) {
-        if (next.notes[path] || currentPaths.has(knowledgeRecord.normalizePath(path))) continue;
+      // A source note that was deleted or moved out of the scanned set keeps its
+      // last concepts as owed work instead of disappearing on the next rebuild.
+      // A content-matched recreation above is marked used, so it is not duplicated.
+      for (const [path, entry] of Object.entries(previousNotes)) {
+        if (next.notes[path] || usedPrevious.has(path) || currentPaths.has(knowledgeRecord.normalizePath(path))) continue;
         const kept = knowledgeRecord.markNoteMissing(entry, now);
         if (kept) next.notes[path] = kept;
       }
@@ -1613,33 +1656,294 @@ class QuestionTrackerPlugin extends Plugin {
     return this.rebuildKnowledgeRecord({ quiet: true });
   }
 
+  /** True when a vault file is a source note the record indexes. */
+  knowledgeRecordScannable(file) {
+    if (!file || !str(file.path).endsWith(".md")) return false;
+    const path = knowledgeRecord.normalizePath(file.path);
+    if (!path || path.startsWith("MCQ Tracker/") || path.startsWith(".")) return false;
+    const fm = (this.app.metadataCache.getFileCache(file) || {}).frontmatter || {};
+    return !isCardNote(fm) && !str(fm.question_id).trim();
+  }
+
+  /** The record entry for a note path, following the aliases a move leaves behind. */
+  knowledgeRecordEntryFor(path) {
+    const record = this.knowledgeRecord;
+    const notes = (record && record.notes) || {};
+    const wanted = knowledgeRecord.normalizePath(path);
+    if (!wanted) return null;
+    if (notes[wanted]) return { path: wanted, entry: notes[wanted] };
+    for (const key of Object.keys(notes)) {
+      const aliases = (notes[key] && notes[key].pathAliases) || [];
+      if (aliases.some((alias) => knowledgeRecord.normalizePath(alias) === wanted)) return { path: key, entry: notes[key] };
+    }
+    return null;
+  }
+
+  /** The same content with no entry at its new path: the note moved behind our back. */
+  knowledgeRecordByContent(text, excludePath) {
+    const record = this.knowledgeRecord;
+    const notes = (record && record.notes) || {};
+    const hash = knowledgeRecord.contentHash(text);
+    const exclude = knowledgeRecord.normalizePath(excludePath);
+    for (const key of Object.keys(notes)) {
+      const entry = notes[key];
+      if (!entry || !entry.contentHash || entry.contentHash !== hash) continue;
+      if (knowledgeRecord.normalizePath(key) === exclude) continue;
+      // A note that still exists at its own path is never stolen by a duplicate.
+      if (this.app.vault.getAbstractFileByPath(knowledgeRecord.normalizePath(key))) continue;
+      return { path: key, entry };
+    }
+    return null;
+  }
+
+  /** Every question whose source_note names one of these paths or their basenames. */
+  knowledgeQuestionsFor(paths) {
+    const wanted = new Set();
+    for (const path of Array.isArray(paths) ? paths : [paths]) {
+      const clean = knowledgeRecord.normalizePath(path);
+      if (!clean) continue;
+      wanted.add(clean);
+      wanted.add(clean.split("/").pop());
+    }
+    if (!wanted.size) return [];
+    return this.getQuestions().filter((question) => {
+      const source = knowledgeRecord.normalizePath(question && question.fm && question.fm.source_note);
+      if (!source) return false;
+      return wanted.has(source) || wanted.has(source.split("/").pop());
+    });
+  }
+
+  knowledgeNotePaths(path, entry) {
+    const list = [path, entry && entry.path, ...((entry && entry.pathAliases) || [])];
+    return [...new Set(list.map((item) => knowledgeRecord.normalizePath(item)).filter(Boolean))];
+  }
+
+  /**
+   * Rebuild one note's entry in place. A moved note is found through its path
+   * aliases and a deleted-then-recreated note through its content hash, so the
+   * concepts keep the ids, firstSeen and evidence they already had.
+   */
+  async refreshKnowledgeRecordSource(path, options) {
+    if (!this.knowledgeRecordSettings().enabled) return null;
+    await this.loadKnowledgeRecord();
+    const record = this.knowledgeRecord || knowledgeRecord.emptyRecord();
+    this.knowledgeRecord = record;
+    const requested = knowledgeRecord.normalizePath(path);
+    if (!requested) return null;
+    const now = (options && options.now) || new Date();
+    const found = this.knowledgeRecordEntryFor(requested);
+    let previous = found ? found.entry : null;
+    let previousPath = found ? found.path : "";
+    let current = found ? knowledgeRecord.normalizePath(found.entry.path || found.path) || requested : requested;
+    const lookup = (target) =>
+      this.app.vault.getAbstractFileByPath(target) ||
+      (this.app.metadataCache.getFirstLinkpathDest ? this.app.metadataCache.getFirstLinkpathDest(target, "") : null);
+    let note = lookup(current);
+    if (!note && current !== requested) {
+      current = requested;
+      note = lookup(current);
+    }
+    if (!note) {
+      if (!previous) return null;
+      const key = previousPath || current;
+      record.notes[key] = knowledgeRecord.markNoteMissing(previous, now);
+      record.updatedAt = now.toISOString();
+      this.scheduleKnowledgeRecordSave();
+      return record.notes[key];
+    }
+    if (!this.knowledgeRecordScannable(note)) return null;
+    let text = "";
+    try {
+      text = await this.app.vault.cachedRead(note);
+    } catch (e) {
+      return null;
+    }
+    if (!previous) {
+      const matched = this.knowledgeRecordByContent(text, current);
+      if (matched) {
+        previous = matched.entry;
+        previousPath = matched.path;
+      }
+    }
+    const questions = this.knowledgeQuestionsFor(this.knowledgeNotePaths(current, previous));
+    const entry = knowledgeRecord.buildNoteEntry(current, text, questions, previous, now);
+    if (!entry.concepts.length) {
+      if (previous) {
+        const key = previousPath || current;
+        record.notes[key] = knowledgeRecord.markNoteMissing(previous, now);
+        record.updatedAt = now.toISOString();
+        this.scheduleKnowledgeRecordSave();
+      }
+      return null;
+    }
+    if (previousPath && previousPath !== current) delete record.notes[previousPath];
+    for (const key of Object.keys(record.notes)) {
+      if (key === current) continue;
+      const aliases = (record.notes[key] && record.notes[key].pathAliases) || [];
+      if (aliases.some((alias) => knowledgeRecord.normalizePath(alias) === current)) delete record.notes[key];
+    }
+    record.notes[current] = entry;
+    record.updatedAt = now.toISOString();
+    this.scheduleKnowledgeRecordSave();
+    return entry;
+  }
+
   /** Update one source note after an attempt, without rescanning the whole vault. */
   async refreshKnowledgeRecordFor(file) {
     if (!this.knowledgeRecordSettings().enabled) return null;
     const fm = (this.app.metadataCache.getFileCache(file) || {}).frontmatter || {};
     const source = knowledgeRecord.normalizePath(fm.source_note);
     if (!source) return null;
-    const note =
-      this.app.vault.getAbstractFileByPath(source) ||
-      (this.app.metadataCache.getFirstLinkpathDest ? this.app.metadataCache.getFirstLinkpathDest(source, "") : null);
-    if (!note) return null;
-    try {
-      const text = await this.app.vault.cachedRead(note);
-      const base = source.split("/").pop();
-      const questions = this.getQuestions().filter((question) => {
-        const qSource = knowledgeRecord.normalizePath(question && question.fm && question.fm.source_note);
-        return qSource === source || (!qSource.includes("/") && qSource === base);
-      });
-      const previous = this.knowledgeRecord && this.knowledgeRecord.notes ? this.knowledgeRecord.notes[source] : null;
-      const entry = knowledgeRecord.buildNoteEntry(source, text, questions, previous, new Date());
-      if (!this.knowledgeRecord) this.knowledgeRecord = knowledgeRecord.emptyRecord();
-      this.knowledgeRecord.notes[source] = entry;
-      this.knowledgeRecord.updatedAt = new Date().toISOString();
-      this.scheduleKnowledgeRecordSave();
-      return entry;
-    } catch (e) {
-      return null;
+    return this.refreshKnowledgeRecordSource(source);
+  }
+
+  /** Move one entry in the record, keeping its note id and remembering the old path. */
+  moveKnowledgeRecordEntry(from, to, now) {
+    const record = this.knowledgeRecord;
+    if (!record || !record.notes) return null;
+    const source = knowledgeRecord.normalizePath(from);
+    const target = knowledgeRecord.normalizePath(to);
+    if (!source || !target || source === target) return null;
+    const entry = record.notes[source] || (this.knowledgeRecordEntryFor(source) || {}).entry;
+    if (!entry) return null;
+    const at = (now || new Date()).toISOString();
+    const moved = Object.assign({}, entry, {
+      path: target,
+      noteId: str(entry.noteId) || knowledgeRecord.hashText(source),
+      label: knowledgeRecord.noteLabel(target),
+      pathAliases: knowledgeRecord.notePathAliases([...((entry.pathAliases) || []), str(entry.path) || source], target),
+      contentHash: str(entry.contentHash),
+      missingAt: null,
+      updatedAt: at,
+      concepts: (Array.isArray(entry.concepts) ? entry.concepts : []).map((concept) => Object.assign({}, concept, { note: target })),
+    });
+    delete record.notes[source];
+    for (const key of Object.keys(record.notes)) {
+      if (key === target) continue;
+      const aliases = (record.notes[key] && record.notes[key].pathAliases) || [];
+      if (aliases.some((alias) => knowledgeRecord.normalizePath(alias) === target)) delete record.notes[key];
     }
+    record.notes[target] = moved;
+    record.updatedAt = at;
+    return moved;
+  }
+
+  /** Coalesce vault activity into one incremental update per note. */
+  scheduleKnowledgeRecordRefresh(path) {
+    if (!this.knowledgeRecordSettings().enabled) return null;
+    const clean = knowledgeRecord.normalizePath(path);
+    if (!clean) return null;
+    this._knowledgeRecordRefreshPaths.add(clean);
+    if (this._knowledgeRecordRefreshTimer) return this._knowledgeRecordRefreshTimer;
+    this._knowledgeRecordRefreshTimer = activeWindow.setTimeout(() => {
+      this._knowledgeRecordRefreshTimer = null;
+      this.flushKnowledgeRecordRefresh().catch(() => {});
+    }, 600);
+    return this._knowledgeRecordRefreshTimer;
+  }
+
+  async flushKnowledgeRecordRefresh() {
+    if (this._knowledgeRecordRefreshTimer) {
+      activeWindow.clearTimeout(this._knowledgeRecordRefreshTimer);
+      this._knowledgeRecordRefreshTimer = null;
+    }
+    const paths = [...this._knowledgeRecordRefreshPaths];
+    this._knowledgeRecordRefreshPaths.clear();
+    let updated = 0;
+    for (const path of paths) {
+      if (await this.refreshKnowledgeRecordSource(path)) updated++;
+    }
+    if (updated) this.refreshViews();
+    return updated;
+  }
+
+  scheduleKnowledgeRecordRebuild() {
+    if (!this.knowledgeRecordSettings().enabled) return null;
+    if (this._knowledgeRecordRebuildTimer) return this._knowledgeRecordRebuildTimer;
+    this._knowledgeRecordRebuildTimer = activeWindow.setTimeout(() => {
+      this._knowledgeRecordRebuildTimer = null;
+      this.rebuildKnowledgeRecord({ quiet: true }).catch(() => {});
+    }, 4000);
+    return this._knowledgeRecordRebuildTimer;
+  }
+
+  async flushKnowledgeRecordRebuild() {
+    if (this._knowledgeRecordRebuildTimer) {
+      activeWindow.clearTimeout(this._knowledgeRecordRebuildTimer);
+      this._knowledgeRecordRebuildTimer = null;
+    }
+    return this.rebuildKnowledgeRecord({ quiet: true });
+  }
+
+  /** A source note moved or was renamed: move its entry rather than recreating it. */
+  async handleKnowledgeRecordRename(file, oldPath) {
+    if (!this.knowledgeRecordSettings().enabled) return null;
+    const from = knowledgeRecord.normalizePath(oldPath);
+    if (!from || !file) return null;
+    await this.loadKnowledgeRecord();
+    const isFolder = file instanceof TFolder || (!(file instanceof TFile) && !str(file.extension));
+    if (isFolder) {
+      const prefix = `${from}/`;
+      const root = knowledgeRecord.normalizePath(file.path);
+      let moved = 0;
+      for (const key of Object.keys((this.knowledgeRecord && this.knowledgeRecord.notes) || {})) {
+        if (!key.startsWith(prefix)) continue;
+        if (this.moveKnowledgeRecordEntry(key, `${root}${key.slice(from.length)}`)) moved++;
+      }
+      if (moved) {
+        this.knowledgeRecord.updatedAt = new Date().toISOString();
+        this.scheduleKnowledgeRecordSave();
+        this.refreshViews();
+      }
+      return moved;
+    }
+    const to = knowledgeRecord.normalizePath(file.path);
+    if (!to || to === from) return null;
+    this.moveKnowledgeRecordEntry(from, to);
+    // Questions may still point at the old path, so the entry is rebuilt from
+    // the file itself plus the aliases the move just added.
+    const entry = await this.refreshKnowledgeRecordSource(to);
+    this.refreshViews();
+    return entry;
+  }
+
+  /** A source note was deleted: keep its concepts as owed work, marked missing. */
+  async handleKnowledgeRecordDelete(file) {
+    if (!this.knowledgeRecordSettings().enabled || !file) return null;
+    await this.loadKnowledgeRecord();
+    const deleted = knowledgeRecord.normalizePath(file.path);
+    if (!deleted) return null;
+    const isFolder = file instanceof TFolder || (!(file instanceof TFile) && !str(file.extension));
+    const record = this.knowledgeRecord || knowledgeRecord.emptyRecord();
+    const now = new Date();
+    let marked = 0;
+    for (const key of Object.keys(record.notes || {})) {
+      if (isFolder ? key !== deleted && !key.startsWith(`${deleted}/`) : key !== deleted) continue;
+      const entry = record.notes[key];
+      if (!entry || entry.missingAt) continue;
+      record.notes[key] = knowledgeRecord.markNoteMissing(entry, now);
+      marked++;
+    }
+    if (marked) {
+      this.knowledgeRecord = record;
+      record.updatedAt = now.toISOString();
+      await knowledgeStore.saveRecord(this.app, record);
+      this.refreshViews();
+    }
+    return marked;
+  }
+
+  /** A note came back, at the same path or a new one: relink it to what it owes. */
+  async handleKnowledgeRecordCreate(file) {
+    if (!this.knowledgeRecordSettings().enabled || !file) return null;
+    if (!str(file.path).endsWith(".md")) return null;
+    const fm = (this.app.metadataCache.getFileCache(file) || {}).frontmatter || {};
+    if (str(fm.question_id).trim()) {
+      const source = knowledgeRecord.normalizePath(fm.source_note);
+      return source ? this.scheduleKnowledgeRecordRefresh(source) : null;
+    }
+    if (!this.knowledgeRecordScannable(file)) return null;
+    return this.scheduleKnowledgeRecordRefresh(file.path);
   }
 
   scheduleKnowledgeRecordSave() {

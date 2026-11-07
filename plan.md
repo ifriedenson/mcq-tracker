@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status: v1.284.0 (Nov 7, 2026).** One MIT, dependency-free Obsidian plugin
+**Status: v1.285.0 (Nov 7, 2026).** One MIT, dependency-free Obsidian plugin
 (`mcq-tracker`) covering exam practice, cards and vocabulary, courses and
 calendars, study planning, document ingestion, reference/STEM tools and an
 optional BYOK/OpenCode AI layer.
@@ -15,7 +15,7 @@ surfaces, so unfinished ideas are not disguised as checked work.
 
 **Verified at this commit:** `node --test` → 2,379 tests pass, 0 fail;
 `npm run check` clean (no dynamic code across 336 source files, vendor guard,
-bundle up to date); `main.js` generated from 339 modules at 6,740,429 bytes.
+bundle up to date); `main.js` generated from 339 modules at 6,755,271 bytes.
 Re-run both before quoting these numbers.
 
 **Shipped in 1.282.0 (Nov 7, 2026):** Quick Ask, saved study
@@ -69,8 +69,8 @@ file is what made it unreadable; it now points instead.
 
 ## Handoff snapshot (updated Nov 7, 2026 at v1.284.0)
 
-- **State:** 0 unchecked core rows; Quick Chat, message bookmarks, per-message rewind and fork, Quick Ask, saved study commands, vault skills, chat projects, opt-in local memory, Markdown conversation export and local cost estimates ship in 1.282.0; the 1.283.0 knowledge record is end-to-end scenario-verified in 1.284.0; Mother cram and card answer dictation shipped; 3 `[~]` partials (the owner visual, device and screenshot passes remain; no result has been pasted); four former gates decided on Nov 6, 2026 (§B).
-- **Newest feature:** 1.284.0 verifies the opt-in **knowledge record** (§5.27) end to end: extraction, attempt updates, misconception opening/fixing, heading rename identity, deleted-source retention, idempotent rebuild, reload, Insights actions and the bounded Study-agent digest. 1.283.0 added it: concept extraction, coverage, misconceptions and the digest, with its UI in Insights → Concepts. 1.282.0 added **plan-then-act**, **general PDF attachments**, a **Quick Practice home-screen URI** and a **sample-vault math/chemistry audit note**, alongside the Nov 6 additions: **Quick Chat**, **message bookmarks with chat links**, **per-message rewind and fork**, **vault skills**, **local chat projects**, **opt-in local memory**, **per-conversation Markdown export**, **local cost estimates** (per send and per conversation), a **compact context ring**, a **local diagnostics bundle**, **Quick Ask**, **saved study commands**, **`@` note/folder mentions**, a **context/token footer** and a **searchable, pinned, archived conversation library** in one release. In 1.281.0, **Mother cram** is the practice-only Cards loop
+- **State:** 0 unchecked core rows; Quick Chat, message bookmarks, per-message rewind and fork, Quick Ask, saved study commands, vault skills, chat projects, opt-in local memory, Markdown conversation export and local cost estimates ship in 1.282.0; the 1.283.0 knowledge record is end-to-end scenario-verified in 1.285.0 and now follows a moved or renamed note; Mother cram and card answer dictation shipped; 3 `[~]` partials (the owner visual, device and screenshot passes remain; no result has been pasted); four former gates decided on Nov 6, 2026 (§B).
+- **Newest feature:** 1.285.0 proves the opt-in **knowledge record** (§5.27) survives a source-note move, rename, delete, recreation at a new path and restore: concept ids, `firstSeen`, aliases, attempt evidence and misconception state stay attached, the Insights card and learner digest keep the note linked, and repeated rebuilds do not duplicate it. 1.284.0 verified extraction, attempt updates, misconception opening/fixing, heading rename identity, deleted-source retention, idempotent rebuild, reload, Insights actions and the bounded Study-agent digest. 1.283.0 added it: concept extraction, coverage, misconceptions and the digest, with its UI in Insights → Concepts. 1.282.0 added **plan-then-act**, **general PDF attachments**, a **Quick Practice home-screen URI** and a **sample-vault math/chemistry audit note**, alongside the Nov 6 additions: **Quick Chat**, **message bookmarks with chat links**, **per-message rewind and fork**, **vault skills**, **local chat projects**, **opt-in local memory**, **per-conversation Markdown export**, **local cost estimates** (per send and per conversation), a **compact context ring**, a **local diagnostics bundle**, **Quick Ask**, **saved study commands**, **`@` note/folder mentions**, a **context/token footer** and a **searchable, pinned, archived conversation library** in one release. In 1.281.0, **Mother cram** is the practice-only Cards loop
   in the current deck: flip the card, then choose **Do not know** (send it to the
   back) or **Know** (remove it) until the queue is empty. It writes no attempt,
   grade, history or due date. 1.280.0 added **cram sessions** with exact
@@ -3141,7 +3141,7 @@ gate; full Advanced Tables parity approved and since shipped; none of the
 UI/theme/navigation plugins adopted; local alternatives kept for Copilot, Desmos
 and Excalidraw; WordNet imported locally in full rather than as a bundled subset.
 
-### 5.27 Grill concept record — Nov 7, 2026, v1.284.0
+### 5.27 Grill concept record — Nov 7, 2026, v1.285.0
 
 **Source:** [theadamdanielsson/grill](https://github.com/theadamdanielsson/grill), MIT, pinned at commit
 `6dd05d884f8f9d77e684d6c814e160aaa5d2ea83` (8.7.12). Grill's distinctive idea is a persistent
@@ -3162,8 +3162,21 @@ or carry a misconception across notes.
 - `src/knowledge-store.js` — opt-in local `MCQ Tracker/knowledge-record.json` index. It is
   rebuildable and holds no study data that is not already in notes or question history.
 - **Source edits and removals:** a renamed heading keeps its id, records the old label as an
-  alias and keeps linked questions attached. A full rebuild retains concepts from a deleted
-  source note with `missingAt` and surfaces it as "source missing" instead of dropping it.
+  alias and keeps linked questions attached. Each note entry also carries a stable `noteId`
+  (the hash of the path it was first indexed at), a bounded `pathAliases` list and a
+  `contentHash`. Moving or renaming the note file moves the same entry — never a new one — and
+  the old path becomes an alias, so concept ids, `firstSeen`, attempt evidence and misconception
+  state survive. A note deleted and recreated at a new path is matched back by content hash. A
+  source note that is genuinely deleted is retained with `missingAt` and surfaced as
+  "source missing" instead of being dropped, and restoring it re-links the same entry.
+- **Vault events (production paths):** `handleKnowledgeRecordRename`, `handleKnowledgeRecordDelete`
+  and `handleKnowledgeRecordCreate` are registered in `startDeferredStartup` on the vault's
+  `rename`, `delete`, `create` and `modify` events; a folder move re-keys every entry under the
+  folder. `scheduleKnowledgeRecordRefresh` coalesces per-note updates on a 600 ms debounce and
+  `flushKnowledgeRecordRefresh` applies them through `refreshKnowledgeRecordSource`, which
+  rebuilds one entry and never rescans the vault. `scheduleKnowledgeRecordRebuild` /
+  `flushKnowledgeRecordRebuild` cover a bulk restore; `rebuildKnowledgeRecord` is still the
+  full-rebuild path behind the command and Insights.
 - **Projection, not a second scheduler:** each concept's counters, due date, last miss and error
   tags are rolled up from the questions with the matching `source_note` and `source_heading`.
   `next_review` remains question-level; the record never invents a parallel FSRS state.
@@ -3185,17 +3198,37 @@ external services are boundary-only. Per-concept FSRS is represented as a projec
 existing question schedule rather than a competing schedule. This is a focused incorporation of
 Grill's record idea, not a claim of line-for-line parity with all 29k lines of Grill.
 
-**Verified end to end (1.284.0):** `tests/knowledge-record-scenario.test.js` loads a real source
-note and linked questions through `QuestionTrackerPlugin`, enables the record, asserts the JSON
-at `MCQ Tracker/knowledge-record.json`, drives two correct answers and a miss through
-`recordAttempt`, tags the miss, verifies coverage/known/due and the open misconception, then a
-correct response closes it. It renames a heading and proves the id and attempts survive, removes
-the note and proves the entry is retained as missing, compares two rebuilds, reloads the plugin,
-renders Insights → Concepts, clicks Rebuild and Copy, checks the ~3,000-character digest bound
-and proves the Study-agent context is absent with the toggle off. This scenario exposed and
-fixed the previous-entry boundary in `buildNoteEntry` (it passed a whole note entry into
-`reconcileConcepts`, so every rebuild lost `firstSeen` and aliases), label-only ids that orphaned
-a renamed heading, and rebuilds that dropped deleted source notes.
+**Verified end to end (1.285.0):** `tests/knowledge-record-scenario.test.js` loads a real
+source note and linked questions through `QuestionTrackerPlugin`, enables the record and writes
+the JSON at `MCQ Tracker/knowledge-record.json`. It drives two correct answers and a miss through
+`recordAttempt`, tags the miss and checks coverage/known/due and the open misconception, then a
+correct response closes it. A heading rename keeps the id and attempts. The scenario then calls
+the real vault handlers, because `startDeferredStartup` registers the record's
+`rename`/`delete`/`create` listeners the same way Obsidian does:
+
+- **note move** — the file moves to `Courses/Biology.md` and the vault fires `rename`; one linked
+  question is rewritten to the new path and one is left on the old path on purpose. The entry
+  moves with its `noteId`, the old path becomes a `pathAliases` entry, concept ids,
+  `firstSeen`, attempt counts and the fixed misconception are unchanged, no old-path key exists,
+  and the Insights card shows the moved note without `source missing`.
+- **practice after the move** — an attempt through the question that still names the old path
+  updates the moved entry in place (no stale copy), reopens the misconception and a correct
+  answer fixes it again.
+- **note rename** — the file is renamed again and the vault fires `rename`; ids, aliases and
+  evidence are unchanged, and two full rebuilds produce byte-identical content.
+- **delete** — the vault fires `delete`; the entry is retained with `missingAt`, the row reads
+  `source missing`, the digest and Study-agent context mark it missing, and a rebuild keeps it.
+- **delete then recreate at a new path** — `create` at `Archive/Biology 101.md` relinks the same
+  `noteId` and concept ids by content hash, clears `missingAt`, keeps every alias and does not
+  double any attempt count.
+- **restore** — delete and recreate at the same path relinks again; repeated full rebuilds stay
+  idempotent and a fresh plugin instance loads the same record.
+
+The scenario also renders Insights → Concepts, clicks **Rebuild record** and **Copy learner
+digest**, checks the ~3,000-character digest bound, and proves the Study-agent context is absent
+while the toggle is off. It exposed and fixed two defects: `normalizeRecord` wrote `missingAt`
+as an empty string (so a reloaded record differed from the live one) and the incremental path
+needed alias and content matching so an attempt naming the old path could not resurrect it.
 
 **Tests:** `tests/knowledge-record.test.js` covers extraction and generic-heading skips, stable
 ids/source hashes, reconciliation/orphans, question-history projection, coverage, misconceptions,
