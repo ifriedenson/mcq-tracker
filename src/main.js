@@ -221,6 +221,7 @@ const calendarNotes = require("./calendar-notes");
 const calendarInterop = require("./calendar-interop");
 const { CalendarView, StudySlotModal, parseScheduleBlock } = require("./calendar-view");
 const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
+const quickPractice = require("./quick-practice");
 const referenceData = require("./reference-data");
 const pdfAnnotations = require("./pdf-annotations");
 const pdfInk = require("./pdf-ink");
@@ -673,6 +674,7 @@ QuestionTrackerPlugin.__test = {
   reminder,
   osNotifications,
   renderDailySettings,
+  quickPractice,
   QUICK_TIME_OPTIONS,
   QUICK_COUNT_OPTIONS,
   buildQuickQueue,

@@ -1,11 +1,11 @@
 # Plan decision sheet — answered Nov 6, 2026
 
 `plan.md` (v1.281.0) now has **98 checked roadmap rows, 3 `[~]` partial rows
-and 0 unchecked rows**. The three partials are owner manual passes that are being
-run now. Card answer dictation shipped with an editable transcript; PDF→FRQ
-import remains a text-layer preview-then-create command; four former gates
-remain closed by decision: TTS/audio, pronunciation, the FRQ accuracy claim and
-pilot thresholds.
+and 0 unchecked rows**. The three partials are owner manual passes; no pass/fail
+result has been pasted into this sheet, so none is claimed complete. Card answer
+dictation shipped with an editable transcript; PDF→FRQ import remains a
+text-layer preview-then-create command; four former gates remain closed by
+decision: TTS/audio, pronunciation, the FRQ accuracy claim and pilot thresholds.
 
 The plan's **§B** table lists the three open passes; **§C** lists what was
 decided against. Nothing below needs another product decision before an agent
@@ -15,26 +15,35 @@ can work, except the three passes that need a real window or device.
 
 ## 1. Math/chemistry rendering audit — `plan.md` row under **§5.16.1**
 
-**Decision:** the owner is running the checklist now. The row stays `[~]` until
-the result is pasted into this file or chat; no visual pass is claimed yet.
-
-Run `docs/math-rendering-audit.md` once: paste its samples into a scratch note,
-compare against the goldens it names, and report pass/fail per item. Closes §11
-E1 when the result arrives. No code follows.
+**Decision:** no visual pass is claimed. The renderer audit, golden tests and
+chemistry fallback are shipped, and the sample vault now includes the studyable
+note `samples/sample-vault/Questions/math-audit.md`. This environment has no
+real Obsidian window, so the visual check cannot be run or fabricated here.
+Open the sample vault in Obsidian and run that note through **Practice → answer
+→ review**, a **timed test**, **Cards**, and a **review chat** in light and dark
+themes and a narrow phone-sized pane. Paste pass/fail per surface into this
+sheet; §11 E1 closes only then.
 
 ## 2. Mobile audit on real devices — `plan.md` row under **§5.19**
 
-**Decision:** the owner is testing one iOS and one Android device now, following
-`docs/mobile-layout.md` (touch targets, day rail, keyboard dismissal, safe
-areas). The row stays `[~]` until both results are pasted. Closes §11 E2 when
-they arrive. Mobile practice already ships; no claim is made before the result.
+**Decision:** no device result is claimed. The plugin now registers
+`obsidian://mcq-tracker-quick?minutes=5` (and `count=10` / `course=Biology`
+variants) through the real Quick Practice entry point, and the headless layout
+and URI tests pass. No iOS or Android device is available in this environment,
+so run `docs/mobile-layout.md` on one of each: touch targets, day rail, keyboard
+dismissal, safe areas, app-switch pause/resume and the home-screen link. Paste
+both results here; §11 E2 closes only then.
 
 ## 3. README screenshots — `plan.md` row under **§10b**
 
-**Decision:** the owner is capturing the four screenshots now (practice session,
-review dock, study dashboard, PDF reader). The row stays `[~]` until the images
-are supplied; filenames, folder, captions and README wiring follow. Closes the
-§10b growth refresh when the images arrive.
+**Decision:** no screenshots are claimed. This environment cannot open a real
+Obsidian window (no X server or Xvfb; `sudo` is blocked by `no_new_privs`), and
+generated or mock images would misrepresent the plugin. Capture four real
+window screenshots to `docs/images/practice.png` (question and choices),
+`docs/images/review-dock.png` (the note review dock), `docs/images/today.png`
+(due counts and Start 5 minutes) and `docs/images/pdf-reader.png` (PDF reader
+with annotations). Add captions and README image links only after the files
+exist; the §10b growth refresh closes then.
 
 ## 4. Optional TTS / audio-only commute — **decided**
 

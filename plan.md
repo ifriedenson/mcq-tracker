@@ -13,9 +13,9 @@ surfaces, so unfinished ideas are not disguised as checked work.
 §3.9.6 is the gate table, §3.10 is the licence allow-list, and
 [docs/plan-decisions.md](docs/plan-decisions.md) is the owner decision sheet.
 
-**Verified at this commit:** `node --test` → 2,357 tests pass, 0 fail;
+**Verified at this commit:** `node --test` → 2,365 tests pass, 0 fail;
 `npm run check` clean (no dynamic code across 334 source files, vendor guard,
-bundle up to date); `main.js` generated from 337 modules at 6,680,960 bytes.
+bundle up to date); `main.js` generated from 337 modules at 6,684,348 bytes.
 Re-run both before quoting these numbers.
 
 **Nov 6, 2026 working tree (no version bump):** Quick Ask, saved study
@@ -69,8 +69,8 @@ file is what made it unreadable; it now points instead.
 
 ## Handoff snapshot (updated Nov 7, 2026 at v1.281.0)
 
-- **State:** 0 unchecked core rows; Quick Chat, message bookmarks, per-message rewind and fork, Quick Ask, saved study commands, vault skills, chat projects, opt-in local memory, Markdown conversation export and local cost estimates are in the Nov 6, 2026 working tree without a version bump; Mother cram and card answer dictation shipped; 3 `[~]` partials (the owner visual, device and screenshot passes now being run); four former gates decided on Nov 6, 2026 (§B).
-- **Newest feature:** The Nov 7, 2026 working tree adds **plan-then-act** and **general PDF attachments**, alongside the Nov 6 additions: **Quick Chat**, **message bookmarks with chat links**, **per-message rewind and fork**, **vault skills**, **local chat projects**, **opt-in local memory**, **per-conversation Markdown export**, **local cost estimates** (per send and per conversation), a **compact context ring**, a **local diagnostics bundle**, **Quick Ask**, **saved study commands**, **`@` note/folder mentions**, a **context/token footer** and a **searchable, pinned, archived conversation library** without a release or version bump. In 1.281.0, **Mother cram** is the practice-only Cards loop
+- **State:** 0 unchecked core rows; Quick Chat, message bookmarks, per-message rewind and fork, Quick Ask, saved study commands, vault skills, chat projects, opt-in local memory, Markdown conversation export and local cost estimates are in the Nov 6, 2026 working tree without a version bump; Mother cram and card answer dictation shipped; 3 `[~]` partials (the owner visual, device and screenshot passes remain; no result has been pasted); four former gates decided on Nov 6, 2026 (§B).
+- **Newest feature:** The Nov 7, 2026 working tree adds **plan-then-act**, **general PDF attachments**, a **Quick Practice home-screen URI** and a **sample-vault math/chemistry audit note**, alongside the Nov 6 additions: **Quick Chat**, **message bookmarks with chat links**, **per-message rewind and fork**, **vault skills**, **local chat projects**, **opt-in local memory**, **per-conversation Markdown export**, **local cost estimates** (per send and per conversation), a **compact context ring**, a **local diagnostics bundle**, **Quick Ask**, **saved study commands**, **`@` note/folder mentions**, a **context/token footer** and a **searchable, pinned, archived conversation library** without a release or version bump. In 1.281.0, **Mother cram** is the practice-only Cards loop
   in the current deck: flip the card, then choose **Do not know** (send it to the
   back) or **Know** (remove it) until the queue is empty. It writes no attempt,
   grade, history or due date. 1.280.0 added **cram sessions** with exact
@@ -139,7 +139,7 @@ closed decisions; see [docs/plan-decisions.md](docs/plan-decisions.md).
 | **Study workspace** | 32 per-tool settings pages plus a Global index, and the workspace tabs (Cornell, lecture log, goals, Feynman, Recall Scheduler, topic planner, Study Flow, Subject Manager, quiz index, course hub, tasks, annotations, Deep Notes, Retention, Vocabulary, Quiz Maker, SFC cards, CBT, SAT math, Read aloud, lecture notes, bookmarks, Feynman AI, PDF annotations, scheduler fitting, study map, vault search, card archive, study nudge, reading library, course templates), writing-session count, vault task index and tag rename, opt-in Web browser | `src/study-tool-settings.js`, `src/settings-global.js`, `src/study-workspace*.js`, `src/vault-task-index.js`, `src/web-browser*.js` |
 | **Advanced Tables** | Upstream 0.23.2 parity: draft completion, cell editing and Tab/Enter navigation in reading and source views, row/column insert/delete/move, formatting and alignment, TBLFM formulas (datetime and duration aware), CSV/TSV import, transpose, header toggle, stable body-row sorting, merged cells, controls panel | `src/table-editor.js`, `src/table-formulas.js`, `src/table-controls-view.js`, `src/table-csv-modal.js` |
 | **Canvas** | Six clean-room slices: Canvas ⇄ Markdown, map walking and auto-layout, kanban columns, auto-link, query groups, presentations | `src/canvas-*.js` |
-| **Quality** | 2,314-test suite, capability and security inventories re-derived by tests, dynamic-code lint, vendor guard, one release note per version, licence audit and `NOTICES.md` | `tests/`, `docs/capability-inventory.md`, `docs/security-inventory.md`, `scripts/` |
+| **Quality** | 2,365-test suite, capability and security inventories re-derived by tests, dynamic-code lint, vendor guard, one release note per version, licence audit and `NOTICES.md` | `tests/`, `docs/capability-inventory.md`, `docs/security-inventory.md`, `scripts/` |
 
 ## B. Partial rows (3) — owner manual passes still open
 
@@ -152,9 +152,9 @@ Full decision record: [docs/plan-decisions.md](docs/plan-decisions.md).
 
 | Row | What already ships | What is missing | Gate |
 |---|---|---|---|
-| Math/chemistry visual audit (§5.16.1) | Renderer audit, golden tests, chemistry fallback (1.80.0), local STEM blocks | Looking at it in a real Obsidian window | §11 E1 |
-| Real iOS/Android audit (§5.19) | Mobile quick sessions, responsive shell | A physical device pass | §11 E2 |
-| README screenshots (§10b) | README, docs and `samples/sample-vault` | Four screenshots from a real window | §11 E1 |
+| Math/chemistry visual audit (§5.16.1) | Renderer audit, golden tests, chemistry fallback (1.80.0), local STEM blocks, studyable sample-vault audit note | Visual pass in a real Obsidian window (light/dark, narrow pane, timed test, cards, chat) | §11 E1 |
+| Real iOS/Android audit (§5.19) | Mobile quick sessions, responsive shell, `obsidian://mcq-tracker-quick` time/count/course links | A physical iOS and Android pass | §11 E2 |
+| README screenshots (§10b) | README, docs and the five-question `samples/sample-vault` | Four real-window screenshots; mock images are not acceptable | §11 E1 |
 
 ## C. Decided against — do not re-propose without an owner decision
 
@@ -1364,7 +1364,7 @@ Build on the existing timed test.
 - Confirm `\ce{...}` chemistry notation renders in the same places.
 - Add golden tests with math-heavy sample questions (fractions, matrices, integrals, chemical equations).
 
-**Automated audit shipped in 1.80.0:** every learner-facing surface uses `renderMarkdownInto`/Obsidian's `MarkdownRenderer`; answer choices are rendered as Markdown rather than plain list text. `src/math-rendering.js` adds a conservative render-time `\ce{}` fallback for simple formulas, charges and equations, and leaves complex mhchem syntax untouched. `tests/math-rendering.test.js` is the golden corpus for fractions, matrices, integrals, chemical formulas/equations, choices, explanations, code fences and the practice review path. The visual check on a real Obsidian window and test vault is still open and documented in `docs/math-rendering-audit.md`.
+**Automated audit shipped in 1.80.0:** every learner-facing surface uses `renderMarkdownInto`/Obsidian's `MarkdownRenderer`; answer choices are rendered as Markdown rather than plain list text. `src/math-rendering.js` adds a conservative render-time `\ce{}` fallback for simple formulas, charges and equations, and leaves complex mhchem syntax untouched. `tests/math-rendering.test.js` is the golden corpus for fractions, matrices, integrals, chemical formulas/equations, choices, explanations, code fences and the practice review path. The sample vault now ships the studyable audit note `samples/sample-vault/Questions/math-audit.md`, so the remaining visual check needs no pasted scratch note. The visual check on a real Obsidian window and test vault is still open and documented in `docs/math-rendering-audit.md`; this environment has no real Obsidian window.
 
 **5.16.2 Chemistry structures**
 - Support `smiles` code blocks in stimuli and choices when the Chem plugin is installed. Show a clear message when it is not (and which plugin provides it).
@@ -1745,7 +1745,7 @@ marked ○ as a locally implementable gap.
 **Entry points**
 - Ribbon icon and command: **Quick Practice**.
 - A **Today** screen: due counts, next class or exam, and a single **Start 5 minutes** button.
-- Obsidian URI so users can add a home-screen shortcut (confirm what the OS allows).
+- **Shipped:** Obsidian URI `obsidian://mcq-tracker-quick?minutes=5` for a home-screen shortcut; `count=10` selects a question-count session and `course=Biology` scopes the queue. The OS still decides whether it creates the shortcut; the plugin registers the action, validates inputs and opens the same saved Quick Practice session.
 
 **Session design**
 - Pick by **time** (2/5/10 min) or by **count** (5/10/20 items).
@@ -2350,10 +2350,10 @@ Names are proposals; keep existing ones unchanged.
 - [x] Item-type model (§4.2)
 - [x] Append-only `history` with unique attempt ids, duplicate-safe retries, a merge helper and phone/desktop conflict tests (§5.19) — shipped in 1.76.0; the repair command also rebuilds counters and streak, while scheduling is left unchanged
 - [x] Test suite, CI, and quality gates for agent-written code (§8.5)
-- [~] **Blocked — manual gate** Math/chemistry rendering audit on a test vault (§5.16.1) — renderer audit, golden tests and chemistry fallback shipped in 1.80.0; the visual Obsidian check needs a real window
-- [~] **Blocked** Mobile audit on real iOS and Android devices (§5.19) — no real device available here
+- [~] **Blocked — manual gate** Math/chemistry rendering audit on a test vault (§5.16.1) — renderer audit, golden tests, chemistry fallback and the studyable `samples/sample-vault/Questions/math-audit.md` note are shipped; the visual Obsidian pass needs a real window, which this environment does not have
+- [~] **Blocked** Mobile audit on real iOS and Android devices (§5.19) — `obsidian://mcq-tracker-quick` time/count/course links and the headless layout tests ship; no physical iOS or Android device is available here
 - [x] Confirm licenses of anything currently bundled (§9) — audited in NOTICES and `docs/license-audit.md`; every future candidate still needs a repo-level check before use
-- [~] **Partial** README, screenshots, and sample vault refresh (§10b) — README, docs and the `samples/sample-vault` walkthrough are done; screenshots remain a real-Obsidian manual gate
+- [~] **Partial** README, screenshots, and sample vault refresh (§10b) — README, docs and the five-question `samples/sample-vault` are done; the four screenshots need a real Obsidian window and are not fabricated here
 
 ### Phase 1: Quick Practice and smarter scheduling
 

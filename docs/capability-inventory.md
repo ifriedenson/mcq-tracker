@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 421 groups, 2892 exports. **Commands:** 218. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 422 groups, 2902 exports. **Commands:** 218. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -330,6 +330,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `qtiArchive` | 1 | `tests/cards-import.test.js` |
 | `quickAdd` | 7 | `tests/hints.test.js`, `tests/note-quiz-clipboard.test.js`, `tests/quick-add.test.js` |
 | `quickAsk` | 8 | `tests/quick-ask.test.js` |
+| `quickPractice` | 10 | `tests/quick-practice-uri.test.js` |
 | `quickRemainingSeconds` | 0 | `tests/uncited-groups.test.js` |
 | `quizBlock` | 18 | `tests/numeric-quiz.test.js`, `tests/quiz-bind.test.js`, `tests/quiz-block.test.js`, `tests/quiz-note-gate.test.js`, `tests/quiz-results.test.js`, `tests/reorder.test.js`, `tests/shared-choice.test.js` |
 | `quizClipboard` | 2 | `tests/note-quiz-clipboard.test.js` |
@@ -437,7 +438,7 @@ the table and fails if a group, export count, command or citing test drifts.
 
 | Command id | Name | Callback | Test |
 | --- | --- | --- | --- |
-| `open-practice-view` | Open practice view | `activateView` | `tests/calendar.test.js`, `tests/cards-extract.test.js`, `tests/daily-quiz.test.js`, `tests/modules.test.js`, `tests/plugin.test.js`, `tests/today.test.js`, `tests/views.test.js` |
+| `open-practice-view` | Open practice view | `activateView` | `tests/calendar.test.js`, `tests/cards-extract.test.js`, `tests/daily-quiz.test.js`, `tests/modules.test.js`, `tests/plugin.test.js`, `tests/quick-practice-uri.test.js`, `tests/today.test.js`, `tests/views.test.js` |
 | `open-welcome` | Open welcome guide | `openWelcome` | `tests/welcome.test.js` |
 | `focus-start` | Focus: start a 25-minute session | `startFocusSession` | `tests/focus.test.js` |
 | `tag-timer-stop-all` | Tag Timer: stop all running timers | `stopAllTagTimers` | `tests/tag-timer.test.js` |
@@ -622,8 +623,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `error-log` | Show error log | `activateInsights` | `tests/modules.test.js`, `tests/plugin.test.js`, `tests/views.test.js` |
 | `find-question` | Find a question by ID | — | `tests/plugin.test.js` |
 | `rename-source-id` | Rename old source_question_id properties to official_question_id | `migrateOfficialIds` | `tests/plugin.test.js` |
-| `open-ai-assistant` | Open AI assistant (OpenCode) | `activateView` | `tests/calendar.test.js`, `tests/cards-extract.test.js`, `tests/daily-quiz.test.js`, `tests/modules.test.js`, `tests/plugin.test.js`, `tests/today.test.js`, `tests/views.test.js` |
-| `next-question` | Next question (from current filters) | `activateView` | `tests/calendar.test.js`, `tests/cards-extract.test.js`, `tests/daily-quiz.test.js`, `tests/modules.test.js`, `tests/plugin.test.js`, `tests/today.test.js`, `tests/views.test.js` |
+| `open-ai-assistant` | Open AI assistant (OpenCode) | `activateView` | `tests/calendar.test.js`, `tests/cards-extract.test.js`, `tests/daily-quiz.test.js`, `tests/modules.test.js`, `tests/plugin.test.js`, `tests/quick-practice-uri.test.js`, `tests/today.test.js`, `tests/views.test.js` |
+| `next-question` | Next question (from current filters) | `activateView` | `tests/calendar.test.js`, `tests/cards-extract.test.js`, `tests/daily-quiz.test.js`, `tests/modules.test.js`, `tests/plugin.test.js`, `tests/quick-practice-uri.test.js`, `tests/today.test.js`, `tests/views.test.js` |
 | `toggle-flag` | Toggle flag on this question | `toggleFlag` | `tests/command-effects.test.js` |
 | `mark-question-fixed` | Mark this question fixed | `markQuestionFixed` | `tests/needs-fixing.test.js` |
 | `add-fields-this-note` | Add missing tracking properties to this note | `addMissingFields` | `tests/command-effects.test.js` |

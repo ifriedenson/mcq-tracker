@@ -65908,6 +65908,7 @@ const { Modal, Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYa
 const { OpenCodeManager } = require("./opencode-manager");
 const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST, VIEW_TYPE_WEB_BROWSER, VIEW_TYPE_AGENT } = require("./constants");
 const { PracticeView } = require("./practice-view");
+const { parseQuickPracticeUri } = require("./quick-practice");
 const practiceFullscreen = require("./practice-fullscreen");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
@@ -66303,6 +66304,11 @@ class QuestionTrackerPlugin extends Plugin {
     // Chat bookmark links are handled by this plugin, not a hosted redirect.
     if (typeof this.registerObsidianProtocolHandler === "function") {
       this.registerObsidianProtocolHandler("mcq-tracker-chat", (params) => this.openChatBookmark(params));
+      this.registerObsidianProtocolHandler("mcq-tracker-quick", (params) => {
+        this.openQuickPracticeLink(params).catch((error) => {
+          new Notice(`Quick Practice link failed: ${error && error.message ? error.message : "unknown error"}.`);
+        });
+      });
     }
     if (typeof this.registerMarkdownPostProcessor === "function") {
       this.registerMarkdownPostProcessor((el) => satCallout.syncSatCallouts(el));
@@ -74209,9 +74215,50 @@ ${body}
       new Notice("Could not open the practice view.");
       return null;
     }
-    const minutes = Math.max(1, Math.round(Number(opts.minutes) || 5));
-    await view.startQuick("time", minutes, { pool: opts.pool, mode: opts.mode, label: opts.label });
+    const kind = opts.kind === "count" ? "count" : "time";
+    const defaults = this.settings.quickDefaults || {};
+    const requested = kind === "count" ? opts.count : opts.minutes;
+    const fallback = kind === "count" ? defaults.count : defaults.minutes;
+    const value = Math.max(1, Math.round(Number(requested) || Number(fallback) || 5));
+    await view.startQuick(kind, value, { pool: opts.pool, mode: opts.mode, label: opts.label });
     return view;
+  }
+
+  /**
+   * A home-screen shortcut: obsidian://mcq-tracker-quick?minutes=5
+   * or ?count=10, optionally with course=<course>. It opens the same Quick
+   * Practice view, scheduler and saved queue as the ribbon command; invalid
+   * values are refused with a Notice instead of starting a different session.
+   */
+  async openQuickPracticeLink(params) {
+    if (this.moduleOff("mcq")) {
+      new Notice("MCQ Tracker is turned off. Turn it on under Settings, Global, Modules.");
+      return null;
+    }
+    const parsed = parseQuickPracticeUri(params);
+    if (parsed.error) {
+      new Notice(`Quick Practice link: ${parsed.error}`, 6000);
+      return null;
+    }
+    const kind = parsed.kind === "count" ? "count" : "time";
+    const defaults = this.settings.quickDefaults || {};
+    const fallback = kind === "count" ? defaults.count : defaults.minutes;
+    const value = parsed.value || fallback || 5;
+    let pool;
+    if (parsed.course) {
+      pool = this.quickPracticePool("course", parsed.course);
+      if (!pool.length) {
+        new Notice(`No questions match course "${parsed.course}".`, 6000);
+        return null;
+      }
+    }
+    return this.startQuickPractice({
+      kind,
+      minutes: kind === "time" ? value : undefined,
+      count: kind === "count" ? value : undefined,
+      pool,
+      label: parsed.course ? `course "${parsed.course}"` : "",
+    });
   }
 
   /* ---- local reminder (operating-system delivery is opt-in; no network) */
@@ -83598,7 +83645,39 @@ function resumeQuickSession(session, now) {
   session.runningSince = now || Date.now();
 }
 
+/**
+ * Parse the home-screen shortcut parameters. Obsidian hands the handler
+ * already-decoded query values; only the documented keys are read, so an
+ * extra `vault` parameter does not break a multi-vault shortcut.
+ */
+function parseQuickPracticeUri(params) {
+  const p = params || {};
+  const hasMinutes = Object.prototype.hasOwnProperty.call(p, "minutes");
+  const hasCount = Object.prototype.hasOwnProperty.call(p, "count");
+  if (hasMinutes && hasCount) return { error: "Use either minutes= or count=, not both." };
+  let kind = "time";
+  let value = null;
+  if (hasMinutes) {
+    const raw = String(p.minutes == null ? "" : p.minutes).trim();
+    if (!/^\d+$/.test(raw) || !QUICK_TIME_OPTIONS.includes(Number(raw))) {
+      return { error: `minutes must be one of ${QUICK_TIME_OPTIONS.join(", ")}.` };
+    }
+    value = Number(raw);
+  } else if (hasCount) {
+    const raw = String(p.count == null ? "" : p.count).trim();
+    if (!/^\d+$/.test(raw) || !QUICK_COUNT_OPTIONS.includes(Number(raw))) {
+      return { error: `count must be one of ${QUICK_COUNT_OPTIONS.join(", ")}.` };
+    }
+    kind = "count";
+    value = Number(raw);
+  }
+  const course = str(p.course).trim();
+  if (course.length > 80) return { error: "course must be 80 characters or fewer." };
+  return { kind, value, course };
+}
+
 module.exports = {
+  parseQuickPracticeUri,
   QUICK_TIME_OPTIONS,
   QUICK_COUNT_OPTIONS,
   buildQuickQueue,
@@ -123728,6 +123807,7 @@ const calendarNotes = require("./calendar-notes");
 const calendarInterop = require("./calendar-interop");
 const { CalendarView, StudySlotModal, parseScheduleBlock } = require("./calendar-view");
 const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
+const quickPractice = require("./quick-practice");
 const referenceData = require("./reference-data");
 const pdfAnnotations = require("./pdf-annotations");
 const pdfInk = require("./pdf-ink");
@@ -124180,6 +124260,7 @@ QuestionTrackerPlugin.__test = {
   reminder,
   osNotifications,
   renderDailySettings,
+  quickPractice,
   QUICK_TIME_OPTIONS,
   QUICK_COUNT_OPTIONS,
   buildQuickQueue,

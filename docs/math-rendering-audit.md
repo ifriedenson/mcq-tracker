@@ -35,25 +35,42 @@ No MathJax, mhchem, KaTeX or other third-party renderer code is bundled. The con
 
 ## Visual check still needed
 
-The automated audit cannot see Obsidian's rendered output. Before calling the visual audit complete, open a note with this body in a real vault and check it in **Practice → answer → review**, **Timed test**, **Cards**, and a **review chat**:
+The automated audit cannot see Obsidian's rendered output. The sample vault now ships a studyable note at `samples/sample-vault/Questions/math-audit.md`; open the sample vault and run that note through **Practice → answer → review**, **Timed test**, **Cards**, and a **review chat**. Check light and dark themes and a narrow phone-sized pane. The body is:
 
 ```md
+---
+question_id: SAMPLE-MATH-AUDIT
+course: Sample Course
+skill: Math and chemistry rendering
+difficulty: medium
+choices: 4
+answer: A
+target_seconds: 90
+---
+
 ## Question
-Evaluate $\int_0^1 x^2\,dx$ and simplify $\frac{3}{4}-\frac{1}{2}$.
+
+Which choice is equivalent to $\frac{3}{4}-\frac{1}{2}$?
 
 ## Answer Choices
-- A. $\frac{1}{2}$
+
+- A. $\frac{1}{4}$
 - B. $\begin{bmatrix}1 & 0\\0 & 1\end{bmatrix}$
 - C. $\ce{2H2 + O2 -> 2H2O}$
 - D. $\ce{Ca(OH)2}$
 
 ## Answer
+
 > [!answer]- Reveal answer
 > **Correct Answer: A**
 >
-> $\int_0^1 x^2\,dx = \frac{1}{3}$ and $\frac{3}{4}-\frac{1}{2}=\frac{1}{4}$.
+> $\frac{3}{4}-\frac{1}{2}=\frac{1}{4}$. For reference, $\int_0^1 x^2\,dx=\frac{1}{3}$.
+>
+> The matrix and chemistry choices are rendering checks. The simple formulas use the built-in fallback; complex mhchem syntax stays untouched for an mhchem-enabled MathJax setup.
 ```
 
-Check light and dark themes, a narrow phone-sized pane, and one note with complex chemistry such as `$\ce{[Cu(NH3)4]^2+}$`. The last one needs an mhchem-enabled MathJax setup; the plugin intentionally leaves it untouched rather than producing a wrong structure.
+The note's correct answer is A: `3/4 - 1/2 = 1/4`. The integral is a display-math check in the explanation, not part of the answer. Options B-D deliberately exercise a matrix and the two supported chemistry forms, so one miss records which renderer path failed.
+
+Also check one note with complex chemistry such as `$\ce{[Cu(NH3)4]^2+}$`. It needs an mhchem-enabled MathJax setup; the plugin intentionally leaves it untouched rather than producing a wrong structure.
 
 If a formula still appears raw, record the surface, theme, platform and the exact source line in the issue tracker. Do not paste copyrighted exam content; use a minimal formula instead.

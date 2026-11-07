@@ -99,6 +99,22 @@ The selectors use Obsidian's mobile DOM classes. The real iOS/Android visual
 pass is still a manual gate: the automated tests prove the class lifecycle and
 stylesheet contract, not native rendering.
 
+## Quick Practice home-screen link
+
+The plugin registers the custom protocol action `mcq-tracker-quick`:
+
+`obsidian://mcq-tracker-quick?minutes=5`
+
+`minutes` accepts 2, 5 or 10; `count` accepts 5, 10 or 20 and cannot be combined
+with `minutes`; `course=Biology` scopes the queue to that course or test. With
+no parameter the link uses the saved Quick Practice default. It opens the same
+practice view, saved queue and scheduler as the ribbon command; invalid values
+and an empty course match show a Notice instead of starting a different
+session. Unknown query keys are ignored, so an Obsidian `vault` parameter does
+not break the link. Obsidian Mobile decides whether the OS lets a home-screen
+shortcut open a custom URI; the plugin does not claim an OS-level shortcut it
+cannot create.
+
 ## Tests
 
 `tests/mobile-practice.test.js` covers **17 focused tests**. It renders the same
@@ -115,6 +131,10 @@ covers:
 - every rule in the phone CSS block being scoped under `.qt-mobile`;
 - the distraction-free class lifecycle, setting, multi-view cleanup and
   body-class-scoped header/navbar selectors (`tests/practice-fullscreen.test.js`).
+
+- the `obsidian://mcq-tracker-quick` parser and real plugin entry point,
+  including time, count, course, invalid input and a disabled module
+  (`tests/quick-practice-uri.test.js`).
 
 Run the focused check with:
 

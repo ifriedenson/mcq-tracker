@@ -4,6 +4,7 @@ const { Modal, Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYa
 const { OpenCodeManager } = require("./opencode-manager");
 const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST, VIEW_TYPE_WEB_BROWSER, VIEW_TYPE_AGENT } = require("./constants");
 const { PracticeView } = require("./practice-view");
+const { parseQuickPracticeUri } = require("./quick-practice");
 const practiceFullscreen = require("./practice-fullscreen");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
@@ -399,6 +400,11 @@ class QuestionTrackerPlugin extends Plugin {
     // Chat bookmark links are handled by this plugin, not a hosted redirect.
     if (typeof this.registerObsidianProtocolHandler === "function") {
       this.registerObsidianProtocolHandler("mcq-tracker-chat", (params) => this.openChatBookmark(params));
+      this.registerObsidianProtocolHandler("mcq-tracker-quick", (params) => {
+        this.openQuickPracticeLink(params).catch((error) => {
+          new Notice(`Quick Practice link failed: ${error && error.message ? error.message : "unknown error"}.`);
+        });
+      });
     }
     if (typeof this.registerMarkdownPostProcessor === "function") {
       this.registerMarkdownPostProcessor((el) => satCallout.syncSatCallouts(el));
@@ -8305,9 +8311,50 @@ ${body}
       new Notice("Could not open the practice view.");
       return null;
     }
-    const minutes = Math.max(1, Math.round(Number(opts.minutes) || 5));
-    await view.startQuick("time", minutes, { pool: opts.pool, mode: opts.mode, label: opts.label });
+    const kind = opts.kind === "count" ? "count" : "time";
+    const defaults = this.settings.quickDefaults || {};
+    const requested = kind === "count" ? opts.count : opts.minutes;
+    const fallback = kind === "count" ? defaults.count : defaults.minutes;
+    const value = Math.max(1, Math.round(Number(requested) || Number(fallback) || 5));
+    await view.startQuick(kind, value, { pool: opts.pool, mode: opts.mode, label: opts.label });
     return view;
+  }
+
+  /**
+   * A home-screen shortcut: obsidian://mcq-tracker-quick?minutes=5
+   * or ?count=10, optionally with course=<course>. It opens the same Quick
+   * Practice view, scheduler and saved queue as the ribbon command; invalid
+   * values are refused with a Notice instead of starting a different session.
+   */
+  async openQuickPracticeLink(params) {
+    if (this.moduleOff("mcq")) {
+      new Notice("MCQ Tracker is turned off. Turn it on under Settings, Global, Modules.");
+      return null;
+    }
+    const parsed = parseQuickPracticeUri(params);
+    if (parsed.error) {
+      new Notice(`Quick Practice link: ${parsed.error}`, 6000);
+      return null;
+    }
+    const kind = parsed.kind === "count" ? "count" : "time";
+    const defaults = this.settings.quickDefaults || {};
+    const fallback = kind === "count" ? defaults.count : defaults.minutes;
+    const value = parsed.value || fallback || 5;
+    let pool;
+    if (parsed.course) {
+      pool = this.quickPracticePool("course", parsed.course);
+      if (!pool.length) {
+        new Notice(`No questions match course "${parsed.course}".`, 6000);
+        return null;
+      }
+    }
+    return this.startQuickPractice({
+      kind,
+      minutes: kind === "time" ? value : undefined,
+      count: kind === "count" ? value : undefined,
+      pool,
+      label: parsed.course ? `course "${parsed.course}"` : "",
+    });
   }
 
   /* ---- local reminder (operating-system delivery is opt-in; no network) */

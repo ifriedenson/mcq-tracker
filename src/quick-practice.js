@@ -93,7 +93,39 @@ function resumeQuickSession(session, now) {
   session.runningSince = now || Date.now();
 }
 
+/**
+ * Parse the home-screen shortcut parameters. Obsidian hands the handler
+ * already-decoded query values; only the documented keys are read, so an
+ * extra `vault` parameter does not break a multi-vault shortcut.
+ */
+function parseQuickPracticeUri(params) {
+  const p = params || {};
+  const hasMinutes = Object.prototype.hasOwnProperty.call(p, "minutes");
+  const hasCount = Object.prototype.hasOwnProperty.call(p, "count");
+  if (hasMinutes && hasCount) return { error: "Use either minutes= or count=, not both." };
+  let kind = "time";
+  let value = null;
+  if (hasMinutes) {
+    const raw = String(p.minutes == null ? "" : p.minutes).trim();
+    if (!/^\d+$/.test(raw) || !QUICK_TIME_OPTIONS.includes(Number(raw))) {
+      return { error: `minutes must be one of ${QUICK_TIME_OPTIONS.join(", ")}.` };
+    }
+    value = Number(raw);
+  } else if (hasCount) {
+    const raw = String(p.count == null ? "" : p.count).trim();
+    if (!/^\d+$/.test(raw) || !QUICK_COUNT_OPTIONS.includes(Number(raw))) {
+      return { error: `count must be one of ${QUICK_COUNT_OPTIONS.join(", ")}.` };
+    }
+    kind = "count";
+    value = Number(raw);
+  }
+  const course = str(p.course).trim();
+  if (course.length > 80) return { error: "course must be 80 characters or fewer." };
+  return { kind, value, course };
+}
+
 module.exports = {
+  parseQuickPracticeUri,
   QUICK_TIME_OPTIONS,
   QUICK_COUNT_OPTIONS,
   buildQuickQueue,
