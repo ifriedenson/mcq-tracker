@@ -1,5 +1,7 @@
 # AGENTS.md — MCQ Tracker
 
+**1.287.1 release (Nov 7, 2026):** the Study agent capture exposed a 10 px scroll track above the composer. The closed mention picker kept `display:flex` over `.qt-hidden`, so it stayed in flow and drew its own scrollbar. A specific `.qt-chat-mention-picker.qt-hidden` rule now removes it, and the earlier transcript `overflow-x:hidden` / `scrollbar-width:none` suppression is removed. Empty, streaming and error states are re-captured at 420 px in light and dark beside the re-confirmed settings pair in `docs/render/study-agent-ui/`.
+
 **1.287.0 release (Nov 7, 2026):** the Study agent UI is finished as a Copilot-grade pane: a **Chats** header control opens the saved-conversation drawer instead of leaving it in the transcript, provider failures render as an alert card with **Retry**, and Settings → AI is grouped into seven cards. The error and settings surfaces are captured in light and dark in `docs/render/study-agent-ui/`; chat evidence is real `ChatPanel` markup, settings evidence is a structural fixture because Obsidian's `Setting` renderer is unavailable outside the app. Focused chat tests pass; full gate is rerun for the release.
 
 Read `plan.md` first: **Handoff snapshot**, **Current focus**, then **§A** (what ships, with the `src/` that implements it), **§B** (the three owner-run passes still open) and **§C** (what was decided against). The plan is the product source of truth. Its per-release history lives in `docs/release-notes/`, not in the plan, and the owner gate sheet is `docs/plan-decisions.md`.

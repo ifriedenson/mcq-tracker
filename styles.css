@@ -12782,6 +12782,12 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   padding: 4px;
   margin: 4px 0;
 }
+
+/* The picker's own display:flex otherwise wins over .qt-hidden and leaves an
+   empty 10px scroll track between the transcript and the composer. */
+.qt-chat-mention-picker.qt-hidden {
+  display: none;
+}
 .qt-chat-mention-option {
   text-align: left;
 }
@@ -13498,24 +13504,6 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   color: var(--text-on-accent);
   background: var(--interactive-accent);
   border-color: transparent;
-}
-.qt-agent-thread {
-  overflow-x: hidden;
-}
-.qt-agent-thread {
-  scrollbar-width: none;
-}
-.qt-agent-thread::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-}
-.qt-agent-chat .qt-agent-thread {
-  overflow-x: hidden;
-  scrollbar-width: none;
-}
-.qt-agent-chat .qt-agent-thread::-webkit-scrollbar {
-  width: 0;
-  height: 0;
 }
 .qt-agent-status:empty {
   display: none;
