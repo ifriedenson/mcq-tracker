@@ -13018,6 +13018,7 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   max-height: none;
 }
 .qt-agent-thread.is-empty {
+  /* Keep the card in flow; auto margins centre it without clipping a tall one. */
   justify-content: flex-start;
 }
 .qt-agent-turn {
@@ -13121,8 +13122,8 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   padding: 0;
   background: transparent;
   color: var(--code-normal);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  white-space: pre;
+  overflow-wrap: normal;
 }
 .qt-agent-message-actions {
   display: flex;
@@ -13318,12 +13319,19 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   gap: 2px;
   min-width: 0;
 }
+.qt-agent-control-modes {
+  flex: 1 1 auto;
+  overflow: hidden;
+}
 .qt-agent-control-actions {
+  flex: 0 0 auto;
   justify-content: flex-end;
 }
 .qt-agent-mode,
 .qt-agent-role {
+  flex: 0 1 auto;
   width: auto;
+  min-width: 0;
   max-width: 112px;
   min-height: 26px;
   height: 26px;
@@ -13437,14 +13445,17 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   display: none;
 }
 
-/* Copilot's empty state is an inline card rather than a centred hero. */
+/* Copilot centres its empty-state card in the free transcript space. */
 .qt-agent-empty {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   justify-content: flex-start;
   gap: 6px;
-  margin: 8px;
+  box-sizing: border-box;
+  width: calc(100% - 32px);
+  max-width: 32rem;
+  margin: auto;
   padding: 12px;
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m, 8px);
@@ -14165,8 +14176,16 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   }
 }
 @container (max-width: 420px) {
+  .qt-agent-mode {
+    max-width: 96px;
+  }
   .qt-agent-role {
-    display: none;
+    max-width: 90px;
+  }
+  .qt-agent-iconbtn {
+    width: 24px;
+    height: 24px;
+    min-height: 24px;
   }
   .qt-agent-toolbar .qt-agent-command {
     max-width: 90px;
@@ -14179,16 +14198,28 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   }
 }
 @container (max-width: 340px) {
+  .qt-agent-controls {
+    gap: 2px;
+  }
+  .qt-agent-control-actions {
+    gap: 1px;
+  }
+  .qt-agent-mode {
+    max-width: 68px;
+  }
+  .qt-agent-role {
+    max-width: 76px;
+  }
+  .qt-agent-iconbtn {
+    width: 22px;
+    height: 22px;
+    min-height: 22px;
+  }
   .qt-agent-toolbar .qt-agent-command {
     display: none;
   }
   .qt-agent-context-chip {
     padding: 0 6px;
-  }
-  .qt-agent-iconbtn {
-    width: 24px;
-    height: 24px;
-    min-height: 24px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

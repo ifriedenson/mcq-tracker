@@ -1,4 +1,6 @@
-# Study agent UI evidence (1.288.0)
+# Study agent UI evidence (1.288.0 capture set; current UI 1.288.1)
+
+> 1.288.1 removed the remaining AgentView heading/intro, centered the empty card, kept the persona visible at 420/320 px and added Obsidian's `markdown-rendered` container. This 1.288.0 image set is retained; those corrections are covered by `tests/chat-panel-copilot.test.js` and `tests/ui-layout.test.js`. No new screenshots were captured because the browser and Obsidian runtime were unavailable.
 
 Clean-room Copilot orientation: the transcript is first, a **ChatControls** strip
 follows it, and the composer is last. The captures are the actual

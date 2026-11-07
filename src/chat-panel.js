@@ -314,7 +314,7 @@ class ChatPanel {
     this.hint = noteDetails.createDiv({ cls: "qt-hint qt-agent-hintbar" });
     noteDetails.createDiv({
       cls: "qt-hint qt-agent-context-note",
-      text: "Context is off by default. Note text, the selection and mentions are sent only while their chip is on.",
+      text: "Context is off by default. Note text, the selection and mentions are sent only while their chip is on. Agent proposals use the review window; nothing is saved without approval.",
     });
     this.updateHint();
 
@@ -2830,7 +2830,10 @@ class ChatPanel {
       if (t.role === "assistant") lastAssistantStack = body;
       this.turnEls[index] = message;
       if (t.role === "assistant") this.renderReasoning(message, t.reasoning);
-      for (const text of t.texts) this.view.md(text, message.createDiv({ cls: "qt-msg-text" }), this.opts.sourcePath || "");
+      for (const text of t.texts) {
+        const textEl = message.createDiv({ cls: "qt-msg-text markdown-rendered" });
+        this.view.md(text, textEl, this.opts.sourcePath || "");
+      }
       if (t.role === "assistant") this.renderSources(message, this.citationPaths(t.texts));
       for (const line of t.tools) this.renderToolCard(message, line);
       const bookmark = chatBookmarks.makeBookmark(t, index);
@@ -2879,7 +2882,7 @@ class ChatPanel {
     if (this.streamText) {
       const { message } = turnRow("assistant");
       message.addClass("is-streaming");
-      const liveText = message.createDiv({ cls: "qt-msg-text" });
+      const liveText = message.createDiv({ cls: "qt-msg-text markdown-rendered" });
       this.view.md(this.streamText, liveText, this.opts.sourcePath || "");
       liveText.createSpan({ cls: "qt-agent-caret", attr: { "aria-hidden": "true" } });
     } else if (this.busy) {

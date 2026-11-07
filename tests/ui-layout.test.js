@@ -94,6 +94,21 @@ test("SAT callouts render the Bluebook question chrome", () => {
   assert.match(css, /@media \(max-width: 640px\) \{[\s\S]*?\.callout\[data-callout="sat"\] > \.callout-content > blockquote \{[^}]*float: none/s);
 });
 
+test("study agent keeps the empty state bounded and the persona visible at sidebar width", () => {
+  const empty = (css.match(/\.qt-agent-empty \{[^}]*\}/s) || [])[0] || "";
+  assert.match(empty, /margin:\s*auto/);
+  assert.match(empty, /max-width:\s*32rem/);
+  assert.match(empty, /width:\s*calc\(100% - 32px\)/);
+
+  const narrow = css.slice(
+    css.indexOf("@container (max-width: 420px)"),
+    css.indexOf("@container (max-width: 340px)")
+  );
+  assert.ok(narrow.includes(".qt-agent-role"), "the 420 px controls block still names the persona");
+  assert.doesNotMatch(narrow, /\.qt-agent-role\s*\{\s*display:\s*none/s);
+  assert.match(narrow, /\.qt-agent-role\s*\{[^}]*max-width/s);
+});
+
 test("long navigation is a compact picker instead of a clipped rail", () => {
   assert.match(source("settings-tab.js"), /qt-settings-module-picker/);
   assert.match(source("reference-view.js"), /qt-ref-picker/);

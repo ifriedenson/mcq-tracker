@@ -34,7 +34,7 @@ async function apiPanel(extra) {
       extra || {}
     )
   );
-  return { panel, dom, plugin, app };
+  return { panel, dom, plugin, app, view };
 }
 
 test("study agent empty state: stacked suggestion cards rotate through all actions", async () => {
@@ -78,6 +78,30 @@ test("study agent transcript: tool lines render as status cards with tool, detai
   assert.ok(dom.texts().includes("Read file"));
   assert.ok(dom.texts().includes("Biology/Cells.md"));
   assert.ok(dom.texts().includes("Done"));
+});
+
+test("study agent transcript: code fences are delegated to the view Markdown renderer", async () => {
+  const { panel, view, dom } = await apiPanel();
+  const seen = [];
+  view.md = (text, el) => {
+    seen.push(text);
+    el.setText(text);
+  };
+  panel.turns = [
+    { role: "user", texts: ["Show me:\n```js\nconst x = 1;\n```"], tools: [] },
+    { role: "assistant", texts: ["Here:\n```js\nconst y = 2;\n```"], tools: [] },
+  ];
+  panel.sig = "";
+  panel.draw();
+
+  assert.equal(seen.length, 2, "both roles go through the Obsidian Markdown renderer");
+  assert.match(seen[0], /```js\nconst x = 1;\n```/);
+  assert.match(seen[1], /```js\nconst y = 2;\n```/);
+  assert.equal(
+    dom.all.filter((element) => element.classes && element.classes.has("markdown-rendered")).length,
+    2,
+    "both rendered bodies carry Obsidian's Markdown container class"
+  );
 });
 
 test("study agent transcript: streaming text carries an animated caret", async () => {

@@ -30,9 +30,10 @@ test("study agent: full-vault context is opt-in and local search needs no provid
 });
 
 test("study agent: card creation goes through the existing approval window", () => {
-  const source = require("fs").readFileSync(require("path").join(__dirname, "..", "src", "agent-view.js"), "utf8");
-  assert.match(source, /ChatPanel/);
-  assert.match(source, /nothing is saved without approval/i);
+  const viewSource = require("fs").readFileSync(require("path").join(__dirname, "..", "src", "agent-view.js"), "utf8");
+  const panelSource = require("fs").readFileSync(require("path").join(__dirname, "..", "src", "chat-panel.js"), "utf8");
+  assert.match(viewSource, /ChatPanel/);
+  assert.match(panelSource, /nothing is saved without approval/i);
 });
 
 test("study agent: context assembly includes citations, retrieval hits, active note and opt-in index", () => {
@@ -141,6 +142,16 @@ test("study agent: the mounted view renders assistant markdown", async () => {
   view.contentEl = dom.root;
   await view.onOpen();
 
+  assert.equal(
+    dom.all.some((element) => element.meta.tag === "h4"),
+    false,
+    "the leaf title is the only view header"
+  );
+  assert.equal(
+    dom.all.some((element) => element.meta.text === "Ask about your notes, or ask it to create cards. Agent mode proposes cards for your review; nothing is saved without approval."),
+    false,
+    "the old branded intro does not sit above the chat"
+  );
   assert.equal(typeof view.md, "function");
   view.chatPanel.turns = [{ role: "assistant", texts: ["**A useful answer**"], tools: [] }];
   view.chatPanel.sig = "";

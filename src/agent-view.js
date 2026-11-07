@@ -99,11 +99,8 @@ class AgentView extends ItemView {
   render() {
     const root = this.contentEl;
     root.empty();
-    root.createEl("h4", { text: "Study agent" });
-    root.createDiv({
-      cls: "qt-hint",
-      text: "Ask about your notes, or ask it to create cards. Agent mode proposes cards for your review; nothing is saved without approval.",
-    });
+    // The Obsidian leaf already supplies the view title. Copilot's chat starts
+    // with content, so do not draw a second branded heading above the pane.
     if (!this.plugin.settings.ai.enabled) {
       root.createDiv({ cls: "qt-hint", text: "Turn on AI under Settings > MCQ Tracker > OpenCode (AI) to chat. Local vault search still works below." });
     }
