@@ -1,6 +1,6 @@
 # Plan decision sheet — answered Nov 6, 2026
 
-`plan.md` (v1.283.0) now has **98 checked roadmap rows, 3 `[~]` partial rows
+`plan.md` (v1.284.0) now has **98 checked roadmap rows, 3 `[~]` partial rows
 and 0 unchecked rows**. The three partials are owner manual passes; no pass/fail
 result has been pasted into this sheet, so none is claimed complete. Card answer
 dictation shipped with an editable transcript; PDF→FRQ import remains a

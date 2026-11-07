@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status: v1.283.0 (Nov 7, 2026).** One MIT, dependency-free Obsidian plugin
+**Status: v1.284.0 (Nov 7, 2026).** One MIT, dependency-free Obsidian plugin
 (`mcq-tracker`) covering exam practice, cards and vocabulary, courses and
 calendars, study planning, document ingestion, reference/STEM tools and an
 optional BYOK/OpenCode AI layer.
@@ -13,9 +13,9 @@ surfaces, so unfinished ideas are not disguised as checked work.
 §3.9.6 is the gate table, §3.10 is the licence allow-list, and
 [docs/plan-decisions.md](docs/plan-decisions.md) is the owner decision sheet.
 
-**Verified at this commit:** `node --test` → 2,378 tests pass, 0 fail;
+**Verified at this commit:** `node --test` → 2,379 tests pass, 0 fail;
 `npm run check` clean (no dynamic code across 336 source files, vendor guard,
-bundle up to date); `main.js` generated from 339 modules at 6,736,675 bytes.
+bundle up to date); `main.js` generated from 339 modules at 6,740,429 bytes.
 Re-run both before quoting these numbers.
 
 **Shipped in 1.282.0 (Nov 7, 2026):** Quick Ask, saved study
@@ -67,10 +67,10 @@ file per version, `AGENTS.md` has the current-state summary, and the plan
 decision sheet lives in `docs/plan-decisions.md`. Duplicating that log in this
 file is what made it unreadable; it now points instead.
 
-## Handoff snapshot (updated Nov 7, 2026 at v1.283.0)
+## Handoff snapshot (updated Nov 7, 2026 at v1.284.0)
 
-- **State:** 0 unchecked core rows; Quick Chat, message bookmarks, per-message rewind and fork, Quick Ask, saved study commands, vault skills, chat projects, opt-in local memory, Markdown conversation export and local cost estimates ship in 1.282.0; Mother cram and card answer dictation shipped; 3 `[~]` partials (the owner visual, device and screenshot passes remain; no result has been pasted); four former gates decided on Nov 6, 2026 (§B).
-- **Newest feature:** 1.283.0 adds the opt-in **knowledge record** (§5.27): concept extraction, coverage, misconceptions and a bounded Study-agent digest, with its UI in Insights → Concepts. 1.282.0 added **plan-then-act**, **general PDF attachments**, a **Quick Practice home-screen URI** and a **sample-vault math/chemistry audit note**, alongside the Nov 6 additions: **Quick Chat**, **message bookmarks with chat links**, **per-message rewind and fork**, **vault skills**, **local chat projects**, **opt-in local memory**, **per-conversation Markdown export**, **local cost estimates** (per send and per conversation), a **compact context ring**, a **local diagnostics bundle**, **Quick Ask**, **saved study commands**, **`@` note/folder mentions**, a **context/token footer** and a **searchable, pinned, archived conversation library** in one release. In 1.281.0, **Mother cram** is the practice-only Cards loop
+- **State:** 0 unchecked core rows; Quick Chat, message bookmarks, per-message rewind and fork, Quick Ask, saved study commands, vault skills, chat projects, opt-in local memory, Markdown conversation export and local cost estimates ship in 1.282.0; the 1.283.0 knowledge record is end-to-end scenario-verified in 1.284.0; Mother cram and card answer dictation shipped; 3 `[~]` partials (the owner visual, device and screenshot passes remain; no result has been pasted); four former gates decided on Nov 6, 2026 (§B).
+- **Newest feature:** 1.284.0 verifies the opt-in **knowledge record** (§5.27) end to end: extraction, attempt updates, misconception opening/fixing, heading rename identity, deleted-source retention, idempotent rebuild, reload, Insights actions and the bounded Study-agent digest. 1.283.0 added it: concept extraction, coverage, misconceptions and the digest, with its UI in Insights → Concepts. 1.282.0 added **plan-then-act**, **general PDF attachments**, a **Quick Practice home-screen URI** and a **sample-vault math/chemistry audit note**, alongside the Nov 6 additions: **Quick Chat**, **message bookmarks with chat links**, **per-message rewind and fork**, **vault skills**, **local chat projects**, **opt-in local memory**, **per-conversation Markdown export**, **local cost estimates** (per send and per conversation), a **compact context ring**, a **local diagnostics bundle**, **Quick Ask**, **saved study commands**, **`@` note/folder mentions**, a **context/token footer** and a **searchable, pinned, archived conversation library** in one release. In 1.281.0, **Mother cram** is the practice-only Cards loop
   in the current deck: flip the card, then choose **Do not know** (send it to the
   back) or **Know** (remove it) until the queue is empty. It writes no attempt,
   grade, history or due date. 1.280.0 added **cram sessions** with exact
@@ -3141,7 +3141,7 @@ gate; full Advanced Tables parity approved and since shipped; none of the
 UI/theme/navigation plugins adopted; local alternatives kept for Copilot, Desmos
 and Excalidraw; WordNet imported locally in full rather than as a bundled subset.
 
-### 5.27 Grill concept record — Nov 7, 2026, v1.283.0
+### 5.27 Grill concept record — Nov 7, 2026, v1.284.0
 
 **Source:** [theadamdanielsson/grill](https://github.com/theadamdanielsson/grill), MIT, pinned at commit
 `6dd05d884f8f9d77e684d6c814e160aaa5d2ea83` (8.7.12). Grill's distinctive idea is a persistent
@@ -3155,11 +3155,15 @@ or carry a misconception across notes.
 
 - `src/knowledge-record.js` — deterministic concept extraction adapted from Grill's
   `generate-local.ts`: headings, bold terms, definition lines, display formulas and authored
-  cards, with generic headings, code, tables and link-only lines skipped. Stable ids and source
-  hashes, reconciliation that keeps evidence, reopens a changed source and preserves orphans.
-  Coverage uses Grill's 8-concept target and 80% known band.
+  cards, with generic headings, code, tables and link-only lines skipped. Stable structural
+  anchors and label aliases keep a renamed heading's identity and linked evidence; source
+  hashes reopen changed content, removed concepts stay as orphans. Coverage uses Grill's
+  8-concept target and 80% known band.
 - `src/knowledge-store.js` — opt-in local `MCQ Tracker/knowledge-record.json` index. It is
   rebuildable and holds no study data that is not already in notes or question history.
+- **Source edits and removals:** a renamed heading keeps its id, records the old label as an
+  alias and keeps linked questions attached. A full rebuild retains concepts from a deleted
+  source note with `missingAt` and surfaces it as "source missing" instead of dropping it.
 - **Projection, not a second scheduler:** each concept's counters, due date, last miss and error
   tags are rolled up from the questions with the matching `source_note` and `source_heading`.
   `next_review` remains question-level; the record never invents a parallel FSRS state.
@@ -3181,9 +3185,22 @@ external services are boundary-only. Per-concept FSRS is represented as a projec
 existing question schedule rather than a competing schedule. This is a focused incorporation of
 Grill's record idea, not a claim of line-for-line parity with all 29k lines of Grill.
 
+**Verified end to end (1.284.0):** `tests/knowledge-record-scenario.test.js` loads a real source
+note and linked questions through `QuestionTrackerPlugin`, enables the record, asserts the JSON
+at `MCQ Tracker/knowledge-record.json`, drives two correct answers and a miss through
+`recordAttempt`, tags the miss, verifies coverage/known/due and the open misconception, then a
+correct response closes it. It renames a heading and proves the id and attempts survive, removes
+the note and proves the entry is retained as missing, compares two rebuilds, reloads the plugin,
+renders Insights → Concepts, clicks Rebuild and Copy, checks the ~3,000-character digest bound
+and proves the Study-agent context is absent with the toggle off. This scenario exposed and
+fixed the previous-entry boundary in `buildNoteEntry` (it passed a whole note entry into
+`reconcileConcepts`, so every rebuild lost `firstSeen` and aliases), label-only ids that orphaned
+a renamed heading, and rebuilds that dropped deleted source notes.
+
 **Tests:** `tests/knowledge-record.test.js` covers extraction and generic-heading skips, stable
 ids/source hashes, reconciliation/orphans, question-history projection, coverage, misconceptions,
-digest bounds and malformed saved data. Full-suite results are recorded in the release notes.
+digest bounds and malformed saved data; the scenario above drives the integrated path. Full suite:
+**2,379 pass, 0 fail**.
 
 ## Appendix: Archived brainstorms and superseded drafts
 

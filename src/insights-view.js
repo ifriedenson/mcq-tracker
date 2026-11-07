@@ -721,6 +721,12 @@ class InsightsView extends ItemView {
       card.createEl("b", { text: String(value) });
       card.createSpan({ text: label });
     }
+    if (summary.missing) {
+      root.createDiv({
+        cls: "qt-hint qt-knowledge-missing",
+        text: `${summary.missing} source note${summary.missing === 1 ? "" : "s"} missing. Their concepts are retained as owed until the note returns or is removed.`,
+      });
+    }
     const actions = root.createDiv({ cls: "qt-knowledge-actions" });
     const rebuild = actions.createEl("button", { text: "Rebuild record" });
     rebuild.addEventListener("click", async () => {
@@ -745,9 +751,10 @@ class InsightsView extends ItemView {
         const main = line.createDiv({ cls: "qt-ins-main" });
         const link = main.createEl("a", { cls: `qt-link is-${row.band}`, text: row.label });
         link.addEventListener("click", () => this.openKnowledgeNote(row.path));
+        if (row.missing) line.addClass("is-missing");
         main.createDiv({
           cls: "qt-hint",
-          text: `${row.known}/${row.total} concepts known · ${row.tested} tested · ${row.due} due`,
+          text: `${row.known}/${row.total} concepts known · ${row.tested} tested · ${row.due} due${row.missing ? " · source missing" : ""}`,
         });
         const meter = line.createDiv({ cls: "qt-ins-meter" });
         const band = row.band === "strong" ? "is-high" : row.band === "developing" ? "is-mid" : row.band === "weak" ? "is-low" : "";
@@ -787,7 +794,7 @@ class InsightsView extends ItemView {
         main.createDiv({ cls: "qt-knowledge-concept-label", text: concept.label });
         main.createDiv({
           cls: "qt-hint",
-          text: `${concept.noteLabel} · ${concept.correct}/${concept.attempts} right${concept.lastError ? ` · ${knowledgeRecord.tagLabel(concept.lastError).toLowerCase()}` : ""}`,
+          text: `${concept.noteLabel}${concept.missingNote ? " (source missing)" : ""} · ${concept.correct}/${concept.attempts} right${concept.lastError ? ` · ${knowledgeRecord.tagLabel(concept.lastError).toLowerCase()}` : ""}`,
         });
       }
     }

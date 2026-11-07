@@ -48997,6 +48997,12 @@ class InsightsView extends ItemView {
       card.createEl("b", { text: String(value) });
       card.createSpan({ text: label });
     }
+    if (summary.missing) {
+      root.createDiv({
+        cls: "qt-hint qt-knowledge-missing",
+        text: `${summary.missing} source note${summary.missing === 1 ? "" : "s"} missing. Their concepts are retained as owed until the note returns or is removed.`,
+      });
+    }
     const actions = root.createDiv({ cls: "qt-knowledge-actions" });
     const rebuild = actions.createEl("button", { text: "Rebuild record" });
     rebuild.addEventListener("click", async () => {
@@ -49021,9 +49027,10 @@ class InsightsView extends ItemView {
         const main = line.createDiv({ cls: "qt-ins-main" });
         const link = main.createEl("a", { cls: `qt-link is-${row.band}`, text: row.label });
         link.addEventListener("click", () => this.openKnowledgeNote(row.path));
+        if (row.missing) line.addClass("is-missing");
         main.createDiv({
           cls: "qt-hint",
-          text: `${row.known}/${row.total} concepts known · ${row.tested} tested · ${row.due} due`,
+          text: `${row.known}/${row.total} concepts known · ${row.tested} tested · ${row.due} due${row.missing ? " · source missing" : ""}`,
         });
         const meter = line.createDiv({ cls: "qt-ins-meter" });
         const band = row.band === "strong" ? "is-high" : row.band === "developing" ? "is-mid" : row.band === "weak" ? "is-low" : "";
@@ -49063,7 +49070,7 @@ class InsightsView extends ItemView {
         main.createDiv({ cls: "qt-knowledge-concept-label", text: concept.label });
         main.createDiv({
           cls: "qt-hint",
-          text: `${concept.noteLabel} · ${concept.correct}/${concept.attempts} right${concept.lastError ? ` · ${knowledgeRecord.tagLabel(concept.lastError).toLowerCase()}` : ""}`,
+          text: `${concept.noteLabel}${concept.missingNote ? " (source missing)" : ""} · ${concept.correct}/${concept.attempts} right${concept.lastError ? ` · ${knowledgeRecord.tagLabel(concept.lastError).toLowerCase()}` : ""}`,
         });
       }
     }
@@ -49447,8 +49454,9 @@ function sentenceAround(line, index) {
   return cleanContext(text.slice(start, end));
 }
 
-function conceptId(path, kind, label) {
-  return `${hashText(normalizePath(path))}-${hashText(`${kind}|${normalizeLabel(label)}`)}`;
+function conceptId(path, kind, label, anchor) {
+  const slot = str(anchor).trim();
+  return `${hashText(normalizePath(path))}-${hashText(`${kind}|${slot ? `anchor:${slot}` : normalizeLabel(label)}`)}`;
 }
 
 /**
@@ -49462,56 +49470,62 @@ function extractConcepts(text, path) {
   const seen = new Set();
   let title = noteLabel(note);
   let heading = "";
+  let headingAnchor = "";
+  let headingIndex = 0;
   let section = [];
+  let counts = { definition: 0, term: 0, formula: 0, card: 0 };
 
-  const add = (label, kind, context) => {
+  const add = (label, kind, context, anchor) => {
     const clean = cleanLabel(label);
     if (!clean) return;
     const key = normalizeLabel(clean);
     if (!key || seen.has(key)) return;
     seen.add(key);
     out.push({
-      id: conceptId(note, kind, clean),
+      id: conceptId(note, kind, clean, anchor),
       note,
       label: clean,
       kind,
+      anchor: str(anchor),
       sourceHash: hashText(`${clean}\n${cleanContext(context)}`),
       context: cleanContext(context),
     });
   };
 
+  const nextSlot = (kind) => `${headingAnchor || "title"}:${kind}:${++counts[kind]}`;
+
   const flush = () => {
     const body = section.join("\n");
-    if (heading && goodHeading(heading)) add(heading, "heading", body);
+    if (heading && goodHeading(heading)) add(heading, "heading", body, headingAnchor);
     // Definitions first: they carry a label and a short, quotable explanation.
     for (const line of section) {
       const boldDef = line.match(/^\s*(?:[-*]\s+)?\*\*([^*\n]{2,80}?)\*\*\s*[:–—-]\s*(.{3,})$/);
       const plainDef = line.match(/^\s*(?:[-*]\s+)?([A-Z][^:\n]{2,70}?)\s*[:–—-]\s*(.{4,})$/);
       const verbDef = line.match(/^(.{3,70}?)\s+(?:refers to|means|is defined as|are defined as|denotes|stands for|is (?:also )?(?:called|known as)|are (?:also )?(?:called|known as)|is an?)\s+(.{6,})$/i);
-      if (boldDef && goodTerm(boldDef[1]) && wordCount(boldDef[2]) >= 2) add(boldDef[1], "definition", line);
-      else if (verbDef && goodTerm(verbDef[1]) && wordCount(verbDef[2]) >= 3) add(verbDef[1], "definition", line);
-      else if (plainDef && goodTerm(plainDef[1]) && wordCount(plainDef[2]) >= 3 && !/^https?$/i.test(plainDef[1])) add(plainDef[1], "definition", line);
+      if (boldDef && goodTerm(boldDef[1]) && wordCount(boldDef[2]) >= 2) add(boldDef[1], "definition", line, nextSlot("definition"));
+      else if (verbDef && goodTerm(verbDef[1]) && wordCount(verbDef[2]) >= 3) add(verbDef[1], "definition", line, nextSlot("definition"));
+      else if (plainDef && goodTerm(plainDef[1]) && wordCount(plainDef[2]) >= 3 && !/^https?$/i.test(plainDef[1])) add(plainDef[1], "definition", line, nextSlot("definition"));
     }
     for (const line of section) {
       const terms = [...line.matchAll(/\*\*([^*\n]{2,60})\*\*/g)];
       for (const term of terms) {
         if (!goodTerm(term[1])) continue;
-        add(term[1], "term", sentenceAround(line, term.index));
+        add(term[1], "term", sentenceAround(line, term.index), nextSlot("term"));
       }
     }
     const bodyText = section.join("\n");
     const formulas = [...bodyText.matchAll(/\$\$([\s\S]{2,600}?)\$\$/g)];
     for (const formula of formulas) {
       const label = heading && goodHeading(heading) ? `${heading} formula` : `${title} formula`;
-      add(label, "formula", formula[1]);
+      add(label, "formula", formula[1], nextSlot("formula"));
     }
     for (const line of section) {
       const cloze = line.match(/==([^=\n]{2,100})==/);
-      if (cloze) add(cloze[1], "card", line);
+      if (cloze) add(cloze[1], "card", line, nextSlot("card"));
       const anki = line.match(/\{\{c\d+::([^}]{2,100})(?:::[^}]*)?\}\}/);
-      if (anki) add(anki[1], "card", line);
+      if (anki) add(anki[1], "card", line, nextSlot("card"));
       const pair = line.match(/^\s*([^:\n]{3,100}?)::([^:\n]{2,100})\s*$/);
-      if (pair && !/^https?$/i.test(pair[1]) && goodTerm(pair[1])) add(pair[1], "card", line);
+      if (pair && !/^https?$/i.test(pair[1]) && goodTerm(pair[1])) add(pair[1], "card", line, nextSlot("card"));
     }
   };
 
@@ -49525,7 +49539,9 @@ function extractConcepts(text, path) {
     if (h) {
       flush();
       heading = cleanLabel(h[2]);
+      headingAnchor = `heading:${++headingIndex}`;
       section = [];
+      counts = { definition: 0, term: 0, formula: 0, card: 0 };
       continue;
     }
     section.push(line);
@@ -49534,7 +49550,7 @@ function extractConcepts(text, path) {
 
   if (!out.length) {
     const plain = cleanContext(stripFrontmatter(text));
-    if (wordCount(plain) >= 25) add(title, "note", plain);
+    if (wordCount(plain) >= 25) add(title, "note", plain, "title:note:1");
   }
   return out.slice(0, CONCEPT_LIMIT);
 }
@@ -49546,6 +49562,8 @@ function emptyConcept(concept, now) {
     note: normalizePath(concept.note),
     label: cleanLabel(concept.label),
     kind: concept.kind || "heading",
+    anchor: str(concept.anchor),
+    aliases: [],
     sourceHash: concept.sourceHash || "",
     firstSeen: iso,
     correct: 0,
@@ -49583,11 +49601,15 @@ function normalizeConcept(raw, now) {
     }))
     .filter((entry) => entry.tag);
   const miss = source.lastMiss && typeof source.lastMiss === "object" ? source.lastMiss : null;
+  const label = cleanLabel(source.label) || base.label;
+  const aliases = [...new Set((Array.isArray(source.aliases) ? source.aliases : []).map((alias) => cleanLabel(alias)).filter((alias) => alias && normalizeLabel(alias) !== normalizeLabel(label)))].slice(-8);
   return Object.assign(base, source, {
     id: str(source.id) || base.id,
     note: normalizePath(source.note),
-    label: cleanLabel(source.label) || base.label,
+    label,
     kind: str(source.kind) || "heading",
+    anchor: str(source.anchor),
+    aliases,
     sourceHash: str(source.sourceHash),
     correct: Math.max(0, Math.round(Number(source.correct) || 0)),
     partial: Math.max(0, Math.round(Number(source.partial) || 0)),
@@ -49631,26 +49653,45 @@ function tagLabel(tag) {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-/** Keep prior state for matching ids; orphan what extraction no longer finds. */
+function aliasesFor(prior, label) {
+  const aliases = Array.isArray(prior.aliases) ? prior.aliases.slice() : [];
+  if (prior.label && normalizeLabel(prior.label) !== normalizeLabel(label)) aliases.push(prior.label);
+  return [...new Set(aliases.map(cleanLabel).filter((alias) => alias && normalizeLabel(alias) !== normalizeLabel(label)))].slice(-8);
+}
+
+/** Keep prior state for matching ids or the old label; orphan what extraction no longer finds. */
 function reconcileConcepts(previous, extracted, now) {
   const at = (now instanceof Date ? now : new Date()).toISOString();
   const old = (Array.isArray(previous) ? previous : []).map((concept) => normalizeConcept(concept, now));
   const byId = new Map(old.map((concept) => [concept.id, concept]));
+  const byLabel = new Map();
+  for (const prior of old) {
+    const key = `${prior.kind}|${normalizeLabel(prior.label)}`;
+    if (!byLabel.has(key)) byLabel.set(key, prior);
+  }
   const used = new Set();
   const out = [];
   for (const concept of Array.isArray(extracted) ? extracted : []) {
-    const prior = byId.get(concept.id);
+    let prior = byId.get(concept.id);
+    if (!prior) {
+      const candidate = byLabel.get(`${concept.kind || "heading"}|${normalizeLabel(concept.label)}`);
+      if (candidate && !used.has(candidate.id)) prior = candidate;
+    }
     if (!prior) {
       out.push(emptyConcept(concept, now));
       continue;
     }
     used.add(prior.id);
     const changed = prior.sourceHash && concept.sourceHash && prior.sourceHash !== concept.sourceHash;
+    const label = cleanLabel(concept.label) || prior.label;
     out.push(
       Object.assign({}, prior, {
+        id: str(concept.id) || prior.id,
         note: normalizePath(concept.note),
-        label: cleanLabel(concept.label) || prior.label,
+        label,
         kind: concept.kind || prior.kind,
+        anchor: str(concept.anchor) || prior.anchor,
+        aliases: aliasesFor(prior, label),
         sourceHash: concept.sourceHash || prior.sourceHash,
         reopenedAt: changed ? at : prior.reopenedAt,
         dueAt: changed ? at : prior.dueAt,
@@ -49781,13 +49822,11 @@ function conceptForQuestion(concepts, question) {
   if (!active.length) return null;
   const fm = (question && question.fm) || {};
   const heading = normalizeLabel(fm.source_heading);
+  const labelsOf = (concept) => [concept.label, ...(Array.isArray(concept.aliases) ? concept.aliases : [])].map(normalizeLabel).filter(Boolean);
   if (heading) {
-    const exact = active.find((concept) => normalizeLabel(concept.label) === heading);
+    const exact = active.find((concept) => labelsOf(concept).includes(heading));
     if (exact) return exact;
-    const contained = active.find((concept) => {
-      const label = normalizeLabel(concept.label);
-      return label.includes(heading) || heading.includes(label);
-    });
+    const contained = active.find((concept) => labelsOf(concept).some((label) => label.includes(heading) || heading.includes(label)));
     if (contained) return contained;
   }
   if (active.length === 1) return active[0];
@@ -49798,7 +49837,7 @@ function conceptForQuestion(concepts, question) {
   let best = null;
   let bestScore = 0;
   for (const concept of active) {
-    const labelTokens = tokens(concept.label);
+    const labelTokens = [...new Set(labelsOf(concept).flatMap(tokens))];
     if (!labelTokens.length) continue;
     const hits = labelTokens.filter((word) => haystack.includes(word)).length;
     const score = hits / labelTokens.length;
@@ -49839,7 +49878,8 @@ function buildNoteEntry(path, text, questions, previous, now) {
   const note = normalizePath(path);
   const at = now instanceof Date ? now : new Date();
   const extracted = extractConcepts(text, note);
-  const reconciled = reconcileConcepts(previous, extracted, at);
+  const previousConcepts = Array.isArray(previous) ? previous : previous && Array.isArray(previous.concepts) ? previous.concepts : [];
+  const reconciled = reconcileConcepts(previousConcepts, extracted, at);
   const active = reconciled.filter((concept) => !concept.orphanedAt).map(resetEvidence);
   const ordered = (Array.isArray(questions) ? questions : [])
     .map((question) => ({ question, evidence: questionEvidence(question) }))
@@ -49859,6 +49899,7 @@ function buildNoteEntry(path, text, questions, previous, now) {
     path: note,
     label: noteLabel(note),
     updatedAt: at.toISOString(),
+    missingAt: null,
     concepts: reconciled.map((concept) => {
       const refreshed = active.find((item) => item.id === concept.id);
       return refreshed || concept;
@@ -49887,6 +49928,8 @@ function noteRow(entry, now) {
     due,
     coverage,
     band,
+    missing: !!entry.missingAt,
+    missingAt: str(entry.missingAt),
   };
 }
 
@@ -49896,6 +49939,7 @@ function noteRows(record, now) {
     .map((path) => noteRow(Object.assign({ path }, notes[path]), now))
     .filter((row) => row.total > 0);
   rows.sort((a, b) => {
+    if (!!a.missing !== !!b.missing) return a.missing ? 1 : -1;
     if ((a.band === "untried") !== (b.band === "untried")) return a.band === "untried" ? 1 : -1;
     if (a.coverage !== b.coverage) return a.coverage - b.coverage;
     return a.label.localeCompare(b.label, undefined, { numeric: true });
@@ -49908,7 +49952,12 @@ function allConcepts(record) {
   const out = [];
   for (const path of Object.keys(notes)) {
     for (const concept of activeConcepts(notes[path])) {
-      out.push(Object.assign({}, concept, { noteLabel: str(notes[path].label) || noteLabel(path) }));
+      out.push(
+        Object.assign({}, concept, {
+          noteLabel: str(notes[path].label) || noteLabel(path),
+          missingNote: !!notes[path].missingAt,
+        })
+      );
     }
   }
   return out;
@@ -49923,6 +49972,7 @@ function recordSummary(record, now) {
     tested: concepts.filter((concept) => concept.attempts > 0).length,
     known: concepts.filter((concept) => concept.status === "known").length,
     due: concepts.filter((concept) => concept.dueAt && dayOf(concept.dueAt) && dayOf(concept.dueAt) <= localDate(now instanceof Date ? now : new Date())).length,
+    missing: rows.filter((row) => row.missing).length,
     updatedAt: str(record && record.updatedAt),
   };
 }
@@ -49966,7 +50016,8 @@ function digestLine(concept) {
   if (concept.partial) bits.push(`${concept.partial} partly`);
   if (concept.incorrect) bits.push(`${concept.incorrect} wrong`);
   if (concept.lastError) bits.push(tagLabel(concept.lastError).toLowerCase());
-  let line = `- ${asRecordData(concept.label)} [${asRecordData(concept.noteLabel)}]: ${bits.join(", ")}`;
+  const note = `${asRecordData(concept.noteLabel)}${concept.missingNote ? "; source missing" : ""}`;
+  let line = `- ${asRecordData(concept.label)} [${note}]: ${bits.join(", ")}`;
   if (concept.lastMiss && concept.lastMiss.answer) line += `; last wrote "${asRecordData(concept.lastMiss.answer).slice(0, 100)}"`;
   return line;
 }
@@ -49995,7 +50046,7 @@ function buildLearnerDigest(record, options) {
     const focusConcepts = activeConcepts(focusEntry)
       .sort((a, b) => Number(b.incorrect) - Number(a.incorrect) || Number(b.attempts) - Number(a.attempts))
       .slice(0, 5);
-    lines.push(`Focus note ${asRecordData(row.label)}: ${row.known}/${row.total} concepts known, ${row.tested} tested, ${row.due} due.`);
+    lines.push(`Focus note ${asRecordData(row.label)}${row.missing ? " (source missing)" : ""}: ${row.known}/${row.total} concepts known, ${row.tested} tested, ${row.due} due.`);
     for (const concept of focusConcepts) {
       lines.push(`  ${concept.attempts ? digestLine(concept) : `- ${asRecordData(concept.label)}: not tested`}`);
     }
@@ -50047,10 +50098,19 @@ function normalizeRecord(raw) {
       path: cleanPath,
       label: cleanLabel(entry.label) || noteLabel(cleanPath),
       updatedAt: str(entry.updatedAt),
+      missingAt: str(entry.missingAt),
       concepts,
     };
   }
   return out;
+}
+
+function markNoteMissing(entry, now) {
+  if (!entry || typeof entry !== "object") return null;
+  const at = (now instanceof Date ? now : new Date()).toISOString();
+  return Object.assign({}, entry, {
+    missingAt: str(entry.missingAt) || at,
+  });
 }
 
 function normalizeSettings(value) {
@@ -50083,6 +50143,7 @@ module.exports = {
   emptyRecord,
   extractConcepts,
   hashText,
+  markNoteMissing,
   noteLabel,
   noteRows,
   normalizeLabel,
@@ -68526,6 +68587,7 @@ class QuestionTrackerPlugin extends Plugin {
       }
       const previous = this.knowledgeRecord || knowledgeRecord.emptyRecord();
       const next = knowledgeRecord.emptyRecord();
+      const currentPaths = new Set(files.map((file) => knowledgeRecord.normalizePath(file.path)));
       let read = 0;
       let failed = 0;
       for (const file of files) {
@@ -68542,6 +68604,13 @@ class QuestionTrackerPlugin extends Plugin {
         } catch (e) {
           failed++;
         }
+      }
+      // A deleted source note keeps its last concepts as owed work instead of
+      // disappearing on the next rebuild.
+      for (const [path, entry] of Object.entries(previous.notes || {})) {
+        if (next.notes[path] || currentPaths.has(knowledgeRecord.normalizePath(path))) continue;
+        const kept = knowledgeRecord.markNoteMissing(entry, now);
+        if (kept) next.notes[path] = kept;
       }
       next.updatedAt = now.toISOString();
       this.knowledgeRecord = next;

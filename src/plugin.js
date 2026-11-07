@@ -1554,6 +1554,7 @@ class QuestionTrackerPlugin extends Plugin {
       }
       const previous = this.knowledgeRecord || knowledgeRecord.emptyRecord();
       const next = knowledgeRecord.emptyRecord();
+      const currentPaths = new Set(files.map((file) => knowledgeRecord.normalizePath(file.path)));
       let read = 0;
       let failed = 0;
       for (const file of files) {
@@ -1570,6 +1571,13 @@ class QuestionTrackerPlugin extends Plugin {
         } catch (e) {
           failed++;
         }
+      }
+      // A deleted source note keeps its last concepts as owed work instead of
+      // disappearing on the next rebuild.
+      for (const [path, entry] of Object.entries(previous.notes || {})) {
+        if (next.notes[path] || currentPaths.has(knowledgeRecord.normalizePath(path))) continue;
+        const kept = knowledgeRecord.markNoteMissing(entry, now);
+        if (kept) next.notes[path] = kept;
       }
       next.updatedAt = now.toISOString();
       this.knowledgeRecord = next;

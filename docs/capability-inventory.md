@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 424 groups, 2936 exports. **Commands:** 221. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 424 groups, 2937 exports. **Commands:** 221. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -39,7 +39,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `FrqImportPreviewModal` | 0 | `tests/frq-import.test.js` |
 | `FrqPdfPickerModal` | 0 | `tests/frq-import.test.js` |
 | `GLOBAL_TABS` | 3 | `tests/modules.test.js` |
-| `InsightsView` | 0 | `tests/knowledge-view.test.js`, `tests/study-plan.test.js`, `tests/views.test.js` |
+| `InsightsView` | 0 | `tests/knowledge-record-scenario.test.js`, `tests/knowledge-view.test.js`, `tests/study-plan.test.js`, `tests/views.test.js` |
 | `LocalEventModal` | 0 | `tests/feature-surfaces.test.js` |
 | `LocalEventsView` | 0 | `tests/mobile-calendar-agenda.test.js` |
 | `MAX_OPENCODE_MAJOR` | 0 | `tests/feature-surfaces.test.js` |
@@ -91,7 +91,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `agentRetrieval` | 14 | `tests/agent-retrieval.test.js` |
 | `agentView` | 5 | `tests/agent-view.test.js`, `tests/chat-branches.test.js`, `tests/chat-pdf.test.js`, `tests/chat-plan.test.js`, `tests/chat-tabs-queue.test.js`, `tests/memory-export.test.js`, `tests/projects-cost.test.js`, `tests/quick-chat-bookmarks.test.js` |
 | `agentWriteGuard` | 3 | `tests/agent-write-guard.test.js` |
-| `aiContext` | 5 | `tests/ai-context.test.js` |
+| `aiContext` | 5 | `tests/ai-context.test.js`, `tests/knowledge-record-scenario.test.js` |
 | `aiReady` | 0 | `tests/empty-state.test.js` |
 | `aiService` | 27 | `tests/ai-service.test.js`, `tests/frq-handwriting.test.js` |
 | `aiToolReviewModal` | 1 | `tests/chat-plan.test.js` |
@@ -261,8 +261,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `intervalPreview` | 4 | `tests/interval-preview.test.js` |
 | `isDue` | 0 | `tests/card-cram.test.js`, `tests/study-status.test.js` |
 | `isExamReady` | 0 | `tests/exam-ready.test.js` |
-| `knowledgeRecord` | 29 | `tests/knowledge-record.test.js`, `tests/knowledge-store.test.js`, `tests/knowledge-view.test.js` |
-| `knowledgeStore` | 4 | `tests/knowledge-store.test.js` |
+| `knowledgeRecord` | 30 | `tests/knowledge-record-scenario.test.js`, `tests/knowledge-record.test.js`, `tests/knowledge-store.test.js`, `tests/knowledge-view.test.js` |
+| `knowledgeStore` | 4 | `tests/knowledge-record-scenario.test.js`, `tests/knowledge-store.test.js` |
 | `learnkit` | 6 | `tests/learnkit.test.js` |
 | `lectureCompiler` | 6 | `tests/study-modules-2.test.js` |
 | `loadQuestionData` | 0 | `tests/parameterized.test.js`, `tests/study-modes.test.js`, `tests/study-skin.test.js` |
@@ -624,7 +624,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `weak-spots` | Show weak spots | `activateInsights` | `tests/modules.test.js`, `tests/plugin.test.js`, `tests/views.test.js` |
 | `error-log` | Show error log | `activateInsights` | `tests/modules.test.js`, `tests/plugin.test.js`, `tests/views.test.js` |
 | `knowledge-record` | Open the knowledge record | `activateInsights` | `tests/knowledge-commands.test.js`, `tests/knowledge-store.test.js`, `tests/modules.test.js`, `tests/views.test.js` |
-| `rebuild-knowledge-record` | Knowledge record: rebuild from notes | `rebuildKnowledgeRecord` | `tests/knowledge-commands.test.js`, `tests/knowledge-view.test.js` |
+| `rebuild-knowledge-record` | Knowledge record: rebuild from notes | `rebuildKnowledgeRecord` | `tests/knowledge-commands.test.js`, `tests/knowledge-record-scenario.test.js`, `tests/knowledge-view.test.js` |
 | `copy-learner-digest` | Knowledge record: copy learner digest | `copyLearnerDigest` | `tests/knowledge-commands.test.js`, `tests/knowledge-view.test.js` |
 | `find-question` | Find a question by ID | — | `tests/plugin.test.js` |
 | `rename-source-id` | Rename old source_question_id properties to official_question_id | `migrateOfficialIds` | `tests/plugin.test.js` |

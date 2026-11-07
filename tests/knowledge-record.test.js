@@ -71,7 +71,11 @@ test("knowledge record: reconcile keeps evidence, reopens changed sources and ke
   const changed = kr.reconcileConcepts(first, kr.extractConcepts("## Osmosis\nWater moves through a membrane.", "Notes/Bio.md"), NOW);
   assert.equal(changed[0].reopenedAt, NOW.toISOString());
   assert.equal(changed[0].dueAt, NOW.toISOString());
-  const removed = kr.reconcileConcepts(first, kr.extractConcepts("## Diffusion\nParticles spread.", "Notes/Bio.md"), NOW);
+  const renamed = kr.reconcileConcepts(first, kr.extractConcepts("## Diffusion\nParticles spread.", "Notes/Bio.md"), NOW);
+  const renamedConcept = renamed.find((concept) => concept.label === "Diffusion");
+  assert.equal(renamedConcept.id, first[0].id, "a heading rename keeps its structural identity");
+  assert.ok(renamedConcept.aliases.includes("Osmosis"));
+  const removed = kr.reconcileConcepts(first, [], NOW);
   assert.ok(removed.some((concept) => concept.label === "Osmosis" && concept.orphanedAt));
   const restored = kr.reconcileConcepts(removed, kr.extractConcepts("## Osmosis\nWater moves.", "Notes/Bio.md"), NOW);
   assert.equal(restored.find((concept) => concept.label === "Osmosis").orphanedAt, null);
