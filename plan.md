@@ -272,6 +272,8 @@ Legend: **MIT ✅** = MIT stated on the page or repo seen. **Verify ⚠️** = n
 | Plugin | What to learn from it | License | Link |
 |---|---|---|---|
 | **LearnKit** | FSRS-6 usage, card types, note review, analytics, study coach, Anki import/export, TTS | MIT ✅ | [community](https://community.obsidian.md/plugins/learnkit) · [GitHub](https://github.com/ctrlaltwill/learnkit) |
+| **Qard** | Typed answers (off by default), linked reverse-card pairs with separate schedules, AI-drafted cards, practice tests from notes or course folders | MIT ✅ (Oct 30 audit; re-check note in §9) | [GitHub](https://github.com/kylianmarceau/qard-obsidian) |
+| **FSRS Flashcards** (SFC) | Seven question types including short answer and essay; AI drafts open in an editable draft before anything is written | MIT ✅ | [GitHub](https://github.com/mojunbeiming/obsidian-fsrs-flashcards) |
 | **Spaced Repetition** (st3v3nmw) | De facto standard card syntax (`Q::A`, `?` multiline, cloze, `#flashcards/deck` tags); whole-note review; scheduling data stored in comments/frontmatter | MIT ✅ | [GitHub](https://github.com/st3v3nmw/obsidian-spaced-repetition) |
 | **Obsidian Tutor** (st3v3nmw) | Topic marking with `> [!topic]` callouts and automatic review scheduling | MIT ✅ | [GitHub](https://github.com/st3v3nmw/obsidian-tutor) |
 | **ts-fsrs** (library) | The FSRS implementation LearnKit credits; candidate scheduler dependency | MIT per repo, confirm before adding | [GitHub](https://github.com/open-spaced-repetition/ts-fsrs) |
@@ -787,6 +789,9 @@ Core study systems:
 | Study Vault | `wesswart77/obsidian-study-vault` | MIT |
 | Class Timetable | `elliott-json-park/obsidian-class-timetable` | MIT |
 | Claude Tutor | `wanikhawar/claude-tutor` | MIT |
+| Grill | `theadamdanielsson/grill` | MIT |
+| Synthesis Learning Companion | `ARENEWX/synthesis-learning-companion` | MIT |
+| Vault Coach | `Wanjin5508/vault-coach` | MIT |
 
 Flashcards and quizzes:
 
@@ -808,6 +813,7 @@ Flashcards and quizzes:
 | Flashcard Studio | `almalkiid/flashcard-studio` | MIT |
 | LLM Test Gen | `aldo-g/obsidian-llm-test` | MIT |
 | Flashcard Generator | `chloedia/Obsidian_Quiz_Generator` | MIT |
+| Quiz Generator | `ECuiDev/obsidian-quiz-generator` | MIT |
 | FSRS Vocabulary | `rokokol/obsidian-fsrs-vocabulary` | MIT |
 
 Courses, tasks and workflow:
@@ -876,7 +882,7 @@ Math, reference, handwriting and PDF:
 
 | Plugin / component | Licence | Condition |
 |---|---|---|
-| **Smart Question Tutor** (`smart-quiz-tutor`) | 0BSD | No attribution required; still record the source in `NOTICES.md` as a courtesy |
+| **Smart Question Tutor** (`smart-quiz-tutor`) | 0BSD | The `LICENSE` file reads 0BSD even though its README says ISC; 0BSD needs no attribution, but still record the source in `NOTICES.md` as a courtesy. |
 | **quizblock** | 0BSD per directory | Repo not read; confirm before copying |
 | **Easy Quiz** (`ankinglin/EasyQuiz`) | ISC-style (Dynalist) | Keep the copyright and permission text |
 | **Activity Graph** (`rwyattwalker/obsidian-activity-graph`) | ISC-style (Dynalist) | Keep the copyright and permission text |
@@ -2569,6 +2575,8 @@ The owner plans to build with coding agents running for long periods. That remov
 | AI assistant plugins (Copilot, Agent Client, Codex Panel, Gemini Helper, LLM Hub) | All **Verify ⚠️**. Study their *design*, not their code, unless the license allows reuse. Do not copy prompts or UI wholesale |
 | Math/chem plugins (Chem, Latex Suite, Function Plot, Calctex, Ketcher) | All **Verify ⚠️**. Prefer detecting and integrating with installed plugins over bundling their code. If you embed an expression evaluator or a symbolic library, record its license too |
 | Third-party libraries (ts-fsrs, PDF libs, sql.js, charts) | Record each library's license in `NOTICES.md` |
+| **Nov 7, 2026 study-source re-check** | `LICENSE` files read for LearnKit, Qard, Grill, FSRS Flashcards, VaultQuiz, Synthesis Learning Companion, Claude Tutor, Smart Question Tutor, Quiz Generator, True Recall, Vault Coach and Adaptive Practice. MIT: LearnKit, Qard, Grill, FSRS Flashcards, VaultQuiz, Synthesis Learning Companion, Claude Tutor, Quiz Generator, Vault Coach and the Adaptive Practice plugin. **0BSD:** Smart Question Tutor (its README says ISC; the `LICENSE` file wins). **PolyForm Strict 1.0.0:** True Recall, blocked. **AGPL:** the Whetstone engine behind Adaptive Practice, blocked. A Nov 7 search could not re-surface Qard, VaultQuiz or Note Quiz Engine: Qard and VaultQuiz were already cleared by reading their `LICENSE` on Oct 30, so re-open those files before copying; Note Quiz Engine is a Markdown format, not a plugin, and stays unverified. **No code was copied.** |
+| **Copy candidates for owner approval (O12)** | If approved, port small pieces only: LearnKit's FSRS-6 wrapper and test-generation/Companion patterns (§5.1, §5.3, §5.18), Qard's typed-answer flow and card model (§5.7, §5.17), Grill's rubric schema and grading prompts (§5.5, §5.17), and VaultQuiz's incremental streak (§5.19). All are TypeScript; strip to CommonJS + JSDoc, keep the copyright header, add the MIT text to `NOTICES.md`, and treat every typed answer as untrusted input. |
 
 ---
 
