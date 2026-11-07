@@ -157,6 +157,9 @@ class ChatPanel {
   build() {
     const root = this.root;
     root.empty();
+    // A rebuild replaces every element, so the old draw signature no longer
+    // describes this tree; without this the transcript would stay blank.
+    this.sig = "";
     root.addClass("qt-agent-panel");
     if (!this.ai.enabled) {
       root.createDiv({
@@ -175,15 +178,6 @@ class ChatPanel {
     titles.createDiv({ cls: "qt-agent-title", text: "Study agent" });
     this.modeLabel = titles.createDiv({ cls: "qt-agent-subtitle" });
     const headActions = head.createDiv({ cls: "qt-agent-head-actions" });
-    this.modelSelect = headActions.createEl("select", {
-      cls: "qt-select qt-agent-model",
-      attr: { "aria-label": "Chat model", title: "Model for this chat" },
-    });
-    this.renderModelSelect();
-    this.modelSelect.addEventListener("change", () => {
-      this.setChatModel(chatModels.normalizeModel(this.modelSelect.value));
-      this.refreshTokenFooter();
-    });
     const nc = headActions.createEl("button", { text: "New chat", cls: "qt-agent-icon" });
     nc.addEventListener("click", () => this.newChat());
     if (this.opts.onSaveChat) {
@@ -228,7 +222,8 @@ class ChatPanel {
       cls: "qt-chat-input qt-agent-input",
       attr: {
         rows: "2",
-        placeholder: "Ask about a note, paste a question, or plan a session…  (Enter to send, Shift+Enter for a new line)",
+        placeholder: "Ask about a note, or plan a session…",
+        title: "Enter to send · Shift+Enter for a new line",
       },
     });
     this.input.addEventListener("keydown", (e) => {
@@ -320,7 +315,19 @@ class ChatPanel {
         saved.value = "";
       });
     }
-    const sendGroup = toolbar.createDiv({ cls: "qt-agent-send" });
+    // The model belongs with the send controls, not in the header: a long
+    // model id there squeezed the title to nothing in a narrow sidebar.
+    const submit = toolbar.createDiv({ cls: "qt-agent-submit" });
+    this.modelSelect = submit.createEl("select", {
+      cls: "qt-select qt-agent-model",
+      attr: { "aria-label": "Chat model", title: "Model for this chat" },
+    });
+    this.renderModelSelect();
+    this.modelSelect.addEventListener("change", () => {
+      this.setChatModel(chatModels.normalizeModel(this.modelSelect.value));
+      this.refreshTokenFooter();
+    });
+    const sendGroup = submit.createDiv({ cls: "qt-agent-send" });
     this.stopBtn = sendGroup.createEl("button", { text: "Stop", cls: "qt-agent-tool" });
     this.stopBtn.addClass("qt-hidden");
     this.stopBtn.addEventListener("click", () => this.stop());
@@ -468,7 +475,9 @@ class ChatPanel {
     if (!this.hint) return;
     if (this.modeLabel) this.modeLabel.setText(`${this.ai.mode === "agent" ? "Agent" : "Tutor"} · ${tutorRole(this.currentRole()).label}`);
     const role = tutorRole(this.currentRole());
-    const suffix = ` Role: ${role.label}. Commands: ${TUTOR_COMMANDS.map((c) => `/${c.id}`).join(", ")}.`;
+    // The command list lives in the toolbar dropdown; repeating it here made
+    // the hint bar four lines tall in a narrow sidebar.
+    const suffix = ` Role: ${role.label}.`;
     if (this.view.plugin.backend() === "api") {
       this.hint.setText(
         (this.ai.mode === "agent"
@@ -536,7 +545,7 @@ class ChatPanel {
     this.renderPdfChips();
     root.createDiv({
       cls: "qt-hint",
-      text: "Off by default. Note text, selection and mentioned notes are sent only while their switch is on. Mentions are explicitly chosen with @ and are treated as untrusted data.",
+      text: "Off by default — note text, selection and mentions are sent only while their switch is on. Mentions are untrusted data.",
     });
     this.paintContext();
   }

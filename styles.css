@@ -13034,6 +13034,9 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   font-weight: var(--font-semibold, 600);
   font-size: var(--font-ui-medium);
   line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .qt-agent-subtitle {
   color: var(--text-muted);
@@ -13049,7 +13052,8 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   flex: 0 0 auto;
 }
 .qt-agent-model {
-  max-width: 150px;
+  max-width: 170px;
+  min-width: 0;
   min-height: 26px;
   font-size: var(--font-ui-smaller);
 }
@@ -13082,10 +13086,12 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 .qt-agent-thread {
   flex: 1 1 auto;
   min-height: 220px;
-  max-height: 58vh;
   gap: 14px;
   padding: 6px 2px 10px;
   scroll-behavior: smooth;
+}
+.qt-agent-chat .qt-agent-thread {
+  max-height: 58vh;
 }
 .qt-agent-thread.is-empty {
   justify-content: center;
@@ -13108,9 +13114,9 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   margin-top: 18px;
   border-radius: 50%;
   border: 1px solid var(--background-modifier-border);
-  background: var(--background-modifier-hover);
-  color: var(--text-muted);
-  font-size: 10px;
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  font-size: 11px;
   font-weight: 600;
   line-height: 1;
 }
@@ -13139,12 +13145,16 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   padding: 9px 12px;
 }
 .qt-agent-thread .qt-msg.is-user {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
+  /* A tinted bubble rather than a solid accent fill: white on Obsidian's
+     default accent is only 3.9:1, which fails for message text. */
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  border-right: 3px solid var(--interactive-accent);
   border-radius: 14px 14px 4px 14px;
 }
 .qt-agent-thread .qt-msg.is-user a {
-  color: var(--text-on-accent);
+  color: var(--text-accent);
   text-decoration-line: underline;
 }
 .qt-agent-thread .qt-msg.is-assistant {
@@ -13169,8 +13179,7 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 }
 .qt-agent-thread .qt-msg.is-user .qt-msg-actions button,
 .qt-agent-thread .qt-msg.is-user .qt-tool {
-  color: var(--text-on-accent);
-  opacity: 0.85;
+  color: var(--text-muted);
 }
 .qt-msg-actions {
   display: flex;
@@ -13179,13 +13188,21 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   margin-top: 4px;
 }
 .qt-msg-actions button {
-  min-height: 22px;
+  min-height: 26px;
   height: auto;
-  padding: 0 6px;
+  padding: 0 8px;
   border-radius: var(--radius-s);
   background: transparent;
   box-shadow: none;
   color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+/* The generic .qt-agent-chat .qt-save-note rule raises this action above the
+   rest of the row; keep the row on one height. */
+.qt-agent-thread .qt-msg-actions .qt-save-note {
+  min-height: 26px;
+  margin-top: 0;
+  padding: 0 8px;
   font-size: var(--font-ui-smaller);
 }
 .qt-msg-actions button:hover {
@@ -13194,8 +13211,10 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 }
 .qt-agent-empty {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   margin: auto;
   padding: 18px 12px;
@@ -13248,6 +13267,11 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 .qt-agent-composer .qt-chat-context {
   margin: 0;
   gap: 4px;
+}
+.qt-agent-composer .qt-hint {
+  margin: 0;
+  font-size: var(--font-ui-smaller);
+  line-height: 1.4;
 }
 .qt-agent-composer .qt-chat-context .qt-chip {
   min-height: 24px;
@@ -13311,11 +13335,17 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   color: var(--text-normal);
   background: var(--background-modifier-hover);
 }
-.qt-agent-send {
+.qt-agent-submit {
   display: flex;
   align-items: center;
   gap: 4px;
   margin-left: auto;
+  min-width: 0;
+}
+.qt-agent-send {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 .qt-agent-send-btn {
   min-height: 28px;
@@ -13331,15 +13361,31 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 .qt-agent-status {
   margin: 0 2px;
 }
-@container (max-width: 360px) {
+@container (max-width: 380px) {
   .qt-agent-head-actions .qt-agent-icon {
     padding: 0 6px;
-  }
-  .qt-agent-model {
-    max-width: 108px;
+    font-size: 11px;
   }
   .qt-agent-toolbar .qt-agent-command,
   .qt-agent-toolbar .qt-agent-saved-command {
-    display: none;
+    max-width: 132px;
+  }
+  /* Send controls get their own full row instead of being squeezed between
+     wrapped tool buttons. */
+  .qt-agent-submit {
+    width: 100%;
+    margin-left: 0;
+  }
+  .qt-agent-submit .qt-agent-model {
+    flex: 1 1 auto;
+    max-width: none;
+  }
+  .qt-msg-actions button,
+  .qt-agent-thread .qt-msg-actions .qt-save-note {
+    min-height: 30px;
+    padding: 0 10px;
+  }
+  .qt-agent-composer {
+    padding: 7px;
   }
 }
