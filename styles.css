@@ -13592,6 +13592,11 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 .qt-agent-controls .qt-chat-token-label {
   max-width: 72px;
 }
+@container (min-width: 640px) {
+  .qt-agent-controls .qt-chat-token-label {
+    max-width: none;
+  }
+}
 @container (max-width: 470px) {
   .qt-agent-controls .qt-chat-token-label {
     display: none;
@@ -13625,8 +13630,12 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   display: none;
 }
 .qt-agent-mode-note summary::before {
-  content: "ⓘ";
+  content: "›";
   color: var(--text-muted);
+  transition: transform 120ms ease;
+}
+.qt-agent-mode-note details[open] summary::before {
+  transform: rotate(90deg);
 }
 .qt-agent-hintbar,
 .qt-agent-context-note {
@@ -14472,6 +14481,7 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   .qt-agent-suggestion-card,
   .qt-agent-reasoning summary::after,
   .qt-agent-sources summary::after,
+  .qt-agent-mode-note summary::before,
   .qt-agent-usage summary::before {
     transition: none;
   }
