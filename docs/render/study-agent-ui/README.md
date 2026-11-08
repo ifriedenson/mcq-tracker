@@ -150,8 +150,8 @@ DPR, then crop each 900 px pane.
 
 ## Real Obsidian check (1.15.0, Nov 8 2026)
 
-The current build (`main.js`, `manifest.json`, `styles.css`; plugin 1.291.2)
-was copied into a throwaway vault and opened in Obsidian 1.15.0 under Xvfb
+The build (`main.js`, `manifest.json`, `styles.css`; plugin 1.291.2, whose
+`main.js` and `styles.css` are unchanged in 1.291.3) was copied into a throwaway vault and opened in Obsidian 1.15.0 under Xvfb
 (2400 × 1600 screen, 2× device scale, 1200 × 800 CSS window). AI was enabled,
 **Study agent: open the sidebar** was run, a new chat was started and the
 suggestion rotation was stopped so the seeded deck stayed on screen.
