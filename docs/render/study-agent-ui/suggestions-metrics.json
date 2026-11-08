@@ -1,0 +1,1717 @@
+{
+  "capturedAt": "2026-11-08T04:07:09.081Z",
+  "page": "suggestions-all.html",
+  "viewport": {
+    "width": 608,
+    "height": 824,
+    "dpr": 2
+  },
+  "paneFrame": ".qt-agent-chat > .qt-chat-tab-panels > .qt-chat-tab-panel > .qt-agent-panel",
+  "failures": [],
+  "rows": [
+    {
+      "state": "empty",
+      "width": 320,
+      "theme": "light",
+      "pane": {
+        "x": 0,
+        "y": -2304,
+        "w": 320,
+        "h": 900,
+        "scrollWidth": 320,
+        "clientWidth": 320,
+        "scrollHeight": 900,
+        "clientHeight": 900
+      },
+      "empty": {
+        "x": 26,
+        "y": -2087,
+        "w": 268,
+        "h": 244,
+        "scrollWidth": 266,
+        "clientWidth": 266,
+        "scrollHeight": 242,
+        "clientHeight": 242
+      },
+      "emptyText": {
+        "x": 39,
+        "y": -2044,
+        "w": 242,
+        "h": 52,
+        "scrollWidth": 242,
+        "clientWidth": 242,
+        "scrollHeight": 52,
+        "clientHeight": 52
+      },
+      "emptyTextClipped": false,
+      "emptyCardClipped": false,
+      "deck": {
+        "x": 39,
+        "y": -1984,
+        "w": 242,
+        "h": 116,
+        "scrollWidth": 242,
+        "clientWidth": 242,
+        "scrollHeight": 116,
+        "clientHeight": 116
+      },
+      "deckClipped": false,
+      "activeCard": {
+        "x": 39,
+        "y": -1984,
+        "w": 242,
+        "h": 104,
+        "scrollWidth": 240,
+        "clientWidth": 240,
+        "scrollHeight": 102,
+        "clientHeight": 102
+      },
+      "activeCardClipped": false,
+      "activeTitle": {
+        "x": 51,
+        "y": -1959,
+        "w": 112,
+        "h": 18,
+        "scrollWidth": 112,
+        "clientWidth": 112,
+        "scrollHeight": 18,
+        "clientHeight": 18
+      },
+      "activeTitleClipped": false,
+      "activeDetail": {
+        "x": 51,
+        "y": -1940,
+        "w": 218,
+        "h": 49,
+        "scrollWidth": 218,
+        "clientWidth": 218,
+        "scrollHeight": 49,
+        "clientHeight": 49
+      },
+      "detailThreeLineClamp": false,
+      "dots": {
+        "x": 39,
+        "y": -1862,
+        "w": 242,
+        "h": 6,
+        "scrollWidth": 242,
+        "clientWidth": 242,
+        "scrollHeight": 12,
+        "clientHeight": 6
+      },
+      "dotsBelowDeck": true,
+      "mode": {
+        "x": 12,
+        "y": -1623,
+        "w": 60,
+        "h": 26,
+        "scrollWidth": 60,
+        "clientWidth": 60,
+        "scrollHeight": 26,
+        "clientHeight": 26
+      },
+      "modeLabel": "Tutor",
+      "role": {
+        "x": 74,
+        "y": -1623,
+        "w": 82,
+        "h": 26,
+        "scrollWidth": 82,
+        "clientWidth": 82,
+        "scrollHeight": 26,
+        "clientHeight": 26
+      },
+      "roleLabel": "Private",
+      "gaugeLabelDisplay": "none",
+      "controls": {
+        "x": 10,
+        "y": -1626,
+        "w": 300,
+        "h": 32,
+        "scrollWidth": 300,
+        "clientWidth": 300,
+        "scrollHeight": 32,
+        "clientHeight": 32
+      },
+      "composer": {
+        "x": 10,
+        "y": -1562,
+        "w": 300,
+        "h": 146,
+        "scrollWidth": 298,
+        "clientWidth": 298,
+        "scrollHeight": 144,
+        "clientHeight": 144
+      },
+      "controlsOverlapComposer": false,
+      "backCardLabelVisibility": [
+        "hidden",
+        "hidden",
+        "hidden",
+        "hidden"
+      ]
+    },
+    {
+      "state": "empty",
+      "width": 320,
+      "theme": "dark",
+      "pane": {
+        "x": 0,
+        "y": -1404,
+        "w": 320,
+        "h": 900,
+        "scrollWidth": 320,
+        "clientWidth": 320,
+        "scrollHeight": 900,
+        "clientHeight": 900
+      },
+      "empty": {
+        "x": 26,
+        "y": -1187,
+        "w": 268,
+        "h": 244,
+        "scrollWidth": 266,
+        "clientWidth": 266,
+        "scrollHeight": 242,
+        "clientHeight": 242
+      },
+      "emptyText": {
+        "x": 39,
+        "y": -1144,
+        "w": 242,
+        "h": 52,
+        "scrollWidth": 242,
+        "clientWidth": 242,
+        "scrollHeight": 52,
+        "clientHeight": 52
+      },
+      "emptyTextClipped": false,
+      "emptyCardClipped": false,
+      "deck": {
+        "x": 39,
+        "y": -1084,
+        "w": 242,
+        "h": 116,
+        "scrollWidth": 242,
+        "clientWidth": 242,
+        "scrollHeight": 116,
+        "clientHeight": 116
+      },
+      "deckClipped": false,
+      "activeCard": {
+        "x": 39,
+        "y": -1084,
+        "w": 242,
+        "h": 104,
+        "scrollWidth": 240,
+        "clientWidth": 240,
+        "scrollHeight": 102,
+        "clientHeight": 102
+      },
+      "activeCardClipped": false,
+      "activeTitle": {
+        "x": 51,
+        "y": -1059,
+        "w": 112,
+        "h": 18,
+        "scrollWidth": 112,
+        "clientWidth": 112,
+        "scrollHeight": 18,
+        "clientHeight": 18
+      },
+      "activeTitleClipped": false,
+      "activeDetail": {
+        "x": 51,
+        "y": -1040,
+        "w": 218,
+        "h": 49,
+        "scrollWidth": 218,
+        "clientWidth": 218,
+        "scrollHeight": 49,
+        "clientHeight": 49
+      },
+      "detailThreeLineClamp": false,
+      "dots": {
+        "x": 39,
+        "y": -962,
+        "w": 242,
+        "h": 6,
+        "scrollWidth": 242,
+        "clientWidth": 242,
+        "scrollHeight": 12,
+        "clientHeight": 6
+      },
+      "dotsBelowDeck": true,
+      "mode": {
+        "x": 12,
+        "y": -723,
+        "w": 60,
+        "h": 26,
+        "scrollWidth": 60,
+        "clientWidth": 60,
+        "scrollHeight": 26,
+        "clientHeight": 26
+      },
+      "modeLabel": "Tutor",
+      "role": {
+        "x": 74,
+        "y": -723,
+        "w": 82,
+        "h": 26,
+        "scrollWidth": 82,
+        "clientWidth": 82,
+        "scrollHeight": 26,
+        "clientHeight": 26
+      },
+      "roleLabel": "Private",
+      "gaugeLabelDisplay": "none",
+      "controls": {
+        "x": 10,
+        "y": -726,
+        "w": 300,
+        "h": 32,
+        "scrollWidth": 300,
+        "clientWidth": 300,
+        "scrollHeight": 32,
+        "clientHeight": 32
+      },
+      "composer": {
+        "x": 10,
+        "y": -662,
+        "w": 300,
+        "h": 146,
+        "scrollWidth": 298,
+        "clientWidth": 298,
+        "scrollHeight": 144,
+        "clientHeight": 144
+      },
+      "controlsOverlapComposer": false,
+      "backCardLabelVisibility": [
+        "hidden",
+        "hidden",
+        "hidden",
+        "hidden"
+      ]
+    },
+    {
+      "state": "empty",
+      "width": 560,
+      "theme": "light",
+      "pane": {
+        "x": 0,
+        "y": -504,
+        "w": 560,
+        "h": 900,
+        "scrollWidth": 560,
+        "clientWidth": 560,
+        "scrollHeight": 900,
+        "clientHeight": 900
+      },
+      "empty": {
+        "x": 26,
+        "y": -287,
+        "w": 508,
+        "h": 244,
+        "scrollWidth": 506,
+        "clientWidth": 506,
+        "scrollHeight": 242,
+        "clientHeight": 242
+      },
+      "emptyText": {
+        "x": 39,
+        "y": -244,
+        "w": 312,
+        "h": 52,
+        "scrollWidth": 312,
+        "clientWidth": 312,
+        "scrollHeight": 52,
+        "clientHeight": 52
+      },
+      "emptyTextClipped": false,
+      "emptyCardClipped": false,
+      "deck": {
+        "x": 39,
+        "y": -184,
+        "w": 482,
+        "h": 116,
+        "scrollWidth": 482,
+        "clientWidth": 482,
+        "scrollHeight": 116,
+        "clientHeight": 116
+      },
+      "deckClipped": false,
+      "activeCard": {
+        "x": 39,
+        "y": -184,
+        "w": 482,
+        "h": 104,
+        "scrollWidth": 480,
+        "clientWidth": 480,
+        "scrollHeight": 102,
+        "clientHeight": 102
+      },
+      "activeCardClipped": false,
+      "activeTitle": {
+        "x": 51,
+        "y": -143,
+        "w": 112,
+        "h": 18,
+        "scrollWidth": 112,
+        "clientWidth": 112,
+        "scrollHeight": 18,
+        "clientHeight": 18
+      },
+      "activeTitleClipped": false,
+      "activeDetail": {
+        "x": 51,
+        "y": -123,
+        "w": 445,
+        "h": 16,
+        "scrollWidth": 445,
+        "clientWidth": 445,
+        "scrollHeight": 16,
+        "clientHeight": 16
+      },
+      "detailThreeLineClamp": false,
+      "dots": {
+        "x": 39,
+        "y": -62,
+        "w": 482,
+        "h": 6,
+        "scrollWidth": 482,
+        "clientWidth": 482,
+        "scrollHeight": 12,
+        "clientHeight": 6
+      },
+      "dotsBelowDeck": true,
+      "mode": {
+        "x": 12,
+        "y": 177,
+        "w": 60,
+        "h": 26,
+        "scrollWidth": 60,
+        "clientWidth": 60,
+        "scrollHeight": 26,
+        "clientHeight": 26
+      },
+      "modeLabel": "Tutor",
+      "role": {
+        "x": 74,
+        "y": 177,
+        "w": 82,
+        "h": 26,
+        "scrollWidth": 82,
+        "clientWidth": 82,
+        "scrollHeight": 26,
+        "clientHeight": 26
+      },
+      "roleLabel": "Private",
+      "gaugeLabelDisplay": "block",
+      "controls": {
+        "x": 10,
+        "y": 174,
+        "w": 540,
+        "h": 32,
+        "scrollWidth": 540,
+        "clientWidth": 540,
+        "scrollHeight": 32,
+        "clientHeight": 32
+      },
+      "composer": {
+        "x": 10,
+        "y": 238,
+        "w": 540,
+        "h": 146,
+        "scrollWidth": 538,
+        "clientWidth": 538,
+        "scrollHeight": 144,
+        "clientHeight": 144
+      },
+      "controlsOverlapComposer": false,
+      "backCardLabelVisibility": [
+        "hidden",
+        "hidden",
+        "hidden",
+        "hidden"
+      ]
+    },
+    {
+      "state": "empty",
+      "width": 560,
+      "theme": "dark",
+      "pane": {
+        "x": 0,
+        "y": 396,
+        "w": 560,
+        "h": 900,
+        "scrollWidth": 560,
+        "clientWidth": 560,
+        "scrollHeight": 900,
+        "clientHeight": 900
+      },
+      "empty": {
+        "x": 26,
+        "y": 613,
+        "w": 508,
+        "h": 244,
+        "scrollWidth": 506,
+        "clientWidth": 506,
+        "scrollHeight": 242,
+        "clientHeight": 242
+      },
+      "emptyText": {
+        "x": 39,
+        "y": 656,
+        "w": 312,
+        "h": 52,
+        "scrollWidth": 312,
+        "clientWidth": 312,
+        "scrollHeight": 52,
+        "clientHeight": 52
+      },
+      "emptyTextClipped": false,
+      "emptyCardClipped": false,
+      "deck": {
+        "x": 39,
+        "y": 716,
+        "w": 482,
+        "h": 116,
+        "scrollWidth": 482,
+        "clientWidth": 482,
+        "scrollHeight": 116,
+        "clientHeight": 116
+      },
+      "deckClipped": false,
+      "activeCard": {
+        "x": 39,
+        "y": 716,
+        "w": 482,
+        "h": 104,
+        "scrollWidth": 480,
+        "clientWidth": 480,
+        "scrollHeight": 102,
+        "clientHeight": 102
+      },
+      "activeCardClipped": false,
+      "activeTitle": {
+        "x": 51,
+        "y": 757,
+        "w": 112,
+        "h": 18,
+        "scrollWidth": 112,
+        "clientWidth": 112,
+        "scrollHeight": 18,
+        "clientHeight": 18
+      },
+      "activeTitleClipped": false,
+      "activeDetail": {
+        "x": 51,
+        "y": 777,
+        "w": 445,
+        "h": 16,
+        "scrollWidth": 445,
+        "clientWidth": 445,
+        "scrollHeight": 16,
+        "clientHeight": 16
+      },
+      "detailThreeLineClamp": false,
+      "dots": {
+        "x": 39,
+        "y": 838,
+        "w": 482,
+        "h": 6,
+        "scrollWidth": 482,
+        "clientWidth": 482,
+        "scrollHeight": 12,
+        "clientHeight": 6
+      },
+      "dotsBelowDeck": true,
+      "mode": {
+        "x": 12,
+        "y": 1077,
+        "w": 60,
+        "h": 26,
+        "scrollWidth": 60,
+        "clientWidth": 60,
+        "scrollHeight": 26,
+        "clientHeight": 26
+      },
+      "modeLabel": "Tutor",
+      "role": {
+        "x": 74,
+        "y": 1077,
+        "w": 82,
+        "h": 26,
+        "scrollWidth": 82,
+        "clientWidth": 82,
+        "scrollHeight": 26,
+        "clientHeight": 26
+      },
+      "roleLabel": "Private",
+      "gaugeLabelDisplay": "block",
+      "controls": {
+        "x": 10,
+        "y": 1074,
+        "w": 540,
+        "h": 32,
+        "scrollWidth": 540,
+        "clientWidth": 540,
+        "scrollHeight": 32,
+        "clientHeight": 32
+      },
+      "composer": {
+        "x": 10,
+        "y": 1138,
+        "w": 540,
+        "h": 146,
+        "scrollWidth": 538,
+        "clientWidth": 538,
+        "scrollHeight": 144,
+        "clientHeight": 144
+      },
+      "controlsOverlapComposer": false,
+      "backCardLabelVisibility": [
+        "hidden",
+        "hidden",
+        "hidden",
+        "hidden"
+      ]
+    },
+    {
+      "state": "short",
+      "width": 320,
+      "theme": "light",
+      "pane": {
+        "x": 0,
+        "y": 1296,
+        "w": 320,
+        "h": 900,
+        "scrollWidth": 320,
+        "clientWidth": 320,
+        "scrollHeight": 900,
+        "clientHeight": 900
+      },
+      "empty": {
+        "x": 26,
+        "y": 1513,
+        "w": 268,
+        "h": 244,
+        "scrollWidth": 266,
+        "clientWidth": 266,
+        "scrollHeight": 242,
+        "clientHeight": 242
+      },
+      "emptyText": {
+        "x": 39,
+        "y": 1556,
+        "w": 242,
+        "h": 52,
+        "scrollWidth": 242,
+        "clientWidth": 242,
+        "scrollHeight": 52,
+        "clientHeight": 52
+      },
+      "emptyTextClipped": false,
+      "emptyCardClipped": false,
+      "deck": {
+        "x": 39,
+        "y": 1616,
+        "w": 242,
+        "h": 116,
+        "scrollWidth": 242,
+        "clientWidth": 242,
+        "scrollHeight": 116,
+        "clientHeight": 116
+      },
+      "deckClipped": false,
+      "activeCard": {
+        "x": 39,
+        "y": 1616,
+        "w": 242,
+        "h": 104,
+        "scrollWidth": 240,
+        "clientWidth": 240,
+        "scrollHeight": 102,
+        "clientHeight": 102
+      },
+      "activeCardClipped": false,
+      "activeTitle": {
+        "x": 51,
+        "y": 1641,
+        "w": 112,
+        "h": 18,
+        "scrollWidth": 112,
+        "clientWidth": 112,
+        "scrollHeight": 18,
+        "clientHeight": 18
+      },
+      "activeTitleClipped": false,
+      "activeDetail": {
+        "x": 51,
+        "y": 1660,
+        "w": 218,
+        "h": 49,
+        "scrollWidth": 218,
+        "clientWidth": 218,
+        "scrollHeight": 49,
+        "clientHeight": 49
+      },
+      "detailThreeLineClamp": false,
+      "dots": {
+        "x": 39,
+        "y": 1738,
+        "w": 242,
+        "h": 6,
+        "scrollWidth": 242,
+        "clientWidth": 242,
+        "scrollHeight": 12,
+        "clientHeight": 6
+      },
+      "dotsBelowDeck": true,
+      "mode": {
+        "x": 12,
+        "y": 1977,
+        "w": 60,
+        "h": 26,
+        "scrollWidth": 60,
+        "clientWidth": 60,
+        "scrollHeight": 26,
+        "clientHeight": 26
+      },
+      "modeLabel": "Tutor",
+      "role": {
+        "x": 74,
+        "y": 1977,
+        "w": 82,
+        "h": 26,
+        "scrollWidth": 82,
+        "clientWidth": 82,
+        "scrollHeight": 26,
+        "clientHeight": 26
+      },
+      "roleLabel": "Private",
+      "gaugeLabelDisplay": "none",
+      "controls": {
+        "x": 10,
+        "y": 1974,
+        "w": 300,
+        "h": 32,
+        "scrollWidth": 300,
+        "clientWidth": 300,
+        "scrollHeight": 32,
+        "clientHeight": 32
+      },
+      "composer": {
+        "x": 10,
+        "y": 2038,
+        "w": 300,
+        "h": 146,
+        "scrollWidth": 298,
+        "clientWidth": 298,
+        "scrollHeight": 144,
+        "clientHeight": 144
+      },
+      "controlsOverlapComposer": false,
+      "backCardLabelVisibility": [
+        "hidden",
+        "hidden",
+        "hidden",
+        "hidden"
+      ]
+    },
+    {
+      "state": "short",
+      "width": 320,
+      "theme": "dark",
+      "pane": {
+        "x": 0,
+        "y": 2196,
+        "w": 320,
+        "h": 900,
+        "scrollWidth": 320,
+        "clientWidth": 320,
+        "scrollHeight": 900,
+        "clientHeight": 900
+      },
+      "empty": {
+        "x": 26,
+        "y": 2413,
+        "w": 268,
+        "h": 244,
+        "scrollWidth": 266,
+        "clientWidth": 266,
+        "scrollHeight": 242,
+        "clientHeight": 242
+      },
+      "emptyText": {
+        "x": 39,
+        "y": 2456,
+        "w": 242,
+        "h": 52,
+        "scrollWidth": 242,
+        "clientWidth": 242,
+        "scrollHeight": 52,
+        "clientHeight": 52
+      },
+      "emptyTextClipped": false,
+      "emptyCardClipped": false,
+      "deck": {
+        "x": 39,
+        "y": 2516,
+        "w": 242,
+        "h": 116,
+        "scrollWidth": 242,
+        "clientWidth": 242,
+        "scrollHeight": 116,
+        "clientHeight": 116
+      },
+      "deckClipped": false,
+      "activeCard": {
+        "x": 39,
+        "y": 2516,
+        "w": 242,
+        "h": 104,
+        "scrollWidth": 240,
+        "clientWidth": 240,
+        "scrollHeight": 102,
+        "clientHeight": 102
+      },
+      "activeCardClipped": false,
+      "activeTitle": {
+        "x": 51,
+        "y": 2541,
+        "w": 112,
+        "h": 18,
+        "scrollWidth": 112,
+        "clientWidth": 112,
+        "scrollHeight": 18,
+        "clientHeight": 18
+      },
+      "activeTitleClipped": false,
+      "activeDetail": {
+        "x": 51,
+        "y": 2560,
+        "w": 218,
+        "h": 49,
+        "scrollWidth": 218,
+        "clientWidth": 218,
+        "scrollHeight": 49,
+        "clientHeight": 49
+      },
+      "detailThreeLineClamp": false,
+      "dots": {
+        "x": 39,
+        "y": 2638,
+        "w": 242,
+        "h": 6,
+        "scrollWidth": 242,
+        "clientWidth": 242,
+        "scrollHeight": 12,
+        "clientHeight": 6
+      },
+      "dotsBelowDeck": true,
+      "mode": {
+        "x": 12,
+        "y": 2877,
+        "w": 60,
+        "h": 26,
+        "scrollWidth": 60,
+        "clientWidth": 60,
+        "scrollHeight": 26,
+        "clientHeight": 26
+      },
+      "modeLabel": "Tutor",
+      "role": {
+        "x": 74,
+        "y": 2877,
+        "w": 82,
+        "h": 26,
+        "scrollWidth": 82,
+        "clientWidth": 82,
+        "scrollHeight": 26,
+        "clientHeight": 26
+      },
+      "roleLabel": "Private",
+      "gaugeLabelDisplay": "none",
+      "controls": {
+        "x": 10,
+        "y": 2874,
+        "w": 300,
+        "h": 32,
+        "scrollWidth": 300,
+        "clientWidth": 300,
+        "scrollHeight": 32,
+        "clientHeight": 32
+      },
+      "composer": {
+        "x": 10,
+        "y": 2938,
+        "w": 300,
+        "h": 146,
+        "scrollWidth": 298,
+        "clientWidth": 298,
+        "scrollHeight": 144,
+        "clientHeight": 144
+      },
+      "controlsOverlapComposer": false,
+      "backCardLabelVisibility": [
+        "hidden",
+        "hidden",
+        "hidden",
+        "hidden"
+      ]
+    },
+    {
+      "state": "short",
+      "width": 560,
+      "theme": "light",
+      "pane": {
+        "x": 0,
+        "y": 3096,
+        "w": 560,
+        "h": 900,
+        "scrollWidth": 560,
+        "clientWidth": 560,
+        "scrollHeight": 900,
+        "clientHeight": 900
+      },
+      "empty": {
+        "x": 26,
+        "y": 3313,
+        "w": 508,
+        "h": 244,
+        "scrollWidth": 506,
+        "clientWidth": 506,
+        "scrollHeight": 242,
+        "clientHeight": 242
+      },
+      "emptyText": {
+        "x": 39,
+        "y": 3356,
+        "w": 312,
+        "h": 52,
+        "scrollWidth": 312,
+        "clientWidth": 312,
+        "scrollHeight": 52,
+        "clientHeight": 52
+      },
+      "emptyTextClipped": false,
+      "emptyCardClipped": false,
+      "deck": {
+        "x": 39,
+        "y": 3416,
+        "w": 482,
+        "h": 116,
+        "scrollWidth": 482,
+        "clientWidth": 482,
+        "scrollHeight": 116,
+        "clientHeight": 116
+      },
+      "deckClipped": false,
+      "activeCard": {
+        "x": 39,
+        "y": 3416,
+        "w": 482,
+        "h": 104,
+        "scrollWidth": 480,
+        "clientWidth": 480,
+        "scrollHeight": 102,
+        "clientHeight": 102
+      },
+      "activeCardClipped": false,
+      "activeTitle": {
+        "x": 51,
+        "y": 3457,
+        "w": 112,
+        "h": 18,
+        "scrollWidth": 112,
+        "clientWidth": 112,
+        "scrollHeight": 18,
+        "clientHeight": 18
+      },
+      "activeTitleClipped": false,
+      "activeDetail": {
+        "x": 51,
+        "y": 3477,
+        "w": 445,
+        "h": 16,
+        "scrollWidth": 445,
+        "clientWidth": 445,
+        "scrollHeight": 16,
+        "clientHeight": 16
+      },
+      "detailThreeLineClamp": false,
+      "dots": {
+        "x": 39,
+        "y": 3538,
+        "w": 482,
+        "h": 6,
+        "scrollWidth": 482,
+        "clientWidth": 482,
+        "scrollHeight": 12,
+        "clientHeight": 6
+      },
+      "dotsBelowDeck": true,
+      "mode": {
+        "x": 12,
+        "y": 3777,
+        "w": 60,
+        "h": 26,
+        "scrollWidth": 60,
+        "clientWidth": 60,
+        "scrollHeight": 26,
+        "clientHeight": 26
+      },
+      "modeLabel": "Tutor",
+      "role": {
+        "x": 74,
+        "y": 3777,
+        "w": 82,
+        "h": 26,
+        "scrollWidth": 82,
+        "clientWidth": 82,
+        "scrollHeight": 26,
+        "clientHeight": 26
+      },
+      "roleLabel": "Private",
+      "gaugeLabelDisplay": "block",
+      "controls": {
+        "x": 10,
+        "y": 3774,
+        "w": 540,
+        "h": 32,
+        "scrollWidth": 540,
+        "clientWidth": 540,
+        "scrollHeight": 32,
+        "clientHeight": 32
+      },
+      "composer": {
+        "x": 10,
+        "y": 3838,
+        "w": 540,
+        "h": 146,
+        "scrollWidth": 538,
+        "clientWidth": 538,
+        "scrollHeight": 144,
+        "clientHeight": 144
+      },
+      "controlsOverlapComposer": false,
+      "backCardLabelVisibility": [
+        "hidden",
+        "hidden",
+        "hidden",
+        "hidden"
+      ]
+    },
+    {
+      "state": "short",
+      "width": 560,
+      "theme": "dark",
+      "pane": {
+        "x": 0,
+        "y": 3996,
+        "w": 560,
+        "h": 900,
+        "scrollWidth": 560,
+        "clientWidth": 560,
+        "scrollHeight": 900,
+        "clientHeight": 900
+      },
+      "empty": {
+        "x": 26,
+        "y": 4213,
+        "w": 508,
+        "h": 244,
+        "scrollWidth": 506,
+        "clientWidth": 506,
+        "scrollHeight": 242,
+        "clientHeight": 242
+      },
+      "emptyText": {
+        "x": 39,
+        "y": 4256,
+        "w": 312,
+        "h": 52,
+        "scrollWidth": 312,
+        "clientWidth": 312,
+        "scrollHeight": 52,
+        "clientHeight": 52
+      },
+      "emptyTextClipped": false,
+      "emptyCardClipped": false,
+      "deck": {
+        "x": 39,
+        "y": 4316,
+        "w": 482,
+        "h": 116,
+        "scrollWidth": 482,
+        "clientWidth": 482,
+        "scrollHeight": 116,
+        "clientHeight": 116
+      },
+      "deckClipped": false,
+      "activeCard": {
+        "x": 39,
+        "y": 4316,
+        "w": 482,
+        "h": 104,
+        "scrollWidth": 480,
+        "clientWidth": 480,
+        "scrollHeight": 102,
+        "clientHeight": 102
+      },
+      "activeCardClipped": false,
+      "activeTitle": {
+        "x": 51,
+        "y": 4357,
+        "w": 112,
+        "h": 18,
+        "scrollWidth": 112,
+        "clientWidth": 112,
+        "scrollHeight": 18,
+        "clientHeight": 18
+      },
+      "activeTitleClipped": false,
+      "activeDetail": {
+        "x": 51,
+        "y": 4377,
+        "w": 445,
+        "h": 16,
+        "scrollWidth": 445,
+        "clientWidth": 445,
+        "scrollHeight": 16,
+        "clientHeight": 16
+      },
+      "detailThreeLineClamp": false,
+      "dots": {
+        "x": 39,
+        "y": 4438,
+        "w": 482,
+        "h": 6,
+        "scrollWidth": 482,
+        "clientWidth": 482,
+        "scrollHeight": 12,
+        "clientHeight": 6
+      },
+      "dotsBelowDeck": true,
+      "mode": {
+        "x": 12,
+        "y": 4677,
+        "w": 60,
+        "h": 26,
+        "scrollWidth": 60,
+        "clientWidth": 60,
+        "scrollHeight": 26,
+        "clientHeight": 26
+      },
+      "modeLabel": "Tutor",
+      "role": {
+        "x": 74,
+        "y": 4677,
+        "w": 82,
+        "h": 26,
+        "scrollWidth": 82,
+        "clientWidth": 82,
+        "scrollHeight": 26,
+        "clientHeight": 26
+      },
+      "roleLabel": "Private",
+      "gaugeLabelDisplay": "block",
+      "controls": {
+        "x": 10,
+        "y": 4674,
+        "w": 540,
+        "h": 32,
+        "scrollWidth": 540,
+        "clientWidth": 540,
+        "scrollHeight": 32,
+        "clientHeight": 32
+      },
+      "composer": {
+        "x": 10,
+        "y": 4738,
+        "w": 540,
+        "h": 146,
+        "scrollWidth": 538,
+        "clientWidth": 538,
+        "scrollHeight": 144,
+        "clientHeight": 144
+      },
+      "controlsOverlapComposer": false,
+      "backCardLabelVisibility": [
+        "hidden",
+        "hidden",
+        "hidden",
+        "hidden"
+      ]
+    },
+    {
+      "state": "long",
+      "width": 320,
+      "theme": "light",
+      "pane": {
+        "x": 0,
+        "y": 4896,
+        "w": 320,
+        "h": 900,
+        "scrollWidth": 320,
+        "clientWidth": 320,
+        "scrollHeight": 900,
+        "clientHeight": 900
+      },
+      "empty": {
+        "x": 26,
+        "y": 5097,
+        "w": 268,
+        "h": 277,
+        "scrollWidth": 266,
+        "clientWidth": 266,
+        "scrollHeight": 275,
+        "clientHeight": 275
+      },
+      "emptyText": {
+        "x": 39,
+        "y": 5140,
+        "w": 242,
+        "h": 52,
+        "scrollWidth": 242,
+        "clientWidth": 242,
+        "scrollHeight": 52,
+        "clientHeight": 52
+      },
+      "emptyTextClipped": false,
+      "emptyCardClipped": false,
+      "deck": {
+        "x": 39,
+        "y": 5200,
+        "w": 242,
+        "h": 149,
+        "scrollWidth": 242,
+        "clientWidth": 242,
+        "scrollHeight": 149,
+        "clientHeight": 149
+      },
+      "deckClipped": false,
+      "activeCard": {
+        "x": 39,
+        "y": 5200,
+        "w": 242,
+        "h": 137,
+        "scrollWidth": 240,
+        "clientWidth": 240,
+        "scrollHeight": 135,
+        "clientHeight": 135
+      },
+      "activeCardClipped": false,
+      "activeTitle": {
+        "x": 51,
+        "y": 5223,
+        "w": 218,
+        "h": 53,
+        "scrollWidth": 218,
+        "clientWidth": 218,
+        "scrollHeight": 53,
+        "clientHeight": 53
+      },
+      "activeTitleClipped": false,
+      "activeDetail": {
+        "x": 51,
+        "y": 5278,
+        "w": 218,
+        "h": 49,
+        "scrollWidth": 218,
+        "clientWidth": 218,
+        "scrollHeight": 65,
+        "clientHeight": 49
+      },
+      "detailThreeLineClamp": true,
+      "dots": {
+        "x": 39,
+        "y": 5354,
+        "w": 242,
+        "h": 6,
+        "scrollWidth": 242,
+        "clientWidth": 242,
+        "scrollHeight": 12,
+        "clientHeight": 6
+      },
+      "dotsBelowDeck": true,
+      "mode": {
+        "x": 12,
+        "y": 5577,
+        "w": 60,
+        "h": 26,
+        "scrollWidth": 60,
+        "clientWidth": 60,
+        "scrollHeight": 26,
+        "clientHeight": 26
+      },
+      "modeLabel": "Tutor",
+      "role": {
+        "x": 74,
+        "y": 5577,
+        "w": 82,
+        "h": 26,
+        "scrollWidth": 82,
+        "clientWidth": 82,
+        "scrollHeight": 26,
+        "clientHeight": 26
+      },
+      "roleLabel": "Private",
+      "gaugeLabelDisplay": "none",
+      "controls": {
+        "x": 10,
+        "y": 5574,
+        "w": 300,
+        "h": 32,
+        "scrollWidth": 300,
+        "clientWidth": 300,
+        "scrollHeight": 32,
+        "clientHeight": 32
+      },
+      "composer": {
+        "x": 10,
+        "y": 5638,
+        "w": 300,
+        "h": 146,
+        "scrollWidth": 298,
+        "clientWidth": 298,
+        "scrollHeight": 144,
+        "clientHeight": 144
+      },
+      "controlsOverlapComposer": false,
+      "backCardLabelVisibility": [
+        "hidden",
+        "hidden",
+        "hidden",
+        "hidden"
+      ]
+    },
+    {
+      "state": "long",
+      "width": 320,
+      "theme": "dark",
+      "pane": {
+        "x": 0,
+        "y": 5796,
+        "w": 320,
+        "h": 900,
+        "scrollWidth": 320,
+        "clientWidth": 320,
+        "scrollHeight": 900,
+        "clientHeight": 900
+      },
+      "empty": {
+        "x": 26,
+        "y": 5997,
+        "w": 268,
+        "h": 277,
+        "scrollWidth": 266,
+        "clientWidth": 266,
+        "scrollHeight": 275,
+        "clientHeight": 275
+      },
+      "emptyText": {
+        "x": 39,
+        "y": 6040,
+        "w": 242,
+        "h": 52,
+        "scrollWidth": 242,
+        "clientWidth": 242,
+        "scrollHeight": 52,
+        "clientHeight": 52
+      },
+      "emptyTextClipped": false,
+      "emptyCardClipped": false,
+      "deck": {
+        "x": 39,
+        "y": 6100,
+        "w": 242,
+        "h": 149,
+        "scrollWidth": 242,
+        "clientWidth": 242,
+        "scrollHeight": 149,
+        "clientHeight": 149
+      },
+      "deckClipped": false,
+      "activeCard": {
+        "x": 39,
+        "y": 6100,
+        "w": 242,
+        "h": 137,
+        "scrollWidth": 240,
+        "clientWidth": 240,
+        "scrollHeight": 135,
+        "clientHeight": 135
+      },
+      "activeCardClipped": false,
+      "activeTitle": {
+        "x": 51,
+        "y": 6123,
+        "w": 218,
+        "h": 53,
+        "scrollWidth": 218,
+        "clientWidth": 218,
+        "scrollHeight": 53,
+        "clientHeight": 53
+      },
+      "activeTitleClipped": false,
+      "activeDetail": {
+        "x": 51,
+        "y": 6178,
+        "w": 218,
+        "h": 49,
+        "scrollWidth": 218,
+        "clientWidth": 218,
+        "scrollHeight": 65,
+        "clientHeight": 49
+      },
+      "detailThreeLineClamp": true,
+      "dots": {
+        "x": 39,
+        "y": 6254,
+        "w": 242,
+        "h": 6,
+        "scrollWidth": 242,
+        "clientWidth": 242,
+        "scrollHeight": 12,
+        "clientHeight": 6
+      },
+      "dotsBelowDeck": true,
+      "mode": {
+        "x": 12,
+        "y": 6477,
+        "w": 60,
+        "h": 26,
+        "scrollWidth": 60,
+        "clientWidth": 60,
+        "scrollHeight": 26,
+        "clientHeight": 26
+      },
+      "modeLabel": "Tutor",
+      "role": {
+        "x": 74,
+        "y": 6477,
+        "w": 82,
+        "h": 26,
+        "scrollWidth": 82,
+        "clientWidth": 82,
+        "scrollHeight": 26,
+        "clientHeight": 26
+      },
+      "roleLabel": "Private",
+      "gaugeLabelDisplay": "none",
+      "controls": {
+        "x": 10,
+        "y": 6474,
+        "w": 300,
+        "h": 32,
+        "scrollWidth": 300,
+        "clientWidth": 300,
+        "scrollHeight": 32,
+        "clientHeight": 32
+      },
+      "composer": {
+        "x": 10,
+        "y": 6538,
+        "w": 300,
+        "h": 146,
+        "scrollWidth": 298,
+        "clientWidth": 298,
+        "scrollHeight": 144,
+        "clientHeight": 144
+      },
+      "controlsOverlapComposer": false,
+      "backCardLabelVisibility": [
+        "hidden",
+        "hidden",
+        "hidden",
+        "hidden"
+      ]
+    },
+    {
+      "state": "long",
+      "width": 560,
+      "theme": "light",
+      "pane": {
+        "x": 0,
+        "y": 6696,
+        "w": 560,
+        "h": 900,
+        "scrollWidth": 560,
+        "clientWidth": 560,
+        "scrollHeight": 900,
+        "clientHeight": 900
+      },
+      "empty": {
+        "x": 26,
+        "y": 6913,
+        "w": 508,
+        "h": 244,
+        "scrollWidth": 506,
+        "clientWidth": 506,
+        "scrollHeight": 242,
+        "clientHeight": 242
+      },
+      "emptyText": {
+        "x": 39,
+        "y": 6956,
+        "w": 312,
+        "h": 52,
+        "scrollWidth": 312,
+        "clientWidth": 312,
+        "scrollHeight": 52,
+        "clientHeight": 52
+      },
+      "emptyTextClipped": false,
+      "emptyCardClipped": false,
+      "deck": {
+        "x": 39,
+        "y": 7016,
+        "w": 482,
+        "h": 116,
+        "scrollWidth": 482,
+        "clientWidth": 482,
+        "scrollHeight": 116,
+        "clientHeight": 116
+      },
+      "deckClipped": false,
+      "activeCard": {
+        "x": 39,
+        "y": 7016,
+        "w": 482,
+        "h": 104,
+        "scrollWidth": 480,
+        "clientWidth": 480,
+        "scrollHeight": 102,
+        "clientHeight": 102
+      },
+      "activeCardClipped": false,
+      "activeTitle": {
+        "x": 51,
+        "y": 7040,
+        "w": 458,
+        "h": 35,
+        "scrollWidth": 458,
+        "clientWidth": 458,
+        "scrollHeight": 35,
+        "clientHeight": 35
+      },
+      "activeTitleClipped": false,
+      "activeDetail": {
+        "x": 51,
+        "y": 7077,
+        "w": 458,
+        "h": 32,
+        "scrollWidth": 458,
+        "clientWidth": 458,
+        "scrollHeight": 32,
+        "clientHeight": 32
+      },
+      "detailThreeLineClamp": false,
+      "dots": {
+        "x": 39,
+        "y": 7138,
+        "w": 482,
+        "h": 6,
+        "scrollWidth": 482,
+        "clientWidth": 482,
+        "scrollHeight": 12,
+        "clientHeight": 6
+      },
+      "dotsBelowDeck": true,
+      "mode": {
+        "x": 12,
+        "y": 7377,
+        "w": 60,
+        "h": 26,
+        "scrollWidth": 60,
+        "clientWidth": 60,
+        "scrollHeight": 26,
+        "clientHeight": 26
+      },
+      "modeLabel": "Tutor",
+      "role": {
+        "x": 74,
+        "y": 7377,
+        "w": 82,
+        "h": 26,
+        "scrollWidth": 82,
+        "clientWidth": 82,
+        "scrollHeight": 26,
+        "clientHeight": 26
+      },
+      "roleLabel": "Private",
+      "gaugeLabelDisplay": "block",
+      "controls": {
+        "x": 10,
+        "y": 7374,
+        "w": 540,
+        "h": 32,
+        "scrollWidth": 540,
+        "clientWidth": 540,
+        "scrollHeight": 32,
+        "clientHeight": 32
+      },
+      "composer": {
+        "x": 10,
+        "y": 7438,
+        "w": 540,
+        "h": 146,
+        "scrollWidth": 538,
+        "clientWidth": 538,
+        "scrollHeight": 144,
+        "clientHeight": 144
+      },
+      "controlsOverlapComposer": false,
+      "backCardLabelVisibility": [
+        "hidden",
+        "hidden",
+        "hidden",
+        "hidden"
+      ]
+    },
+    {
+      "state": "long",
+      "width": 560,
+      "theme": "dark",
+      "pane": {
+        "x": 0,
+        "y": 7596,
+        "w": 560,
+        "h": 900,
+        "scrollWidth": 560,
+        "clientWidth": 560,
+        "scrollHeight": 900,
+        "clientHeight": 900
+      },
+      "empty": {
+        "x": 26,
+        "y": 7813,
+        "w": 508,
+        "h": 244,
+        "scrollWidth": 506,
+        "clientWidth": 506,
+        "scrollHeight": 242,
+        "clientHeight": 242
+      },
+      "emptyText": {
+        "x": 39,
+        "y": 7856,
+        "w": 312,
+        "h": 52,
+        "scrollWidth": 312,
+        "clientWidth": 312,
+        "scrollHeight": 52,
+        "clientHeight": 52
+      },
+      "emptyTextClipped": false,
+      "emptyCardClipped": false,
+      "deck": {
+        "x": 39,
+        "y": 7916,
+        "w": 482,
+        "h": 116,
+        "scrollWidth": 482,
+        "clientWidth": 482,
+        "scrollHeight": 116,
+        "clientHeight": 116
+      },
+      "deckClipped": false,
+      "activeCard": {
+        "x": 39,
+        "y": 7916,
+        "w": 482,
+        "h": 104,
+        "scrollWidth": 480,
+        "clientWidth": 480,
+        "scrollHeight": 102,
+        "clientHeight": 102
+      },
+      "activeCardClipped": false,
+      "activeTitle": {
+        "x": 51,
+        "y": 7940,
+        "w": 458,
+        "h": 35,
+        "scrollWidth": 458,
+        "clientWidth": 458,
+        "scrollHeight": 35,
+        "clientHeight": 35
+      },
+      "activeTitleClipped": false,
+      "activeDetail": {
+        "x": 51,
+        "y": 7977,
+        "w": 458,
+        "h": 32,
+        "scrollWidth": 458,
+        "clientWidth": 458,
+        "scrollHeight": 32,
+        "clientHeight": 32
+      },
+      "detailThreeLineClamp": false,
+      "dots": {
+        "x": 39,
+        "y": 8038,
+        "w": 482,
+        "h": 6,
+        "scrollWidth": 482,
+        "clientWidth": 482,
+        "scrollHeight": 12,
+        "clientHeight": 6
+      },
+      "dotsBelowDeck": true,
+      "mode": {
+        "x": 12,
+        "y": 8277,
+        "w": 60,
+        "h": 26,
+        "scrollWidth": 60,
+        "clientWidth": 60,
+        "scrollHeight": 26,
+        "clientHeight": 26
+      },
+      "modeLabel": "Tutor",
+      "role": {
+        "x": 74,
+        "y": 8277,
+        "w": 82,
+        "h": 26,
+        "scrollWidth": 82,
+        "clientWidth": 82,
+        "scrollHeight": 26,
+        "clientHeight": 26
+      },
+      "roleLabel": "Private",
+      "gaugeLabelDisplay": "block",
+      "controls": {
+        "x": 10,
+        "y": 8274,
+        "w": 540,
+        "h": 32,
+        "scrollWidth": 540,
+        "clientWidth": 540,
+        "scrollHeight": 32,
+        "clientHeight": 32
+      },
+      "composer": {
+        "x": 10,
+        "y": 8338,
+        "w": 540,
+        "h": 146,
+        "scrollWidth": 538,
+        "clientWidth": 538,
+        "scrollHeight": 144,
+        "clientHeight": 144
+      },
+      "controlsOverlapComposer": false,
+      "backCardLabelVisibility": [
+        "hidden",
+        "hidden",
+        "hidden",
+        "hidden"
+      ]
+    }
+  ]
+}

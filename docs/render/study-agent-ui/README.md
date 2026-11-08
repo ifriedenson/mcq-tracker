@@ -11,6 +11,19 @@ There are **18 chat images**: 16 full-pane frames at 900 px tall (thread at
 320/420/560, empty at 320/420/560, busy and error at 420) plus two dedicated
 420 × 230 composer crops. The unchanged settings pair is separate.
 
+## See the deck in Obsidian
+
+1. Copy exactly three files into `<your vault>/.obsidian/plugins/mcq-tracker/`:
+   `main.js`, `manifest.json` and `styles.css`. The folder name must match the
+   manifest id, `mcq-tracker`, and `manifest.json` must keep that name.
+2. In Obsidian open Settings, Community plugins, and enable **MCQ Tracker**
+   (turn off Restricted mode first if it is on). If an older copy is already
+   enabled, reload it (or restart Obsidian) so the new `styles.css` is read.
+3. Open the study agent with the command palette, **Study agent: open the
+   sidebar** (id `open-study-agent`), or the **Open Study agent** ribbon icon
+   that appears while AI is enabled. Leave the composer empty to see the
+   suggestion deck; typing a question replaces it with the transcript.
+
 ## Target
 
 The clean-room target is Copilot's transcript-first right-sidebar chat and the
@@ -95,6 +108,45 @@ is also the plan's mobile decision; the wide layout remains a rounded card.
   ChatControls at the top and the full composer below.
 - No `qt-agent-avatar` or `qt-agent-name` nodes exist; the leaf title is the only
   branded header.
+
+## Suggestion deck captures (Nov 8, 2026)
+
+Twelve full-pane captures render the real `ChatPanel` suggestion deck from the
+serialized element tree of the current worktree. They use the same frame as the
+app (`AgentView`): `.qt-agent-chat > .qt-chat-tab-panels > .qt-chat-tab-panel >
+.qt-agent-panel`. That chain matters: `.qt-agent-chat` is the
+`container-type: inline-size` context for the panel's narrow-width rules, so a
+page without it never applies the 470/420/340 px rules.
+
+- `suggestions-empty-{320,560}-{light,dark}.png` — first run with the seeded deck.
+- `suggestions-short-{320,560}-{light,dark}.png` — a short draft in the composer.
+- `suggestions-long-{320,560}-{light,dark}.png` — a long suggestion title/detail
+  and a long draft.
+
+Measured from those pages (`suggestions-metrics.json`, 12 panes, viewport
+560 × 900 per pane at 2× DPR):
+
+| Check | 320 px | 560 px |
+|---|---|---|
+| Empty-state copy | 242 × 52 px, `scrollHeight` = `clientHeight` | 312 × 52 px, same |
+| Empty card | 268 × 244 px | 508 × 244 px |
+| Seeded deck / active card | 242 × 116 / 242 × 104 px | 482 × 116 / 482 × 104 px |
+| Long deck / active card | 242 × 149 / 242 × 137 px | 482 × 116 / 482 × 104 px |
+| Long title | 53 px (3 lines, unclamped) | 35 px (2 lines) |
+| Long detail | 49 px, the intentional three-line clamp | 32 px (2 lines) |
+| Mode / role chip | 60 / 82 px, full labels | 60 / 82 px |
+| Token gauge label | hidden by `@container (max-width: 470px)` | shown |
+| Back-card labels | `visibility: hidden` on all four | same |
+
+No pane reports `scrollHeight > clientHeight` on the empty copy, the empty card,
+the deck or the active card; the dots sit below the deck in every capture; and no
+control row overlaps the composer. The empty card is centred in the taller thread
+and the long card grows the deck instead of clipping its title.
+
+Reproduce it with the local harness (gitignored, not part of the bundle):
+`node artifacts/render-suggestions/build-pages.js` writes
+`suggestions-all.html`; serve the repo on port 3000 and capture that page at 2×
+DPR, then crop each 900 px pane.
 
 ## Real Obsidian check (1.15.0)
 
