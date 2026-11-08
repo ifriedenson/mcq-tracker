@@ -105,7 +105,7 @@ const BLUEBOOK_TOOLS = [
   },
 ];
 
-const TOOL_IDS = BLUEBOOK_TOOLS.map((tool) => tool.id);
+const TOOL_IDS = BLUEBOOK_TOOLS.map((tool) => tool.id).concat(["shortcuts", "assistive", "break"]);
 
 /* --------------------------------------------------------------- shortcuts */
 

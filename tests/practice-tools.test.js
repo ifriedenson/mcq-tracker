@@ -188,9 +188,12 @@ test("practice tools: the question menu summarises answered, flagged and skipped
 
 test("practice tools: the question view opens a drawer with every tool", async () => {
   const { dom } = await setup({ passage: true });
-  const open = byClass(dom, "qt-tools-btn")[0];
-  assert.ok(open, "the bar carries a testing-tools button");
+  // The desktop bar carries labelled buttons now; the first one opens the same
+  // drawer the old tools toggle did.
+  const open = byClass(dom, "qt-exam-tool")[0];
+  assert.ok(open, "the bar carries a labelled tool button");
   await clickEl(open);
+  await clickEl(open); // close the highlighter so the drawer shows its grid
   for (const tool of pt.BLUEBOOK_TOOLS) {
     assert.ok(dom.texts().includes(tool.label), `${tool.label} is offered`);
   }
@@ -227,12 +230,11 @@ test("practice tools: a selection becomes a highlight that can be removed", asyn
   const { dom, view } = await setup();
   view.toolSelection = { quote: "What is one?", section: "question" };
   view.runTool("highlights");
-  await clickText(dom, "Highlight selection");
+  await clickEl(byClass(dom, "qt-hl-bar-swatch")[0]);
   const list = view.toolHighlights(view.current.file.path);
   assert.equal(list.length, 1);
   assert.equal(list[0].quote, "What is one?");
-  assert.ok(dom.texts().includes("What is one?"), "the panel lists the highlight");
-  await clickText(dom, "Remove");
+  await clickEl(byClass(dom, "qt-hl-bar-trash").pop());
   assert.equal(view.toolHighlights(view.current.file.path).length, 0);
 });
 
