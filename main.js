@@ -1574,7 +1574,7 @@ class AgentView extends ItemView {
     // The Obsidian leaf already supplies the view title. Copilot's chat starts
     // with content, so do not draw a second branded heading above the pane.
     if (!this.plugin.settings.ai.enabled) {
-      root.createDiv({ cls: "qt-hint", text: "Turn on AI under Settings > MCQ Tracker > OpenCode (AI) to chat. Local vault search still works below." });
+      root.createDiv({ cls: "qt-hint", text: "Turn on AI under Settings > Study agent > AI and the assistant to chat. Local vault search still works below." });
     }
 
     // The tab strip is the first thing in the chat surface. Local search and
@@ -1748,9 +1748,21 @@ class AgentView extends ItemView {
       onArchiveChat: (id) => this.archiveChat(id, true),
       onNewChat: () => this.startNewChat(),
       quick: [
-        { label: "Ask about this note", run: () => tab.panel.askAboutActiveNote() },
-        { label: "Summarize my notes", prompt: "Summarize the most important ideas in my notes and cite the notes you use." },
-        { label: "Make cards", prompt: "Turn the key ideas in my notes into flashcards. Propose them for my review." },
+        {
+          label: "Ask about this note",
+          detail: "A plain-language walkthrough of the note you have open, with one worked example.",
+          run: () => tab.panel.askAboutActiveNote(),
+        },
+        {
+          label: "Summarize my notes",
+          detail: "The key ideas in your notes, with citations.",
+          prompt: "Summarize the most important ideas in my notes and cite the notes you use.",
+        },
+        {
+          label: "Make cards",
+          detail: "Turn the key ideas in your notes into flashcards for review.",
+          prompt: "Turn the key ideas in my notes into flashcards. Propose them for my review.",
+        },
       ],
     };
   }
@@ -25906,7 +25918,7 @@ class ChatPanel {
     if (!this.ai.enabled) {
       root.createDiv({
         cls: "qt-hint",
-        text: "OpenCode is turned off. Enable it in Settings > MCQ Tracker > OpenCode (AI).",
+        text: "OpenCode is turned off. Enable it in Settings > Study agent > AI and the assistant.",
       });
       return;
     }
@@ -28159,7 +28171,7 @@ class ChatPanel {
     }
     if (n === 0) {
       throw new Error(
-        "OpenCode has no AI provider connected yet. Open Settings > MCQ Tracker > OpenCode (AI), choose a provider and paste an API key."
+        "OpenCode has no AI provider connected yet. Open Settings > Study agent > AI and the assistant, choose a provider and paste an API key."
       );
     }
   }
@@ -28231,7 +28243,7 @@ class ChatPanel {
       return {
         label,
         title: label,
-        detail: fallback.detail,
+        detail: str(item.detail).trim() || fallback.detail,
         prompt: item.prompt !== undefined ? item.prompt : fallback.prompt,
         run: typeof item.run === "function" ? item.run : null,
       };
@@ -28326,6 +28338,20 @@ class ChatPanel {
       attr: { role: "group", "aria-label": "Suggested study actions" },
     });
     this.suggestionDots = shell.createDiv({ cls: "qt-agent-suggestion-dots", attr: { role: "group", "aria-label": "Suggestion choices" } });
+    // Rotating under the pointer or the keyboard would move the card being read
+    // and drop focus; pause while the deck is in use and resume when it is not.
+    const pauseRotation = () => this.stopSuggestionRotation();
+    const resumeRotation = () => {
+      if (this.emptyDeck && this.transcript && this.transcript.classList && this.transcript.classList.contains("is-empty")) {
+        this.startSuggestionRotation();
+      }
+    };
+    shell.addEventListener("mouseenter", pauseRotation);
+    shell.addEventListener("mouseleave", resumeRotation);
+    shell.addEventListener("focusin", pauseRotation);
+    shell.addEventListener("focusout", (event) => {
+      if (!shell.contains(event.relatedTarget)) resumeRotation();
+    });
     this.paintSuggestionDeck();
     this.startSuggestionRotation();
   }
@@ -48833,7 +48859,7 @@ async function ensureProviders(oc) {
     return;
   }
   if (n === 0) {
-    throw new Error("OpenCode has no AI provider connected yet. Open Settings > MCQ Tracker > AI assistant, choose a provider and paste an API key.");
+    throw new Error("OpenCode has no AI provider connected yet. Open Settings > Study agent > AI and the assistant, choose a provider and paste an API key.");
   }
 }
 
@@ -57710,7 +57736,7 @@ class OpenCodeManager {
       if (!Platform.isDesktopApp) throw new Error("OpenCode auto-setup needs the desktop app (it isn't available on mobile yet).");
       if (!(await this.findBinary())) {
         if (this.tooNew) throw new Error(this.tooNewMessage());
-        throw new Error("OpenCode isn't set up yet. Open Settings > MCQ Tracker > AI assistant and press Download and install, or choose a copy you already have.");
+        throw new Error("OpenCode isn't set up yet. Open Settings > Study agent > AI and the assistant and press Download and install, or choose a copy you already have.");
       }
       await this.start(progress);
     })().finally(() => {
@@ -67525,6 +67551,27 @@ function createHost(plugin) {
     plugin.settings.pdfPlus = next;
     if (typeof plugin.save === "function") await plugin.save();
   };
+  // Obsidian 1.15 no longer gives core Page Preview an `overrides` map. PDF++
+  // 0.40.31 reads it before looking at hoverLinkSources and throws, aborting its
+  // settings tab (embedded or standalone). Use the vendor answer when the map
+  // exists, otherwise perform the same hover-source fallback without the throw.
+  const requireModKeyForLinkHover = host.requireModKeyForLinkHover;
+  if (typeof requireModKeyForLinkHover === "function") {
+    host.requireModKeyForLinkHover = function (source) {
+      const sourceId = source || "pdf-plus";
+      const pagePreview = this.app && this.app.internalPlugins && this.app.internalPlugins.plugins
+        ? this.app.internalPlugins.plugins["page-preview"]
+        : null;
+      const overrides = pagePreview && pagePreview.instance ? pagePreview.instance.overrides : null;
+      if (overrides && typeof overrides === "object") {
+        return requireModKeyForLinkHover.call(this, sourceId);
+      }
+      const hover = this.app && this.app.workspace && this.app.workspace.hoverLinkSources
+        ? this.app.workspace.hoverLinkSources[sourceId]
+        : null;
+      return !!(hover && hover.defaultMod);
+    };
+  }
   return host;
 }
 
@@ -67582,6 +67629,136 @@ module.exports = {
   start,
   stop,
 };
+};
+
+/* ---- src/pdf-plus-settings.js ---- */
+__defs["pdf-plus-settings"] = function (module, exports, require) {
+/*
+ * The PDF++ page inside MCQ Tracker's own settings navigation.
+ *
+ * PDF++ is a hosted child plugin, so its options live in a settings tab that
+ * the vendor bundle registers itself. That tab used to sit beside MCQ Tracker's
+ * settings as a second top-level plugin tab. This page owns the on/off switch
+ * and renders the vendor tab's own controls inside MCQ Tracker's settings, so
+ * both are found in one place. When the vendor tab cannot be mounted (the host
+ * is off, the standalone PDF++ plugin is running, or this Obsidian build hides
+ * plugin tabs) the page says so and offers the tab directly instead of failing.
+ */
+const { Setting } = require("obsidian");
+const { EMBEDDED_ID, EMBEDDED_VERSION } = require("./pdf-plus");
+
+function heading(containerEl, title, description) {
+  containerEl.createEl("h2", { text: title });
+  containerEl.createEl("p", { cls: "setting-item-description", text: description });
+}
+
+/** The settings tab the embedded PDF++ host registered, if this app exposes it. */
+function pdfPlusSettingsTab(plugin) {
+  const setting = plugin && plugin.app && plugin.app.setting;
+  const tabs = setting && Array.isArray(setting.pluginTabs) ? setting.pluginTabs : [];
+  return (
+    tabs.find((tab) => tab && tab.plugin && tab.plugin.manifest && tab.plugin.manifest.id === EMBEDDED_ID) ||
+    tabs.find((tab) => tab && tab.id === EMBEDDED_ID) ||
+    null
+  );
+}
+
+function statusText(plugin) {
+  if (!plugin.pdfPlusEnabled()) return "Off. Turn it on to run PDF++ inside MCQ Tracker.";
+  if (plugin.pdfPlusError) return plugin.pdfPlusError;
+  if (plugin.pdfPlusPaused) return `Paused while an MCQ Tracker PDF reader or editor is open. Version ${EMBEDDED_VERSION}.`;
+  if (plugin.pdfPlus) return `Running. Version ${EMBEDDED_VERSION}, with its settings saved inside MCQ Tracker's data.json.`;
+  return `On, but not started yet. It starts with the workspace, or open it from the PDF++ button below.`;
+}
+
+/**
+ * Renders the page. The vendor tab draws into a temporary container; its own
+ * `containerEl` is restored immediately so its settings tab keeps working when
+ * the user opens it from Obsidian's settings sidebar.
+ */
+function renderPdfPlusSettings(containerEl, plugin, redisplay) {
+  heading(
+    containerEl,
+    "PDF++",
+    "The full MIT-licensed PDF++ 0.40.31 native viewer, embedded in MCQ Tracker: backlink highlights, callouts, colour palettes, outline and page-label tools, the page composer, embeds, external-app sync and Vim keys. Its options are shown below, so they live with the rest of the plugin."
+  );
+
+  new Setting(containerEl)
+    .setName("Run the embedded PDF++ tools")
+    .setDesc(
+      "Off keeps every PDF++ setting and all of your PDF annotations; it only stops the native-viewer integration. Turn the standalone PDF++ plugin off while this is on, so the two copies never decorate the same file."
+    )
+    .addToggle((t) =>
+      t.setValue(plugin.pdfPlusEnabled()).onChange(async (v) => {
+        await plugin.setPdfPlusEnabled(v);
+        redisplay();
+      })
+    );
+
+  const status = new Setting(containerEl).setName("Status").setDesc(statusText(plugin));
+  if (plugin.pdfPlusEnabled()) {
+    status.addButton((b) =>
+      b.setButtonText("Start PDF++").onClick(async () => {
+        await plugin.startPdfPlus();
+        redisplay();
+      })
+    );
+  }
+  status.addButton((b) =>
+    b.setButtonText("Open PDF++ settings tab").onClick(() => {
+      if (typeof plugin.openPdfPlusSettingsTab === "function") plugin.openPdfPlusSettingsTab();
+    })
+  );
+
+  if (plugin.pdfPlusError) {
+    containerEl.createEl("p", { cls: "qt-settings-warning", text: plugin.pdfPlusError });
+  }
+
+  if (!plugin.pdfPlusEnabled()) {
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "PDF++'s own options appear here once the integration is on.",
+    });
+    return;
+  }
+
+  const hostTab = pdfPlusSettingsTab(plugin);
+  if (!hostTab || typeof hostTab.display !== "function") {
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "This Obsidian build keeps plugin settings tabs private, so PDF++'s options cannot be drawn inside this page. The button above opens the same PDF++ settings tab; everything else on this page still applies.",
+    });
+    return;
+  }
+
+  const mount = containerEl.createDiv({ cls: "qt-pdf-plus-settings" });
+  const warn = (error) => {
+    mount.empty();
+    containerEl.createEl("p", {
+      cls: "qt-settings-warning",
+      text: `PDF++'s settings could not be drawn here: ${String((error && error.message) || error)}. Use the Open PDF++ settings tab button above.`,
+    });
+  };
+  try {
+    // The vendor tab renders into elements it creates in its constructor
+    // (`headerContainerEl`, `contentEl`), so moving the shared tab's container
+    // would leave our mount empty and draw into its hidden tab. A second
+    // instance owns its own elements while sharing the hosted plugin's saved
+    // settings; the real tab stays untouched for the button above.
+    const VendorTab = hostTab.constructor;
+    if (typeof VendorTab !== "function") throw new Error("the PDF++ settings tab cannot be copied");
+    const embedded = new VendorTab(hostTab.plugin);
+    if (!embedded || !embedded.containerEl) throw new Error("the PDF++ settings tab has no container");
+    if (typeof embedded.containerEl.addClass === "function") embedded.containerEl.addClass("qt-pdf-plus-embedded");
+    mount.appendChild(embedded.containerEl);
+    const drawing = embedded.display();
+    if (drawing && typeof drawing.catch === "function") drawing.catch(warn);
+  } catch (error) {
+    warn(error);
+  }
+}
+
+module.exports = { renderPdfPlusSettings, pdfPlusSettingsTab };
 };
 
 /* ---- src/plain-cards.js ---- */
@@ -70107,7 +70284,7 @@ class QuestionTrackerPlugin extends Plugin {
     }
     const ai = this.settings && this.settings.ai;
     if (!ai || ai.enabled !== true) {
-      new Notice("Turn on AI under Settings > MCQ Tracker > OpenCode (AI) to ask about a passage.");
+      new Notice("Turn on AI under Settings > Study agent > AI and the assistant to ask about a passage.");
       return false;
     }
     const prompt = readingCompanion.passagePrompt(source, row, question);
@@ -71070,6 +71247,17 @@ class QuestionTrackerPlugin extends Plugin {
     await this.save();
     if (next.enabled && !this.pdfPlusPaused) await this.startPdfPlus();
     else await this.stopPdfPlus();
+  }
+
+  /** Opens the hosted PDF++ settings tab when this Obsidian build exposes it. */
+  openPdfPlusSettingsTab() {
+    const setting = this.app && this.app.setting;
+    if (!setting || typeof setting.openTabById !== "function") {
+      new Notice("Open Settings → Community plugins → MCQ Tracker, or use the PDF++ settings tab in the sidebar.");
+      return false;
+    }
+    setting.openTabById(pdfPlus.EMBEDDED_ID);
+    return true;
   }
 
   /**
@@ -72149,7 +72337,7 @@ class QuestionTrackerPlugin extends Plugin {
   async openQuickAsk(options) {
     const ai = this.settings && this.settings.ai;
     if (!ai || ai.enabled !== true) {
-      new Notice("Turn on AI under Settings > MCQ Tracker > AI to use Quick Ask.");
+      new Notice("Turn on AI under Settings > Study agent > AI and the assistant to use Quick Ask.");
       return null;
     }
     const opts = options && typeof options === "object" ? options : {};
@@ -72196,7 +72384,7 @@ class QuestionTrackerPlugin extends Plugin {
   openQuickChat(options) {
     const ai = this.settings && this.settings.ai;
     if (!ai || ai.enabled !== true) {
-      new Notice("Turn on AI under Settings > MCQ Tracker > AI to use Quick Chat.");
+      new Notice("Turn on AI under Settings > Study agent > AI and the assistant to use Quick Chat.");
       return null;
     }
     if (this._quickChatModal) {
@@ -72459,7 +72647,7 @@ class QuestionTrackerPlugin extends Plugin {
   /** Ask for a goal, then let the Study agent propose a numbered plan. Nothing runs yet. */
   async promptStudyPlan() {
     if (!(this.settings.ai && this.settings.ai.enabled)) {
-      new Notice("Turn on AI under Settings > MCQ Tracker > AI to plan a task.");
+      new Notice("Turn on AI under Settings > Study agent > AI and the assistant to plan a task.");
       return false;
     }
     new NameModal(this.app, "Plan a multi-step task", "", (goal) => {
@@ -72484,7 +72672,7 @@ class QuestionTrackerPlugin extends Plugin {
   /** Open the Study agent and its vault PDF picker; nothing is sent or written. */
   async attachPdfToStudyAgent() {
     if (!(this.settings.ai && this.settings.ai.enabled)) {
-      new Notice("Turn on AI under Settings > MCQ Tracker > AI to attach a PDF to the Study agent.");
+      new Notice("Turn on AI under Settings > Study agent > AI and the assistant to attach a PDF to the Study agent.");
       return false;
     }
     const view = await this.activateAgent();
@@ -84913,9 +85101,21 @@ class PracticeView extends ItemView {
       quick: [
         ...(anyContext(p.settings.ai.context)
           ? [
-              { label: "What should I study now?", prompt: "Using the study context, tell me what to study next and why. Be specific and brief." },
-              { label: "Plan my week", prompt: "Using the study context, plan my next week of study around my due work and next exam. Keep it practical and short." },
-              { label: "Turn mistakes into a study guide", prompt: "Using the study context, turn my weakest skills and mistake patterns into a short study guide with concrete next steps." },
+              {
+                label: "What should I study now?",
+                detail: "A short, specific plan built from what is due and what you want to finish.",
+                prompt: "Using the study context, tell me what to study next and why. Be specific and brief.",
+              },
+              {
+                label: "Plan my week",
+                detail: "A practical week of study around due work and your next exam.",
+                prompt: "Using the study context, plan my next week of study around my due work and next exam. Keep it practical and short.",
+              },
+              {
+                label: "Turn mistakes into a study guide",
+                detail: "Your weakest skills and mistake patterns, turned into concrete next steps.",
+                prompt: "Using the study context, turn my weakest skills and mistake patterns into a short study guide with concrete next steps.",
+              },
             ]
           : []),
         ...(p.backend() === "api"
@@ -85178,9 +85378,21 @@ class PracticeView extends ItemView {
       buildContext: (mode) => buildTutorContext(r, this.notesText, p.settings.confidenceLabels, mode, p.settings.ai.tutorRole),
       quick: [
         r.correct
-          ? { label: "Why is the answer right?", prompt: "Explain why the correct answer is right and why the other choices are wrong." }
-          : { label: "Why did I miss this?", prompt: "I got this wrong. Explain what I likely misunderstood and how to get it right next time." },
-        { label: "Explain simply", prompt: "Explain this question and its solution in simple terms." },
+          ? {
+              label: "Why is the answer right?",
+              detail: "A walkthrough of the correct answer and why each other choice is wrong.",
+              prompt: "Explain why the correct answer is right and why the other choices are wrong.",
+            }
+          : {
+              label: "Why did I miss this?",
+              detail: "What likely went wrong, and how to get it right next time.",
+              prompt: "I got this wrong. Explain what I likely misunderstood and how to get it right next time.",
+            },
+        {
+          label: "Explain simply",
+          detail: "The question and its solution in plain language.",
+          prompt: "Explain this question and its solution in simple terms.",
+        },
         { label: "Similar question", prompt: "Write one new, original practice question testing the same skill, with four choices. Do not give the answer yet." },
         { label: "Quiz me", prompt: "Ask me one short question to check I understand the concept behind this question." },
         { label: "One-line rule", prompt: "Give me a single sentence rule of thumb I can remember for this kind of question." },
@@ -100075,6 +100287,156 @@ module.exports = {
 };
 };
 
+/* ---- src/settings-categories.js ---- */
+__defs["settings-categories"] = function (module, exports, require) {
+/*
+ * Settings navigation, level one: categories. Level two: pages.
+ *
+ * A page names the settings renderer that already exists (`module`), and
+ * optionally the tab inside it (`tab`). The MCQ Tracker module keeps its five
+ * tabs, but each one is its own destination here instead of a second tab row,
+ * so nothing is rendered twice and no settings store changes shape.
+ */
+const { STUDY_TOOL_SETTINGS_MODULES } = require("./study-tool-settings");
+
+const STUDY_TOOL_BY_ID = Object.fromEntries(STUDY_TOOL_SETTINGS_MODULES.map((module) => [module.id, module]));
+
+/** Builds a page for an existing study-tool settings module. */
+function toolPage(id) {
+  const module = STUDY_TOOL_BY_ID[id];
+  if (!module) throw new Error(`settings: no study tool settings module named "${id}"`);
+  return { id, label: module.label, module: id, icon: module.icon };
+}
+
+const CATEGORIES = [
+  {
+    id: "practice",
+    label: "Practice",
+    icon: "list-checks",
+    description: "Run questions, review what is due, and read how practice is going.",
+    pages: [
+      { id: "mcq-practice", label: "Practice session", module: "mcq", tab: "practice", icon: "play" },
+      { id: "mcq-review", label: "Review and scheduling", module: "mcq", tab: "review", icon: "repeat" },
+      { id: "mcq-daily", label: "Daily quiz", module: "mcq", tab: "daily", icon: "sun" },
+      { id: "note-review", label: "Note review", module: "note-review", icon: "notebook" },
+      { id: "review-calendar", label: "Review calendar", module: "review-calendar", icon: "calendar-clock" },
+      { id: "study-stats", label: "Study statistics", module: "study-stats", icon: "bar-chart-3" },
+      { id: "mcq-about", label: "Practice tools and export", module: "mcq", tab: "about", icon: "download" },
+    ],
+  },
+  {
+    id: "memory",
+    label: "Cards & memory",
+    icon: "layers",
+    description: "Flashcards, recall schedules and the pace of spaced review.",
+    pages: [
+      { id: "cards", label: "Cards and vocabulary", module: "cards", icon: "layers" },
+      toolPage("recall-scheduler"),
+      toolPage("retention"),
+      toolPage("scheduler-fit"),
+      toolPage("card-archive"),
+      toolPage("quiz-index"),
+    ],
+  },
+  {
+    id: "planning",
+    label: "Courses & planning",
+    icon: "graduation-cap",
+    description: "Courses, calendar, assignments, time and the study plan for the week.",
+    pages: [
+      { id: "calendar", label: "Calendar", module: "calendar", icon: "graduation-cap" },
+      { id: "assignments", label: "Assignments", module: "assignments", icon: "clipboard-list" },
+      { id: "pomodoro", label: "Pomodoro", module: "pomodoro", icon: "timer" },
+      { id: "local-events", label: "Local events", module: "local-events", icon: "calendar-plus" },
+      toolPage("study-goals"),
+      toolPage("topic-planner"),
+      toolPage("study-flow"),
+      toolPage("study-tasks"),
+      toolPage("time-blocks"),
+      toolPage("courses"),
+      toolPage("subjects"),
+      toolPage("course-health"),
+      toolPage("course-templates"),
+      toolPage("study-nudge"),
+    ],
+  },
+  {
+    id: "notes",
+    label: "Notes & tools",
+    icon: "notebook-pen",
+    description: "Writing, reading, documents and the study tools that read your notes.",
+    pages: [
+      toolPage("cornell"),
+      toolPage("lecture-log"),
+      toolPage("lecture-notes"),
+      toolPage("deep-notes"),
+      toolPage("feynman"),
+      toolPage("feynman-ai"),
+      toolPage("vocabulary"),
+      toolPage("reading-library"),
+      toolPage("citations"),
+      toolPage("annotations"),
+      toolPage("pdf-annotations"),
+      toolPage("advanced-tables"),
+      toolPage("read-aloud"),
+      toolPage("audio-bookmarks"),
+      toolPage("vault-search"),
+      toolPage("study-map"),
+      toolPage("web-browser"),
+      toolPage("quiz-maker"),
+      toolPage("sat-math"),
+      toolPage("cbt-exam"),
+      toolPage("sfc-cards"),
+      { id: "reference", label: "Reference", module: "reference", icon: "book-open" },
+    ],
+  },
+  {
+    id: "agent",
+    label: "Study agent",
+    icon: "sparkles",
+    description: "The assistant: backend, models, commands, memory and what it may see.",
+    pages: [{ id: "mcq-ai", label: "AI and the assistant", module: "mcq", tab: "ai", icon: "sparkles" }],
+  },
+  {
+    id: "app",
+    label: "App & documents",
+    icon: "settings",
+    description: "Plugin-wide switches, modules and the embedded PDF tools.",
+    pages: [
+      { id: "global", label: "Modules and global options", module: "global", icon: "toggle-left" },
+      { id: "pdf-plus", label: "PDF++", module: "pdf-plus", icon: "file-text" },
+    ],
+  },
+];
+
+const SETTINGS_PAGES = CATEGORIES.flatMap((category) => category.pages.map((page) => Object.assign({}, page, { category: category.id })));
+
+const SETTINGS_PAGE_BY_ID = Object.fromEntries(SETTINGS_PAGES.map((page) => [page.id, page]));
+
+/** The first page that renders a module, used when a caller only knows the module id. */
+const FIRST_PAGE_BY_MODULE = {};
+for (const page of SETTINGS_PAGES) {
+  if (!FIRST_PAGE_BY_MODULE[page.module]) FIRST_PAGE_BY_MODULE[page.module] = page.id;
+}
+
+function categoryForPage(pageId) {
+  const page = SETTINGS_PAGE_BY_ID[pageId];
+  return CATEGORIES.find((category) => page && category.id === page.category) || CATEGORIES[0];
+}
+
+function pageForModule(moduleId) {
+  return FIRST_PAGE_BY_MODULE[moduleId] || SETTINGS_PAGES[0].id;
+}
+
+module.exports = {
+  SETTINGS_CATEGORIES: CATEGORIES,
+  SETTINGS_PAGES,
+  SETTINGS_PAGE_BY_ID,
+  categoryForPage,
+  pageForModule,
+};
+};
+
 /* ---- src/settings-global.js ---- */
 __defs["settings-global"] = function (module, exports, require) {
 /*
@@ -100221,12 +100583,9 @@ function renderModules(containerEl, plugin, redisplay, openModule) {
 
   new Setting(containerEl)
     .setName("Embedded PDF++ tools")
-    .setDesc("Run the full MIT-licensed PDF++ 0.40.31 native PDF viewer integration: backlink highlights, color palette, outline/page-label/embed tools, PDF editing and page composer, external-app sync, Vim keys, and PDF++'s own settings tab. It uses its own namespaced settings inside MCQ Tracker.")
-    .addToggle((t) =>
-      t.setValue(plugin.pdfPlusEnabled()).onChange(async (v) => {
-        await plugin.setPdfPlusEnabled(v);
-        redisplay();
-      })
+    .setDesc("Run the full MIT-licensed PDF++ 0.40.31 native PDF viewer integration and set it up on its own settings page, beside every other MCQ Tracker option.")
+    .addButton((b) =>
+      b.setButtonText("Open PDF++ settings").onClick(() => (typeof openModule === "function" ? openModule("pdf-plus") : redisplay()))
     );
 
   new Setting(containerEl)
@@ -100476,7 +100835,7 @@ module.exports = {
 
 /* ---- src/settings-tab.js ---- */
 __defs["settings-tab"] = function (module, exports, require) {
-const { Notice, Platform, PluginSettingTab, SecretComponent, Setting } = require("obsidian");
+const { Notice, Platform, PluginSettingTab, SecretComponent, Setting, setIcon } = require("obsidian");
 const { FILTER_FIELDS, FOLDER_AUTO_MAX } = require("./constants");
 const { API_PRESETS, ApiClient, friendlyApiError } = require("./api-client");
 const { localModelGuide } = require("./local-models");
@@ -100496,6 +100855,8 @@ const { normalizeExamReadyPasses } = require("./view-helpers");
 const { normalizeSpacedEverything } = require("./spaced-everything");
 const { formatCourseDays, parseCourseDays } = require("./study-status");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
+const { SETTINGS_CATEGORIES, SETTINGS_PAGE_BY_ID, categoryForPage, pageForModule } = require("./settings-categories");
+const { renderPdfPlusSettings } = require("./pdf-plus-settings");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const { ASSIGNMENTS_TABS, renderAssignmentsSettings } = require("./assignments-settings");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
@@ -100543,6 +100904,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     super(app, plugin);
     this.plugin = plugin;
     this.activeModule = "global";
+    this.activePage = "global";
     this.activeGlobalTab = "modules";
     this.activeMcqTab = "practice";
     this.activeCardsTab = "decks";
@@ -100556,8 +100918,11 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     const st = this.plugin.settings;
     rootEl.empty();
 
-    this.renderModuleNav(rootEl);
-    const containerEl = rootEl.createDiv({ cls: "qt-settings-body" });
+    const page = this.currentPage();
+    this.activeModule = page.module;
+    if (page.tab) this.activeMcqTab = page.tab;
+
+    const containerEl = this.renderModuleNav(rootEl).body;
 
     if (this.activeModule === "global") {
       renderGlobalSettings(
@@ -100569,11 +100934,13 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           this.activeGlobalTab = id;
           this.display();
         },
-        (moduleId) => {
-          this.activeModule = moduleId;
-          this.display();
-        }
+        (moduleId) => this.openPage(pageForModule(moduleId))
       );
+      return;
+    }
+
+    if (this.activeModule === "pdf-plus") {
+      renderPdfPlusSettings(containerEl, this.plugin, () => this.display());
       return;
     }
 
@@ -100663,7 +101030,6 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       return;
     }
 
-    this.renderMcqTabs(containerEl);
     if (!this.plugin.mcqEnabled()) {
       containerEl.createEl("p", {
         cls: "setting-item-description",
@@ -102018,40 +102384,73 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     }
   }
 
-  renderModuleNav(rootEl) {
-    renderSettingsTabs(
-      rootEl,
-      SETTINGS_MODULES,
-      this.activeModule,
-      (id) => {
-        this.activeModule = id;
-        this.display();
-      },
-      { className: "qt-settings-modules", tabClass: "qt-settings-module" }
-    );
-    const picker = rootEl.createEl("select", {
-      cls: "qt-settings-module-picker qt-select",
-      attr: { "aria-label": "Settings module" },
-    });
-    for (const module of SETTINGS_MODULES) picker.createEl("option", { value: module.id, text: module.label });
-    picker.value = this.activeModule;
-    picker.addEventListener("change", () => {
-      this.activeModule = picker.value;
-      this.display();
-    });
+  currentPage() {
+    return SETTINGS_PAGE_BY_ID[this.activePage] || SETTINGS_PAGE_BY_ID.global;
   }
 
-  renderMcqTabs(containerEl) {
-    renderSettingsTabs(
-      containerEl,
-      MCQ_TABS,
-      this.activeMcqTab,
-      (id) => {
-        this.activeMcqTab = id;
-        this.display();
-      },
-      { className: "qt-settings-tabs", tabClass: "qt-settings-tab" }
-    );
+  openPage(id) {
+    if (!SETTINGS_PAGE_BY_ID[id]) return;
+    this.activePage = id;
+    this.display();
+  }
+
+  /**
+   * Settings navigation has two levels: a category row, then the pages in that
+   * category beside the active page. A grouped picker replaces the page list
+   * when the pane is too narrow for two columns, so every page stays reachable.
+   */
+  renderModuleNav(rootEl) {
+    const page = this.currentPage();
+    const category = categoryForPage(page.id);
+    const layout = rootEl.createDiv({ cls: "qt-settings-layout" });
+
+    const categories = layout.createDiv({ cls: "qt-settings-categories" });
+    categories.setAttr("role", "tablist");
+    categories.setAttr("aria-label", "Settings category");
+    for (const entry of SETTINGS_CATEGORIES) {
+      const active = entry.id === category.id;
+      const button = categories.createEl("button", { cls: `qt-settings-category${active ? " is-active" : ""}` });
+      button.setAttr("type", "button");
+      button.setAttr("role", "tab");
+      button.setAttr("aria-selected", active ? "true" : "false");
+      button.createSpan({ cls: "qt-settings-category-label", text: entry.label });
+      button.addEventListener("click", () => this.openPage(entry.pages[0].id));
+    }
+
+    const picker = layout.createEl("select", {
+      cls: "qt-settings-module-picker qt-select",
+      attr: { "aria-label": "Settings page" },
+    });
+    for (const entry of SETTINGS_CATEGORIES) {
+      const group = picker.createEl("optgroup", { attr: { label: entry.label } });
+      for (const entryPage of entry.pages) group.createEl("option", { value: entryPage.id, text: entryPage.label });
+    }
+    picker.value = page.id;
+    picker.addEventListener("change", () => this.openPage(picker.value));
+
+    const grid = layout.createDiv({ cls: "qt-settings-grid" });
+    const list = grid.createDiv({ cls: "qt-settings-pages" });
+    list.setAttr("role", "tablist");
+    list.setAttr("aria-label", `${category.label} settings`);
+    for (const entryPage of category.pages) {
+      const active = entryPage.id === page.id;
+      const button = list.createEl("button", { cls: `qt-settings-page${active ? " is-active" : ""}` });
+      button.setAttr("type", "button");
+      button.setAttr("role", "tab");
+      button.setAttr("aria-selected", active ? "true" : "false");
+      button.setAttr("aria-current", active ? "page" : "false");
+      if (entryPage.icon) {
+        const icon = button.createSpan({ cls: "qt-settings-page-icon" });
+        setIcon(icon, entryPage.icon);
+      }
+      button.createSpan({ cls: "qt-settings-page-label", text: entryPage.label });
+      button.addEventListener("click", () => this.openPage(entryPage.id));
+    }
+
+    const section = grid.createDiv({ cls: "qt-settings-section" });
+    section.createEl("p", { cls: "qt-settings-breadcrumb", text: `${category.label} · ${page.label}` });
+    const body = section.createDiv({ cls: "qt-settings-body" });
+    return { body };
   }
 
   renderAbout(containerEl) {
@@ -127658,6 +128057,8 @@ QuestionTrackerPlugin.__test = {
   studyTools,
   studyToolSettings,
   settingsGlobal,
+  settingsCategories: require("./settings-categories"),
+  pdfPlusSettings: require("./pdf-plus-settings"),
   readingLibrary,
   studyWorkspace,
   timeBlocks,

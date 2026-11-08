@@ -102,7 +102,7 @@ class AgentView extends ItemView {
     // The Obsidian leaf already supplies the view title. Copilot's chat starts
     // with content, so do not draw a second branded heading above the pane.
     if (!this.plugin.settings.ai.enabled) {
-      root.createDiv({ cls: "qt-hint", text: "Turn on AI under Settings > MCQ Tracker > OpenCode (AI) to chat. Local vault search still works below." });
+      root.createDiv({ cls: "qt-hint", text: "Turn on AI under Settings > Study agent > AI and the assistant to chat. Local vault search still works below." });
     }
 
     // The tab strip is the first thing in the chat surface. Local search and
@@ -276,9 +276,21 @@ class AgentView extends ItemView {
       onArchiveChat: (id) => this.archiveChat(id, true),
       onNewChat: () => this.startNewChat(),
       quick: [
-        { label: "Ask about this note", run: () => tab.panel.askAboutActiveNote() },
-        { label: "Summarize my notes", prompt: "Summarize the most important ideas in my notes and cite the notes you use." },
-        { label: "Make cards", prompt: "Turn the key ideas in my notes into flashcards. Propose them for my review." },
+        {
+          label: "Ask about this note",
+          detail: "A plain-language walkthrough of the note you have open, with one worked example.",
+          run: () => tab.panel.askAboutActiveNote(),
+        },
+        {
+          label: "Summarize my notes",
+          detail: "The key ideas in your notes, with citations.",
+          prompt: "Summarize the most important ideas in my notes and cite the notes you use.",
+        },
+        {
+          label: "Make cards",
+          detail: "Turn the key ideas in your notes into flashcards for review.",
+          prompt: "Turn the key ideas in my notes into flashcards. Propose them for my review.",
+        },
       ],
     };
   }

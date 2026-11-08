@@ -96,6 +96,27 @@ is also the plan's mobile decision; the wide layout remains a rounded card.
 - No `qt-agent-avatar` or `qt-agent-name` nodes exist; the leaf title is the only
   branded header.
 
+## Real Obsidian check (1.15.0)
+
+The plugin was copied into a test vault and opened in Obsidian 1.15.0 under
+Xvfb on Linux. The 300 px sidebar pane, a 980 px main-pane leaf and the disabled
+state were checked in light and dark; the captures are in
+`artifacts/obsidian-test/shots/` (`55`–`64`).
+
+- Three seeded suggestions: deck 218 × 116 px, active card 218 × 104 px, detail
+  49 px; no horizontal overflow and three dots.
+- Long label and detail: the card grows to 147 px and the deck to 161 px
+  (`grid-template-rows: minmax(104px, max-content)`); nothing spills outside
+  the card border. The detail keeps its intentional three-line clamp.
+- Wide 980 px pane: only the active card's content is visible. The back cards
+  are decorative, `aria-hidden` peeks; their content is hidden so labels cannot
+  paint through the active card in either theme.
+- A one- or zero-card deck is not reachable through ordinary configuration
+  (the seeded list always has three). Those two states were produced by calling
+  the real deck renderer with synthetic one/zero item lists; they are probes,
+  not configuration states.
+- Disabled AI points to **Settings → Study agent → AI and the assistant**.
+
 ## Method
 
 1. Run `node artifacts/render-study-agent/build-pages.js` after the current
@@ -121,10 +142,9 @@ plugin bundle.
 
 ## Limit
 
-There is still no Obsidian app runtime in this environment, so the leaf header,
-the surrounding chrome and the light/dark variable values are harness
-approximations, not a screenshot of an installed theme. The settings pair is a
-structural fixture and was not re-rendered. These images prove the real
-`AgentView` tab strip and search disclosure, the real `ChatPanel` markup and the
-stylesheet at the reviewed widths; the final in-app light and dark check remains
-the owner pass.
+The 18 fixture images are harness approximations of the leaf header, surrounding
+chrome and light/dark variables, not screenshots of an installed theme; the
+settings pair is a structural fixture and was not re-rendered. The real in-app
+sidebar, wide-pane and disabled states are recorded above. The fixtures still
+prove the real `AgentView` tab strip and search disclosure, the real `ChatPanel`
+markup and the stylesheet at the reviewed widths.

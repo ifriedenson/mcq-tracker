@@ -433,7 +433,7 @@ async function ensureProviders(oc) {
     return;
   }
   if (n === 0) {
-    throw new Error("OpenCode has no AI provider connected yet. Open Settings > MCQ Tracker > AI assistant, choose a provider and paste an API key.");
+    throw new Error("OpenCode has no AI provider connected yet. Open Settings > Study agent > AI and the assistant, choose a provider and paste an API key.");
   }
 }
 

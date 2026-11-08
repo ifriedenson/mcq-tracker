@@ -13695,22 +13695,27 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   width: 100%;
   margin-top: 2px;
 }
+/* The deck sizes to its tallest card, so a longer suggestion or a larger UI
+   font cannot clip the card or push the stack into the pager below. */
 .qt-agent-suggestion-deck {
   position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(104px, max-content);
   width: 100%;
-  height: 104px;
+  padding-bottom: 12px; /* the back cards peek 6 and 12 px below the front one */
 }
 .qt-agent-suggestion-card {
-  position: absolute;
-  inset: 0;
+  position: relative;
+  grid-area: 1 / 1;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
   gap: 2px;
   width: 100%;
-  height: 100%;
-  min-height: 0;
+  height: auto;
+  min-height: 104px;
   padding: 9px 11px;
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s, 4px);
@@ -13724,6 +13729,7 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 .qt-agent-suggestion-card.is-active {
   z-index: 3;
   opacity: 1;
+  cursor: pointer;
   transform: translateY(0) scale(1);
 }
 .qt-agent-suggestion-card.is-active:hover,
@@ -13736,6 +13742,12 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   opacity: 0.62;
   transform: translateY(6px) scale(0.97);
   pointer-events: none;
+}
+
+/* Back cards are decorative peeks and are aria-hidden; their labels must not
+   paint through the active card in a wide pane. */
+.qt-agent-suggestion-card:not(.is-active) > * {
+  visibility: hidden;
 }
 .qt-agent-suggestion-card.is-far {
   z-index: 1;
@@ -13758,6 +13770,15 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   font-size: var(--font-ui-small);
   font-weight: var(--font-semibold, 600);
   line-height: 1.25;
+}
+
+/* A long title must grow the card, not squeeze the detail down to a sliver.
+   The detail keeps its intentional three-line clamp and the deck grows. */
+.qt-agent-suggestion-title,
+.qt-agent-suggestion-detail {
+  flex: 0 0 auto;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 .qt-agent-suggestion-detail {
   display: -webkit-box;
@@ -13802,6 +13823,12 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 .qt-agent-suggestion-dot:focus-visible {
   outline: 2px solid var(--interactive-accent);
   outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qt-agent-suggestion-card {
+    transition: none;
+  }
 }
 
 /* Composer: Copilot's bordered card with a compact context/model footer. */
@@ -14812,4 +14839,272 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   min-width: 56px;
   text-align: center;
   font-family: var(--font-monospace);
+}
+
+/* ---------------------------------------------------------------- settings nav
+   Two levels: a category row, then the pages in that category beside the page.
+   A grouped picker replaces the page list when the pane is too narrow, so every
+   page stays reachable without a ~50-item dropdown. */
+.qt-settings-layout {
+  container-type: inline-size;
+  display: block;
+}
+
+.qt-settings-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.qt-settings-category {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 12px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.qt-settings-category:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.qt-settings-category.is-active {
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.qt-settings-layout > .qt-settings-module-picker {
+  display: none;
+  margin: 0 0 12px;
+}
+
+.qt-settings-grid {
+  display: grid;
+  grid-template-columns: minmax(170px, 210px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.qt-settings-pages {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: sticky;
+  top: 8px;
+}
+
+.qt-settings-page {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 10px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.86rem;
+  text-align: left;
+  white-space: normal;
+}
+
+.qt-settings-page:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.qt-settings-page.is-active {
+  background: var(--background-modifier-hover);
+  box-shadow: inset 2px 0 0 var(--interactive-accent);
+  color: var(--text-accent);
+  font-weight: 600;
+}
+
+.qt-settings-page:focus-visible,
+.qt-settings-category:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
+.qt-settings-page-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.qt-settings-page-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.qt-settings-page-label {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.qt-settings-breadcrumb {
+  margin: 0 0 6px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.qt-settings-grid .qt-settings-body {
+  min-width: 0;
+  max-width: none;
+}
+
+.qt-settings-grid .qt-settings-section {
+  min-width: 0;
+}
+
+/* Four number fields need two rows once the pane is narrow; wrapping only
+   happens when a row actually cannot fit, so ordinary rows stay one line. */
+.qt-settings-body .setting-item {
+  flex-wrap: wrap;
+}
+
+.qt-settings-body .setting-item-control {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 100%;
+}
+
+.qt-settings-warning {
+  border-left: 2px solid var(--color-orange);
+  margin: 8px 0;
+  padding: 6px 10px;
+  color: var(--text-normal);
+}
+
+.qt-pdf-plus-settings {
+  margin-top: 4px;
+}
+
+/* The vendor tab was laid out for a full-width settings window. Inside this
+   page Obsidian's .vertical-tab-content gutter plus PDF++'s own content gutter
+   left 259px rows whose info could grow past the row and clip its label.
+   Remove the outer gutter for the embedded copy, keep a smaller inner one, and
+   let long names and controls wrap inside the page. */
+.qt-settings-body .qt-settings-grid .qt-pdf-plus-embedded.vertical-tab-content,
+.modal.mod-settings .qt-settings-body .qt-settings-grid .qt-pdf-plus-embedded.vertical-tab-content {
+  width: 100%;
+  padding: 0;
+}
+
+.qt-settings-body .qt-settings-grid .qt-pdf-plus-embedded .content,
+.modal.mod-settings .qt-settings-body .qt-settings-grid .qt-pdf-plus-embedded .content {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+.qt-settings-body .qt-pdf-plus-embedded .setting-item-info {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.qt-settings-body .qt-pdf-plus-embedded .setting-item-name,
+.qt-settings-body .qt-pdf-plus-embedded .setting-item-description {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.qt-settings-body .qt-pdf-plus-embedded .setting-item-control {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.qt-settings-body .qt-pdf-plus-embedded .setting-item-control > *,
+.qt-settings-body .qt-pdf-plus-embedded select,
+.qt-settings-body .qt-pdf-plus-embedded input[type="text"],
+.qt-settings-body .qt-pdf-plus-embedded input[type="number"],
+.qt-settings-body .qt-pdf-plus-embedded textarea {
+  max-width: 100%;
+}
+
+
+@container (max-width: 760px) {
+  .qt-settings-grid {
+    grid-template-columns: minmax(150px, 168px) minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .qt-settings-page {
+    min-height: 30px;
+    padding: 5px 8px;
+    font-size: 0.82rem;
+  }
+
+  .qt-settings-category {
+    min-height: 30px;
+    padding: 5px 9px;
+    font-size: 0.84rem;
+  }
+}
+
+@container (max-width: 540px) {
+  .qt-settings-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .qt-settings-pages {
+    display: none;
+  }
+
+  .qt-settings-layout > .qt-settings-module-picker {
+    display: block;
+  }
+}
+
+body.is-mobile .qt-settings-grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+body.is-mobile .qt-settings-pages {
+  display: none;
+}
+
+body.is-mobile .qt-settings-layout > .qt-settings-module-picker {
+  display: block;
+}
+
+
+/* App CSS sets padding-inline on .vertical-tab-content and PDF++'s own CSS
+   loads after ours. Include the settings modal in the selector so these scoped
+   rules outrank both without a forced declaration, and the vendor content uses the page
+   instead of a 92px column. */
+.modal.mod-settings .qt-pdf-plus-embedded.vertical-tab-content {
+  padding: 0;
+}
+
+.modal.mod-settings .qt-pdf-plus-embedded .content {
+  padding-left: 16px;
+  padding-right: 16px;
 }

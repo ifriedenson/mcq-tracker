@@ -146,7 +146,11 @@ const obsidian = {
       return this;
     }
     addDropdown(cb) {
-      cb({ addOption() { return this; }, setValue() { return this; }, onChange() { return this; } });
+      cb({ addOption() { return this; }, addOptions() { return this; }, setValue() { return this; }, onChange() { return this; } });
+      return this;
+    }
+    addSlider(cb) {
+      cb({ setLimits() { return this; }, setValue() { return this; }, setDynamicTooltip() { return this; }, onChange() { return this; } });
       return this;
     }
     addText(cb) {
@@ -154,7 +158,7 @@ const obsidian = {
       return this;
     }
     addTextArea(cb) {
-      cb({ setPlaceholder() { return this; }, setValue() { return this; }, onChange() { return this; } });
+      cb({ inputEl: {}, setPlaceholder() { return this; }, setValue() { return this; }, onChange() { return this; } });
       return this;
     }
     addExtraButton(cb) {

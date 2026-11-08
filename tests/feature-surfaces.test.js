@@ -138,7 +138,14 @@ test("the settings tab draws every section heading", async () => {
   assert.equal(typeof tab.display, "function", "the tab renders");
   tab.display();
   const children = tab.containerEl.__own.children;
-  assert.ok(children.length >= 3, `the settings page draws ${children.length} blocks`);
+  const layout = children.find((child) => child.classes && child.classes.has("qt-settings-layout"));
+  assert.ok(layout, "the settings page draws its navigation");
+  const grid = (layout.children || []).find((child) => child.classes && child.classes.has("qt-settings-grid"));
+  assert.ok(grid && grid.children.length >= 2, "the navigation is a page list beside the page");
+  assert.ok(
+    (layout.children || []).some((child) => child.classes && child.classes.has("qt-settings-categories")),
+    "the category row is drawn"
+  );
   for (const heading of ["Core modules", "Study tools", "Global options"]) {
     assert.ok(obsidian.settingNames.includes(heading), `the ${heading} heading is drawn`);
   }

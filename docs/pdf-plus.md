@@ -7,7 +7,7 @@ PDF++ is MIT licensed; its copyright and third-party notices are in `NOTICES.md`
 - Embedded bundle: `vendor/pdf-plus.js`
 - Embedded stylesheet: `vendor/pdf-plus-css.js` (injected only while the host is active)
 - Host: `src/pdf-plus.js`
-- Toggle: **Settings → Global → Modules → Embedded PDF++ tools**
+- Toggle and options: **Settings → App & documents → PDF++** (and **Settings → App & documents → Modules and global options** links to it)
 
 ## Why this is a host, not a rewrite
 
@@ -27,6 +27,36 @@ The host gives PDF++:
 
 PDF++ adds its own **PDF++** settings tab. That tab, all of its commands and its
 ribbon icons are part of the host and disappear when the toggle is turned off.
+
+### Obsidian 1.15 Page Preview compatibility
+
+Obsidian 1.15 no longer gives the core Page Preview instance an `overrides` map.
+PDF++ 0.40.31 reads `internalPlugins.plugins["page-preview"].instance.overrides`
+before falling back to `workspace.hoverLinkSources`, so drawing either PDF++
+settings tab throws `Cannot read properties of undefined (reading 'pdf-plus')`.
+The host wraps only that plugin method: when `overrides` exists PDF++'s own
+answer is used unchanged, and when it does not the host applies PDF++'s own
+hover-source fallback (`hoverLinkSources[id].defaultMod`) without the throw.
+This fixes the embedded page and the vendor tab opened from it; no PDF feature
+or setting is changed.
+
+### Where the embedded options are drawn
+
+A vendor settings tab creates its `headerContainerEl` and `contentEl` in its
+constructor, so reparenting the registered tab would leave a page mount empty.
+The PDF++ page therefore mounts a **second instance** of the vendor tab class
+with the same hosted plugin, giving it its own container and calling `display()`.
+The registered tab and its container are never moved, so the **Open PDF++
+settings tab** button keeps working.
+
+Obsidian's settings modal also supplies its own `.vertical-tab-content` gutter.
+Inside the MCQ page that outer gutter plus PDF++'s content padding left vendor
+rows only 259 px wide (92 px in the narrow picker state), clipping labels. Two
+selectors scoped to `.qt-pdf-plus-embedded` remove the outer padding and keep a
+16 px inner gutter; the selector includes the settings modal, so it beats
+Obsidian's more specific rule without a forced declaration. Rows now measure
+387 px in the 419 px page and 252 px narrow. No
+vendor stylesheet, control or setting is changed.
 
 ## Coverage
 

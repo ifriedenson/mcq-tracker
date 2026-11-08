@@ -2198,9 +2198,21 @@ class PracticeView extends ItemView {
       quick: [
         ...(anyContext(p.settings.ai.context)
           ? [
-              { label: "What should I study now?", prompt: "Using the study context, tell me what to study next and why. Be specific and brief." },
-              { label: "Plan my week", prompt: "Using the study context, plan my next week of study around my due work and next exam. Keep it practical and short." },
-              { label: "Turn mistakes into a study guide", prompt: "Using the study context, turn my weakest skills and mistake patterns into a short study guide with concrete next steps." },
+              {
+                label: "What should I study now?",
+                detail: "A short, specific plan built from what is due and what you want to finish.",
+                prompt: "Using the study context, tell me what to study next and why. Be specific and brief.",
+              },
+              {
+                label: "Plan my week",
+                detail: "A practical week of study around due work and your next exam.",
+                prompt: "Using the study context, plan my next week of study around my due work and next exam. Keep it practical and short.",
+              },
+              {
+                label: "Turn mistakes into a study guide",
+                detail: "Your weakest skills and mistake patterns, turned into concrete next steps.",
+                prompt: "Using the study context, turn my weakest skills and mistake patterns into a short study guide with concrete next steps.",
+              },
             ]
           : []),
         ...(p.backend() === "api"
@@ -2463,9 +2475,21 @@ class PracticeView extends ItemView {
       buildContext: (mode) => buildTutorContext(r, this.notesText, p.settings.confidenceLabels, mode, p.settings.ai.tutorRole),
       quick: [
         r.correct
-          ? { label: "Why is the answer right?", prompt: "Explain why the correct answer is right and why the other choices are wrong." }
-          : { label: "Why did I miss this?", prompt: "I got this wrong. Explain what I likely misunderstood and how to get it right next time." },
-        { label: "Explain simply", prompt: "Explain this question and its solution in simple terms." },
+          ? {
+              label: "Why is the answer right?",
+              detail: "A walkthrough of the correct answer and why each other choice is wrong.",
+              prompt: "Explain why the correct answer is right and why the other choices are wrong.",
+            }
+          : {
+              label: "Why did I miss this?",
+              detail: "What likely went wrong, and how to get it right next time.",
+              prompt: "I got this wrong. Explain what I likely misunderstood and how to get it right next time.",
+            },
+        {
+          label: "Explain simply",
+          detail: "The question and its solution in plain language.",
+          prompt: "Explain this question and its solution in simple terms.",
+        },
         { label: "Similar question", prompt: "Write one new, original practice question testing the same skill, with four choices. Do not give the answer yet." },
         { label: "Quiz me", prompt: "Ask me one short question to check I understand the concept behind this question." },
         { label: "One-line rule", prompt: "Give me a single sentence rule of thumb I can remember for this kind of question." },

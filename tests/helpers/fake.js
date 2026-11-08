@@ -227,6 +227,13 @@ function makeDom() {
             if (own.meta.attrs) delete own.meta.attrs[name];
           };
         }
+        if (k === "appendChild") return (element) => {
+          if (element && element.__own) {
+            own.children.push(element.__own);
+            element.__own.parent = own;
+          }
+          return element;
+        };
         if (k === "createEl") return (tag, opts) => child(tag, opts);
         if (k === "createDiv") return (opts) => child("div", opts);
         if (k === "createSpan") return (opts) => child("span", opts);

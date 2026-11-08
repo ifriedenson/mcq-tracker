@@ -98,6 +98,19 @@ test("study agent keeps the empty state bounded and the persona visible at sideb
   const empty = (css.match(/\.qt-agent-empty \{[^}]*\}/s) || [])[0] || "";
   assert.match(empty, /margin:\s*auto/);
   assert.match(empty, /max-width:\s*32rem/);
+
+  // The deck grows with its card and reserves the stack offset, so a long
+  // suggestion cannot be clipped and the back cards never touch the pager.
+  const deck = (css.match(/\.qt-agent-suggestion-deck \{[^}]*\}/s) || [])[0] || "";
+  assert.match(deck, /display:\s*grid/, "the suggestion deck must size to its cards");
+  assert.doesNotMatch(deck, /height:\s*\d+px/, "a fixed deck height clips longer suggestions");
+  assert.match(deck, /padding-bottom:\s*12px/, "the stacked cards need room above the pager");
+  assert.match(deck, /grid-template-rows:\s*minmax\(104px, max-content\)/, "the deck row grows with a long suggestion");
+  const card = (css.match(/\.qt-agent-suggestion-card \{[^}]*\}/s) || [])[0] || "";
+  assert.match(card, /grid-area:\s*1 \/ 1/);
+  assert.match(card, /height:\s*auto/, "a long title grows the card instead of overflowing it");
+  assert.match(card, /min-height:\s*104px/);
+  assert.match(css, /\.qt-agent-suggestion-card:not\(\.is-active\) > \* \{[^}]*visibility:\s*hidden/s, "back-card labels must not paint through the active card");
   assert.match(empty, /width:\s*calc\(100% - 32px\)/);
 
   const narrow = css.slice(

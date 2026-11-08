@@ -2394,7 +2394,7 @@ class QuestionTrackerPlugin extends Plugin {
     }
     const ai = this.settings && this.settings.ai;
     if (!ai || ai.enabled !== true) {
-      new Notice("Turn on AI under Settings > MCQ Tracker > OpenCode (AI) to ask about a passage.");
+      new Notice("Turn on AI under Settings > Study agent > AI and the assistant to ask about a passage.");
       return false;
     }
     const prompt = readingCompanion.passagePrompt(source, row, question);
@@ -3357,6 +3357,17 @@ class QuestionTrackerPlugin extends Plugin {
     await this.save();
     if (next.enabled && !this.pdfPlusPaused) await this.startPdfPlus();
     else await this.stopPdfPlus();
+  }
+
+  /** Opens the hosted PDF++ settings tab when this Obsidian build exposes it. */
+  openPdfPlusSettingsTab() {
+    const setting = this.app && this.app.setting;
+    if (!setting || typeof setting.openTabById !== "function") {
+      new Notice("Open Settings → Community plugins → MCQ Tracker, or use the PDF++ settings tab in the sidebar.");
+      return false;
+    }
+    setting.openTabById(pdfPlus.EMBEDDED_ID);
+    return true;
   }
 
   /**
@@ -4436,7 +4447,7 @@ class QuestionTrackerPlugin extends Plugin {
   async openQuickAsk(options) {
     const ai = this.settings && this.settings.ai;
     if (!ai || ai.enabled !== true) {
-      new Notice("Turn on AI under Settings > MCQ Tracker > AI to use Quick Ask.");
+      new Notice("Turn on AI under Settings > Study agent > AI and the assistant to use Quick Ask.");
       return null;
     }
     const opts = options && typeof options === "object" ? options : {};
@@ -4483,7 +4494,7 @@ class QuestionTrackerPlugin extends Plugin {
   openQuickChat(options) {
     const ai = this.settings && this.settings.ai;
     if (!ai || ai.enabled !== true) {
-      new Notice("Turn on AI under Settings > MCQ Tracker > AI to use Quick Chat.");
+      new Notice("Turn on AI under Settings > Study agent > AI and the assistant to use Quick Chat.");
       return null;
     }
     if (this._quickChatModal) {
@@ -4746,7 +4757,7 @@ class QuestionTrackerPlugin extends Plugin {
   /** Ask for a goal, then let the Study agent propose a numbered plan. Nothing runs yet. */
   async promptStudyPlan() {
     if (!(this.settings.ai && this.settings.ai.enabled)) {
-      new Notice("Turn on AI under Settings > MCQ Tracker > AI to plan a task.");
+      new Notice("Turn on AI under Settings > Study agent > AI and the assistant to plan a task.");
       return false;
     }
     new NameModal(this.app, "Plan a multi-step task", "", (goal) => {
@@ -4771,7 +4782,7 @@ class QuestionTrackerPlugin extends Plugin {
   /** Open the Study agent and its vault PDF picker; nothing is sent or written. */
   async attachPdfToStudyAgent() {
     if (!(this.settings.ai && this.settings.ai.enabled)) {
-      new Notice("Turn on AI under Settings > MCQ Tracker > AI to attach a PDF to the Study agent.");
+      new Notice("Turn on AI under Settings > Study agent > AI and the assistant to attach a PDF to the Study agent.");
       return false;
     }
     const view = await this.activateAgent();

@@ -611,6 +611,8 @@ QuestionTrackerPlugin.__test = {
   studyTools,
   studyToolSettings,
   settingsGlobal,
+  settingsCategories: require("./settings-categories"),
+  pdfPlusSettings: require("./pdf-plus-settings"),
   readingLibrary,
   studyWorkspace,
   timeBlocks,

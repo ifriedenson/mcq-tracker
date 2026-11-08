@@ -230,7 +230,7 @@ class ChatPanel {
     if (!this.ai.enabled) {
       root.createDiv({
         cls: "qt-hint",
-        text: "OpenCode is turned off. Enable it in Settings > MCQ Tracker > OpenCode (AI).",
+        text: "OpenCode is turned off. Enable it in Settings > Study agent > AI and the assistant.",
       });
       return;
     }
@@ -2483,7 +2483,7 @@ class ChatPanel {
     }
     if (n === 0) {
       throw new Error(
-        "OpenCode has no AI provider connected yet. Open Settings > MCQ Tracker > OpenCode (AI), choose a provider and paste an API key."
+        "OpenCode has no AI provider connected yet. Open Settings > Study agent > AI and the assistant, choose a provider and paste an API key."
       );
     }
   }
@@ -2555,7 +2555,7 @@ class ChatPanel {
       return {
         label,
         title: label,
-        detail: fallback.detail,
+        detail: str(item.detail).trim() || fallback.detail,
         prompt: item.prompt !== undefined ? item.prompt : fallback.prompt,
         run: typeof item.run === "function" ? item.run : null,
       };
@@ -2650,6 +2650,20 @@ class ChatPanel {
       attr: { role: "group", "aria-label": "Suggested study actions" },
     });
     this.suggestionDots = shell.createDiv({ cls: "qt-agent-suggestion-dots", attr: { role: "group", "aria-label": "Suggestion choices" } });
+    // Rotating under the pointer or the keyboard would move the card being read
+    // and drop focus; pause while the deck is in use and resume when it is not.
+    const pauseRotation = () => this.stopSuggestionRotation();
+    const resumeRotation = () => {
+      if (this.emptyDeck && this.transcript && this.transcript.classList && this.transcript.classList.contains("is-empty")) {
+        this.startSuggestionRotation();
+      }
+    };
+    shell.addEventListener("mouseenter", pauseRotation);
+    shell.addEventListener("mouseleave", resumeRotation);
+    shell.addEventListener("focusin", pauseRotation);
+    shell.addEventListener("focusout", (event) => {
+      if (!shell.contains(event.relatedTarget)) resumeRotation();
+    });
     this.paintSuggestionDeck();
     this.startSuggestionRotation();
   }

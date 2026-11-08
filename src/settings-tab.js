@@ -1,5 +1,5 @@
 "use strict";
-const { Notice, Platform, PluginSettingTab, SecretComponent, Setting } = require("obsidian");
+const { Notice, Platform, PluginSettingTab, SecretComponent, Setting, setIcon } = require("obsidian");
 const { FILTER_FIELDS, FOLDER_AUTO_MAX } = require("./constants");
 const { API_PRESETS, ApiClient, friendlyApiError } = require("./api-client");
 const { localModelGuide } = require("./local-models");
@@ -19,6 +19,8 @@ const { normalizeExamReadyPasses } = require("./view-helpers");
 const { normalizeSpacedEverything } = require("./spaced-everything");
 const { formatCourseDays, parseCourseDays } = require("./study-status");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
+const { SETTINGS_CATEGORIES, SETTINGS_PAGE_BY_ID, categoryForPage, pageForModule } = require("./settings-categories");
+const { renderPdfPlusSettings } = require("./pdf-plus-settings");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const { ASSIGNMENTS_TABS, renderAssignmentsSettings } = require("./assignments-settings");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
@@ -66,6 +68,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     super(app, plugin);
     this.plugin = plugin;
     this.activeModule = "global";
+    this.activePage = "global";
     this.activeGlobalTab = "modules";
     this.activeMcqTab = "practice";
     this.activeCardsTab = "decks";
@@ -79,8 +82,11 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     const st = this.plugin.settings;
     rootEl.empty();
 
-    this.renderModuleNav(rootEl);
-    const containerEl = rootEl.createDiv({ cls: "qt-settings-body" });
+    const page = this.currentPage();
+    this.activeModule = page.module;
+    if (page.tab) this.activeMcqTab = page.tab;
+
+    const containerEl = this.renderModuleNav(rootEl).body;
 
     if (this.activeModule === "global") {
       renderGlobalSettings(
@@ -92,11 +98,13 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           this.activeGlobalTab = id;
           this.display();
         },
-        (moduleId) => {
-          this.activeModule = moduleId;
-          this.display();
-        }
+        (moduleId) => this.openPage(pageForModule(moduleId))
       );
+      return;
+    }
+
+    if (this.activeModule === "pdf-plus") {
+      renderPdfPlusSettings(containerEl, this.plugin, () => this.display());
       return;
     }
 
@@ -186,7 +194,6 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       return;
     }
 
-    this.renderMcqTabs(containerEl);
     if (!this.plugin.mcqEnabled()) {
       containerEl.createEl("p", {
         cls: "setting-item-description",
@@ -1541,40 +1548,73 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     }
   }
 
-  renderModuleNav(rootEl) {
-    renderSettingsTabs(
-      rootEl,
-      SETTINGS_MODULES,
-      this.activeModule,
-      (id) => {
-        this.activeModule = id;
-        this.display();
-      },
-      { className: "qt-settings-modules", tabClass: "qt-settings-module" }
-    );
-    const picker = rootEl.createEl("select", {
-      cls: "qt-settings-module-picker qt-select",
-      attr: { "aria-label": "Settings module" },
-    });
-    for (const module of SETTINGS_MODULES) picker.createEl("option", { value: module.id, text: module.label });
-    picker.value = this.activeModule;
-    picker.addEventListener("change", () => {
-      this.activeModule = picker.value;
-      this.display();
-    });
+  currentPage() {
+    return SETTINGS_PAGE_BY_ID[this.activePage] || SETTINGS_PAGE_BY_ID.global;
   }
 
-  renderMcqTabs(containerEl) {
-    renderSettingsTabs(
-      containerEl,
-      MCQ_TABS,
-      this.activeMcqTab,
-      (id) => {
-        this.activeMcqTab = id;
-        this.display();
-      },
-      { className: "qt-settings-tabs", tabClass: "qt-settings-tab" }
-    );
+  openPage(id) {
+    if (!SETTINGS_PAGE_BY_ID[id]) return;
+    this.activePage = id;
+    this.display();
+  }
+
+  /**
+   * Settings navigation has two levels: a category row, then the pages in that
+   * category beside the active page. A grouped picker replaces the page list
+   * when the pane is too narrow for two columns, so every page stays reachable.
+   */
+  renderModuleNav(rootEl) {
+    const page = this.currentPage();
+    const category = categoryForPage(page.id);
+    const layout = rootEl.createDiv({ cls: "qt-settings-layout" });
+
+    const categories = layout.createDiv({ cls: "qt-settings-categories" });
+    categories.setAttr("role", "tablist");
+    categories.setAttr("aria-label", "Settings category");
+    for (const entry of SETTINGS_CATEGORIES) {
+      const active = entry.id === category.id;
+      const button = categories.createEl("button", { cls: `qt-settings-category${active ? " is-active" : ""}` });
+      button.setAttr("type", "button");
+      button.setAttr("role", "tab");
+      button.setAttr("aria-selected", active ? "true" : "false");
+      button.createSpan({ cls: "qt-settings-category-label", text: entry.label });
+      button.addEventListener("click", () => this.openPage(entry.pages[0].id));
+    }
+
+    const picker = layout.createEl("select", {
+      cls: "qt-settings-module-picker qt-select",
+      attr: { "aria-label": "Settings page" },
+    });
+    for (const entry of SETTINGS_CATEGORIES) {
+      const group = picker.createEl("optgroup", { attr: { label: entry.label } });
+      for (const entryPage of entry.pages) group.createEl("option", { value: entryPage.id, text: entryPage.label });
+    }
+    picker.value = page.id;
+    picker.addEventListener("change", () => this.openPage(picker.value));
+
+    const grid = layout.createDiv({ cls: "qt-settings-grid" });
+    const list = grid.createDiv({ cls: "qt-settings-pages" });
+    list.setAttr("role", "tablist");
+    list.setAttr("aria-label", `${category.label} settings`);
+    for (const entryPage of category.pages) {
+      const active = entryPage.id === page.id;
+      const button = list.createEl("button", { cls: `qt-settings-page${active ? " is-active" : ""}` });
+      button.setAttr("type", "button");
+      button.setAttr("role", "tab");
+      button.setAttr("aria-selected", active ? "true" : "false");
+      button.setAttr("aria-current", active ? "page" : "false");
+      if (entryPage.icon) {
+        const icon = button.createSpan({ cls: "qt-settings-page-icon" });
+        setIcon(icon, entryPage.icon);
+      }
+      button.createSpan({ cls: "qt-settings-page-label", text: entryPage.label });
+      button.addEventListener("click", () => this.openPage(entryPage.id));
+    }
+
+    const section = grid.createDiv({ cls: "qt-settings-section" });
+    section.createEl("p", { cls: "qt-settings-breadcrumb", text: `${category.label} · ${page.label}` });
+    const body = section.createDiv({ cls: "qt-settings-body" });
+    return { body };
   }
 
   renderAbout(containerEl) {

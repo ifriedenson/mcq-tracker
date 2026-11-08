@@ -189,6 +189,36 @@ test("embedded PDF++ boots the real bundle, registers its surface and tears it a
   assertStopped(app, "teardown reverses the entire surface");
 });
 
+test("the hosted settings renderer survives Obsidian 1.15's missing Page Preview overrides", async () => {
+  const app = makeApp();
+  const pagePreview = app.internalPlugins.plugins["page-preview"].instance;
+  // Obsidian 1.15's Page Preview no longer has this map; upstream PDF++ reads it
+  // unconditionally and would throw while drawing its settings tab.
+  assert.equal(pagePreview.overrides, undefined);
+  const plugin = hostPlugin(app);
+  const host = await T.pdfPlus.start(plugin);
+  try {
+    // PDF++ registers its own hover source; when the core map is missing the host
+    // must apply that exact source default instead of throwing.
+    const registered = app.workspace.hoverLinkSources["pdf-plus"] || {};
+    assert.doesNotThrow(() => host.requireModKeyForLinkHover("pdf-plus"));
+    assert.equal(host.requireModKeyForLinkHover("pdf-plus"), !!registered.defaultMod, "the registered hover-source default is honored");
+    app.workspace.hoverLinkSources["pdf-plus"] = { defaultMod: true };
+    assert.equal(host.requireModKeyForLinkHover("pdf-plus"), true);
+    app.workspace.hoverLinkSources["pdf-plus"] = { defaultMod: false };
+    assert.equal(host.requireModKeyForLinkHover("pdf-plus"), false);
+
+    // When the app does expose the map, PDF++'s own answer must pass through unchanged.
+    pagePreview.overrides = { "pdf-plus": true };
+    assert.equal(host.requireModKeyForLinkHover("pdf-plus"), true);
+    pagePreview.overrides = { "pdf-plus": false };
+    assert.equal(host.requireModKeyForLinkHover("pdf-plus"), false);
+  } finally {
+    await T.pdfPlus.stop(plugin);
+  }
+  assertStopped(app, "the compatibility guard owns no extra surface");
+});
+
 test("nothing is loaded or registered while the embedded PDF++ module is off", async () => {
   const app = makeApp();
   const plugin = hostPlugin(app);

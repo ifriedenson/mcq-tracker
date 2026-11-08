@@ -84,6 +84,27 @@ function createHost(plugin) {
     plugin.settings.pdfPlus = next;
     if (typeof plugin.save === "function") await plugin.save();
   };
+  // Obsidian 1.15 no longer gives core Page Preview an `overrides` map. PDF++
+  // 0.40.31 reads it before looking at hoverLinkSources and throws, aborting its
+  // settings tab (embedded or standalone). Use the vendor answer when the map
+  // exists, otherwise perform the same hover-source fallback without the throw.
+  const requireModKeyForLinkHover = host.requireModKeyForLinkHover;
+  if (typeof requireModKeyForLinkHover === "function") {
+    host.requireModKeyForLinkHover = function (source) {
+      const sourceId = source || "pdf-plus";
+      const pagePreview = this.app && this.app.internalPlugins && this.app.internalPlugins.plugins
+        ? this.app.internalPlugins.plugins["page-preview"]
+        : null;
+      const overrides = pagePreview && pagePreview.instance ? pagePreview.instance.overrides : null;
+      if (overrides && typeof overrides === "object") {
+        return requireModKeyForLinkHover.call(this, sourceId);
+      }
+      const hover = this.app && this.app.workspace && this.app.workspace.hoverLinkSources
+        ? this.app.workspace.hoverLinkSources[sourceId]
+        : null;
+      return !!(hover && hover.defaultMod);
+    };
+  }
   return host;
 }
 

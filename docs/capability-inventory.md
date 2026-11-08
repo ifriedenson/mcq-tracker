@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 426 groups, 2974 exports. **Commands:** 221. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 428 groups, 2981 exports. **Commands:** 221. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -60,7 +60,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `QUICK_START_URL` | 0 | `tests/empty-state.test.js` |
 | `QUICK_TIME_OPTIONS` | 3 | `tests/uncited-groups.test.js` |
 | `QuestionFolderModal` | 0 | `tests/views.test.js` |
-| `QuestionTrackerSettingTab` | 0 | `tests/feature-surfaces.test.js` |
+| `QuestionTrackerSettingTab` | 0 | `tests/feature-surfaces.test.js`, `tests/settings-navigation.test.js` |
 | `QuickAddModal` | 0 | `tests/feature-surfaces.test.js` |
 | `QuickAskModal` | 0 | `tests/quick-ask.test.js` |
 | `QuickChatModal` | 0 | `tests/quick-chat-bookmarks.test.js` |
@@ -310,7 +310,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `parseSections` | 0 | `tests/grading.test.js`, `tests/hints.test.js`, `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/needs-fixing.test.js`, `tests/question-types.test.js`, `tests/views.test.js` |
 | `partsToTurns` | 0 | `tests/chat-panel-copilot.test.js`, `tests/feature-surfaces.test.js` |
 | `pauseQuickSession` | 0 | `tests/uncited-groups.test.js` |
-| `pdf` | 17 | `tests/cards-import.test.js`, `tests/feature-engines.test.js`, `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-backlinks.test.js`, `tests/pdf-deep-link.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-latex.test.js`, `tests/pdf-plus-boot.test.js`, `tests/pdf-plus.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/study-modules-3.test.js` |
+| `pdf` | 17 | `tests/cards-import.test.js`, `tests/feature-engines.test.js`, `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-backlinks.test.js`, `tests/pdf-deep-link.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-latex.test.js`, `tests/pdf-plus-boot.test.js`, `tests/pdf-plus.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/settings-navigation.test.js`, `tests/study-modules-3.test.js` |
 | `pdfAnnotationIndex` | 7 | `tests/study-modules-3.test.js` |
 | `pdfAnnotations` | 22 | `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-deep-link.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/study-modules-3.test.js` |
 | `pdfAnnotatorSidebar` | 8 | `tests/pdf-annotator-sidebar.test.js` |
@@ -321,7 +321,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `pdfInk` | 27 | `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-backlinks.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-plus-boot.test.js`, `tests/pdf-reader-page-ops.test.js` |
 | `pdfInkModal` | 2 | `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-plus-boot.test.js`, `tests/pdf-reader-page-ops.test.js` |
 | `pdfLatex` | 6 | `tests/feature-engines.test.js`, `tests/pdf-latex.test.js` |
-| `pdfPlus` | 8 | `tests/pdf-plus-boot.test.js`, `tests/pdf-plus.test.js` |
+| `pdfPlus` | 8 | `tests/pdf-plus-boot.test.js`, `tests/pdf-plus.test.js`, `tests/settings-navigation.test.js` |
+| `pdfPlusSettings` | 2 | `tests/settings-navigation.test.js` |
 | `pickQuestion` | 0 | `tests/mastery-picker.test.js`, `tests/study-status.test.js` |
 | `plainCards` | 6 | `tests/plain-cards.test.js` |
 | `platformTriple` | 0 | `tests/feature-surfaces.test.js` |
@@ -373,6 +374,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `serviceImport` | 22 | `tests/service-import.test.js` |
 | `sessionReport` | 5 | `tests/session-report.test.js` |
 | `setLastErrorType` | 0 | `tests/grading.test.js` |
+| `settingsCategories` | 5 | `tests/settings-navigation.test.js` |
 | `settingsGlobal` | 7 | `tests/settings-consolidation.test.js` |
 | `sfcCards` | 11 | `tests/sfc-cards.test.js` |
 | `simpleFlashcards` | 2 | `tests/simple-flashcards.test.js` |
@@ -398,7 +400,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `studySkin` | 18 | `tests/study-modes.test.js`, `tests/study-skin.test.js` |
 | `studyStats` | 18 | `tests/study-stats.test.js` |
 | `studyStatus` | 18 | `tests/study-status.test.js` |
-| `studyToolSettings` | 4 | `tests/calendar.test.js`, `tests/modules.test.js`, `tests/reading-library.test.js`, `tests/settings-consolidation.test.js`, `tests/study-tool-settings.test.js`, `tests/table-editor.test.js` |
+| `studyToolSettings` | 4 | `tests/calendar.test.js`, `tests/modules.test.js`, `tests/reading-library.test.js`, `tests/settings-consolidation.test.js`, `tests/settings-navigation.test.js`, `tests/study-tool-settings.test.js`, `tests/table-editor.test.js` |
 | `studyTools` | 19 | `tests/core-values.test.js`, `tests/study-modules-2.test.js`, `tests/study-tools.test.js` |
 | `studyWorkspace` | 79 | `tests/core-values.test.js`, `tests/quiz-attempts.test.js`, `tests/settings-consolidation.test.js`, `tests/study-workspace-health.test.js`, `tests/study-workspace.test.js`, `tests/subject-projects.test.js`, `tests/vocab-stats.test.js` |
 | `suggestMinutes` | 0 | `tests/stats.test.js` |
