@@ -15241,3 +15241,56 @@ body.is-mobile .qt-settings-layout > .qt-settings-module-picker {
 }
 body.is-mobile .qt-review-sidebar-row { min-height: 48px; }
 body.is-mobile .qt-review-sidebar-review, body.is-mobile .qt-review-sidebar-grade, body.is-mobile .qt-review-sidebar-pomodoro-actions button { min-height: 44px; }
+
+/* Embedded Desmos graph, Markmind visual map, Grill session and deadlines block. */
+.qt-desmos, .qt-mindmap, .qt-grill, .qt-deadlines { border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); padding: 10px; background: var(--background-primary); }
+.qt-desmos-svg { display: block; max-width: 100%; border-radius: var(--radius-s); background: var(--background-primary); }
+.qt-desmos-grid-line { stroke: var(--background-modifier-border); stroke-width: 1; opacity: 0.55; }
+.qt-desmos-axis { stroke: var(--text-faint); stroke-width: 1.2; }
+.qt-desmos-legend { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; }
+.qt-desmos-legend-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-size: var(--font-ui-smaller); }
+.qt-desmos-swatch { width: 12px; height: 12px; border-radius: 3px; flex: 0 0 auto; }
+.qt-desmos-expression { font-family: var(--font-monospace); overflow-wrap: anywhere; }
+.qt-desmos-row-error, .qt-desmos-error, .qt-mindmap-error, .qt-grill-error { color: var(--text-error); font-size: var(--font-ui-smaller); }
+.qt-desmos-note, .qt-mindmap-note, .qt-grill-note, .qt-deadlines-note { color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.qt-mindmap-header, .qt-grill-title, .qt-deadlines-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px; margin-bottom: 8px; }
+.qt-mindmap-tree, .qt-mindmap-children { list-style: none; margin: 0; padding-left: 18px; }
+.qt-mindmap-tree { padding-left: 0; }
+.qt-mindmap-tree.is-down .qt-mindmap-children { padding-left: 22px; }
+.qt-mindmap-node { position: relative; margin: 2px 0; }
+.qt-mindmap-head { display: flex; align-items: center; gap: 5px; min-height: 26px; }
+.qt-mindmap-label { padding: 2px 7px; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-s); background: var(--background-secondary); overflow-wrap: anywhere; }
+.qt-mindmap-node.is-depth-0 > .qt-mindmap-head > .qt-mindmap-label { background: var(--interactive-accent); color: var(--text-on-accent); }
+.qt-mindmap-toggle { min-width: 24px; min-height: 24px; padding: 0 4px; font-family: var(--font-monospace); }
+.qt-mindmap-children { border-left: 1px solid var(--background-modifier-border); margin-left: 10px; }
+.qt-mindmap-children.is-collapsed { display: none; }
+.qt-grill-progress { color: var(--text-muted); font-size: var(--font-ui-smaller); margin-bottom: 6px; }
+.qt-grill-card { display: flex; flex-direction: column; gap: 7px; }
+.qt-grill-question { font-size: var(--font-ui-large); font-weight: 600; overflow-wrap: anywhere; }
+.qt-grill-kind { color: var(--text-muted); font-size: var(--font-ui-smaller); text-transform: uppercase; letter-spacing: 0.04em; }
+.qt-grill-answer { padding: 8px; border-left: 3px solid var(--interactive-accent); background: var(--background-secondary); overflow-wrap: anywhere; }
+.qt-grill-actions, .qt-deadlines-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.qt-grill-done { color: var(--text-success); font-weight: 600; }
+.qt-deadlines { display: flex; flex-direction: column; gap: 5px; }
+.qt-deadlines-list { flex-direction: column; }
+.qt-deadlines-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 4px 0; border-bottom: 1px solid var(--background-modifier-border); }
+.qt-deadlines-row:last-child { border-bottom: 0; }
+.qt-deadlines-main { flex: 1 1 180px; text-align: left; background: transparent; border: 0; padding: 2px 0; color: var(--text-normal); font-weight: 600; }
+.qt-deadlines-row.is-overdue .qt-deadlines-due { color: var(--text-error); }
+.qt-deadlines-row.is-today .qt-deadlines-due, .qt-deadlines-row.is-soon .qt-deadlines-due { color: var(--text-warning); }
+.qt-deadlines-meta { display: flex; flex-wrap: wrap; gap: 6px; color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.qt-deadlines-empty, .qt-recent-empty, .qt-desmos-error, .qt-mindmap-error, .qt-grill-error { padding: 6px 0; }
+.qt-recent { display: flex; flex-direction: column; gap: 8px; height: 100%; }
+.qt-recent-head, .qt-recent-controls, .qt-recent-row { display: flex; align-items: center; gap: 6px; }
+.qt-recent-head { justify-content: space-between; }
+.qt-recent-head h3 { margin: 0; }
+.qt-recent-search { flex: 1 1 auto; min-width: 100px; }
+.qt-recent-list { display: flex; flex-direction: column; gap: 2px; overflow: auto; }
+.qt-recent-row { padding: 4px 2px; border-bottom: 1px solid var(--background-modifier-border); }
+.qt-recent-row.is-pinned { background: var(--background-secondary); }
+.qt-recent-open { display: flex; flex-direction: column; align-items: flex-start; flex: 1 1 auto; min-width: 0; text-align: left; border: 0; background: transparent; padding: 2px 4px; }
+.qt-recent-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.qt-recent-path, .qt-recent-age { color: var(--text-muted); font-size: var(--font-ui-smaller); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.qt-recent-meta { flex: 0 0 auto; }
+.qt-recent-pin { flex: 0 0 auto; font-size: var(--font-ui-smaller); }
+.qt-recent-note { color: var(--text-muted); font-size: var(--font-ui-smaller); }

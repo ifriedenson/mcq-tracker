@@ -2,7 +2,7 @@
 const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const { Modal, Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_REVIEW_SIDEBAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST, VIEW_TYPE_WEB_BROWSER, VIEW_TYPE_AGENT } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_REVIEW_SIDEBAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST, VIEW_TYPE_WEB_BROWSER, VIEW_TYPE_RECENT_FILES, VIEW_TYPE_AGENT } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { parseQuickPracticeUri } = require("./quick-practice");
 const practiceFullscreen = require("./practice-fullscreen");
@@ -42,6 +42,9 @@ const { PresentationModal, PresentationPlanModal } = require("./canvas-presentat
 const canvasQuery = require("./canvas-query");
 const { QueryGroupsModal } = require("./canvas-query-view");
 const { WebBrowserView } = require("./web-browser-view");
+const { RecentFilesView } = require("./recent-files-view");
+const recentFiles = require("./recent-files");
+const studyBlocks = require("./study-blocks");
 const calendarPlanner = require("./calendar-planner");
 const citations = require("./citations");
 const courseIdentity = require("./course-identity");
@@ -405,6 +408,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_POMODORO, (leaf) => new PomodoroView(leaf, this));
     this.registerView(VIEW_TYPE_TASK_LIST, (leaf) => new TaskListView(leaf, this));
     this.registerView(VIEW_TYPE_WEB_BROWSER, (leaf) => new WebBrowserView(leaf, this));
+    this.registerView(VIEW_TYPE_RECENT_FILES, (leaf) => new RecentFilesView(leaf, this));
     const { AgentView: StudyAgentView } = require("./agent-view");
     this.registerView(VIEW_TYPE_AGENT, (leaf) => new StudyAgentView(leaf, this));
     this.registerView(VIEW_TYPE_TABLE_CONTROLS, (leaf) => new TableControlsView(leaf, this));
@@ -597,6 +601,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "time-blocks-import-projects", name: "Time blocks: import project and domain files", callback: () => this.importTimeBlockProjectFiles() });
     this.addCommand({ id: "time-blocks-import-kairos", name: "Time blocks: import Kairos settings", callback: () => this.importKairosSettings() });
     this.addCommand({ id: "open-web-browser", name: "Web browser: open", callback: () => this.openWebBrowser() });
+    this.addCommand({ id: "open-recent-files", name: "Recent files: open", callback: () => this.openRecentFiles() });
     this.addCommand({ id: "canvas-to-outline", name: "Canvas: export the active canvas to a Markdown outline", callback: () => this.exportCanvasToMarkdown() });
     this.addCommand({ id: "canvas-from-outline", name: "Canvas: build a board from the active note outline", callback: () => this.boardFromActiveNote() });
     this.addCommand({ id: "canvas-walk-parent", name: "Canvas: mind map, go to the parent card", callback: () => this.walkCanvas("parent") });
@@ -947,6 +952,10 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor("tag-timer", (source, el, ctx) => this.renderTagTimerBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("tally", (source, el, ctx) => this.renderTallyBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("study-map", (source, el) => this.renderStudyMapBlock(source, el));
+    this.registerMarkdownCodeBlockProcessor("desmos-graph", (source, el) => studyBlocks.renderDesmosBlock(source, el));
+    this.registerMarkdownCodeBlockProcessor("mindmap", (source, el, ctx) => studyBlocks.renderMindmapBlock(this, source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("grill", (source, el, ctx) => studyBlocks.renderGrillBlock(this, source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("deadlines", (source, el) => studyBlocks.renderDeadlinesBlock(this, source, el));
     this.registerMarkdownCodeBlockProcessor("text-timer", (source, el, ctx) => this.renderTextTimerBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("cornell-note", (source, el) => renderCornellBlock(this, source, el));
     this.registerMarkdownCodeBlockProcessor("quiz", (source, el, ctx) => this.renderSimpleQuizBlock(source, el, ctx));
@@ -3206,6 +3215,30 @@ class QuestionTrackerPlugin extends Plugin {
     if (leaf && typeof workspace.revealLeaf === "function") workspace.revealLeaf(leaf);
     const view = leaf && leaf.view;
     if (view && address && typeof view.openAddress === "function") await view.openAddress(address);
+    return view || null;
+  }
+
+  recentFilesSettings() {
+    return recentFiles.normalizeRecentFiles(this.settings && this.settings.recentFiles);
+  }
+
+  async updateRecentFiles(patch) {
+    this.settings.recentFiles = recentFiles.normalizeRecentFiles({ ...this.recentFilesSettings(), ...(patch || {}) });
+    await this.save();
+    return this.settings.recentFiles;
+  }
+
+  async openRecentFiles() {
+    const workspace = this.app.workspace;
+    let leaf = null;
+    if (typeof workspace.getLeavesOfType === "function") leaf = workspace.getLeavesOfType(VIEW_TYPE_RECENT_FILES)[0] || null;
+    if (!leaf && typeof workspace.getLeftLeaf === "function") leaf = workspace.getLeftLeaf(false);
+    if (!leaf && typeof workspace.getLeaf === "function") leaf = workspace.getLeaf("tab");
+    if (leaf && typeof leaf.setViewState === "function") await leaf.setViewState({ type: VIEW_TYPE_RECENT_FILES, active: true });
+    if (leaf && typeof workspace.revealLeaf === "function") workspace.revealLeaf(leaf);
+    if (leaf && typeof leaf.loadIfDeferred === "function") await leaf.loadIfDeferred();
+    const view = leaf && leaf.view;
+    if (view && typeof view.render === "function") view.render();
     return view || null;
   }
 

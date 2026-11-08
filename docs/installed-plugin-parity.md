@@ -1,7 +1,7 @@
 # Installed-plugin parity audit
 
 Checked **Nov 4, 2026** against the community plugin pages and Obsidian's
-published `community-plugins.json`, and re-checked **Nov 5, 2026** at **1.274.0**:
+published `community-plugins.json`, and re-checked **Nov 8, 2026** at **1.292.0**:
 every Covered row below was matched to existing `src/` code and to tests that run in
 the full suite, and no row remains Partial or Uncovered. This is a coverage record, not a claim that
 every plugin has been copied or that every feature is implemented.
@@ -64,7 +64,7 @@ consistent with a personal or unlisted plugin; no public listing was found.
 
 ## Feature matrix
 
-Status meanings: **Added** means shipped by MCQ Tracker in the current release (1.282.0); **Planned** means the owner approved a later slice; **Covered**
+Status meanings: **Added** means shipped by MCQ Tracker in the current release (1.292.0); **Planned** means the owner approved a later slice; **Covered**
 means an existing local module already performs the study-facing job; **Partial**
 means a real but deliberately narrower path exists; **Boundary** means the plan
 or a licence/security rule deliberately excludes it.
@@ -75,25 +75,42 @@ or a licence/security rule deliberately excludes it.
 | **Annotator** | Covered | PDF annotation index, PDF reader, ink, text marks, tags, annotation sidecar and the PDF editor cover PDF study. EPUB annotation is not an MCQ feature.  1.272.0 adds EPUB annotation: `src/epub.js` reads the container, package, spine and chapter text; `src/epub-annotations.js` stores highlights in `Book.epub.annotations.md` (chapter, anchored character range, quote, note, colour, tags) with `[[Book.epub#chapter=N&annotation=id]]` links; `src/epub-reader-modal.js` renders a chapter, marks annotated paragraphs and offers Highlight/Update/Remove; `src/plugin.js` adds the two EPUB commands. Covered by 10 tests in `tests/epub.test.js`. |
 | **Code Runner** | Boundary | The plan's §11 security gate prohibits in-plugin code execution; no sandbox or language allow-list has been approved. No runner, Pyodide, shell or language runtime was added. A dependency-free `calc`-only runner was prototyped during the Nov 5 parity close-out and withdrawn rather than shipped half-verified; the gate is unchanged. |
 | **Copilot** | Boundary / Adapted workflow | Copilot is AGPL-3.0, so no code, prompt or stylesheet was copied. The original Study agent provides note-grounded chat, local cited retrieval, provider selection, reviewed writes, diffs, undo and saved conversations. **Nov 6, 2026:** Quick Ask (selection/full-note) and saved `/commands` add the inline and reusable-prompt surfaces without a second provider or network path. 1.282.0 adds a compact context ring that reads the shipped 12,000-token budget, a local-only **Study agent: save diagnostics bundle** command with redacted settings and no telemetry, user-authored skills loaded from a vault folder only while their switch is on, a local model-pricing table used for per-send and per-conversation cost estimates, and named local chat projects that group saved conversations without bundling files or prompts. The full clean-room feature/UI matrix in `plan.md` §5.18.1 marks what is Covered, Adapted, Next and Boundary; Copilot Plus, Miyo, external CLI agents, web tools, Excalidraw, OpenArtifacts and self-host mode remain boundaries. |
-| **Deadline** | Covered | Calendar, Pomodoro, assignments, task list, due dates, study plan and local reminders already exist as separate local modules. |
-| **Desmos** | Boundary / Covered idea | Desmos is GPL-3.0 and its code was not copied. The local Reference Graph covers regression, sliders, polar, parametric, implicit and 3D graphing. |
+| **Deadline** | Covered | Calendar, Pomodoro, assignments, task list, due dates, study plan and local reminders already exist as separate local modules. **1.292.0** adds a `deadlines` note block that lists open assignments in the next N days (optionally one course) and opens the assignment note. |
+| **Desmos** | Covered | Desmos is GPL-3.0 and its code was not copied. The local Reference Graph already covers regression, sliders, polar, parametric, implicit and 3D graphing. **1.292.0** adds a `desmos-graph` block with a settings header (`left`, `right`, `bottom`, `top`, `width`, `height`, `grid`), per-row color/style/width/hidden controls, common LaTeX input, the local graph engine and an accessible SVG legend. It is a 2D note embed, not the Desmos web app. |
 | **Download Pulse** | Boundary | Developer download/rank/competitor analytics is not study state and has no relationship to questions, cards or grades. |
 | **Excalidraw** | Boundary | The plan records a hand-drawn canvas engine as a separate product and rejects adopting it. Existing STEM diagrams and the Study Map are not a replacement for Excalidraw files. |
 | **Folder Sty1es** | Boundary | Per-folder icons, colours and text styles are navigation/theme presentation. The plan keeps this as reference only. |
 | **Hider** | Boundary | Hiding Obsidian chrome is a host UI preference. The plugin already has a distraction-free practice mode but does not hide arbitrary UI elements. |
 | **Importer** | Covered | **1.273.0 adds the service-export importers.** `src/service-import.js` parses Evernote `.enex` XML (title, XHTML body, tags, created timestamp, source URL), Google Keep Takeout JSON (text plus checklist items, labels, creation time, trashed notes skipped) and Takeout HTML, Airtable JSON records and CSV exports, Notion database CSV and Markdown pages, Bear Markdown exports (inline `#tag`s moved to frontmatter) and Roam JSON pages (nested block bullets, `#tag`/`#[[tag]]`, creation time). Every record becomes one note with `title`/`created`/`source_url`/`imported_from`/`tags` frontmatter and the exported body; `src/plugin.js` adds `importServiceExport`, `serviceExportText`, `importActiveServiceExport`, `importServiceClipboard` and the **Import notes from an export** / **Import notes from a pasted export** commands, writing into `Imports/<Service>` and skipping notes that already exist so a repeated import never duplicates. Format is detected from content, not the file name. Covered by 15 tests in `tests/service-import.test.js`. **Still out of scope, with reasons:** Apple Notes stores a proprietary, undocumented database with attachments, and OneNote stores binary `.one` sections; neither has a documented text export this parser can read. Bear `.textbundle`/`.textpack` bundles are refused by name because they carry binary attachments this importer does not copy — export Markdown instead. The Notion HTML/Markdown ZIP bundle is not unpacked; export the database as CSV or the pages as Markdown. |
 | **Kairos** | Covered | Local Time blocks (Day, Week, Grid, Backlog, Routines, Projects, Timeline) shipped in 1.210.1–1.210.2; 1.265.0 added the document model (`## Schedule`, Backlog.md, Routines.md, statuses, routine rules, carry-over, regeneration, two-way daily-note sync); 1.267.0 adds direct manipulation (pointer create/move/resize, task cycling with right-click/long-press cancel, Week block and task drops), Timeline intensity, project/domain files with lifecycle history and intensity, file write-back, the guided tour and a Kairos settings import. Remaining differences are cosmetic grid/timeline switches. Kairos is 0BSD; no Kairos code, styles or copy was reused. |
-| **Markmind** | Covered | `study-map` builds a local outline and key-term map. **1.271.0 adds the editor and file compatibility:** `src/mindmap.js` reads a Markmind note (`mindmap-plugin: basic` plus a nested list), edits the tree and writes the same shape back; `mindmapFromMarkdown` turns any note's headings and lists into a map; the **Mind map: add a child / rename / remove / move** commands edit the active note in place and **Mind map: make a Markmind map from this note** writes a sibling map note. No Mindmap source or styles were copied, and a map stays ordinary Markdown. |
-| **MCQ Tracker** | This plugin | Current release is 1.284.0. |
+| **Markmind** | Covered | `study-map` builds a local outline and key-term map, and **1.292.0** adds a visual, collapsible `mindmap` block for inline Markdown or a Markmind note named by `Source:`. **1.271.0 adds the editor and file compatibility:** `src/mindmap.js` reads a Markmind note (`mindmap-plugin: basic` plus a nested list), edits the tree and writes the same shape back; `mindmapFromMarkdown` turns any note's headings and lists into a map; the **Mind map: add a child / rename / remove / move** commands edit the active note in place and **Mind map: make a Markmind map from this note** writes a sibling map note. No Mindmap source or styles were copied, and a map stays ordinary Markdown. |
+| **MCQ Tracker** | This plugin | Current release is 1.292.0. |
 | **Minimal Theme Settings** | Boundary | Changing a theme's colours, fonts and feature switches is theme integration, not study state. The plan keeps it as reference only. |
 | **Notebook Navigator** | Boundary | Replacing Obsidian's file explorer with a two-pane folder/tag navigator is a navigation product. The plan records it as a UI surface not to adopt. |
 | **Omnisearch** | Covered | The local `vault-search` block searches note text and cites path/line. It is intentionally not an OCR or fuzzy full-text index. |
 | **pdf-to-md** | Covered | OCR runs locally for page images and sends only chosen pages to the configured Direct AI provider with explicit consent; PDF import and Markdown output exist. **1.270.0 wires the handwriting-to-LaTeX pipeline:** `src/pdf-latex.js` (prompt, reply cleanup, note builder, note name) is reachable through **PDF: convert pages to a LaTeX note**, which renders the chosen pages, sends each to the configured vision model, and writes one note with `latex: true`, the source PDF and a per-page section. No OCR engine is bundled, the model is the user's own, and a page with no readable text is left out rather than invented. |
 | **PDF++** | Covered | PDF page links, annotation sidecars, quote/ink marks, the annotation sidebar, search/export and the page/form editor exist. **1.269.0 closes rectangle/selection deep links:** a quote or mark writes `[[file.pdf#page=3&annotation=id&rect=x,y,w,h]]` (multi-line selections union into one rectangle), **PDF: open a copied deep link** parses one and opens the reader on its page with that rectangle ringed, and an off-page, zero-size or non-numeric rectangle is dropped rather than guessed. **1.277.0 embeds the real plugin:** the unmodified MIT PDF++ 0.40.31 production bundle (`vendor/pdf-plus.js`, stylesheet in `vendor/pdf-plus-css.js`) is hosted as a child component by `src/pdf-plus.js`, so PDF++'s own features come along instead of being reimplemented — backlink highlighting, callouts, colour palette and link templates, the backlink pane with filtering and hover sync, direct annotation editing, the page composer, outline and page-label editing, link copying with context menus, PDF embeds and trimming, keyboard commands, external-app sync and Vim mode. PDF++'s settings tab is available and its data lives inside MCQ Tracker's `data.json`; the MCQ reader, sidecars and page editor remain. See `docs/pdf-plus.md`. |
-| **Recent Files** | Boundary | Obsidian already provides recents and quick switching; the plan records this as a non-study navigation surface not to adopt. |
+| **Recent Files** | Covered | **1.292.0** adds a local Recent files view with Obsidian's own recent order (`workspace.getLastOpenFiles`), a vault-mtime fallback, filter, pin/unpin and file opening. Pins are stored in `settings.recentFiles`; no second history or note copy is kept. This deliberately reverses the former no-adopt row at the owner's request. |
 | **Tally Counter** | **Added** | A `tally` block with side-by-side Correct/Incorrect counts, adjustable step sizes, accuracy, CPS, elapsed session time, reset and local persistence. |
 | **Text Block Timer** | **Added** | A `text-timer` block with a plain-text passage and a local start/pause/reset count-up clock. It is an explicit block, not an arbitrary editor-text widget. |
 | **WordNet Dictionary** | **Added** | Full local WordNet 3.x import from the four standard data files, with every sense, gloss, synonyms and selected semantic relations. The data stays in the vault, the index is memory-only, and nothing is bundled or downloaded. |
+
+## 1.292.0 additions
+
+The four missing note/view surfaces were added clean-room after the owner asked for all
+six named plugins:
+
+- **Desmos:** `src/study-blocks.js` parses a `desmos-graph` block and draws through the
+existing local graph engine. No GPL Desmos code, service or web app is used.
+- **Markmind:** the same module renders a visual, collapsible `mindmap` tree from inline
+Markdown or a Markmind note. It is a reading tree, not a drag-and-drop canvas.
+- **Grill:** a `grill` block builds deterministic questions from headings, definitions and
+bold terms, then runs a self-graded session. No AI, embedding index or Grill source is used.
+- **Recent Files:** a local view over Obsidian's recent list with search and pins. The old
+no-adopt decision is explicitly reversed for this view.
+
+**Deadline** and **Web Browser** already had working local implementations; the new
+`deadlines` block is an additional note surface, not a replacement for the Assignments view.
 
 ## What would need an owner decision
 
@@ -101,7 +118,7 @@ or a licence/security rule deliberately excludes it.
    or keep the current no-execution rule. This cannot be made safe by adding a
    UI warning.
 2. **A literal "all features" goal:** it requires overriding the plan's explicit
-   do-not-adopt rows for Excalidraw, Recent Files, Folder Sty1es, Hider,
+   do-not-adopt rows for Excalidraw, Folder Sty1es, Hider,
    Minimal Theme Settings and Notebook Navigator. Those are separate UI/theme
    products, not study modules.
 3. **Licences:** Copilot (AGPL-3.0) and Desmos (GPL-3.0) cannot be copied into

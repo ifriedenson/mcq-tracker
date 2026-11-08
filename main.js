@@ -31113,6 +31113,7 @@ const VIEW_TYPE_LOCAL_EVENTS = "question-tracker-local-events";
 const VIEW_TYPE_POMODORO = "question-tracker-pomodoro";
 const VIEW_TYPE_TASK_LIST = "question-tracker-task-list";
 const VIEW_TYPE_WEB_BROWSER = "question-tracker-web-browser";
+const VIEW_TYPE_RECENT_FILES = "question-tracker-recent-files";
 const VIEW_TYPE_AGENT = "question-tracker-agent";
 const VIEW_TYPE_TABLE_CONTROLS = "question-tracker-table-controls";
 
@@ -31295,6 +31296,7 @@ const DEFAULT_SETTINGS = {
   wordNet: { enabled: false, folder: "WordNet" }, // offline full WordNet import, opt-in
   tableEditor: { enabled: false, bindTab: true, bindEnter: true, padCells: true, showRibbon: true }, // rendered-table editing and navigation, opt-in
   webBrowser: { enabled: false, home: "", search: "duckduckgo", bookmarks: [], history: [] }, // opt-in in-app browser view; only http/https, off by default
+  recentFiles: { enabled: true, limit: 25, pinned: [] }, // local recent-file view; pinned paths only
   readingLibrary: { enabled: true, hideFinished: false, books: [] }, // local bookshelf, page progress and captured quotes
   writingSession: { path: "", startedAt: 0, baseline: 0, sessions: [] }, // read-only writing-session count; only session times are stored
   readAloud: { enabled: true, style: "full", rate: 1, pitch: 1, voice: "" }, // device speech synthesis, local only
@@ -31405,6 +31407,7 @@ module.exports = {
   VIEW_TYPE_POMODORO,
   VIEW_TYPE_TASK_LIST,
   VIEW_TYPE_WEB_BROWSER,
+  VIEW_TYPE_RECENT_FILES,
   VIEW_TYPE_AGENT,
   VIEW_TYPE_TABLE_CONTROLS,
   FILTER_FIELDS,
@@ -68004,7 +68007,7 @@ __defs["plugin"] = function (module, exports, require) {
 const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const { Modal, Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_REVIEW_SIDEBAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST, VIEW_TYPE_WEB_BROWSER, VIEW_TYPE_AGENT } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_REVIEW_SIDEBAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST, VIEW_TYPE_WEB_BROWSER, VIEW_TYPE_RECENT_FILES, VIEW_TYPE_AGENT } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { parseQuickPracticeUri } = require("./quick-practice");
 const practiceFullscreen = require("./practice-fullscreen");
@@ -68044,6 +68047,9 @@ const { PresentationModal, PresentationPlanModal } = require("./canvas-presentat
 const canvasQuery = require("./canvas-query");
 const { QueryGroupsModal } = require("./canvas-query-view");
 const { WebBrowserView } = require("./web-browser-view");
+const { RecentFilesView } = require("./recent-files-view");
+const recentFiles = require("./recent-files");
+const studyBlocks = require("./study-blocks");
 const calendarPlanner = require("./calendar-planner");
 const citations = require("./citations");
 const courseIdentity = require("./course-identity");
@@ -68407,6 +68413,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_POMODORO, (leaf) => new PomodoroView(leaf, this));
     this.registerView(VIEW_TYPE_TASK_LIST, (leaf) => new TaskListView(leaf, this));
     this.registerView(VIEW_TYPE_WEB_BROWSER, (leaf) => new WebBrowserView(leaf, this));
+    this.registerView(VIEW_TYPE_RECENT_FILES, (leaf) => new RecentFilesView(leaf, this));
     const { AgentView: StudyAgentView } = require("./agent-view");
     this.registerView(VIEW_TYPE_AGENT, (leaf) => new StudyAgentView(leaf, this));
     this.registerView(VIEW_TYPE_TABLE_CONTROLS, (leaf) => new TableControlsView(leaf, this));
@@ -68599,6 +68606,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "time-blocks-import-projects", name: "Time blocks: import project and domain files", callback: () => this.importTimeBlockProjectFiles() });
     this.addCommand({ id: "time-blocks-import-kairos", name: "Time blocks: import Kairos settings", callback: () => this.importKairosSettings() });
     this.addCommand({ id: "open-web-browser", name: "Web browser: open", callback: () => this.openWebBrowser() });
+    this.addCommand({ id: "open-recent-files", name: "Recent files: open", callback: () => this.openRecentFiles() });
     this.addCommand({ id: "canvas-to-outline", name: "Canvas: export the active canvas to a Markdown outline", callback: () => this.exportCanvasToMarkdown() });
     this.addCommand({ id: "canvas-from-outline", name: "Canvas: build a board from the active note outline", callback: () => this.boardFromActiveNote() });
     this.addCommand({ id: "canvas-walk-parent", name: "Canvas: mind map, go to the parent card", callback: () => this.walkCanvas("parent") });
@@ -68949,6 +68957,10 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor("tag-timer", (source, el, ctx) => this.renderTagTimerBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("tally", (source, el, ctx) => this.renderTallyBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("study-map", (source, el) => this.renderStudyMapBlock(source, el));
+    this.registerMarkdownCodeBlockProcessor("desmos-graph", (source, el) => studyBlocks.renderDesmosBlock(source, el));
+    this.registerMarkdownCodeBlockProcessor("mindmap", (source, el, ctx) => studyBlocks.renderMindmapBlock(this, source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("grill", (source, el, ctx) => studyBlocks.renderGrillBlock(this, source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("deadlines", (source, el) => studyBlocks.renderDeadlinesBlock(this, source, el));
     this.registerMarkdownCodeBlockProcessor("text-timer", (source, el, ctx) => this.renderTextTimerBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("cornell-note", (source, el) => renderCornellBlock(this, source, el));
     this.registerMarkdownCodeBlockProcessor("quiz", (source, el, ctx) => this.renderSimpleQuizBlock(source, el, ctx));
@@ -71208,6 +71220,30 @@ class QuestionTrackerPlugin extends Plugin {
     if (leaf && typeof workspace.revealLeaf === "function") workspace.revealLeaf(leaf);
     const view = leaf && leaf.view;
     if (view && address && typeof view.openAddress === "function") await view.openAddress(address);
+    return view || null;
+  }
+
+  recentFilesSettings() {
+    return recentFiles.normalizeRecentFiles(this.settings && this.settings.recentFiles);
+  }
+
+  async updateRecentFiles(patch) {
+    this.settings.recentFiles = recentFiles.normalizeRecentFiles({ ...this.recentFilesSettings(), ...(patch || {}) });
+    await this.save();
+    return this.settings.recentFiles;
+  }
+
+  async openRecentFiles() {
+    const workspace = this.app.workspace;
+    let leaf = null;
+    if (typeof workspace.getLeavesOfType === "function") leaf = workspace.getLeavesOfType(VIEW_TYPE_RECENT_FILES)[0] || null;
+    if (!leaf && typeof workspace.getLeftLeaf === "function") leaf = workspace.getLeftLeaf(false);
+    if (!leaf && typeof workspace.getLeaf === "function") leaf = workspace.getLeaf("tab");
+    if (leaf && typeof leaf.setViewState === "function") await leaf.setViewState({ type: VIEW_TYPE_RECENT_FILES, active: true });
+    if (leaf && typeof workspace.revealLeaf === "function") workspace.revealLeaf(leaf);
+    if (leaf && typeof leaf.loadIfDeferred === "function") await leaf.loadIfDeferred();
+    const view = leaf && leaf.view;
+    if (view && typeof view.render === "function") view.render();
     return view || null;
   }
 
@@ -90861,6 +90897,304 @@ async function renderReadingPlanBlock(plugin, source, el, ctx) {
 module.exports = { renderReadingPlanBlock };
 };
 
+/* ---- src/recent-files.js ---- */
+__defs["recent-files"] = function (module, exports, require) {
+/*
+ * Recent Files model. Pure: paths in, rows out. The view supplies Obsidian's
+ * recent list (or a vault fallback); this module only normalizes, filters,
+ * pins and formats. It never reads a file or stores anything on disk.
+ */
+const { str } = require("./util");
+
+const DEFAULT_RECENT_FILES = {
+  enabled: true,
+  limit: 25,
+  pinned: [],
+};
+
+function normalizeRecentFiles(value) {
+  const raw = value && typeof value === "object" ? value : {};
+  const pinned = [];
+  for (const item of Array.isArray(raw.pinned) ? raw.pinned : []) {
+    const path = str(item).trim();
+    if (path && !pinned.includes(path)) pinned.push(path);
+    if (pinned.length >= 50) break;
+  }
+  return {
+    enabled: raw.enabled !== false,
+    limit: Math.max(5, Math.min(100, Math.round(Number(raw.limit) || DEFAULT_RECENT_FILES.limit))),
+    pinned,
+  };
+}
+
+function cleanPath(value) {
+  return str(value).trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+}
+
+function nameOf(path) {
+  return cleanPath(path).split("/").pop() || "Untitled";
+}
+
+function folderOf(path) {
+  const clean = cleanPath(path);
+  const cut = clean.lastIndexOf("/");
+  return cut < 0 ? "" : clean.slice(0, cut);
+}
+
+/** A short, stable age label; `then` and `now` are milliseconds. */
+function relativeTime(then, now) {
+  const past = Number(then);
+  const current = Number(now);
+  if (!Number.isFinite(past) || past <= 0 || !Number.isFinite(current)) return "";
+  const seconds = Math.max(0, Math.round((current - past) / 1000));
+  if (seconds < 60) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hr ago`;
+  const days = Math.round(hours / 24);
+  if (days < 14) return `${days} day${days === 1 ? "" : "s"} ago`;
+  const date = new Date(past);
+  if (!Number.isFinite(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+}
+
+/**
+ * Feed `paths` in most-recent-first order. `info` maps a path to
+ * `{ mtime, size }`; pinned paths are moved to the top in pin order.
+ */
+function recentRows(paths, info, options) {
+  const opts = options || {};
+  const settings = normalizeRecentFiles({ pinned: opts.pinned, limit: opts.limit });
+  const meta = info && typeof info === "object" ? info : {};
+  const seen = new Set();
+  const rows = [];
+  for (let index = 0; index < (Array.isArray(paths) ? paths : []).length; index++) {
+    const path = cleanPath(paths[index]);
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    const entry = meta[path] || meta[path.replace(/\\/g, "/")] || {};
+    rows.push({
+      path,
+      name: nameOf(path),
+      folder: folderOf(path),
+      mtime: Number(entry.mtime) || 0,
+      size: Number(entry.size) || 0,
+      pinned: false,
+      index,
+      relative: relativeTime(entry.mtime, opts.now === undefined ? Date.now() : opts.now),
+    });
+  }
+  const pinOrder = new Map(settings.pinned.map((path, index) => [path, index]));
+  for (const row of rows) {
+    if (pinOrder.has(row.path)) {
+      row.pinned = true;
+      row.pinIndex = pinOrder.get(row.path);
+    }
+  }
+  rows.sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    if (a.pinned) return a.pinIndex - b.pinIndex;
+    return a.index - b.index;
+  });
+  return rows.slice(0, settings.limit);
+}
+
+function togglePinned(pinned, path, limit) {
+  const clean = cleanPath(path);
+  const current = normalizeRecentFiles({ pinned, limit }).pinned;
+  if (!clean) return current;
+  if (current.includes(clean)) return current.filter((item) => item !== clean);
+  return [clean, ...current].slice(0, 50);
+}
+
+function filterRecentRows(rows, query, pinnedOnly) {
+  const needle = str(query).trim().toLowerCase();
+  return (Array.isArray(rows) ? rows : []).filter((row) => {
+    if (pinnedOnly && !row.pinned) return false;
+    if (!needle) return true;
+    return row.path.toLowerCase().includes(needle) || row.name.toLowerCase().includes(needle);
+  });
+}
+
+module.exports = {
+  DEFAULT_RECENT_FILES,
+  normalizeRecentFiles,
+  relativeTime,
+  recentRows,
+  togglePinned,
+  filterRecentRows,
+};
+};
+
+/* ---- src/recent-files-view.js ---- */
+__defs["recent-files-view"] = function (module, exports, require) {
+const { ItemView, Notice } = require("obsidian");
+const { VIEW_TYPE_RECENT_FILES } = require("./constants");
+const recentFiles = require("./recent-files");
+
+/*
+ * Recent Files view. Obsidian already knows the last opened files, so this
+ * view reuses `workspace.getLastOpenFiles()` and adds local pinning, search
+ * and a folder path. It does not maintain a second history.
+ */
+class RecentFilesView extends ItemView {
+  constructor(leaf, plugin) {
+    super(leaf);
+    this.plugin = plugin;
+    this.query = "";
+    this.pinnedOnly = false;
+  }
+
+  getViewType() {
+    return VIEW_TYPE_RECENT_FILES;
+  }
+
+  getDisplayText() {
+    return "Recent files";
+  }
+
+  getIcon() {
+    return "history";
+  }
+
+  async onOpen() {
+    this.contentEl.addClass("qt-root");
+    this.render();
+  }
+
+  settings() {
+    return recentFiles.normalizeRecentFiles(this.plugin && this.plugin.settings ? this.plugin.settings.recentFiles : null);
+  }
+
+  /** Obsidian's own recents first; a vault mtime sort is the fallback. */
+  paths() {
+    const app = this.app || {};
+    const workspace = app.workspace || {};
+    if (typeof workspace.getLastOpenFiles === "function") {
+      const list = workspace.getLastOpenFiles();
+      if (Array.isArray(list) && list.length) return list.slice();
+    }
+    const files = app.vault && typeof app.vault.getMarkdownFiles === "function" ? app.vault.getMarkdownFiles() : [];
+    return files
+      .slice()
+      .sort((a, b) => {
+        const am = Number(a && a.stat && a.stat.mtime) || 0;
+        const bm = Number(b && b.stat && b.stat.mtime) || 0;
+        return bm - am || String(a.path).localeCompare(String(b.path));
+      })
+      .map((file) => file.path);
+  }
+
+  info() {
+    const app = this.app || {};
+    const files = app.vault && typeof app.vault.getMarkdownFiles === "function" ? app.vault.getMarkdownFiles() : [];
+    const map = {};
+    for (const file of files) {
+      const stat = file && file.stat ? file.stat : {};
+      map[file.path] = { mtime: Number(stat.mtime) || 0, size: Number(stat.size) || 0 };
+    }
+    return map;
+  }
+
+  render() {
+    if (!this.contentEl) return;
+    this.contentEl.empty();
+    this.contentEl.addClass("qt-recent");
+    const head = this.contentEl.createDiv({ cls: "qt-recent-head" });
+    head.createEl("h3", { text: "Recent files" });
+    head.createEl("button", { text: "Refresh", cls: "qt-recent-refresh" }).addEventListener("click", () => this.render());
+
+    const controls = this.contentEl.createDiv({ cls: "qt-recent-controls" });
+    const search = controls.createEl("input", {
+      cls: "qt-recent-search",
+      attr: { type: "search", placeholder: "Filter recent files", "aria-label": "Filter recent files" },
+    });
+    search.value = this.query;
+    search.addEventListener("input", () => {
+      this.query = search.value;
+      this.renderRows(list, rows);
+    });
+    const pinFilter = controls.createEl("button", {
+      cls: `qt-recent-filter${this.pinnedOnly ? " mod-cta" : ""}`,
+      text: this.pinnedOnly ? "Pinned only" : "Show pinned",
+    });
+    pinFilter.addEventListener("click", () => {
+      this.pinnedOnly = !this.pinnedOnly;
+      this.render();
+    });
+
+    const rows = recentFiles.recentRows(this.paths(), this.info(), {
+      pinned: this.settings().pinned,
+      limit: this.settings().limit,
+      now: Date.now(),
+    });
+    const list = this.contentEl.createDiv({ cls: "qt-recent-list" });
+    this.renderRows(list, rows);
+    this.contentEl.createDiv({
+      cls: "qt-recent-note",
+      text: "Recent order comes from Obsidian. Pins and the search filter are local; no note is copied or modified.",
+    });
+  }
+
+  renderRows(list, rows) {
+    if (!list) return;
+    list.empty();
+    const visible = recentFiles.filterRecentRows(rows, this.query, this.pinnedOnly);
+    if (!visible.length) {
+      list.createDiv({
+        cls: "qt-recent-empty",
+        text: this.pinnedOnly ? "No pinned files yet." : this.query ? "No recent file matches that filter." : "Open a note and it will appear here.",
+      });
+      return;
+    }
+    for (const row of visible) {
+      const item = list.createDiv({ cls: `qt-recent-row${row.pinned ? " is-pinned" : ""}` });
+      const open = item.createEl("button", { cls: "qt-recent-open" });
+      open.createSpan({ cls: "qt-recent-name", text: row.name });
+      open.createSpan({ cls: "qt-recent-path", text: row.folder || "Vault root" });
+      const meta = item.createDiv({ cls: "qt-recent-meta" });
+      if (row.relative) meta.createSpan({ cls: "qt-recent-age", text: row.relative });
+      const pin = item.createEl("button", {
+        cls: "qt-recent-pin",
+        text: row.pinned ? "Unpin" : "Pin",
+        attr: { "aria-label": `${row.pinned ? "Unpin" : "Pin"} ${row.name}` },
+      });
+      open.addEventListener("click", () => this.open(row.path));
+      pin.addEventListener("click", () => this.togglePin(row.path));
+    }
+  }
+
+  open(path) {
+    const app = this.app || {};
+    const file = app.vault && typeof app.vault.getAbstractFileByPath === "function" ? app.vault.getAbstractFileByPath(path) : null;
+    if (!file) {
+      new Notice(`Could not find ${path}.`);
+      return;
+    }
+    const leaf = app.workspace && typeof app.workspace.getLeaf === "function" ? app.workspace.getLeaf("tab") : null;
+    if (!leaf || typeof leaf.openFile !== "function") {
+      new Notice("This Obsidian build cannot open that file from the recent list.");
+      return;
+    }
+    leaf.openFile(file);
+  }
+
+  togglePin(path) {
+    const settings = this.settings();
+    const pinned = recentFiles.togglePinned(settings.pinned, path, settings.limit);
+    if (this.plugin && typeof this.plugin.updateRecentFiles === "function") {
+      this.plugin.updateRecentFiles({ pinned });
+    } else if (this.plugin && this.plugin.settings) {
+      this.plugin.settings.recentFiles = { ...settings, pinned };
+    }
+    this.render();
+  }
+}
+
+module.exports = { RecentFilesView };
+};
+
 /* ---- src/reference-data.js ---- */
 __defs["reference-data"] = function (module, exports, require) {
 /*
@@ -107779,6 +108113,726 @@ module.exports = {
   parseCircuit,
   layoutCircuit,
   renderCircuitDiagram,
+};
+};
+
+/* ---- src/study-blocks.js ---- */
+__defs["study-blocks"] = function (module, exports, require) {
+/*
+ * Four clean-room note surfaces:
+ *   desmos-graph  an embedded graph drawn by the local Reference Graph engine
+ *   mindmap       a visual Markdown/Markmind tree with collapsible branches
+ *   grill         a self-graded recall session built from one note
+ *   deadlines     upcoming assignment notes, ready to open
+ *
+ * Nothing here copies a community plugin. The graph, tree and question text
+ * come from local modules and the note itself; no network or model call is made.
+ */
+const { buildGraph } = require("./reference-graph");
+const { assignmentTasks } = require("./assignments");
+const mindmap = require("./mindmap");
+const { str } = require("./util");
+
+const DESMOS_COLORS = ["#2f6feb", "#d6336c", "#2b8a3e", "#e8590c", "#6741d9", "#0c8599", "#b8860b", "#495057"];
+const DESMOS_DEFAULTS = { xMin: -10, xMax: 10, yMin: -10, yMax: 10, width: 640, height: 360, grid: true };
+const MAX_QUESTIONS = 30;
+
+function linesOf(source) {
+  return String(source == null ? "" : source).replace(/\r\n?/g, "\n").split("\n");
+}
+
+function cleanText(value) {
+  return str(value).replace(/\s+/g, " ").trim();
+}
+
+function boundedNumber(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function boolValue(value, fallback) {
+  const raw = str(value).toLowerCase();
+  if (["true", "yes", "on", "1"].includes(raw)) return true;
+  if (["false", "no", "off", "0"].includes(raw)) return false;
+  return fallback;
+}
+
+/* --------------------------------------------------------------- Desmos block */
+
+/** Settings are `key=value` lines before an optional `---`; every other line is an expression. */
+function parseDesmosBlock(source) {
+  const settings = { ...DESMOS_DEFAULTS };
+  const rows = [];
+  let inSettings = true;
+  for (const line of linesOf(source)) {
+    const raw = line.trim();
+    if (!raw || raw.startsWith("#") || raw.startsWith("//")) continue;
+    if (raw === "---") {
+      inSettings = false;
+      continue;
+    }
+    const setting = /^(left|right|bottom|top|xmin|xmax|ymin|ymax|width|height|grid)\s*[:=]\s*(.+)$/i.exec(raw);
+    if (inSettings && setting) {
+      const key = setting[1].toLowerCase();
+      const value = setting[2].trim();
+      if (key === "left" || key === "xmin") settings.xMin = boundedNumber(value, settings.xMin);
+      else if (key === "right" || key === "xmax") settings.xMax = boundedNumber(value, settings.xMax);
+      else if (key === "bottom" || key === "ymin") settings.yMin = boundedNumber(value, settings.yMin);
+      else if (key === "top" || key === "ymax") settings.yMax = boundedNumber(value, settings.yMax);
+      else if (key === "width") settings.width = Math.max(160, Math.min(1200, Math.round(boundedNumber(value, settings.width))));
+      else if (key === "height") settings.height = Math.max(140, Math.min(900, Math.round(boundedNumber(value, settings.height))));
+      else if (key === "grid") settings.grid = boolValue(value, settings.grid);
+      continue;
+    }
+    inSettings = false;
+    rows.push(parseDesmosRow(raw));
+  }
+  if (!rows.length) throw new Error("Add at least one expression after the optional settings block.");
+  return { settings, rows };
+}
+
+/** One expression plus the small `|color:`, `|style:`, `|width:` and `|hidden` controls. */
+function parseDesmosRow(raw) {
+  const parts = String(raw).split("|");
+  const text = normalizeDesmosExpression(parts.shift());
+  const options = { color: "", dashed: false, hidden: false, width: 2 };
+  for (const part of parts) {
+    const item = part.trim();
+    const pair = /^([a-z]+)\s*[:=]\s*(.+)$/i.exec(item);
+    if (!pair) {
+      if (item === "hidden" || item === "hide") options.hidden = true;
+      if (item === "dashed" || item === "dotted") options.dashed = true;
+      continue;
+    }
+    const key = pair[1].toLowerCase();
+    const value = pair[2].trim();
+    if (key === "color") options.color = /^#?[0-9a-f]{3,8}$/i.test(value) ? (value.startsWith("#") ? value : `#${value}`) : value;
+    else if (key === "style") options.dashed = value === "dashed" || value === "dotted";
+    else if (key === "width") options.width = Math.max(1, Math.min(8, boundedNumber(value, 2)));
+    else if (key === "hidden") options.hidden = boolValue(value, true);
+  }
+  return { text, options };
+}
+
+/** Translate the common Desmos LaTeX forms into the local graph parser's syntax. */
+function normalizeDesmosExpression(value) {
+  return String(value == null ? "" : value)
+    .replace(/\\(?:left|right|,|;|!|quad|qquad)/g, " ")
+    .replace(/\\operatorname\s*\{([^{}]+)\}/g, "$1")
+    .replace(/\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}/g, "(($1)/($2))")
+    .replace(/\\sqrt\s*\{([^{}]+)\}/g, "sqrt($1)")
+    .replace(/\\pi\b/g, "pi")
+    .replace(/\\theta\b/g, "theta")
+    .replace(/\\le\b/g, "<=")
+    .replace(/\\ge\b/g, ">=")
+    .replace(/\\ne\b/g, "!=")
+    .replace(/\\(sin|cos|tan|sec|csc|cot|arcsin|arccos|arctan|sinh|cosh|tanh|log|ln|exp|max|min|abs)\b/g, "$1")
+    .replace(/\\cdot\b|\\times\b/g, "*")
+    .replace(/[{}]/g, (brace) => (brace === "{" ? "(" : ")"))
+    .replace(/\\[a-zA-Z]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Build one graph, keeping the settings and per-row controls beside the parsed rows. */
+function buildDesmosGraph(block) {
+  const input = block || { settings: DESMOS_DEFAULTS, rows: [] };
+  const settings = input.settings || DESMOS_DEFAULTS;
+  const graph = buildGraph({
+    rows: input.rows.map((row) => ({ text: row.options && row.options.hidden ? "" : row.text })),
+    xMin: settings.xMin,
+    xMax: settings.xMax,
+    yMin: settings.yMin,
+    yMax: settings.yMax,
+    samples: 420,
+    resolution: { x: 140, y: 90 },
+    regionResolution: { x: 70, y: 54 },
+  });
+  graph.rows.forEach((row, index) => {
+    const source = input.rows[index] || { options: {} };
+    row.options = source.options || {};
+    row.color = row.options.color || DESMOS_COLORS[index % DESMOS_COLORS.length];
+    row.sourceText = source.text || "";
+  });
+  return graph;
+}
+
+function svgNumber(value) {
+  return Number.isFinite(Number(value)) ? String(Math.round(Number(value) * 100) / 100) : "0";
+}
+
+function svgElement(parent, tag, attrs) {
+  let node;
+  if (typeof parent.createSvg === "function" && parent.createSvg.length > 0) node = parent.createSvg(tag);
+  else if (typeof parent.createEl === "function") node = parent.createEl(tag);
+  else if (typeof parent.ownerDocument !== "undefined" && parent.ownerDocument && parent.ownerDocument.createElementNS) {
+    node = parent.ownerDocument.createElementNS("http://www.w3.org/2000/svg", tag);
+    parent.appendChild(node);
+  } else {
+    node = parent;
+  }
+  for (const [name, value] of Object.entries(attrs || {})) {
+    if (value === undefined || value === null) continue;
+    if (typeof node.setAttribute === "function") node.setAttribute(name, String(value));
+    else if (name === "text") node.textContent = String(value);
+  }
+  return node;
+}
+
+function niceStep(range, target) {
+  const raw = Math.abs(range) / Math.max(1, target);
+  if (!(raw > 0) || !Number.isFinite(raw)) return 1;
+  const power = Math.pow(10, Math.floor(Math.log10(raw)));
+  const normal = raw / power;
+  const step = normal <= 1 ? 1 : normal <= 2 ? 2 : normal <= 5 ? 5 : 10;
+  return step * power;
+}
+
+function drawGrid(svg, graph, width, height) {
+  const px = (x) => ((x - graph.xMin) / (graph.xMax - graph.xMin)) * width;
+  const py = (y) => height - ((y - graph.yMin) / (graph.yMax - graph.yMin)) * height;
+  const stepX = niceStep(graph.xMax - graph.xMin, 8);
+  const stepY = niceStep(graph.yMax - graph.yMin, 6);
+  for (let x = Math.ceil(graph.xMin / stepX) * stepX; x <= graph.xMax; x += stepX) {
+    const sx = px(x);
+    svgElement(svg, "line", { x1: sx, y1: 0, x2: sx, y2: height, class: "qt-desmos-grid-line" });
+  }
+  for (let y = Math.ceil(graph.yMin / stepY) * stepY; y <= graph.yMax; y += stepY) {
+    const sy = py(y);
+    svgElement(svg, "line", { x1: 0, y1: sy, x2: width, y2: sy, class: "qt-desmos-grid-line" });
+  }
+  if (graph.yMin < 0 && graph.yMax > 0) svgElement(svg, "line", { x1: 0, y1: py(0), x2: width, y2: py(0), class: "qt-desmos-axis" });
+  if (graph.xMin < 0 && graph.xMax > 0) svgElement(svg, "line", { x1: px(0), y1: 0, x2: px(0), y2: height, class: "qt-desmos-axis" });
+}
+
+function pointsPath(points, px, py, width, height) {
+  let path = "";
+  let drawing = false;
+  let lastX = null;
+  let lastY = null;
+  for (const point of points || []) {
+    if (!point || point.y === null) {
+      drawing = false;
+      lastX = null;
+      lastY = null;
+      continue;
+    }
+    const x = px(point.x);
+    const y = py(point.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      drawing = false;
+      continue;
+    }
+    const jump = drawing && ((lastX !== null && Math.abs(x - lastX) > width * 0.8) || (lastY !== null && Math.abs(y - lastY) > height * 0.8));
+    path += `${drawing && !jump ? "L" : "M"}${svgNumber(x)} ${svgNumber(y)}`;
+    drawing = true;
+    lastX = x;
+    lastY = y;
+  }
+  return path;
+}
+
+function drawGraph(svg, graph, width, height) {
+  const px = (x) => ((x - graph.xMin) / (graph.xMax - graph.xMin)) * width;
+  const py = (y) => height - ((y - graph.yMin) / (graph.yMax - graph.yMin)) * height;
+  for (const row of graph.rows) {
+    if (!row.options || row.options.hidden) continue;
+    const color = row.color || DESMOS_COLORS[row.index % DESMOS_COLORS.length];
+    if (row.region) {
+      const region = row.region;
+      const cellWidth = Math.abs(px(region.x0 + region.dx) - px(region.x0)) + 0.5;
+      const cellHeight = Math.abs(py(region.y0 + region.dy) - py(region.y0)) + 0.5;
+      for (let j = 0; j < region.rows; j++) {
+        for (let i = 0; i < region.cols; i++) {
+          if (!region.cells[j * region.cols + i]) continue;
+          svgElement(svg, "rect", {
+            x: px(region.x0 + region.dx * i),
+            y: py(region.y0 + region.dy * (j + 1)),
+            width: cellWidth,
+            height: cellHeight,
+            fill: color,
+            opacity: "0.16",
+          });
+        }
+      }
+    }
+    if (row.polygon && row.polygon.length >= 3) {
+      const points = row.polygon.map((point) => `${svgNumber(px(point.x))},${svgNumber(py(point.y))}`);
+      svgElement(svg, "polygon", { points: points.join(" "), fill: color, opacity: "0.18" });
+    }
+    if (row.points && row.points.length) {
+      const path = pointsPath(row.points, px, py, width, height);
+      if (path) {
+        svgElement(svg, "path", {
+          d: path,
+          fill: "none",
+          stroke: color,
+          "stroke-width": row.options.width || 2,
+          "stroke-dasharray": row.options.dashed ? "6 4" : undefined,
+          "stroke-linecap": "round",
+          "stroke-linejoin": "round",
+        });
+      }
+    }
+    if (row.segments && row.segments.length) {
+      let path = "";
+      for (const segment of row.segments) {
+        path += `M${svgNumber(px(segment.x1))} ${svgNumber(py(segment.y1))}L${svgNumber(px(segment.x2))} ${svgNumber(py(segment.y2))}`;
+      }
+      svgElement(svg, "path", {
+        d: path,
+        fill: "none",
+        stroke: color,
+        "stroke-width": row.options.width || 2,
+        "stroke-dasharray": row.options.dashed || row.strict ? "6 4" : undefined,
+        "stroke-linecap": "round",
+      });
+    }
+    for (const marker of row.markers || []) {
+      svgElement(svg, "circle", { cx: px(marker.x), cy: py(marker.y), r: 4, fill: color });
+    }
+  }
+}
+
+function hasDrawingContent(graph) {
+  return graph.rows.some((row) => {
+    if (!row || (row.options && row.options.hidden) || row.error) return false;
+    return (
+      (row.points && row.points.some((point) => point.y !== null)) ||
+      (row.segments && row.segments.length > 0) ||
+      (row.region && row.region.cells && row.region.cells.some(Boolean)) ||
+      (row.markers && row.markers.length > 0) ||
+      (row.polygon && row.polygon.length >= 3)
+    );
+  });
+}
+
+function renderDesmosBlock(source, el) {
+  el.empty();
+  const shell = el.createDiv({ cls: "qt-desmos" });
+  let block;
+  try {
+    block = parseDesmosBlock(source);
+  } catch (error) {
+    shell.createDiv({ cls: "qt-desmos-error", text: error && error.message ? error.message : "That graph block is not valid." });
+    return { ok: false, error: block };
+  }
+  let graph;
+  try {
+    graph = buildDesmosGraph(block);
+  } catch (error) {
+    shell.createDiv({ cls: "qt-desmos-error", text: error && error.message ? error.message : "That graph could not be drawn." });
+    return { ok: false, error: graph };
+  }
+  if (!hasDrawingContent(graph)) {
+    const message = graph.rows.map((row) => row.error).filter(Boolean)[0] || "Nothing to draw. Add a complete expression, point, curve or inequality.";
+    shell.createDiv({ cls: "qt-desmos-error", text: message });
+    return { ok: false, block, graph };
+  }
+  const width = block.settings.width;
+  const height = block.settings.height;
+  const svg = svgElement(shell, "svg", {
+    viewBox: `0 0 ${width} ${height}`,
+    width: "100%",
+    height: String(height),
+    role: "img",
+    "aria-label": "Embedded graph",
+    class: "qt-desmos-svg",
+  });
+  if (block.settings.grid) drawGrid(svg, graph, width, height);
+  drawGraph(svg, graph, width, height);
+
+  const legend = shell.createDiv({ cls: "qt-desmos-legend" });
+  for (const row of graph.rows) {
+    const item = legend.createDiv({ cls: "qt-desmos-legend-row" });
+    item.createSpan({ cls: "qt-desmos-swatch", attr: { style: `background:${row.color}` } });
+    item.createSpan({ cls: "qt-desmos-expression", text: row.sourceText || row.text });
+    if (row.options && row.options.hidden) item.createSpan({ cls: "qt-desmos-note", text: "hidden" });
+    if (row.error) item.createSpan({ cls: "qt-desmos-row-error", text: row.error });
+  }
+  if (graph.dataError) shell.createDiv({ cls: "qt-desmos-error", text: graph.dataError });
+  shell.createDiv({
+    cls: "qt-desmos-note",
+    text: "Drawn locally with the Reference Graph engine. Settings: left, right, bottom, top, width, height, grid. Row controls: color, style, width, hidden.",
+  });
+  return { ok: true, block, graph };
+}
+
+/* --------------------------------------------------------------- Mind map block */
+
+function parseMindmapBlock(source) {
+  const settings = { source: "", title: "", layout: "right" };
+  const body = [];
+  let inSettings = true;
+  for (const line of linesOf(source)) {
+    const raw = line.trim();
+    if (inSettings && raw === "---") {
+      inSettings = false;
+      continue;
+    }
+    const setting = inSettings ? /^(source|note|title|layout)\s*[:=]\s*(.*)$/i.exec(raw) : null;
+    if (setting) {
+      const key = setting[1].toLowerCase();
+      if (key === "source" || key === "note") settings.source = setting[2].trim();
+      else if (key === "title") settings.title = setting[2].trim();
+      else if (key === "layout") settings.layout = setting[2].trim().toLowerCase() === "down" ? "down" : "right";
+      continue;
+    }
+    if (inSettings && !raw) continue;
+    inSettings = false;
+    body.push(line);
+  }
+  return { settings, body: body.join("\n").trim() };
+}
+
+function mindmapTree(text, options) {
+  const opts = options || {};
+  const source = String(text == null ? "" : text);
+  let root;
+  if (mindmap.isMarkmind(source)) root = mindmap.parseMarkmind(source).root;
+  else root = mindmap.mindmapFromMarkdown(source);
+  if (opts.title && root && !root.children.length) root.text = opts.title;
+  return root;
+}
+
+function renderMindmapNode(parent, node, depth) {
+  const item = parent.createEl("li", { cls: `qt-mindmap-node is-depth-${Math.min(depth, 6)}` });
+  const head = item.createDiv({ cls: "qt-mindmap-head" });
+  if (node.children && node.children.length) {
+    const toggle = head.createEl("button", {
+      cls: "qt-mindmap-toggle",
+      text: "−",
+      attr: { type: "button", "aria-label": "Collapse branch" },
+    });
+    const list = item.createEl("ul", { cls: "qt-mindmap-children" });
+    toggle.addEventListener("click", () => {
+      list.toggleClass("is-collapsed", !list.hasClass("is-collapsed"));
+      toggle.setText(list.hasClass("is-collapsed") ? "+" : "−");
+    });
+    renderMindmapNodes(list, node.children, depth + 1);
+  }
+  head.createSpan({ cls: "qt-mindmap-label", text: node.text || "Untitled" });
+  return item;
+}
+
+function renderMindmapNodes(parent, nodes, depth) {
+  for (const node of nodes || []) renderMindmapNode(parent, node, depth);
+}
+
+async function readMindmapSource(plugin, source, ctx) {
+  const target = cleanText(source);
+  if (!target) return "";
+  const app = plugin && plugin.app;
+  if (!app) throw new Error("The vault is unavailable.");
+  let file = null;
+  if (app.metadataCache && typeof app.metadataCache.getFirstLinkpathDest === "function") {
+    file = app.metadataCache.getFirstLinkpathDest(target, ctx && ctx.sourcePath ? ctx.sourcePath : "");
+  }
+  if (!file && app.vault && typeof app.vault.getAbstractFileByPath === "function") {
+    file = app.vault.getAbstractFileByPath(target.endsWith(".md") ? target : `${target}.md`);
+  }
+  if (!file) throw new Error(`Could not find ${target}. Use a vault path or a [[link]].`);
+  return app.vault.cachedRead ? app.vault.cachedRead(file) : app.vault.read(file);
+}
+
+async function renderMindmapBlock(plugin, source, el, ctx) {
+  el.empty();
+  const shell = el.createDiv({ cls: "qt-mindmap" });
+  const block = parseMindmapBlock(source);
+  let text = block.body;
+  if (block.settings.source) {
+    try {
+      text = await readMindmapSource(plugin, block.settings.source.replace(/^\[\[|\]\]$/g, ""), ctx);
+    } catch (error) {
+      shell.createDiv({ cls: "qt-mindmap-error", text: error && error.message ? error.message : "Could not read that map note." });
+      return { ok: false };
+    }
+  }
+  if (!text) {
+    shell.createDiv({ cls: "qt-mindmap-error", text: "Add Markdown headings or a list, or set Source to a Markmind or Markdown note." });
+    return { ok: false };
+  }
+  const root = mindmapTree(text, { title: block.settings.title });
+  const header = shell.createDiv({ cls: "qt-mindmap-header" });
+  header.createEl("strong", { text: root.text || block.settings.title || "Mind map" });
+  if (block.settings.source) header.createSpan({ cls: "qt-mindmap-note", text: block.settings.source });
+  const tree = shell.createEl("ul", { cls: `qt-mindmap-tree is-${block.settings.layout}` });
+  renderMindmapNode(tree, root, 0);
+  shell.createDiv({ cls: "qt-mindmap-note", text: "Visual tree from Markdown. Use the +/− buttons to fold branches; the note stays the source of truth." });
+  return { ok: true, root };
+}
+
+/* --------------------------------------------------------------- Grill block */
+
+function parseGrillBlock(source) {
+  const settings = { source: "", count: 8, title: "" };
+  const body = [];
+  let inSettings = true;
+  for (const line of linesOf(source)) {
+    const raw = line.trim();
+    if (inSettings && raw === "---") {
+      inSettings = false;
+      continue;
+    }
+    const setting = inSettings ? /^(source|note|count|title)\s*[:=]\s*(.*)$/i.exec(raw) : null;
+    if (setting) {
+      const key = setting[1].toLowerCase();
+      if (key === "source" || key === "note") settings.source = setting[2].trim();
+      else if (key === "count") settings.count = Math.max(1, Math.min(MAX_QUESTIONS, Math.round(boundedNumber(setting[2], settings.count))));
+      else if (key === "title") settings.title = setting[2].trim();
+      continue;
+    }
+    if (inSettings && !raw) continue;
+    inSettings = false;
+    body.push(line);
+  }
+  return { settings, body: body.join("\n").trim() };
+}
+
+function plainSentence(value, limit) {
+  const text = str(value)
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/[*_`>#]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (text.length <= limit) return text;
+  const cut = text.slice(0, limit);
+  const stop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+  return stop > limit * 0.5 ? cut.slice(0, stop + 1) : `${cut.trim()}…`;
+}
+
+function stripFrontmatter(text) {
+  const source = String(text == null ? "" : text).replace(/\r\n?/g, "\n");
+  return source.replace(/^---\n[\s\S]*?\n---\n?/, "");
+}
+
+/** Build deterministic questions from headings, definition lines and bold terms. */
+function grillQuestions(text, options) {
+  const opts = options || {};
+  const count = Math.max(1, Math.min(MAX_QUESTIONS, Math.round(boundedNumber(opts.count, 8))));
+  const source = stripFrontmatter(text);
+  const lines = source.split("\n");
+  const rows = [];
+  let heading = "";
+  let headingBody = [];
+  const flushHeading = () => {
+    if (!heading) return;
+    const generic = /^(notes?|summary|introduction|overview|contents|references|sources|key terms|vocabulary)$/i.test(heading);
+    const answer = plainSentence(headingBody.join(" "), 340);
+    if (!generic && answer.length >= 20) rows.push({ question: `Explain “${heading}”.`, answer, kind: "heading" });
+    heading = "";
+    headingBody = [];
+  };
+  for (const line of lines) {
+    const match = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
+    if (match) {
+      flushHeading();
+      heading = match[2].trim();
+      continue;
+    }
+    if (heading) headingBody.push(line);
+  }
+  flushHeading();
+
+  for (const line of lines) {
+    if (/^\s*(?:[-*+]|\d+[.)])\s+/.test(line) || /^#{1,6}\s/.test(line)) {
+      const definition = /^\s*(?:[-*+]|\d+[.)])?\s*(?:\*\*|__)?([^:\n*_]{2,80})(?:\*\*|__)?\s*:\s+(.{8,400})$/.exec(line);
+      if (definition) {
+        const term = cleanText(definition[1]);
+        const answer = plainSentence(definition[2], 340);
+        if (term && answer.length >= 8 && !/^https?$/i.test(term)) rows.push({ question: `Define “${term}”.`, answer, kind: "definition" });
+      }
+    }
+  }
+
+  if (rows.length < count) {
+    for (const match of source.matchAll(/\*\*([^*\n]{2,80})\*\*/g)) {
+      const term = cleanText(match[1]);
+      if (!term || /^\d+$/.test(term)) continue;
+      const start = Math.max(0, match.index - 160);
+      const context = plainSentence(source.slice(start, match.index + term.length + 280), 300);
+      if (context.length >= 20) rows.push({ question: `What is “${term}” in this note?`, answer: context, kind: "term" });
+    }
+  }
+
+  const seen = new Set();
+  const unique = [];
+  for (const row of rows) {
+    const key = `${row.question}\n${row.answer}`.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(row);
+  }
+  const shuffled = unique.slice(0, count);
+  if (!shuffled.length) {
+    const fallback = plainSentence(source, 360);
+    if (fallback.length >= 20) shuffled.push({ question: "Summarize this note.", answer: fallback, kind: "summary" });
+  }
+  return shuffled;
+}
+
+async function renderGrillBlock(plugin, source, el, ctx) {
+  el.empty();
+  const shell = el.createDiv({ cls: "qt-grill" });
+  const block = parseGrillBlock(source);
+  let text = block.body;
+  if (block.settings.source) {
+    try {
+      text = await readMindmapSource(plugin, block.settings.source.replace(/^\[\[|\]\]$/g, ""), ctx);
+    } catch (error) {
+      shell.createDiv({ cls: "qt-grill-error", text: error && error.message ? error.message : "Could not read that note." });
+      return { ok: false };
+    }
+  }
+  const questions = grillQuestions(text, { count: block.settings.count });
+  if (!questions.length) {
+    shell.createDiv({ cls: "qt-grill-error", text: "Could not find headings, definitions or bold terms to ask about. Add some structure to the note." });
+    return { ok: false };
+  }
+  const title = shell.createDiv({ cls: "qt-grill-title", text: block.settings.title || "Grill session" });
+  const progress = shell.createDiv({ cls: "qt-grill-progress" });
+  const card = shell.createDiv({ cls: "qt-grill-card" });
+  let index = 0;
+  let revealed = false;
+  let known = 0;
+  let missed = 0;
+  let answered = false;
+
+  const draw = () => {
+    card.empty();
+    if (index >= questions.length) {
+      progress.setText(`${known} knew · ${missed} to review · ${questions.length} asked`);
+      card.createDiv({ cls: "qt-grill-done", text: `Session complete — ${known} of ${questions.length} recalled.` });
+      card.createDiv({ cls: "qt-grill-note", text: "Nothing was written or sent. Run the block again for a fresh self-graded session." });
+      card.createEl("button", { cls: "mod-cta", text: "Start again" }).addEventListener("click", () => {
+        index = 0;
+        known = 0;
+        missed = 0;
+        revealed = false;
+        answered = false;
+        draw();
+      });
+      return;
+    }
+    const q = questions[index];
+    progress.setText(`Question ${index + 1} of ${questions.length}`);
+    card.createDiv({ cls: "qt-grill-question", text: q.question });
+    card.createDiv({ cls: "qt-grill-kind", text: q.kind === "definition" ? "Definition" : q.kind === "heading" ? "Explain" : q.kind === "term" ? "Key term" : "Recall" });
+    if (!revealed) {
+      card.createEl("button", { cls: "mod-cta qt-grill-reveal", text: "Show answer" }).addEventListener("click", () => {
+        revealed = true;
+        draw();
+      });
+      return;
+    }
+    card.createDiv({ cls: "qt-grill-answer", text: q.answer });
+    if (answered) {
+      card.createEl("button", { cls: "mod-cta", text: "Next question" }).addEventListener("click", () => {
+        index++;
+        revealed = false;
+        answered = false;
+        draw();
+      });
+      return;
+    }
+    const actions = card.createDiv({ cls: "qt-grill-actions" });
+    actions.createEl("button", { cls: "mod-cta", text: "I knew it" }).addEventListener("click", () => {
+      known++;
+      answered = true;
+      draw();
+    });
+    actions.createEl("button", { text: "Review again" }).addEventListener("click", () => {
+      missed++;
+      answered = true;
+      draw();
+    });
+  };
+  draw();
+  return { ok: true, questions };
+}
+
+/* --------------------------------------------------------------- Deadlines block */
+
+function parseDeadlineBlock(source) {
+  const settings = { days: 14, course: "", limit: 12 };
+  for (const line of linesOf(source)) {
+    const raw = line.trim();
+    if (!raw || raw === "---") continue;
+    const match = /^(days|course|limit)\s*[:=]\s*(.+)$/i.exec(raw);
+    if (!match) continue;
+    const key = match[1].toLowerCase();
+    if (key === "days") settings.days = Math.max(0, Math.min(365, Math.round(boundedNumber(match[2], settings.days))));
+    else if (key === "limit") settings.limit = Math.max(1, Math.min(50, Math.round(boundedNumber(match[2], settings.limit))));
+    else if (key === "course") settings.course = match[2].trim();
+  }
+  return settings;
+}
+
+function deadlineRows(assignments, options, today) {
+  const opts = options || {};
+  const rows = assignmentTasks(assignments || [], { today, days: opts.days === undefined ? 14 : opts.days });
+  const course = cleanText(opts.course).toLowerCase();
+  return rows
+    .filter((row) => !course || cleanText(row.assignment.course).toLowerCase() === course || cleanText(row.assignment.courseName).toLowerCase() === course)
+    .slice(0, opts.limit === undefined ? 12 : opts.limit)
+    .map((row) => ({
+      id: row.assignment.id,
+      title: row.assignment.title,
+      course: row.assignment.course || row.assignment.courseName || "",
+      due: row.assignment.due,
+      label: row.state.label,
+      state: row.state.id,
+      file: row.assignment.file,
+    }));
+}
+
+function renderDeadlinesBlock(plugin, source, el, today) {
+  el.empty();
+  const settings = parseDeadlineBlock(source);
+  const shell = el.createDiv({ cls: "qt-deadlines" });
+  const assignments = plugin && typeof plugin.getAssignments === "function" ? plugin.getAssignments() : [];
+  const rows = deadlineRows(assignments, settings, today);
+  const head = shell.createDiv({ cls: "qt-deadlines-head" });
+  head.createEl("strong", { text: "Upcoming deadlines" });
+  head.createSpan({ cls: "qt-deadlines-note", text: `next ${settings.days} day${settings.days === 1 ? "" : "s"}` });
+  if (!rows.length) {
+    shell.createDiv({ cls: "qt-deadlines-empty", text: "No open assignments with a due date in this window. Add an assignment note with `assignment: true` and a due date." });
+    return { ok: true, rows: [] };
+  }
+  const list = shell.createDiv({ cls: "qt-deadlines-list" });
+  for (const row of rows) {
+    const item = list.createDiv({ cls: `qt-deadlines-row is-${row.state}` });
+    const main = item.createEl("button", { cls: "qt-deadlines-main", text: row.title });
+    main.addEventListener("click", () => {
+      const file = row.file;
+      if (!file) return;
+      const leaf = plugin.app.workspace.getLeaf("tab");
+      if (leaf && leaf.openFile) leaf.openFile(file);
+    });
+    const meta = item.createDiv({ cls: "qt-deadlines-meta" });
+    if (row.course) meta.createSpan({ cls: "qt-deadlines-course", text: row.course });
+    meta.createSpan({ cls: "qt-deadlines-due", text: `${row.due} · ${row.label}` });
+  }
+  return { ok: true, rows };
+}
+
+module.exports = {
+  DESMOS_DEFAULTS,
+  parseDesmosBlock,
+  normalizeDesmosExpression,
+  buildDesmosGraph,
+  renderDesmosBlock,
+  parseMindmapBlock,
+  mindmapTree,
+  renderMindmapBlock,
+  parseGrillBlock,
+  grillQuestions,
+  renderGrillBlock,
+  parseDeadlineBlock,
+  deadlineRows,
+  renderDeadlinesBlock,
 };
 };
 
@@ -129021,6 +130075,9 @@ module.exports = QuestionTrackerPlugin;
 QuestionTrackerPlugin.__test = {
   makeKeyboardClickable,
   graphExport: require("./graph-export"),
+  studyBlocks: require("./study-blocks"),
+  recentFiles: require("./recent-files"),
+  recentFilesView: require("./recent-files-view"),
   graphExamples: require("./graph-examples"),
   statistics: require("./statistics"),
   calculus: require("./calculus"),

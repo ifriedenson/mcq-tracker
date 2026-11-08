@@ -272,6 +272,9 @@ module.exports = QuestionTrackerPlugin;
 QuestionTrackerPlugin.__test = {
   makeKeyboardClickable,
   graphExport: require("./graph-export"),
+  studyBlocks: require("./study-blocks"),
+  recentFiles: require("./recent-files"),
+  recentFilesView: require("./recent-files-view"),
   graphExamples: require("./graph-examples"),
   statistics: require("./statistics"),
   calculus: require("./calculus"),

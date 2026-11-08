@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 428 groups, 2983 exports. **Commands:** 227. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 431 groups, 3005 exports. **Commands:** 228. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -28,7 +28,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `CardView` | 0 | `tests/card-cram.test.js`, `tests/card-learning.test.js`, `tests/card-mother-cram.test.js`, `tests/card-reveal.test.js`, `tests/card-speech.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/interval-preview.test.js`, `tests/mobile-module-layout.test.js`, `tests/source-recall.test.js`, `tests/study-status.test.js` |
 | `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/chat-branches.test.js`, `tests/chat-panel-copilot.test.js`, `tests/chat-panel-mentions.test.js`, `tests/diagnostics-gauge.test.js`, `tests/memory-export.test.js`, `tests/note-context.test.js`, `tests/quick-ask.test.js`, `tests/security-hardening.test.js`, `tests/skills-pricing.test.js`, `tests/think-first.test.js` |
 | `CourseOverviewModal` | 0 | `tests/core-values.test.js` |
-| `DEFAULT_SETTINGS` | 115 | `tests/grading.test.js` |
+| `DEFAULT_SETTINGS` | 116 | `tests/grading.test.js` |
 | `DocumentReviewModal` | 0 | `tests/feature-surfaces.test.js` |
 | `DueQueueModal` | 0 | `tests/feature-surfaces.test.js` |
 | `EpubReaderModal` | 0 | `tests/epub.test.js` |
@@ -348,6 +348,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `reading` | 14 | `tests/core-values.test.js`, `tests/reading-companion.test.js`, `tests/reading-library.test.js`, `tests/reading-plan.test.js` |
 | `readingCompanion` | 9 | `tests/reading-companion.test.js` |
 | `readingLibrary` | 16 | `tests/reading-library.test.js` |
+| `recentFiles` | 6 | `tests/recent-files.test.js` |
+| `recentFilesView` | 1 | `tests/recent-files.test.js` |
 | `referenceData` | 13 | `tests/graph-3d.test.js`, `tests/reference-advanced.test.js`, `tests/reference.test.js` |
 | `referenceElements` | 5 | `tests/reference-tools.test.js` |
 | `referenceGraph` | 41 | `tests/reference-tools.test.js` |
@@ -390,6 +392,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `statVals` | 0 | `tests/uncited-groups.test.js` |
 | `statistics` | 8 | `tests/reference-tools.test.js` |
 | `stemDiagrams` | 6 | `tests/security-inventory.test.js`, `tests/stem-diagrams.test.js` |
+| `studyBlocks` | 14 | `tests/study-blocks.test.js` |
 | `studyBundle` | 7 | `tests/study-bundle-import.test.js`, `tests/study-bundle.test.js` |
 | `studyBundleImport` | 4 | `tests/study-bundle-import.test.js` |
 | `studyCommands` | 12 | `tests/quick-ask.test.js` |
@@ -539,6 +542,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `time-blocks-import-projects` | Time blocks: import project and domain files | `importTimeBlockProjectFiles` | `tests/time-blocks-parity.test.js` |
 | `time-blocks-import-kairos` | Time blocks: import Kairos settings | `importKairosSettings` | `tests/time-blocks-parity.test.js` |
 | `open-web-browser` | Web browser: open | `openWebBrowser` | `tests/plugin.test.js`, `tests/web-browser-view.test.js`, `tests/web-browser.test.js` |
+| `open-recent-files` | Recent files: open | `openRecentFiles` | `tests/recent-files.test.js` |
 | `canvas-to-outline` | Canvas: export the active canvas to a Markdown outline | `exportCanvasToMarkdown` | `tests/canvas-markdown.test.js` |
 | `canvas-from-outline` | Canvas: build a board from the active note outline | `boardFromActiveNote` | `tests/canvas-markdown.test.js` |
 | `canvas-walk-parent` | Canvas: mind map, go to the parent card | `walkCanvas` | `tests/canvas-map.test.js` |
@@ -624,7 +628,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `spaced-everything-log` | Spaced Everything: log review outcome for this note | `moduleOff` | `tests/frq-review.test.js`, `tests/spaced-everything.test.js`, `tests/views.test.js` |
 | `spaced-everything-capture` | Spaced Everything: capture thought | `moduleOff` | `tests/frq-review.test.js`, `tests/spaced-everything.test.js`, `tests/views.test.js` |
 | `simple-note-quiz` | Simple note quiz: start on this note | `moduleOff` | `tests/frq-review.test.js`, `tests/simple-note-quiz.test.js`, `tests/views.test.js` |
-| `generate-quiz` | Generate quiz questions from notes | `openQuizGenerator` | `tests/quiz-generator.test.js` |
+| `generate-quiz` | Generate quiz questions from notes | `openQuizGenerator` | `tests/quiz-generator-cost.test.js`, `tests/quiz-generator.test.js` |
 | `cards-export-archive` | Cards: export a portable archive | `exportCardArchive` | `tests/card-archive.test.js` |
 | `cards-import-archive` | Cards: import a portable archive | `openCardArchiveImport` | `tests/command-effects.test.js` |
 | `study-nudge-show` | Show today's study nudge | `maybeShowStudyNudge` | `tests/study-nudge.test.js` |
