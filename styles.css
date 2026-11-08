@@ -6108,6 +6108,109 @@ body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tra
   min-height: 2.25rem;
 }
 
+.qt-welcome-kicker {
+  color: var(--text-faint);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.qt-welcome-setup {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 16px;
+}
+
+.qt-welcome-setup-step {
+  align-items: start;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 10px 12px;
+}
+
+.qt-welcome-number {
+  align-items: center;
+  background: var(--interactive-accent);
+  border-radius: 999px;
+  color: var(--text-on-accent);
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 700;
+  height: 1.45rem;
+  justify-content: center;
+  width: 1.45rem;
+}
+
+.qt-welcome-setup-copy {
+  min-width: 0;
+}
+
+.qt-welcome-example {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  margin: 16px 0;
+  padding: 14px;
+}
+
+.qt-welcome-example h3 {
+  margin: 0 0 8px;
+}
+
+.qt-welcome-example-question {
+  line-height: 1.45;
+  margin: 0 0 8px;
+}
+
+.qt-welcome-example-choices {
+  color: var(--text-muted);
+  line-height: 1.45;
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.qt-welcome-hint {
+  color: var(--text-faint);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  margin: 8px 0 0;
+}
+
+.qt-welcome-ai {
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: 16px;
+  padding-top: 12px;
+}
+
+.qt-welcome-ai h3 {
+  margin-top: 0;
+}
+
+.qt-welcome-ai-status {
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+  margin: 8px 0;
+  min-height: 1.3em;
+}
+
+.qt-welcome-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.qt-welcome-links button {
+  min-height: 2.25rem;
+}
+
 .qt-welcome-presets {
   display: grid;
   gap: 8px;
@@ -6186,6 +6289,14 @@ body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tra
   }
 
   .qt-welcome-actions button {
+    width: 100%;
+  }
+
+  .qt-welcome-links {
+    flex-direction: column;
+  }
+
+  .qt-welcome-links button {
     width: 100%;
   }
 }

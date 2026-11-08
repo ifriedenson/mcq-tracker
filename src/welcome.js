@@ -57,6 +57,27 @@ const WELCOME_PRESETS = [
   },
 ];
 
+const WELCOME_SETUP_STEPS = [
+  { id: "example", title: "Try a ready-made question", body: "Use the example below. It adds one ordinary note to Questions and opens it in Practice." },
+  { id: "answer", title: "Answer and check", body: "Choose an answer, submit, and read the explanation. The result is saved to that note." },
+  { id: "review", title: "Let the review come back", body: "MCQ Tracker schedules the next review. Today shows what is due." },
+];
+
+const WELCOME_EXAMPLE = {
+  question: "A plant cell is sealed in a clear container with a carbon dioxide sensor and left in bright light. What happens to the carbon dioxide level?",
+  choices: [
+    "It rises because the cell respires.",
+    "It falls because photosynthesis uses carbon dioxide.",
+    "It stays the same because the cell only respires.",
+    "It rises, then stops changing because photosynthesis stops.",
+  ],
+  answer: "B",
+  explanation: "Photosynthesis uses carbon dioxide faster than respiration releases it, so the level falls. In darkness, respiration would make it rise.",
+  course: "Getting started",
+  skill: "Photosynthesis",
+  difficulty: "easy",
+};
+
 const WELCOME_STEPS = [
   { id: "import", title: "Get questions in", body: "Import a PDF, PowerPoint, Word file or other document, or make a question note.", button: "Import questions", action: "import" },
   { id: "practice", title: "Practice", body: "Open the practice view, choose filters, or start a short Quick Practice session.", button: "Open practice", action: "practice" },
@@ -123,6 +144,8 @@ function moduleSummary(modules) {
 module.exports = {
   WELCOME_MODULE_INFO,
   WELCOME_PRESETS,
+  WELCOME_SETUP_STEPS,
+  WELCOME_EXAMPLE,
   WELCOME_STEPS,
   WELCOME_STORAGE_KEY,
   emptyWelcomeState,

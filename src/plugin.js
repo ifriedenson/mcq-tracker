@@ -164,7 +164,7 @@ const { annotationLink, annotationSummary, annotationsMarkdown, normalizeTags, p
 const { WelcomeModal } = require("./welcome-modal");
 const { FocusLogModal } = require("./focus-modal");
 const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normalizeStudyLog, pauseFocus, resumeFocus, startFocus, studySummary } = require("./focus");
-const { WELCOME_PRESETS, welcomeShouldShow } = require("./welcome");
+const { WELCOME_EXAMPLE, WELCOME_PRESETS, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, applySkip, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setAttemptError, setLastErrorType } = require("./notes");
 const { parseChoiceSet } = require("./answer-types");
 const { addVerificationBanner, buildBlindVerificationPrompt, normalizeVerificationMode, parseBlindVerification, parseBlindVerificationNumber, parseBlindVerificationSet, verificationFields } = require("./answer-verification");
@@ -2092,6 +2092,69 @@ class QuestionTrackerPlugin extends Plugin {
 
   openWelcome() {
     new WelcomeModal(this.app, this).open();
+  }
+
+  /** Write the welcome example as a normal question note, then open it in Practice. */
+  async openWelcomeExample() {
+    const path = await this.createWelcomeExample();
+    for (let i = 0; i < 20; i++) {
+      if (this.getQuestions().some((q) => q.file.path === path)) break;
+      await new Promise((resolve) => activeWindow.setTimeout(resolve, 150));
+    }
+    await this.practiceWith({}, "unseen", { practicePath: path });
+    return path;
+  }
+
+  /** The example is an ordinary question note, so it uses the same Quick add format as every other note. */
+  async createWelcomeExample() {
+    if (this.moduleOff("mcq")) {
+      this.settings.mcqEnabled = true;
+      await this.save();
+      await this.onMcqToggled();
+    }
+    const folder = "Questions";
+    if (!this.app.vault.getAbstractFileByPath(folder)) await this.app.vault.createFolder(folder);
+    const base = `${folder}/Getting started example`;
+    const exists = (candidate) => !!this.app.vault.getAbstractFileByPath(candidate);
+    let path = `${base}.md`;
+    for (let n = 2; exists(path) && n < 100; n++) path = `${base} ${n}.md`;
+    if (exists(path)) throw new Error("Could not find a free filename for the example question.");
+    const qid = path.replace(/^.*\//, "").replace(/\.md$/i, "");
+    await this.app.vault.create(path, quickAddNote(WELCOME_EXAMPLE, qid));
+    return path;
+  }
+
+  /**
+   * One-click desktop OpenCode setup from the welcome screen. The button copy
+   * explains the download and checksum first, so this skips the second confirm
+   * modal that the settings page uses. No settings change survives a failure.
+   */
+  async installOpenCodeFromWelcome(progress) {
+    if (!Platform.isDesktopApp) {
+      throw new Error("OpenCode auto-install is available on desktop only. On mobile, add a Direct API provider key in Settings.");
+    }
+    const manager = this.manager;
+    if (!manager) throw new Error("The OpenCode installer is not available.");
+    const ai = this.settings.ai;
+    const found = await manager.findBinary();
+    if (found) {
+      manager.foundPath = found;
+      ai.enabled = true;
+      ai.backend = "opencode";
+      ai.managed = true;
+      ai.autoDeclined = false;
+      await this.save();
+      this.refreshViews();
+      return { already: true, path: found, version: ai.installedVersion || "" };
+    }
+    const result = await manager.install(progress, () => true);
+    ai.enabled = true;
+    ai.backend = "opencode";
+    ai.managed = true;
+    ai.autoDeclined = false;
+    await this.save();
+    this.refreshViews();
+    return result;
   }
 
   welcomeModuleOn(id) {

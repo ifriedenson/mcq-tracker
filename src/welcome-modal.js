@@ -1,11 +1,13 @@
 "use strict";
-const { Modal, Setting } = require("obsidian");
+const { Modal, Notice, Platform, Setting } = require("obsidian");
 const { QUICK_START_URL } = require("./empty-state");
 const { openExternal } = require("./settings-ui");
 const { supportLinks } = require("./support");
 const {
+  WELCOME_EXAMPLE,
   WELCOME_MODULE_INFO,
   WELCOME_PRESETS,
+  WELCOME_SETUP_STEPS,
   WELCOME_STEPS,
   loadWelcomeState,
   markWelcomeSeen,
@@ -39,55 +41,167 @@ class WelcomeModal extends Modal {
     const el = this.contentEl;
     el.empty();
     const card = el.createDiv({ cls: "qt-welcome" });
-    card.createDiv({ cls: "qt-welcome-progress", text: `Step ${this.step + 1} of 3` });
-    if (this.step === 0) this.renderWelcome(card);
-    else if (this.step === 1) this.renderModules(card);
+    if (this.step === 0) {
+      this.renderQuickStart(card);
+      return;
+    }
+    card.createDiv({ cls: "qt-welcome-progress", text: this.step === 1 ? "Optional setup" : "More workflows" });
+    if (this.step === 1) this.renderModules(card);
     else this.renderGuide(card);
   }
 
-  renderWelcome(card) {
+  renderQuickStart(card) {
+    card.createDiv({ cls: "qt-welcome-kicker", text: "Start here" });
     card.createEl("h2", { text: "Welcome to MCQ Tracker" });
     card.createEl("p", {
       cls: "qt-welcome-lead",
-      text: "Practice like the exam, review with spaced repetition, and optionally manage flashcards, a course calendar and local reference tools.",
+      text: "Turn a question note into practice, and let the plugin schedule the next review. No setup is needed to try it.",
     });
-    const list = card.createEl("ul", { cls: "qt-welcome-list" });
-    for (const item of [
-      ["Practice questions", "Multiple choice, student-produced responses and timed tests."],
-      ["Flashcards and vocabulary", "Decks, cloze and image occlusion, using the same review schedule."],
-      ["Calendar and exams", "Classes, countdowns and study sessions from free periods."],
-    ]) {
-      const li = list.createEl("li");
-      li.createEl("strong", { text: item[0] + ". " });
-      li.createSpan({ text: item[1] });
+
+    const setup = card.createDiv({ cls: "qt-welcome-setup" });
+    WELCOME_SETUP_STEPS.forEach((step, index) => {
+      const item = setup.createDiv({ cls: "qt-welcome-setup-step" });
+      item.createSpan({ cls: "qt-welcome-number", text: String(index + 1) });
+      const copy = item.createDiv({ cls: "qt-welcome-setup-copy" });
+      copy.createEl("strong", { text: step.title });
+      copy.createDiv({ cls: "qt-welcome-step-body", text: step.body });
+    });
+
+    const example = card.createDiv({ cls: "qt-welcome-example" });
+    example.createEl("h3", { text: "Example question" });
+    example.createEl("p", { cls: "qt-welcome-example-question", text: WELCOME_EXAMPLE.question });
+    const choices = example.createEl("ul", { cls: "qt-welcome-example-choices" });
+    WELCOME_EXAMPLE.choices.forEach((choice, index) => choices.createEl("li", { text: `${"ABCD"[index]}. ${choice}` }));
+    const exampleActions = example.createDiv({ cls: "qt-welcome-actions" });
+    const exampleButton = exampleActions.createEl("button", {
+      text: "Try the example question",
+      cls: "mod-cta qt-primary",
+    });
+    exampleButton.addEventListener("click", async () => {
+      exampleButton.disabled = true;
+      exampleButton.setText("Adding...");
+      this.finish();
+      try {
+        await this.plugin.openWelcomeExample();
+      } catch (e) {
+        new Notice(String((e && e.message) || e) || "Could not create the example question.", 10000);
+      }
+    });
+    example.createDiv({
+      cls: "qt-welcome-hint",
+      text: "Adds one ordinary note to Questions and opens it in Practice. You can edit or delete it like any other note.",
+    });
+
+    this.renderAi(card);
+
+    const actions = card.createDiv({ cls: "qt-welcome-actions" });
+    actions.createEl("button", { text: "Open practice" }).addEventListener("click", () => {
+      this.finish();
+      this.plugin.activateView();
+    });
+    actions.createEl("button", { text: "Skip for now" }).addEventListener("click", () => this.finish());
+    const links = card.createDiv({ cls: "qt-welcome-links" });
+    links
+      .createEl("button", { text: "Choose modules", cls: "qt-link" })
+      .addEventListener("click", () => {
+        this.step = 1;
+        this.render();
+      });
+    links
+      .createEl("button", { text: "More workflows", cls: "qt-link" })
+      .addEventListener("click", () => {
+        this.step = 2;
+        this.render();
+      });
+
+    this.renderSupport(card);
+  }
+
+  renderAi(card) {
+    const section = card.createDiv({ cls: "qt-welcome-ai" });
+    section.createEl("h3", { text: "Optional: AI study agent" });
+    const status = section.createDiv({ cls: "qt-welcome-ai-status" });
+    status.setAttr("aria-live", "polite");
+
+    if (!Platform.isDesktopApp) {
+      status.setText("OpenCode is desktop-only. On mobile, add a Direct API provider key in Settings.");
+      return;
     }
-    const row = card.createDiv({ cls: "qt-welcome-actions" });
-    row.createEl("button", { text: "Get started", cls: "mod-cta qt-primary" }).addEventListener("click", () => {
-      this.step = 1;
-      this.render();
+
+    const ai = this.plugin.settings.ai || {};
+    const installed = !!(ai.managedBinary || ai.binaryPath || (this.plugin.manager && this.plugin.manager.foundPath));
+    if (installed) {
+      status.setText(
+        `OpenCode is installed${ai.installedVersion ? ` (v${ai.installedVersion})` : ""}. Add a provider key in Settings, MCQ Tracker, AI to chat.`
+      );
+      this.renderAiSettingsLink(section);
+      return;
+    }
+
+    section.createEl("p", {
+      cls: "qt-welcome-hint",
+      text: "Install OpenCode here if you want the desktop AI agent. The installer downloads the supported 1.x build from GitHub, checks its SHA-256, and keeps it outside your vault.",
     });
-    row.createEl("button", { text: "Skip for now" }).addEventListener("click", () => this.finish());
-    card
+    const actions = section.createDiv({ cls: "qt-welcome-actions" });
+    const install = actions.createEl("button", { text: "Install OpenCode", cls: "mod-cta" });
+    install.addEventListener("click", async () => {
+      install.disabled = true;
+      install.setText("Installing...");
+      status.setText("Preparing the OpenCode download...");
+      try {
+        const result = await this.plugin.installOpenCodeFromWelcome((message) => status.setText(message));
+        const version = result && result.version ? ` v${result.version}` : "";
+        status.setText(
+          result && result.already
+            ? "OpenCode is already installed. Add a provider key in Settings, MCQ Tracker, AI to chat."
+            : `OpenCode${version} installed. Add a provider key in Settings, MCQ Tracker, AI to chat.`
+        );
+        install.setText("Installed");
+      } catch (e) {
+        status.setText(`OpenCode install failed: ${String((e && e.message) || e)}`);
+        install.disabled = false;
+        install.setText("Try again");
+      }
+    });
+    actions
+      .createEl("button", { text: "Use Direct API", cls: "qt-link" })
+      .addEventListener("click", () => this.plugin.openSettings());
+  }
+
+  renderAiSettingsLink(section) {
+    const actions = section.createDiv({ cls: "qt-welcome-actions" });
+    actions
+      .createEl("button", { text: "Open settings" })
+      .addEventListener("click", () => this.plugin.openSettings());
+    actions
+      .createEl("button", { text: "Use Direct API", cls: "qt-link" })
+      .addEventListener("click", () => this.plugin.openSettings());
+  }
+
+  renderSupport(card) {
+    const links = supportLinks(this.plugin.settings.support);
+    const support = card.createDiv({ cls: "qt-welcome-support" });
+    support.createSpan({ cls: "qt-welcome-support-label", text: "Help and feedback" });
+    if (links.feedback) {
+      support
+        .createEl("button", { text: "Send feedback", cls: "qt-link" })
+        .addEventListener("click", () => openExternal(links.feedback));
+    }
+    if (links.donation) {
+      support
+        .createEl("button", { text: "Support the plugin", cls: "qt-link" })
+        .addEventListener("click", () => openExternal(links.donation));
+    }
+    support
       .createEl("button", { text: "Read the quick start guide", cls: "qt-link" })
       .addEventListener("click", () => openExternal(QUICK_START_URL));
-    const links = supportLinks(this.plugin.settings.support);
-    if (links.feedback || links.donation) {
-      const support = card.createDiv({ cls: "qt-welcome-support" });
-      support.createSpan({ cls: "qt-welcome-support-label", text: "Optional:" });
-      if (links.feedback) {
-        support.createEl("button", { text: "Send feedback", cls: "qt-link" }).addEventListener("click", () => openExternal(links.feedback));
-      }
-      if (links.donation) {
-        support.createEl("button", { text: "Support the plugin", cls: "qt-link" }).addEventListener("click", () => openExternal(links.donation));
-      }
-    }
   }
 
   renderModules(card) {
-    card.createEl("h2", { text: "Choose what you need" });
+    card.createEl("h2", { text: "Choose modules" });
     card.createEl("p", {
       cls: "qt-welcome-lead",
-      text: "Pick a starting point, then adjust any switch. Turning a module off hides its views and buttons, but never deletes notes, cards, schedules or settings.",
+      text: "This is optional. MCQ Tracker is on by default. Pick a starting point, then adjust any switch. Turning a module off hides its views and buttons, but never deletes notes, cards, schedules or settings.",
     });
     const presets = card.createDiv({ cls: "qt-welcome-presets" });
     for (const preset of WELCOME_PRESETS) {
@@ -126,8 +240,8 @@ class WelcomeModal extends Modal {
   }
 
   renderGuide(card) {
-    card.createEl("h2", { text: "How to use it" });
-    card.createEl("p", { cls: "qt-welcome-lead", text: "These are the main workflows. You can reopen this guide from the command palette or Settings, Global, About." });
+    card.createEl("h2", { text: "More workflows" });
+    card.createEl("p", { cls: "qt-welcome-lead", text: "These workflows are optional. You can reopen this guide from the command palette or Settings, Global, About." });
     const list = card.createDiv({ cls: "qt-welcome-steps" });
     for (const step of WELCOME_STEPS) {
       const item = list.createDiv({ cls: "qt-welcome-step" });
@@ -151,7 +265,10 @@ class WelcomeModal extends Modal {
       this.finish();
       this.plugin.activateView();
     });
-    row.createEl("button", { text: "Reopen this guide later", cls: "qt-link" }).addEventListener("click", () => this.finish());
+    row.createEl("button", { text: "Back to quick start", cls: "qt-link" }).addEventListener("click", () => {
+      this.step = 0;
+      this.render();
+    });
   }
 
   runAction(action) {

@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 431 groups, 3008 exports. **Commands:** 228. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 431 groups, 3010 exports. **Commands:** 228. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -81,7 +81,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `TodayView` | 0 | `tests/ap-exam-resources.test.js`, `tests/core-values.test.js`, `tests/daily-quiz-freeze.test.js`, `tests/daily-quiz.test.js`, `tests/focus.test.js`, `tests/frq-review.test.js`, `tests/reading-plan.test.js`, `tests/study-plan.test.js`, `tests/study-tools.test.js`, `tests/today-dom.test.js`, `tests/today.test.js` |
 | `TranscriptPracticeModal` | 0 | `tests/feature-surfaces.test.js` |
 | `WeakSpotModal` | 0 | `tests/feature-surfaces.test.js` |
-| `WelcomeModal` | 0 | `tests/feature-surfaces.test.js` |
+| `WelcomeModal` | 0 | `tests/feature-surfaces.test.js`, `tests/welcome.test.js` |
 | `activityLevel` | 0 | `tests/analytics.test.js` |
 | `adaptiveSession` | 5 | `tests/adaptive-session.test.js` |
 | `adaptiveTargetRank` | 0 | `tests/filters.test.js` |
@@ -438,7 +438,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `weekStart` | 0 | `tests/stats.test.js` |
 | `weeklyAccuracy` | 0 | `tests/stats.test.js` |
 | `weightOf` | 0 | `tests/uncited-groups.test.js` |
-| `welcome` | 12 | `tests/welcome.test.js` |
+| `welcome` | 14 | `tests/welcome.test.js` |
 | `wordnet` | 18 | `tests/wordnet.test.js` |
 | `writingSessions` | 11 | `tests/writing-sessions.test.js` |
 | `zipWrite` | 2 | `tests/epub.test.js`, `tests/study-bundle-import.test.js` |
