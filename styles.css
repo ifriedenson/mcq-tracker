@@ -9392,10 +9392,6 @@ body.is-mobile .qt-settings-modules {
   display: none;
 }
 
-body.is-mobile .qt-settings-module-picker {
-  display: block;
-}
-
 .qt-settings-modules {
   display: none;
 }
@@ -9404,33 +9400,33 @@ body.is-mobile .qt-settings-module-picker {
   display: block;
 }
 
-body.is-mobile .qt-settings-tabs {
+.qt-settings-layout.is-phone .qt-settings-tabs {
   flex-wrap: wrap;
   overflow-x: visible;
 }
 
-body.is-mobile .qt-settings-body .setting-item-control {
+.qt-settings-layout.is-phone .qt-settings-body .setting-item-control {
   flex-wrap: wrap;
   max-width: 100%;
   min-width: 48px;
 }
 
-body.is-mobile .qt-settings-body .setting-item-control .checkbox-container {
+.qt-settings-layout.is-phone .qt-settings-body .setting-item-control .checkbox-container {
   flex: 0 0 auto;
   min-width: 40px;
 }
 
-body.is-mobile .qt-settings-body .setting-item-control > * {
+.qt-settings-layout.is-phone .qt-settings-body .setting-item-control > * {
   max-width: 100%;
   min-width: 0;
 }
 
-body.is-mobile .qt-settings-body .setting-item-control > button {
+.qt-settings-layout.is-phone .qt-settings-body .setting-item-control > button {
   height: auto;
   white-space: normal;
 }
 
-body.is-mobile .qt-settings-body {
+.qt-settings-layout.is-phone .qt-settings-body {
   max-width: none;
 }
 
@@ -15683,16 +15679,16 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   }
 }
 
-body.is-mobile .qt-settings-grid {
+.qt-settings-layout.is-phone .qt-settings-grid {
   grid-template-columns: minmax(0, 1fr);
   gap: 0;
 }
 
-body.is-mobile .qt-settings-pages {
+.qt-settings-layout.is-phone .qt-settings-pages {
   display: none;
 }
 
-body.is-mobile .qt-settings-layout > .qt-settings-module-picker {
+.qt-settings-layout.is-phone > .qt-settings-module-picker {
   display: block;
 }
 

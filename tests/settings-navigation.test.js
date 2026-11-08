@@ -266,6 +266,57 @@ test("pdf plus settings: Customize links open the integrated MCQ page", async ()
   assert.deepEqual(calls, ["open", "mcq-tracker", "page:pdf-plus"]);
 });
 
+test("settings navigation: phones get the compact picker and tablets keep the desktop list", async () => {
+  const original = { ...obsidian.Platform };
+  try {
+    obsidian.Platform.isMobile = true;
+    obsidian.Platform.isTablet = true;
+    obsidian.Platform.isPhone = false;
+    const tablet = openTab(await setup());
+    let nodes = current(tablet.dom);
+    assert.equal(
+      byClass(nodes, "qt-settings-layout")[0].classes.has("is-phone"),
+      false,
+      "an iPad keeps the desktop page list"
+    );
+    assert.equal(byClass(nodes, "qt-settings-page").length, 2, "the tablet still renders the page list");
+
+    obsidian.Platform.isTablet = false;
+    obsidian.Platform.isPhone = true;
+    const phone = openTab(await setup());
+    nodes = current(phone.dom);
+    assert.equal(
+      byClass(nodes, "qt-settings-layout")[0].classes.has("is-phone"),
+      true,
+      "a phone keeps the compact settings layout"
+    );
+
+    delete obsidian.Platform.isPhone;
+    delete obsidian.Platform.isTablet;
+    const legacyPhone = openTab(await setup());
+    nodes = current(legacyPhone.dom);
+    assert.equal(
+      byClass(nodes, "qt-settings-layout")[0].classes.has("is-phone"),
+      true,
+      "an older API without isPhone keeps the phone layout"
+    );
+
+    obsidian.Platform.isTablet = true;
+    const legacyTablet = openTab(await setup());
+    nodes = current(legacyTablet.dom);
+    assert.equal(
+      byClass(nodes, "qt-settings-layout")[0].classes.has("is-phone"),
+      false,
+      "an older tablet flag avoids the phone layout"
+    );
+  } finally {
+    obsidian.Platform.isMobile = original.isMobile;
+    obsidian.Platform.isDesktopApp = original.isDesktopApp;
+    delete obsidian.Platform.isPhone;
+    delete obsidian.Platform.isTablet;
+  }
+});
+
 test("settings navigation CSS: two columns on wide panes, the grouped picker on narrow ones", () => {
   assert.match(css, /\.qt-settings-grid \{[^}]*grid-template-columns: minmax\(170px, 210px\) minmax\(0, 1fr\)/s);
   assert.match(css, /\.qt-settings-pages \{[^}]*flex-direction: column/s);
@@ -276,6 +327,14 @@ test("settings navigation CSS: two columns on wide panes, the grouped picker on 
   assert.match(css, /@container \(max-width: 540px\) \{[\s\S]*?\.qt-settings-pages \{\s*display: none/s);
   assert.match(css, /@container \(max-width: 540px\) \{[\s\S]*?\.qt-settings-module-picker \{\s*display: block/s);
   assert.match(css, /@container \(max-width: 760px\) \{[\s\S]*?grid-template-columns: minmax\(150px, 168px\)/s, "the compact two-column layout");
+  assert.match(css, /\.qt-settings-layout\.is-phone \.qt-settings-grid \{[^}]*grid-template-columns: minmax\(0, 1fr\)/s, "a phone uses one column");
+  assert.match(css, /\.qt-settings-layout\.is-phone > \.qt-settings-module-picker \{\s*display: block/s, "a phone shows the grouped picker");
+  assert.doesNotMatch(
+    css,
+    /body\.is-mobile \.qt-settings-(grid|pages|tabs|body)\b/,
+    "phone settings styles are scoped to phones, not every mobile app"
+  );
+  assert.match(source("settings-tab.js"), /Platform\.isPhone/);
   assert.match(css, /\.qt-settings-body \.setting-item \{[^}]*flex-wrap: wrap/s, "setting rows may wrap instead of clipping");
   assert.match(source("settings-tab.js"), /qt-settings-categories/);
   assert.match(source("settings-tab.js"), /aria-selected/);

@@ -103198,6 +103198,18 @@ const MCQ_TABS = [
 
 /* --------------------------------------------------------------- settings */
 
+/**
+ * The compact settings navigation is a phone layout. Tablets keep the desktop
+ * page list and content column: Platform.isPhone is false on an iPad. Older
+ * API builds without isPhone fall back to the phone layout unless they expose
+ * isTablet, so a tablet is never mistaken for a phone there.
+ */
+function usesPhoneSettingsLayout() {
+  if (Platform.isMobile !== true) return false;
+  if (typeof Platform.isPhone === "boolean") return Platform.isPhone;
+  return Platform.isTablet !== true;
+}
+
 class QuestionTrackerSettingTab extends PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
@@ -104707,6 +104719,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     const page = this.currentPage();
     const category = categoryForPage(page.id);
     const layout = rootEl.createDiv({ cls: "qt-settings-layout" });
+    if (usesPhoneSettingsLayout()) layout.addClass("is-phone");
 
     const categories = layout.createDiv({ cls: "qt-settings-categories" });
     categories.setAttr("role", "tablist");
