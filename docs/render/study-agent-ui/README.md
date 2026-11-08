@@ -148,26 +148,57 @@ Reproduce it with the local harness (gitignored, not part of the bundle):
 `suggestions-all.html`; serve the repo on port 3000 and capture that page at 2×
 DPR, then crop each 900 px pane.
 
-## Real Obsidian check (1.15.0)
+## Real Obsidian check (1.15.0, Nov 8 2026)
 
-The plugin was copied into a test vault and opened in Obsidian 1.15.0 under
-Xvfb on Linux. The 300 px sidebar pane, a 980 px main-pane leaf and the disabled
-state were checked in light and dark; the captures are in
-`artifacts/obsidian-test/shots/` (`55`–`64`).
+The current build (`main.js`, `manifest.json`, `styles.css`; plugin 1.291.2)
+was copied into a throwaway vault and opened in Obsidian 1.15.0 under Xvfb
+(2400 × 1600 screen, 2× device scale, 1200 × 800 CSS window). AI was enabled,
+**Study agent: open the sidebar** was run, a new chat was started and the
+suggestion rotation was stopped so the seeded deck stayed on screen.
 
-- Three seeded suggestions: deck 218 × 116 px, active card 218 × 104 px, detail
-  49 px; no horizontal overflow and three dots.
-- Long label and detail: the card grows to 147 px and the deck to 161 px
-  (`grid-template-rows: minmax(104px, max-content)`); nothing spills outside
-  the card border. The detail keeps its intentional three-line clamp.
-- Wide 980 px pane: only the active card's content is visible. The back cards
-  are decorative, `aria-hidden` peeks; their content is hidden so labels cannot
-  paint through the active card in either theme.
-- A one- or zero-card deck is not reachable through ordinary configuration
-  (the seeded list always has three). Those two states were produced by calling
-  the real deck renderer with synthetic one/zero item lists; they are probes,
-  not configuration states.
-- Disabled AI points to **Settings → Study agent → AI and the assistant**.
+Five real-pane captures (cropped from the 2× screenshots) sit next to this
+file:
+
+- `obsidian-empty-narrow-light.png` — 296 × 555 px sidebar, empty state.
+- `obsidian-long-narrow-light.png` — 296 × 600 px sidebar, long suggestion and
+  long draft.
+- `obsidian-long-narrow-dark.png` — the same state in the dark theme.
+- `obsidian-empty-wide-light.png` — 512 × 522 px main-area leaf, empty state.
+- `obsidian-long-wide-light.png` — 512 × 522 px main-area leaf, long state.
+
+Obsidian clamps its right sidebar near 300 px, so the narrow capture is that
+pane's 296 px content width rather than a forced 320 px; the normal-width
+capture is a real main-area leaf, not a widened sidebar.
+
+Measured from the live DOM at those panes:
+
+| Check | 296 px sidebar | 512 px leaf |
+|---|---|---|
+| Empty copy | 238 × 70 px, `scrollHeight` = `clientHeight` | 397 × 52 px, same |
+| Empty card | 264 px wide, unclipped | 454 px wide, unclipped |
+| Seeded deck / active card | 238 × 116 / 238 × 104 px | 454 × 116 / 454 × 104 px |
+| Long deck / active card | 238 × 162 / 238 × 150 px | 454 × 116 / 454 × 104 px |
+| Long title | 214 × 65 px, 4 lines, unclamped | 430 × 33 px, 2 lines |
+| Long detail | 49 px, intentional three-line clamp | 32 px, two lines |
+| Mode / role chips | 44 / 68 px, **Tutor** / **Private** fully visible | same |
+| Dots | below the deck | below the deck |
+| Controls vs composer | 404–434 vs 466+, no overlap | 409–439 vs 471+, no overlap |
+| Back-card labels | `visibility: hidden` on all four | same |
+
+All six checks hold in the real app at both widths and in both themes, so no
+stylesheet or markup change was required: `styles.css` and the built `main.js`
+are byte-identical to the reviewed build. At 296 px the deck grows from 116 to
+162 px for the long suggestion instead of clipping it, and the title keeps all
+four lines.
+
+The test rig (Xvfb launcher, unpacked Obsidian 1.15.0, throwaway vault and CDP
+drivers) lives under gitignored `artifacts/obsidian-test/`. To reproduce: start
+Xvfb at 2400 × 1600, launch Obsidian with
+`--no-sandbox --disable-gpu --force-device-scale-factor=2
+--remote-debugging-port=9222`, copy the three bundle files into
+`<vault>/.obsidian/plugins/mcq-tracker/`, enable the plugin, then run
+`run/capture-real2.py` and `run/capture-wide.py` with `PYTHONPATH=pylibs` and
+`DISPLAY` set (the drivers crop the pane out of each 2× screenshot).
 
 ## Method
 
