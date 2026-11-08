@@ -73,6 +73,14 @@ function createHost(plugin) {
   const Host = loaded && loaded.default ? loaded.default : loaded;
   if (typeof Host !== "function") throw new Error("The embedded PDF++ bundle did not export a plugin class.");
   const host = new Host(plugin.app, embeddedManifest(plugin.manifest));
+  // PDF++ registers its own settings tab in onload. Keep the tab object for the
+  // MCQ page, but do not add a second top-level plugin tab to Obsidian's
+  // settings sidebar: PDF++ is part of MCQ Tracker, not a separate plugin.
+  host.addSettingTab = function (tab) {
+    if (tab && typeof tab === "object") tab.id = EMBEDDED_ID;
+    this.settingTab = tab || null;
+    return tab;
+  };
   host.loadData = async () => {
     const data = normalizePdfPlusSettings(plugin.settings && plugin.settings.pdfPlus).data;
     return data ? clone(data) : null;
@@ -105,6 +113,16 @@ function createHost(plugin) {
       return !!(hover && hover.defaultMod);
     };
   }
+  // PDF++'s own "Customize..." links call this method and then scroll the
+  // returned tab. Send them to MCQ Tracker's PDF++ page, whose mounted vendor
+  // instance owns the visible controls.
+  host.openSettingTab = function () {
+    if (plugin && typeof plugin.openPdfPlusSettingsTab === "function") {
+      plugin.openPdfPlusSettingsTab();
+      if (plugin._pdfPlusSettingsView) return plugin._pdfPlusSettingsView;
+    }
+    return this.settingTab;
+  };
   return host;
 }
 

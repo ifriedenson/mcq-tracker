@@ -25,29 +25,35 @@ The host gives PDF++:
   than a second `data.json`;
 - the same enable/disable and unload lifecycle as the rest of this plugin.
 
-PDF++ adds its own **PDF++** settings tab. That tab, all of its commands and its
-ribbon icons are part of the host and disappear when the toggle is turned off.
+PDF++'s vendor settings tab is captured by the host instead of being added to
+Obsidian's settings sidebar as a second top-level plugin tab. Its controls are
+rendered inside **App & documents → PDF++**. PDF++'s commands and ribbon icons
+are part of the host and disappear when the toggle is turned off. Nothing is
+downloaded or installed separately: the bundle is already in `main.js`.
 
 ### Obsidian 1.15 Page Preview compatibility
 
 Obsidian 1.15 no longer gives the core Page Preview instance an `overrides` map.
 PDF++ 0.40.31 reads `internalPlugins.plugins["page-preview"].instance.overrides`
-before falling back to `workspace.hoverLinkSources`, so drawing either PDF++
-settings tab throws `Cannot read properties of undefined (reading 'pdf-plus')`.
+before falling back to `workspace.hoverLinkSources`, so drawing PDF++'s
+settings controls throws `Cannot read properties of undefined (reading 'pdf-plus')`.
 The host wraps only that plugin method: when `overrides` exists PDF++'s own
 answer is used unchanged, and when it does not the host applies PDF++'s own
 hover-source fallback (`hoverLinkSources[id].defaultMod`) without the throw.
-This fixes the embedded page and the vendor tab opened from it; no PDF feature
-or setting is changed.
+This fixes the embedded page and any vendor tab instantiated for it; no PDF
+feature or setting is changed.
 
 ### Where the embedded options are drawn
 
 A vendor settings tab creates its `headerContainerEl` and `contentEl` in its
-constructor, so reparenting the registered tab would leave a page mount empty.
-The PDF++ page therefore mounts a **second instance** of the vendor tab class
-with the same hosted plugin, giving it its own container and calling `display()`.
-The registered tab and its container are never moved, so the **Open PDF++
-settings tab** button keeps working.
+constructor, so reparenting a tab would leave a page mount empty. The host
+captures the vendor tab object instead of registering it with Obsidian, and the
+PDF++ page mounts a **second instance** of the vendor tab class with the same
+hosted plugin, giving it its own container and calling `display()`. The captured
+original remains available to the host, and its `openSettingTab()` is routed to
+MCQ's PDF++ page, so PDF++'s **Customize...** links and `obsidian://pdf-plus`
+protocol links open this page and scroll the visible embedded controls. There is
+no **Open PDF++ settings tab** button and no second sidebar entry.
 
 Obsidian's settings modal also supplies its own `.vertical-tab-content` gutter.
 Inside the MCQ page that outer gutter plus PDF++'s content padding left vendor

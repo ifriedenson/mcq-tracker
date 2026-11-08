@@ -322,6 +322,8 @@ class QuestionTrackerPlugin extends Plugin {
     // A previous plugin instance or a crash may have left the body class behind.
     practiceFullscreen.setPracticeFullscreen(null, false);
     this.pdfPlus = null;
+    this._pdfPlusSettingsView = null;
+    this.settingsTab = null;
     this.pdfPlusError = "";
     this.pdfPlusPaused = false;
     this.pdfPlusUiDepth = 0;
@@ -1171,7 +1173,8 @@ class QuestionTrackerPlugin extends Plugin {
       name: "Tables: open the table controls panel",
       callback: () => this.openTableControls(),
     });
-    this.addSettingTab(new QuestionTrackerSettingTab(this.app, this));
+    this.settingsTab = new QuestionTrackerSettingTab(this.app, this);
+    this.addSettingTab(this.settingsTab);
 
     this.registerInterval(
       activeWindow.setInterval(() => {
@@ -3359,15 +3362,22 @@ class QuestionTrackerPlugin extends Plugin {
     else await this.stopPdfPlus();
   }
 
-  /** Opens the hosted PDF++ settings tab when this Obsidian build exposes it. */
+  /**
+   * Opens MCQ Tracker's own PDF++ page. PDF++'s vendor tab is captured rather
+   * than registered as a separate top-level plugin tab, so every "Customize..."
+   * link in PDF++ lands on the one integrated settings page.
+   */
   openPdfPlusSettingsTab() {
     const setting = this.app && this.app.setting;
-    if (!setting || typeof setting.openTabById !== "function") {
-      new Notice("Open Settings → Community plugins → MCQ Tracker, or use the PDF++ settings tab in the sidebar.");
-      return false;
+    if (setting && typeof setting.open === "function") setting.open();
+    const pluginId = (this.manifest && this.manifest.id) || "mcq-tracker";
+    if (setting && typeof setting.openTabById === "function") setting.openTabById(pluginId);
+    if (this.settingsTab && typeof this.settingsTab.openPage === "function") {
+      this.settingsTab.openPage("pdf-plus");
+      return true;
     }
-    setting.openTabById(pdfPlus.EMBEDDED_ID);
-    return true;
+    new Notice("Open Settings → App & documents → PDF++.");
+    return false;
   }
 
   /**

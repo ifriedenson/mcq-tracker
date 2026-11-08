@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status: v1.290.0 (Nov 8, 2026).** One MIT, dependency-free Obsidian plugin
+**Status: v1.291.0 (Nov 8, 2026).** One MIT, dependency-free Obsidian plugin
 (`mcq-tracker`) covering exam practice, cards and vocabulary, courses and
 calendars, study planning, document ingestion, reference/STEM tools and an
 optional BYOK/OpenCode AI layer.
@@ -13,9 +13,9 @@ surfaces, so unfinished ideas are not disguised as checked work.
 §3.9.6 is the gate table, §3.10 is the licence allow-list, and
 [docs/plan-decisions.md](docs/plan-decisions.md) is the owner decision sheet.
 
-**Verified at this commit:** `node --test` → 2,430 tests pass, 0 fail;
+**Verified at this commit:** `node --test` → 2,431 tests pass, 0 fail;
 `npm run check` clean (no dynamic code across 339 source files, vendor guard,
-bundle up to date); `main.js` generated from 342 modules at 6,845,845 bytes.
+bundle up to date); `main.js` generated from 342 modules at 6,847,319 bytes.
 Re-run both before quoting these numbers.
 
 **Shipped in 1.282.0 (Nov 7, 2026):** Quick Ask, saved study
@@ -2279,7 +2279,7 @@ These are the 17 plugins in the owner-supplied academic round-up. “Reference o
 | **Heading Level Indent** | Indent body text under headings for readability. | **Reference only.** A reading CSS preference, not a study data feature. |
 | **Hover Editor** | A movable, resizable, editable hover preview. | **Do not adopt.** Obsidian owns page previews; replacing them would be a broad UI fork. |
 | **Iconic** | Per-file and per-folder icons or images. | **Reference only.** Cosmetic navigation; no study state. |
-| **PDF++** | PDF annotations and deep links to a page, selection or rectangle. | **Full upstream parity.** The unmodified MIT PDF++ 0.40.31 bundle is embedded in `vendor/pdf-plus.js` and its stylesheet in `vendor/pdf-plus-css.js` and loaded by `src/pdf-plus.js` as a managed child component. All upstream native-viewer features are present — backlink highlights/callouts, colour palette and copy templates, context menus, outline/page-label/embed editing, PDF page composer, internal-link history, external-app sync, Vim mode and PDF++’s settings tab. PDF++ settings are namespaced under `settings.pdfPlus`; MCQ’s own PDF reader, sidecars and editor remain. The full upstream source is https://github.com/RyotaUshio/obsidian-pdf-plus. |
+| **PDF++** | PDF annotations and deep links to a page, selection or rectangle. | **Full upstream parity.** The unmodified MIT PDF++ 0.40.31 bundle is embedded in `vendor/pdf-plus.js` and its stylesheet in `vendor/pdf-plus-css.js` and loaded by `src/pdf-plus.js` as a managed child component. All upstream native-viewer features are present — backlink highlights/callouts, colour palette and copy templates, context menus, outline/page-label/embed editing, PDF page composer, internal-link history, external-app sync, Vim mode and PDF++’s settings tab. PDF++ settings are namespaced under `settings.pdfPlus` and its controls are mounted inside MCQ’s PDF++ page; the host captures the vendor settings tab instead of adding a second top-level plugin tab. MCQ’s own PDF reader, sidecars and editor remain. The full upstream source is https://github.com/RyotaUshio/obsidian-pdf-plus. |
 | **Pretty Properties** | Covers, coloured properties and friendlier property display. | **Reference only.** Cosmetic metadata presentation; the underlying properties stay unchanged. |
 | **QuickAdd** | Named capture commands that create a note in the right folder from a template. | **Partially covered.** Calendar class notes and course-note actions use templates. A generic user-defined template builder is not justified yet; revisit only if capture requests keep recurring. |
 | **Recent Files** | A recent-note navigator. | **Do not adopt.** Obsidian already has recents and quick switching; no study data is involved. |

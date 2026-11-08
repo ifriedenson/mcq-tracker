@@ -18,8 +18,12 @@ function heading(containerEl, title, description) {
   containerEl.createEl("p", { cls: "setting-item-description", text: description });
 }
 
-/** The settings tab the embedded PDF++ host registered, if this app exposes it. */
+/** The settings tab the embedded PDF++ host captured, if it has started. */
 function pdfPlusSettingsTab(plugin) {
+  const hosted = plugin && plugin.pdfPlus && plugin.pdfPlus.settingTab;
+  if (hosted) return hosted;
+  // Older builds registered the tab with Obsidian. Read it if one is still in
+  // the app registry, but new hosts never add that separate top-level tab.
   const setting = plugin && plugin.app && plugin.app.setting;
   const tabs = setting && Array.isArray(setting.pluginTabs) ? setting.pluginTabs : [];
   return (
@@ -32,27 +36,28 @@ function pdfPlusSettingsTab(plugin) {
 function statusText(plugin) {
   if (!plugin.pdfPlusEnabled()) return "Off. Turn it on to run PDF++ inside MCQ Tracker.";
   if (plugin.pdfPlusError) return plugin.pdfPlusError;
-  if (plugin.pdfPlusPaused) return `Paused while an MCQ Tracker PDF reader or editor is open. Version ${EMBEDDED_VERSION}.`;
-  if (plugin.pdfPlus) return `Running. Version ${EMBEDDED_VERSION}, with its settings saved inside MCQ Tracker's data.json.`;
-  return `On, but not started yet. It starts with the workspace, or open it from the PDF++ button below.`;
+  if (plugin.pdfPlusPaused) return `Paused while an MCQ Tracker PDF reader or editor is open. Bundled version ${EMBEDDED_VERSION}.`;
+  if (plugin.pdfPlus) return `Running. Bundled version ${EMBEDDED_VERSION}, with its settings saved inside MCQ Tracker's data.json.`;
+  return `On, but not started yet. It starts with the workspace.`;
 }
 
 /**
- * Renders the page. The vendor tab draws into a temporary container; its own
- * `containerEl` is restored immediately so its settings tab keeps working when
- * the user opens it from Obsidian's settings sidebar.
+ * Renders the page. PDF++'s host captures its vendor settings tab instead of
+ * registering a second top-level plugin tab; this page mounts that tab's own
+ * controls so PDF++ is configured in one place with every MCQ Tracker option.
  */
 function renderPdfPlusSettings(containerEl, plugin, redisplay) {
+  if (plugin) plugin._pdfPlusSettingsView = null;
   heading(
     containerEl,
     "PDF++",
-    "The full MIT-licensed PDF++ 0.40.31 native viewer, embedded in MCQ Tracker: backlink highlights, callouts, colour palettes, outline and page-label tools, the page composer, embeds, external-app sync and Vim keys. Its options are shown below, so they live with the rest of the plugin."
+    "The full MIT-licensed PDF++ 0.40.31 native viewer is built into MCQ Tracker — no separate plugin or download. Backlink highlights, callouts, colour palettes, outline and page-label tools, the page composer, embeds, external-app sync and Vim keys are all configured below with the rest of the plugin."
   );
 
   new Setting(containerEl)
     .setName("Run the embedded PDF++ tools")
     .setDesc(
-      "Off keeps every PDF++ setting and all of your PDF annotations; it only stops the native-viewer integration. Turn the standalone PDF++ plugin off while this is on, so the two copies never decorate the same file."
+      "PDF++ is included with MCQ Tracker. Off keeps every PDF++ setting and all of your PDF annotations; it only stops the native-viewer integration. If you also enabled the standalone PDF++ plugin, disable it so the two copies never decorate the same file."
     )
     .addToggle((t) =>
       t.setValue(plugin.pdfPlusEnabled()).onChange(async (v) => {
@@ -70,11 +75,6 @@ function renderPdfPlusSettings(containerEl, plugin, redisplay) {
       })
     );
   }
-  status.addButton((b) =>
-    b.setButtonText("Open PDF++ settings tab").onClick(() => {
-      if (typeof plugin.openPdfPlusSettingsTab === "function") plugin.openPdfPlusSettingsTab();
-    })
-  );
 
   if (plugin.pdfPlusError) {
     containerEl.createEl("p", { cls: "qt-settings-warning", text: plugin.pdfPlusError });
@@ -92,17 +92,18 @@ function renderPdfPlusSettings(containerEl, plugin, redisplay) {
   if (!hostTab || typeof hostTab.display !== "function") {
     containerEl.createEl("p", {
       cls: "setting-item-description",
-      text: "This Obsidian build keeps plugin settings tabs private, so PDF++'s options cannot be drawn inside this page. The button above opens the same PDF++ settings tab; everything else on this page still applies.",
+      text: "PDF++'s options are not available yet. Use Start PDF++ above, or reopen this page once the integration is running.",
     });
     return;
   }
 
   const mount = containerEl.createDiv({ cls: "qt-pdf-plus-settings" });
   const warn = (error) => {
+    if (plugin) plugin._pdfPlusSettingsView = null;
     mount.empty();
     containerEl.createEl("p", {
       cls: "qt-settings-warning",
-      text: `PDF++'s settings could not be drawn here: ${String((error && error.message) || error)}. Use the Open PDF++ settings tab button above.`,
+      text: `PDF++'s settings could not be drawn here: ${String((error && error.message) || error)}. Reopen this page or check the running state above.`,
     });
   };
   try {
@@ -116,6 +117,7 @@ function renderPdfPlusSettings(containerEl, plugin, redisplay) {
     const embedded = new VendorTab(hostTab.plugin);
     if (!embedded || !embedded.containerEl) throw new Error("the PDF++ settings tab has no container");
     if (typeof embedded.containerEl.addClass === "function") embedded.containerEl.addClass("qt-pdf-plus-embedded");
+    plugin._pdfPlusSettingsView = embedded;
     mount.appendChild(embedded.containerEl);
     const drawing = embedded.display();
     if (drawing && typeof drawing.catch === "function") drawing.catch(warn);

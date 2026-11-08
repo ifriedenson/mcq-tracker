@@ -107,6 +107,7 @@ async function cleanBoot(app) {
   return {
     plugin,
     host,
+    settingTab: host.settingTab,
     baseline,
     patches,
     hostShape: {
@@ -122,7 +123,14 @@ function assertResumed(app, boot, message) {
   const now = surface(app);
   assert.deepEqual(now, boot.baseline, `${message}: the whole surface matches a clean boot`);
   assert.equal(now.styles, 1, `${message}: exactly one embedded stylesheet`);
-  assert.equal(now.settingTabs.length, 1, `${message}: exactly one PDF++ settings tab`);
+  assert.equal(now.settingTabs.length, 0, `${message}: no separate top-level PDF++ settings tab`);
+  const settingTab = boot.plugin.pdfPlus && boot.plugin.pdfPlus.settingTab;
+  assert.ok(settingTab, `${message}: the vendor settings tab is captured`);
+  assert.equal(
+    boot.plugin.app.setting.pluginTabs.includes(settingTab),
+    false,
+    `${message}: the captured tab is not registered as a second plugin tab`
+  );
   assert.deepEqual(now.duplicateCommands, [], `${message}: no duplicate command ids`);
   assert.deepEqual(now.patched, { workspace: true, menu: true, pagePreview: true }, `${message}: every patch is applied`);
   assert.equal(now.embedPatched, true, `${message}: PDF++'s embed creator is installed`);
@@ -145,11 +153,19 @@ function assertHostShape(boot, message) {
   assert.equal(host._children.length, boot.hostShape.children, `${message}: same child components`);
   assert.equal(host.commands.length, boot.hostShape.commands, `${message}: same host commands`);
   assert.equal(host._cleanups.length, boot.hostShape.cleanups, `${message}: same live cleanups`);
+  assert.ok(host.settingTab, `${message}: the vendor settings tab is captured again`);
+  assert.equal(host.app.setting.pluginTabs.includes(host.settingTab), false, `${message}: still no separate tab`);
 }
 
 test("embedded PDF++ boots the real bundle, registers its surface and tears it all down", async () => {
   const app = makeApp();
   const plugin = hostPlugin(app);
+  const opens = { settings: 0 };
+  plugin.openPdfPlusSettingsTab = () => {
+    opens.settings += 1;
+    plugin._pdfPlusSettingsView = plugin.pdfPlus && plugin.pdfPlus.settingTab;
+    return true;
+  };
   const tracked = await trackLoads(() => T.pdfPlus.start(plugin));
   const host = tracked.value;
 
@@ -158,8 +174,9 @@ test("embedded PDF++ boots the real bundle, registers its surface and tears it a
   assert.ok(host._children.length > 0, "PDF++ child components are attached");
   assert.ok(host.commands.length > 0, "PDF++ commands are registered");
   assert.ok(host.settingTab, "PDF++ created its settings tab");
-  assert.equal(host.settingTab.id, "mcq-tracker-pdf-plus", "the settings tab is registered under the embedded id");
-  assert.ok(app.setting.pluginTabs.includes(host.settingTab), "the settings tab is in the app registry");
+  assert.equal(host.settingTab.id, "mcq-tracker-pdf-plus", "the captured tab keeps the embedded id");
+  assert.equal(host.settingTab.plugin, host, "the captured tab belongs to the embedded host");
+  assert.equal(app.setting.pluginTabs.includes(host.settingTab), false, "no separate top-level PDF++ tab is registered");
   assert.ok(app.commands.length > 0, "commands reached the app command registry");
   assert.ok(global.document.getElementById("mcq-tracker-pdf-plus-styles"), "the embedded stylesheet is injected");
   assert.ok(app.workspace._refs.size > 0, "workspace event refs are active");
@@ -171,6 +188,8 @@ test("embedded PDF++ boots the real bundle, registers its surface and tears it a
   assert.deepEqual(running.duplicateCommands, [], "no duplicate command ids on a single boot");
 
   assert.equal(running.pdfPlusEmbedRegistrations, 1, "exactly one PDF++ embed registration");
+  assert.equal(host.openSettingTab(), host.settingTab, "PDF++ settings links return the mounted view");
+  assert.equal(opens.settings, 1, "PDF++ settings links open MCQ Tracker's PDF++ page");
   const single = currentPatches(app);
   for (const [name, fn] of Object.entries(single)) {
     assert.notEqual(fn, stockFunctions(app)[name], `a single boot patches ${name}`);
@@ -466,7 +485,7 @@ test("the duplicate detector fires on a second host loaded without teardown", as
   const after = surface(app);
   assert.ok(after.commandCount > before.commandCount, "the command registry grew");
   assert.ok(after.duplicateCommands.length > 0, "duplicate commands are visible to the snapshot");
-  assert.ok(after.settingTabs.length > 1, "a second settings tab is visible to the snapshot");
+  assert.deepEqual(after.settingTabs, before.settingTabs, "the embedded host never registers a top-level settings tab");
 
   await stacked.unload();
   await boot.plugin.stopPdfPlus();

@@ -1,3 +1,7 @@
+## 1.291.0 - 2026-11-08
+
+- **PDF++ is one integrated settings surface.** The embedded host captures PDF++'s vendor settings tab instead of registering it as a second top-level plugin tab. **App & documents → PDF++** mounts the controls, and PDF++'s **Customize...** links and `obsidian://pdf-plus` protocol links open that page and scroll the visible copy. PDF++ was already bundled in `main.js`; installing MCQ Tracker does not download a separate plugin. The standalone-PDF++ conflict guard remains. `node --test` passes 2,431 tests; `main.js` is 6,847,319 bytes. No schema, provider or dependency changed.
+
 ## 1.288.4 - 2026-11-07
 
 - **Community-review CSS cleanup.** The five `text-decoration-line` longhands are replaced by the scanner-supported `text-decoration` shorthand, and the phone full-screen panel drops the duplicate `100vh` fallback in favor of `100dvh`. The release-hygiene test now enforces both rules. The behavior findings are unchanged: the direct `fs`/`child_process` usage is the optional desktop OpenCode installer; the unmodified PDF++ vendor bundle adds its own `child_process` plus Electron IPC and `new Function`; and `main.js` remains 6,787,753 bytes. No feature, provider, note schema or dependency changed.

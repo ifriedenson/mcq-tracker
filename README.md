@@ -256,6 +256,8 @@ If you want to try the plugin before writing notes, open [samples/README.md](sam
 
 **Manually:** download `main.js`, `manifest.json` and `styles.css` from the latest release and copy them into `<your vault>/.obsidian/plugins/mcq-tracker/`. Then enable the plugin under Settings, Community plugins.
 
+PDF++ is part of MCQ Tracker: it is bundled in `main.js`, so installing or updating MCQ Tracker does not download or install a separate PDF++ plugin. Its options live in **Settings, App & documents, PDF++**. If you already have the standalone PDF++ plugin enabled, disable it so the two copies never patch the same PDF viewer.
+
 ## What counts as a question
 
 Any note with a `question_id` property (you can limit this to one folder in settings). A note looks like this:

@@ -140,7 +140,7 @@ test("settings navigation: PDF++ lives in the same navigation and hosts the vend
   const texts = current(dom).map((own) => own.meta.text || "");
   assert.ok(texts.includes("PDF++"));
   assert.ok(obsidian.settingNames.includes("Run the embedded PDF++ tools"), "the on/off switch is on the page");
-  assert.ok(texts.some((text) => /keeps plugin settings tabs private/.test(text)), "the page explains a build without vendor tabs");
+  assert.ok(texts.some((text) => /PDF\+\+'s options are not available yet/.test(text)), "the page explains an unavailable vendor tab");
 
   // A vendor tab draws into the elements it created in its constructor, so the
   // page mounts a second instance instead of reparenting the shared tab.
@@ -162,6 +162,22 @@ test("settings navigation: PDF++ lives in the same navigation and hosts the vend
   tab.openPage("pdf-plus");
   assert.ok(current(dom).some((own) => own.meta.text === "PDF++ vendor control"), "the vendor tab draws in the page");
   assert.equal(plugin.app.setting.pluginTabs[0].containerEl, vendor.containerEl, "the real vendor tab keeps its own container");
+});
+
+test("pdf plus settings: Customize links open the integrated MCQ page", async () => {
+  const plugin = await setup();
+  const calls = [];
+  plugin.app.setting = {
+    open() {
+      calls.push("open");
+    },
+    openTabById(id) {
+      calls.push(id);
+    },
+  };
+  plugin.settingsTab = { openPage: (id) => calls.push(`page:${id}`) };
+  assert.equal(plugin.openPdfPlusSettingsTab(), true);
+  assert.deepEqual(calls, ["open", "mcq-tracker", "page:pdf-plus"]);
 });
 
 test("settings navigation CSS: two columns on wide panes, the grouped picker on narrow ones", () => {
@@ -187,4 +203,9 @@ test("pdf plus settings: the page renderer is exported and finds the hosted tab"
   assert.equal(T.pdfPlusSettings.pdfPlusSettingsTab({ app: {} }), null, "no registry means no tab");
   const tab = { id: "mcq-tracker-pdf-plus", containerEl: "x", display() {} };
   assert.equal(T.pdfPlusSettings.pdfPlusSettingsTab({ app: { setting: { pluginTabs: [tab] } } }), tab);
+  assert.equal(
+    T.pdfPlusSettings.pdfPlusSettingsTab({ pdfPlus: { settingTab: tab } }),
+    tab,
+    "the captured host tab is preferred over the app registry"
+  );
 });

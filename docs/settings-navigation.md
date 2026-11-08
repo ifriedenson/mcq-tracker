@@ -48,20 +48,21 @@ its own sidebar, so the page list is visible there (verified in Obsidian
 
 ## PDF++
 
-The embedded PDF++ host is a child plugin, so PDF++ registers its own settings
-tab. That tab used to sit beside MCQ Tracker's settings as a separate top-level
-plugin tab. Now:
+The embedded PDF++ host is a child plugin, but it no longer registers a separate
+top-level settings tab. Instead:
 
 - **App & documents → PDF++** owns the on/off switch, the running state and the
   settings themselves.
-- When Obsidian exposes plugin settings tabs, `src/pdf-plus-settings.js` mounts
-  a **second instance** of the vendor settings tab with the same hosted plugin.
-  Its containers are created in the tab constructor, so reparenting the
-  registered tab cannot work. The registered tab and its own container stay
-  untouched, so **Open PDF++ settings tab** still works.
-- When the vendor tab cannot be mounted (host off, standalone PDF++ running, or
-  a build that hides plugin tabs), the page explains why and offers **Open
-  PDF++ settings tab**.
+- The host captures the vendor settings tab before Obsidian can register it.
+  `src/pdf-plus-settings.js` mounts a **second instance** of that tab class with
+  the same hosted plugin. Its containers are created in the tab constructor, so
+  reparenting the captured tab cannot work.
+- PDF++'s **Customize...** links and `obsidian://pdf-plus` protocol links are
+  routed through the host to this page, where they scroll the visible embedded
+  controls.
+- When the vendor controls cannot be mounted (host off, standalone PDF++ running,
+  or a build that hides plugin tabs), the page explains why and offers **Start
+  PDF++** when the integration is on.
 - The Global modules page no longer duplicates the PDF++ toggle; it links to the
   PDF++ page instead.
 
