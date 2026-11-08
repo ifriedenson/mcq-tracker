@@ -14998,6 +14998,32 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   margin-top: 4px;
 }
 
+/* PDF++'s vendor header is one non-wrapping 28px icon row. At the embedded
+   page's 419px width its 31 headings overflow by many times the page width and
+   the vendor scroller draws a horizontal scrollbar. Wrap the same vendor icons
+   inside the embedded page only; all headings stay visible and reachable. */
+.qt-settings-body .qt-settings-grid .qt-pdf-plus-embedded.vertical-tab-content > .header-container,
+.modal.mod-settings .qt-settings-body .qt-settings-grid .qt-pdf-plus-embedded.vertical-tab-content > .header-container {
+  box-sizing: border-box;
+  height: auto;
+  min-height: var(--pdf-plus-settings-header-height, 48px);
+  padding: 8px 16px;
+  overflow: hidden;
+  line-height: normal;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Obsidian's DropdownComponent leaves hidden measuring <select> elements in a
+   setting row. The two long PDF++ examples are 410px wide inside the 419px
+   page and add 23px to the page's scrollWidth. They are invisible measurement
+   nodes, not controls; removing them does not remove the visible dropdowns. */
+.qt-settings-body .qt-pdf-plus-embedded .content .dropdown.is-measuring {
+  display: none;
+}
+
 /* The vendor tab was laid out for a full-width settings window. Inside this
    page Obsidian's .vertical-tab-content gutter plus PDF++'s own content gutter
    left 259px rows whose info could grow past the row and clip its label.

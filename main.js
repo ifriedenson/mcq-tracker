@@ -67694,26 +67694,48 @@ function statusText(plugin) {
 }
 
 /**
- * PDF++'s scrollToSetting scrolls its own .vertical-tab-content. When the tab
- * is mounted inside MCQ Tracker's settings page, that element grows to the
- * full content height and has no scroll range; the real scroller is Obsidian's
- * outer settings pane. Scroll the addressed control into that pane so the
- * vendor's Customize... and obsidian://pdf-plus links land on the right row.
+ * Scroll a setting into Obsidian's real settings pane, then settle it again
+ * after the freshly opened page has finished laying out. The vendor's own
+ * scrollToSetting targets its embedded .vertical-tab-content, which grows to
+ * the full content height and has no scroll range. A single scrollIntoView is
+ * also not enough: opening a page can move the target after the first layout,
+ * as the real Customize... path did in Obsidian 1.15. Re-check only while the
+ * target is outside the viewport, so a user's later scroll is not hijacked.
  */
+function scrollEmbeddedTarget(target, options) {
+  if (!target || typeof target.scrollIntoView !== "function") return false;
+  const behavior = (options && options.behavior) || "auto";
+  target.scrollIntoView({ block: "start", inline: "nearest", behavior });
+  const view = target.ownerDocument && target.ownerDocument.defaultView;
+  const viewport = view ? Number(view.innerHeight) || 0 : 0;
+  if (!view || typeof view.setTimeout !== "function" || viewport <= 0) return true;
+  const settle = () => {
+    if (target.isConnected === false) return;
+    let box;
+    try {
+      box = target.getBoundingClientRect();
+    } catch (error) {
+      return;
+    }
+    if (!box) return;
+    const visible = box.top >= 0 && (box.height > viewport ? box.top <= 1 : box.bottom <= viewport - 1);
+    if (visible) return;
+    target.scrollIntoView({ block: "start", inline: "nearest", behavior: "auto" });
+  };
+  if (typeof view.requestAnimationFrame === "function") view.requestAnimationFrame(settle);
+  view.setTimeout(settle, 180);
+  view.setTimeout(settle, 600);
+  view.setTimeout(settle, 1200);
+  return true;
+}
+
 function bindEmbeddedScroll(embedded) {
   if (!embedded || typeof embedded.scrollToSetting !== "function") return;
   if (embedded._qtScrollIntoView) return;
   const vendorScrollToSetting = embedded.scrollToSetting;
   embedded.scrollToSetting = function (setting, options) {
     const target = setting && setting.settingEl;
-    if (target && typeof target.scrollIntoView === "function") {
-      target.scrollIntoView({
-        block: "start",
-        inline: "nearest",
-        behavior: (options && options.behavior) || "smooth",
-      });
-      return;
-    }
+    if (scrollEmbeddedTarget(target, options)) return;
     return vendorScrollToSetting.call(this, setting, options);
   };
   embedded._qtScrollIntoView = true;

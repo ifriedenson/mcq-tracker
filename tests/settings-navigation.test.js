@@ -197,6 +197,59 @@ test("pdf plus settings: vendor scroll targets inside Obsidian's settings pane",
   assert.equal(embedded.originalScrollCalls, undefined, "the no-op vendor scroll was bypassed");
 });
 
+test("pdf plus settings: a moving target is scrolled again after the page settles", async () => {
+  const plugin = await setup();
+  const { tab, dom } = openTab(plugin);
+  let top = 840;
+  const calls = [];
+  const timers = [];
+  const target = {
+    isConnected: true,
+    scrollIntoView(options) {
+      calls.push(options);
+      if (calls.length === 2) top = 46;
+    },
+    getBoundingClientRect() {
+      return { top, bottom: top + 385, height: 385 };
+    },
+    ownerDocument: {
+      defaultView: {
+        innerHeight: 700,
+        setTimeout(fn, ms) {
+          timers.push({ fn, ms });
+          return timers.length;
+        },
+      },
+    },
+  };
+  class FakeMovingVendorTab {
+    constructor(hostPlugin) {
+      this.plugin = hostPlugin;
+      this.containerEl = dom.root.createDiv({ cls: "pdf-plus-settings" });
+      this.contentEl = this.containerEl.createDiv({ cls: "content" });
+      this.items = { colors: { settingEl: target } };
+    }
+    display() {}
+    scrollTo(id, options) {
+      if (id === "colors") this.scrollToSetting(this.items.colors, options);
+    }
+    scrollToSetting() {}
+  }
+  const vendor = new FakeMovingVendorTab({ manifest: { id: "mcq-tracker-pdf-plus" } });
+  plugin.app.setting = { pluginTabs: [vendor] };
+  tab.openPage("pdf-plus");
+  const embedded = plugin._pdfPlusSettingsView;
+  embedded.scrollTo("colors");
+  assert.equal(calls.length, 1, "the target is scrolled as soon as the page opens");
+  const settle = timers.find((timer) => timer.ms === 180);
+  assert.ok(settle, "a short post-render check is scheduled");
+  settle.fn();
+  assert.equal(calls.length, 2, "a target that moved below the viewport is scrolled again");
+  assert.equal(calls[1].behavior, "auto", "the corrective scroll is immediate");
+  for (const timer of timers) timer.fn();
+  assert.equal(calls.length, 2, "a visible target is not scrolled again");
+});
+
 test("pdf plus settings: Customize links open the integrated MCQ page", async () => {
   const plugin = await setup();
   const calls = [];
@@ -228,6 +281,16 @@ test("settings navigation CSS: two columns on wide panes, the grouped picker on 
   assert.match(source("settings-tab.js"), /aria-selected/);
   assert.match(source("settings-categories.js"), /const CATEGORIES = \[/);
   assert.match(source("pdf-plus-settings.js"), /renderPdfPlusSettings/);
+  assert.match(
+    css,
+    /\.qt-settings-body \.qt-settings-grid \.qt-pdf-plus-embedded\.vertical-tab-content > \.header-container\s*\{[\s\S]*?overflow: hidden;[\s\S]*?flex-wrap: wrap;/s,
+    "the embedded PDF++ icon header wraps without its own horizontal scrollbar"
+  );
+  assert.match(
+    css,
+    /\.qt-settings-body \.qt-pdf-plus-embedded \.content \.dropdown\.is-measuring \{\s*display: none/s,
+    "invisible dropdown measuring clones do not widen the embedded page"
+  );
 });
 
 test("pdf plus settings: the page renderer is exported and finds the hosted tab", () => {
