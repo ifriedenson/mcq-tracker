@@ -15,6 +15,7 @@ const VIEW_TYPE_ASSIGNMENTS = "question-tracker-assignments";
 const VIEW_TYPE_STUDY_TOOLS = "question-tracker-study-tools";
 const VIEW_TYPE_STUDY_WORKSPACE = "question-tracker-study-workspace";
 const VIEW_TYPE_REVIEW_CALENDAR = "question-tracker-review-calendar";
+const VIEW_TYPE_REVIEW_SIDEBAR = "question-tracker-review-sidebar";
 const VIEW_TYPE_STUDY_STATS = "question-tracker-study-stats";
 const VIEW_TYPE_LOCAL_EVENTS = "question-tracker-local-events";
 const VIEW_TYPE_POMODORO = "question-tracker-pomodoro";
@@ -219,6 +220,7 @@ const DEFAULT_SETTINGS = {
   noteReview: { enabled: false, limit: 20, sets: [] }, // optional whole-note review queue
   noteReviewDock: { enabled: true, keyboard: true, lapseThreshold: 8, requeueEnabled: true, requeueLimit: 3, gradeLayout: "auto", reportEnabled: false, reportFolder: "" }, // docked whole-note review bar
   reviewCalendar: { enabled: true, noteMinutes: 2, cardMinutes: 1, showCards: true, detectMainNote: true, weekStartsOn: "monday" }, // due-date calendar and workload
+  reviewSidebar: { enabled: true, sort: "due", filter: "all", upcomingDays: 14, showEstimates: true, showPomodoro: true, overrideHours: 0, overrideMinutes: 0, overrideMode: "add", weekStartsOn: "monday" }, // persistent review list and time target
   studyStats: { enabled: true, leechThreshold: 5, maxRows: 200, durableRecall: true, durableDays: 2, heatmapWeeks: 12 }, // Anki-style statistics and two-day durability
   knowledgeRecord: { enabled: false, lastBuilt: "", notes: 0, concepts: 0, known: 0, due: 0 }, // opt-in local concept index; notes stay authoritative
   studyCounters: { version: 1, days: {}, updated: "" }, // permanent per-day counters; survive history trimming
@@ -305,6 +307,7 @@ module.exports = {
   VIEW_TYPE_STUDY_TOOLS,
   VIEW_TYPE_STUDY_WORKSPACE,
   VIEW_TYPE_REVIEW_CALENDAR,
+  VIEW_TYPE_REVIEW_SIDEBAR,
   VIEW_TYPE_STUDY_STATS,
   VIEW_TYPE_LOCAL_EVENTS,
   VIEW_TYPE_POMODORO,

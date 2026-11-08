@@ -29,6 +29,7 @@ const CATEGORIES = [
       { id: "mcq-review", label: "Review and scheduling", module: "mcq", tab: "review", icon: "repeat" },
       { id: "mcq-daily", label: "Daily quiz", module: "mcq", tab: "daily", icon: "sun" },
       { id: "note-review", label: "Note review", module: "note-review", icon: "notebook" },
+      { id: "review-sidebar", label: "Review schedule", module: "review-sidebar", icon: "calendar-check" },
       { id: "review-calendar", label: "Review calendar", module: "review-calendar", icon: "calendar-clock" },
       { id: "study-stats", label: "Study statistics", module: "study-stats", icon: "bar-chart-3" },
       { id: "mcq-about", label: "Practice tools and export", module: "mcq", tab: "about", icon: "download" },

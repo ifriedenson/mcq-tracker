@@ -26,6 +26,7 @@ test("settings: Global sits beside MCQ Tracker, Cards, Calendar and Reference an
     "calendar",
     ...T.studyToolSettings.STUDY_TOOL_SETTINGS_MODULES.map((module) => module.id),
     "note-review",
+    "review-sidebar",
     "review-calendar",
     "study-stats",
     "local-events",

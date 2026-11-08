@@ -386,6 +386,7 @@ test("settings: module and calendar navigation groups expose the requested tabs"
     "calendar",
     ...T.studyToolSettings.STUDY_TOOL_SETTINGS_MODULES.map((module) => module.id),
     "note-review",
+    "review-sidebar",
     "review-calendar",
     "study-stats",
     "local-events",

@@ -10,6 +10,7 @@ const { fvals, hasFilters } = require("./filters");
 const { NameModal } = require("./modals");
 const { renderCalendarSettings } = require("./calendar-settings");
 const { renderLocalEventsSettings, renderNoteReviewSettings, renderReviewCalendarSettings, renderStudyStatsSettings } = require("./review-settings");
+const { renderReviewSidebarSettings } = require("./review-sidebar-settings");
 const { renderPomodoroSettings } = require("./pomodoro-settings");
 const { CARDS_TABS, renderCardsSettings } = require("./cards-settings");
 const { renderDailySettings } = require("./daily-quiz-settings");
@@ -45,6 +46,7 @@ const SETTINGS_MODULES = [
   { id: "calendar", label: "Calendar", icon: "graduation-cap" },
   ...STUDY_TOOL_SETTINGS_MODULES,
   { id: "note-review", label: "Note review", icon: "repeat" },
+  { id: "review-sidebar", label: "Review schedule", icon: "calendar-check" },
   { id: "review-calendar", label: "Review calendar", icon: "calendar-clock" },
   { id: "study-stats", label: "Study statistics", icon: "bar-chart-3" },
   { id: "local-events", label: "Local events", icon: "calendar-plus" },
@@ -143,6 +145,11 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
 
     if (this.activeModule === "note-review") {
       renderNoteReviewSettings(containerEl, this.plugin, () => this.display());
+      return;
+    }
+
+    if (this.activeModule === "review-sidebar") {
+      renderReviewSidebarSettings(containerEl, this.plugin, () => this.display());
       return;
     }
 

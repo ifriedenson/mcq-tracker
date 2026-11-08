@@ -20,7 +20,7 @@ async function start(notes = NOTES) {
 
 test("the plugin starts and registers its views, commands and folder events", async () => {
   const { app, plugin } = await start();
-  assert.deepEqual(Object.keys(plugin.views).sort(), ["question-tracker-agent", "question-tracker-assignments", "question-tracker-calendar", "question-tracker-cards", "question-tracker-insights", "question-tracker-local-events", "question-tracker-pomodoro", "question-tracker-reference", "question-tracker-review-calendar", "question-tracker-study-stats", "question-tracker-study-tools", "question-tracker-study-workspace", "question-tracker-table-controls", "question-tracker-task-list", "question-tracker-test", "question-tracker-today", "question-tracker-view", "question-tracker-web-browser"]);
+  assert.deepEqual(Object.keys(plugin.views).sort(), ["question-tracker-agent", "question-tracker-assignments", "question-tracker-calendar", "question-tracker-cards", "question-tracker-insights", "question-tracker-local-events", "question-tracker-pomodoro", "question-tracker-reference", "question-tracker-review-calendar", "question-tracker-review-sidebar", "question-tracker-study-stats", "question-tracker-study-tools", "question-tracker-study-workspace", "question-tracker-table-controls", "question-tracker-task-list", "question-tracker-test", "question-tracker-today", "question-tracker-view", "question-tracker-web-browser"]);
   const ids = plugin.commands.map((c) => c.id);
   for (const id of ["practice-folder", "practice-current-folder", "practice-note", "timed-test", "weak-spots", "error-log", "find-question", "rename-source-id", "open-practice-view", "open-today", "import-pdf", "quick-add", "open-calendar", "open-cards", "open-assignments", "new-assignment", "open-reference", "new-card", "cards-extract-note", "tag-card-courses", "import-cards", "paper-scanner", "document-review", "ocr-pdf", "open-study-tools", "new-cornell-note", "open-study-workspace", "open-task-list", "new-feynman-cycle", "build-recall-queue", "new-topic-plan", "study-flow-capture", "subject-manager", "open-quiz-index", "read-aloud", "compile-lecture-notes", "course-health", "audio-bookmarks", "feynman-ai-feedback", "pdf-annotation-index", "open-pomodoro", "pomodoro-start-pause", "pomodoro-reset", "pomodoro-skip", "open-web-browser"]) {
     assert.ok(ids.includes(id), `missing command ${id}`);
@@ -71,19 +71,18 @@ test("right-clicking a folder that holds questions adds 'Practice this folder'",
     },
   };
   app.handlers["ws:file-menu"](menu, folder);
-  assert.equal(items.length, 1);
-  assert.equal(items[0].title, "Practice this folder");
+  assert.deepEqual(items.map((item) => item.title), ["Add to review schedule", "Practice this folder"]);
 
   const calls = [];
   plugin.practiceWith = async (f, m) => calls.push([f, m]);
-  await items[0].fn();
+  await items[1].fn();
   assert.deepEqual(calls, [[{ folder: ["Questions/sat"] }, "smart"]]);
 
   const empty = new TFolder();
   empty.path = "Somewhere/else";
   const before = items.length;
   app.handlers["ws:file-menu"](menu, empty);
-  assert.equal(items.length, before);
+  assert.deepEqual(items.slice(before).map((item) => item.title), ["Add to review schedule"]);
 });
 
 test("right-clicking a question note adds Practice this note only and Extract cards", async () => {
@@ -102,13 +101,13 @@ test("right-clicking a question note adds Practice this note only and Extract ca
   file.basename = "Q1";
   file.fm = { question_id: "Q1" };
   app.handlers["ws:file-menu"](menu, file);
-  assert.deepEqual(items.map((item) => item.title), ["Practice this note only", "Extract cards from this note"]);
+  assert.deepEqual(items.map((item) => item.title), ["Add to review schedule", "Practice this note only", "Extract cards from this note"]);
   let practised = "";
   let extracted = "";
   plugin.practiceNote = async (path) => (practised = path);
   plugin.openCardExtract = (path) => (extracted = path);
-  await items[0].fn();
   await items[1].fn();
+  await items[2].fn();
   assert.equal(practised, "Questions/sat/Q1.md");
   assert.equal(extracted, "Questions/sat/Q1.md");
 });

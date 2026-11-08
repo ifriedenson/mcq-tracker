@@ -78,6 +78,15 @@ function renderPomodoroSettings(containerEl, plugin, redisplay) {
       })
     );
   new Setting(containerEl)
+    .setName("Sound when a phase ends")
+    .setDesc("Play a short local chime when a focus or break phase completes. It uses the system audio output; no sound file is downloaded.")
+    .addToggle((t) =>
+      t.setValue(st.pomodoro.soundEnabled !== false).onChange(async (v) => {
+        st.pomodoro.soundEnabled = v;
+        await plugin.save();
+      })
+    );
+  new Setting(containerEl)
     .setName("Open the timer")
     .setDesc("The status-bar clock and ribbon button open the same view.")
     .addButton((b) => b.setButtonText("Open Pomodoro").onClick(() => plugin.activatePomodoro()));

@@ -34,6 +34,10 @@ class NoteReviewModal extends Modal {
       this.queue = queue.items;
       this.counts = queue.counts;
     }
+    if (this.options.file) {
+      this.queue = this.queue.filter((item) => item.path === this.options.file.path);
+      if (!this.queue.length) new Notice("This note is not in the due review queue.");
+    }
     this.index = 0;
     await this.render();
   }

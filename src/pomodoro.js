@@ -35,6 +35,7 @@ function normalizePomodoroSettings(value) {
     longBreakEvery: Math.min(12, Math.max(2, Math.round(Number(src.longBreakEvery) || 4))),
     autoStartBreaks: src.autoStartBreaks === true,
     autoStartWork: src.autoStartWork === true,
+    soundEnabled: src.soundEnabled !== false,
   };
   settings.state = normalizePomodoroState(src.state);
   if (!settings.state.remainingSec) settings.state.remainingSec = phaseSeconds(settings, settings.state.phase);

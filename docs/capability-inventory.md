@@ -5,13 +5,13 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 428 groups, 2981 exports. **Commands:** 221. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 428 groups, 2984 exports. **Commands:** 227. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
 | Group | Exports | Tests that cite it |
 | --- | --- | --- |
-| `API_PRESETS` | 10 | `tests/local-models.test.js`, `tests/qwen-preset.test.js` |
+| `API_PRESETS` | 11 | `tests/local-models.test.js`, `tests/qwen-preset.test.js` |
 | `API_SYSTEM` | 0 | `tests/ai-write-guard.test.js` |
 | `ASSIGNMENTS_TABS` | 3 | `tests/modules.test.js` |
 | `AgentEditReviewModal` | 0 | `tests/feature-surfaces.test.js` |
@@ -28,7 +28,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `CardView` | 0 | `tests/card-cram.test.js`, `tests/card-learning.test.js`, `tests/card-mother-cram.test.js`, `tests/card-reveal.test.js`, `tests/card-speech.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/interval-preview.test.js`, `tests/mobile-module-layout.test.js`, `tests/source-recall.test.js`, `tests/study-status.test.js` |
 | `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/chat-branches.test.js`, `tests/chat-panel-copilot.test.js`, `tests/chat-panel-mentions.test.js`, `tests/diagnostics-gauge.test.js`, `tests/memory-export.test.js`, `tests/note-context.test.js`, `tests/quick-ask.test.js`, `tests/security-hardening.test.js`, `tests/skills-pricing.test.js`, `tests/think-first.test.js` |
 | `CourseOverviewModal` | 0 | `tests/core-values.test.js` |
-| `DEFAULT_SETTINGS` | 114 | `tests/grading.test.js` |
+| `DEFAULT_SETTINGS` | 115 | `tests/grading.test.js` |
 | `DocumentReviewModal` | 0 | `tests/feature-surfaces.test.js` |
 | `DueQueueModal` | 0 | `tests/feature-surfaces.test.js` |
 | `EpubReaderModal` | 0 | `tests/epub.test.js` |
@@ -67,7 +67,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `REFERENCE_TABS` | 2 | `tests/modules.test.js` |
 | `ReferenceView` | 0 | `tests/ap-exam-history.test.js`, `tests/ap-resource-notes.test.js`, `tests/ap-score.test.js`, `tests/calculator.test.js`, `tests/complex.test.js`, `tests/geometry.test.js`, `tests/graph-3d.test.js`, `tests/graph-complex.test.js`, `tests/matrix.test.js`, `tests/mobile-reference-stats.test.js`, `tests/reference-advanced.test.js`, `tests/reference-sheets.test.js`, `tests/reference-tools.test.js`, `tests/reference.test.js` |
 | `ReviewCalendarView` | 0 | `tests/mobile-calendar-agenda.test.js` |
-| `SETTINGS_MODULES` | 47 | `tests/calendar.test.js`, `tests/modules.test.js`, `tests/review-calendar.test.js`, `tests/study-tool-settings.test.js` |
+| `SETTINGS_MODULES` | 48 | `tests/calendar.test.js`, `tests/modules.test.js`, `tests/review-calendar.test.js`, `tests/study-tool-settings.test.js` |
 | `SimpleNoteQuizModal` | 0 | `tests/simple-note-quiz.test.js` |
 | `SpacedEverythingCaptureModal` | 0 | `tests/feature-surfaces.test.js` |
 | `StudyMatchModal` | 0 | `tests/study-modes.test.js` |
@@ -493,6 +493,12 @@ the table and fails if a group, export count, command or citing test drifts.
 | `retry-pending-attempts` | Retry saving offline practice results | `flushPendingAttempts` | `tests/offline.test.js` |
 | `open-calendar` | Open calendar | `activateCalendar` | `tests/plugin.test.js` |
 | `open-review-calendar` | Open review calendar | `activateReviewCalendar` | `tests/review-calendar.test.js` |
+| `open-review-sidebar` | Open review sidebar | `activateReviewSidebar` | `tests/review-sidebar.test.js` |
+| `review-next-note` | Next review note | `openAdjacentReviewNote` | `tests/review-sidebar.test.js` |
+| `review-previous-note` | Previous review note | `openAdjacentReviewNote` | `tests/review-sidebar.test.js` |
+| `review-current-note` | Review current note | `openNoteReviewForFile` | `tests/review-sidebar.test.js` |
+| `review-add-current-note` | Add current note to review schedule | `addActiveNoteToReview` | `tests/mobile-calendar-agenda.test.js` |
+| `review-add-current-folder` | Add current note's folder to review schedule | `addActiveFolderToReview` | `tests/mobile-calendar-agenda.test.js` |
 | `review-calendar-add-note` | Review calendar: add this note to review | `addActiveNoteToReview` | `tests/mobile-calendar-agenda.test.js`, `tests/review-calendar.test.js` |
 | `review-calendar-add-folder` | Review calendar: add this folder to review | `addActiveFolderToReview` | `tests/mobile-calendar-agenda.test.js`, `tests/review-calendar.test.js` |
 | `open-study-stats` | Open study statistics | `activateStudyStats` | `tests/review-calendar.test.js` |
@@ -613,7 +619,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `test-couchdb` | Cards: test CouchDB connection | `testCouchDbConnection` | `tests/secret-keys.test.js` |
 | `sync-cards-couchdb` | Cards: sync review state with CouchDB | `syncCardsCouchDb` | `tests/couchdb-sync.test.js` |
 | `open-due-queue` | Open today's due queue | `openDueQueue` | `tests/command-effects.test.js` |
-| `review-notes` | Review notes (whole-note queue) | `openNoteReview` | `tests/note-review.test.js`, `tests/quiz-block.test.js` |
+| `review-notes` | Review notes (whole-note queue) | `openNoteReview` | `tests/note-review.test.js`, `tests/quiz-block.test.js`, `tests/review-sidebar.test.js` |
 | `spaced-everything-review` | Spaced Everything: review due notes | `moduleOff` | `tests/frq-review.test.js`, `tests/spaced-everything.test.js`, `tests/views.test.js` |
 | `spaced-everything-log` | Spaced Everything: log review outcome for this note | `moduleOff` | `tests/frq-review.test.js`, `tests/spaced-everything.test.js`, `tests/views.test.js` |
 | `spaced-everything-capture` | Spaced Everything: capture thought | `moduleOff` | `tests/frq-review.test.js`, `tests/spaced-everything.test.js`, `tests/views.test.js` |

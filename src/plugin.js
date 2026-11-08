@@ -2,7 +2,7 @@
 const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const { Modal, Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST, VIEW_TYPE_WEB_BROWSER, VIEW_TYPE_AGENT } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_REVIEW_SIDEBAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST, VIEW_TYPE_WEB_BROWSER, VIEW_TYPE_AGENT } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { parseQuickPracticeUri } = require("./quick-practice");
 const practiceFullscreen = require("./practice-fullscreen");
@@ -269,6 +269,10 @@ const sessionReport = require("./session-report");
 const { NoteReviewDock } = require("./note-review-dock");
 const satCallout = require("./sat-callout");
 const { ReviewCalendarView } = require("./review-calendar-view");
+const { ReviewSidebarView } = require("./review-sidebar");
+const { normalizeReviewSidebarSettings } = require("./review-sidebar-model");
+const linkHierarchy = require("./link-hierarchy");
+const utcDates = require("./utc-dates");
 const { StudyStatsView } = require("./study-stats-view");
 const { LocalEventModal, LocalEventsView } = require("./local-events-view");
 const reviewSession = require("./review-session");
@@ -395,6 +399,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_STUDY_TOOLS, (leaf) => new StudyToolsView(leaf, this));
     this.registerView(VIEW_TYPE_STUDY_WORKSPACE, (leaf) => new StudyWorkspaceView(leaf, this));
     this.registerView(VIEW_TYPE_REVIEW_CALENDAR, (leaf) => new ReviewCalendarView(leaf, this));
+    this.registerView(VIEW_TYPE_REVIEW_SIDEBAR, (leaf) => new ReviewSidebarView(leaf, this));
     this.registerView(VIEW_TYPE_STUDY_STATS, (leaf) => new StudyStatsView(leaf, this));
     this.registerView(VIEW_TYPE_LOCAL_EVENTS, (leaf) => new LocalEventsView(leaf, this));
     this.registerView(VIEW_TYPE_POMODORO, (leaf) => new PomodoroView(leaf, this));
@@ -542,6 +547,12 @@ class QuestionTrackerPlugin extends Plugin {
     });
     this.addCommand({ id: "open-calendar", name: "Open calendar", callback: () => this.activateCalendar() });
     this.addCommand({ id: "open-review-calendar", name: "Open review calendar", callback: () => this.activateReviewCalendar() });
+    this.addCommand({ id: "open-review-sidebar", name: "Open review sidebar", callback: () => this.activateReviewSidebar() });
+    this.addCommand({ id: "review-next-note", name: "Next review note", callback: () => this.openAdjacentReviewNote("next") });
+    this.addCommand({ id: "review-previous-note", name: "Previous review note", callback: () => this.openAdjacentReviewNote("previous") });
+    this.addCommand({ id: "review-current-note", name: "Review current note", callback: () => this.openNoteReviewForFile(this.app.workspace.getActiveFile()) });
+    this.addCommand({ id: "review-add-current-note", name: "Add current note to review schedule", callback: () => this.addActiveNoteToReview() });
+    this.addCommand({ id: "review-add-current-folder", name: "Add current note's folder to review schedule", callback: () => this.addActiveFolderToReview() });
     this.addCommand({ id: "review-calendar-add-note", name: "Review calendar: add this note to review", callback: () => this.addActiveNoteToReview() });
     this.addCommand({ id: "review-calendar-add-folder", name: "Review calendar: add this folder to review", callback: () => this.addActiveFolderToReview() });
     this.addCommand({ id: "open-study-stats", name: "Open study statistics", callback: () => this.activateStudyStats() });
@@ -1000,6 +1011,12 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu, file) => {
         if (file instanceof TFolder) {
+          menu.addItem((item) =>
+            item
+              .setTitle("Add to review schedule")
+              .setIcon("calendar-plus")
+              .onClick(() => this.addFolderToReview(file.path))
+          );
           if (!this.folderHasQuestions(file.path)) return;
           menu.addItem((item) =>
             item
@@ -1016,6 +1033,12 @@ class QuestionTrackerPlugin extends Plugin {
           return;
         }
         if (!(file instanceof TFile) || !/\.md$/i.test(file.path)) return;
+        menu.addItem((item) =>
+          item
+            .setTitle("Add to review schedule")
+            .setIcon("calendar-plus")
+            .onClick(() => this.addNoteToReview(file))
+        );
         const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
         if (fm && fm.calendar_uid && fm.calendar_date) {
           menu.addItem((item) => item.setTitle("Calendar: mark attended").setIcon("check").onClick(() => this.logClassNoteAttendance(file, true)));
@@ -1367,6 +1390,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.noteReview = normalizeNoteReview(saved.noteReview);
     this.settings.noteReviewDock = noteReviewDock.normalizeNoteReviewDockSettings(saved.noteReviewDock);
     this.settings.reviewCalendar = reviewCalendar.normalizeReviewCalendarSettings(saved.reviewCalendar);
+    this.settings.reviewSidebar = normalizeReviewSidebarSettings(saved.reviewSidebar);
     this.settings.studyStats = studyStats.normalizeStudyStatsSettings(saved.studyStats);
     this.settings.localEvents = localEvents.normalizeLocalEventsSettings(saved.localEvents);
     this.settings.studyCounters = studyCounters.normalizeStudyCounters(saved.studyCounters);
@@ -2583,7 +2607,7 @@ class QuestionTrackerPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_STUDY_WORKSPACE)) {
       if (leaf.view && leaf.view.render) leaf.view.render();
     }
-    for (const type of [VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST]) {
+    for (const type of [VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_REVIEW_SIDEBAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST]) {
       for (const leaf of this.app.workspace.getLeavesOfType(type)) {
         if (leaf.view && leaf.view.render) leaf.view.render();
       }
@@ -2655,6 +2679,10 @@ class QuestionTrackerPlugin extends Plugin {
 
   reviewCalendarEnabled() {
     return reviewCalendar.normalizeReviewCalendarSettings(this.settings.reviewCalendar).enabled;
+  }
+
+  reviewSidebarEnabled() {
+    return normalizeReviewSidebarSettings(this.settings.reviewSidebar).enabled;
   }
 
   studyStatsEnabled() {
@@ -3293,6 +3321,8 @@ class QuestionTrackerPlugin extends Plugin {
     else this.removeModuleRibbon("note-review");
     if (this.reviewCalendarEnabled()) this.addModuleRibbon("review-calendar", "calendar-clock", "Open review calendar", () => this.activateReviewCalendar());
     else this.removeModuleRibbon("review-calendar");
+    if (this.reviewSidebarEnabled()) this.addModuleRibbon("review-sidebar", "calendar-check", "Open review sidebar", () => this.activateReviewSidebar());
+    else this.removeModuleRibbon("review-sidebar");
     if (this.studyStatsEnabled()) this.addModuleRibbon("study-stats", "bar-chart-3", "Open study statistics", () => this.activateStudyStats());
     else this.removeModuleRibbon("study-stats");
     if (this.localEventsEnabled()) this.addModuleRibbon("local-events", "calendar-plus", "Open local events", () => this.activateLocalEvents());
@@ -7645,7 +7675,7 @@ class QuestionTrackerPlugin extends Plugin {
     const config = normalizeNoteReview(this.settings.noteReview);
     return buildNoteQueue(this.getNoteCandidates(), {
       sets: config.sets,
-      today: localDate(),
+      today: utcDates.todayKey(),
       limit: opts.limit === undefined ? config.limit : opts.limit,
     });
   }
@@ -7657,6 +7687,27 @@ class QuestionTrackerPlugin extends Plugin {
       return null;
     }
     const modal = new NoteReviewModal(this.app, this);
+    modal.open();
+    return modal;
+  }
+
+  /** Review one note from the sidebar or the Review current note command. */
+  openNoteReviewForFile(file) {
+    if (!file || !/\.md$/i.test(file.path || "")) {
+      new Notice("Open a Markdown note first.");
+      return null;
+    }
+    const config = normalizeNoteReview(this.settings.noteReview);
+    if (!config.enabled) {
+      new Notice("Turn on whole-note review under Settings → Note review first.", 6000);
+      return null;
+    }
+    const queue = this.getNoteQueue({ limit: 0 });
+    if (!queue.all.some((row) => row.path === file.path)) {
+      new Notice("This note is not due in the whole-note review queue.");
+      return null;
+    }
+    const modal = new NoteReviewModal(this.app, this, { file });
     modal.open();
     return modal;
   }
@@ -7894,6 +7945,16 @@ ${body}
     this.refreshViews();
   }
 
+  async removeNoteFromReview(file) {
+    if (!file || !/\.md$/i.test(file.path || "")) return false;
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      fm.note_review_excluded = true;
+    });
+    this.refreshViews();
+    new Notice(`${file.basename} is hidden from review. Its schedule and history are kept.`);
+    return true;
+  }
+
   reviewCalendarSettings() {
     return reviewCalendar.normalizeReviewCalendarSettings(this.settings.reviewCalendar);
   }
@@ -7908,7 +7969,7 @@ ${body}
       cards,
       settings: config,
       sets: noteConfig.sets,
-      today: localDate(),
+      today: utcDates.todayKey(),
       days: opts.days || 45,
     });
   }
@@ -7928,13 +7989,13 @@ ${body}
     await this.app.fileManager.processFrontMatter(target, (noteFm) => {
       noteFm.note_review = true;
       noteFm.note_review_excluded = false;
-      if (!str(noteFm.next_review).trim()) noteFm.next_review = localDate();
+      if (!str(noteFm.next_review).trim()) noteFm.next_review = utcDates.todayKey();
     });
     const config = normalizeNoteReview(this.settings.noteReview);
     config.enabled = true;
     this.settings.noteReview = config;
     await this.save();
-    this.refreshViews();
+    if (!opts.skipRefresh) this.refreshViews();
     if (!opts.silent) new Notice(`${target.basename} is now in whole-note review.`);
     return target.path;
   }
@@ -7943,21 +8004,42 @@ ${body}
     return this.addNoteToReview(this.app.workspace.getActiveFile());
   }
 
-  folderMainNote(folder) {
-    const root = str(folder).trim().replace(/^\/+|\/+$/g, "");
-    if (!root) return null;
-    const rows = [];
+  /** Read link order from disk and build the folder hierarchy (Spaceforge link-analyzer semantics). */
+  async folderReviewHierarchy(folder) {
+    const root = linkHierarchy.cleanFolder(folder);
+    if (!root) return linkHierarchy.buildFolderHierarchy([], "");
+    const notes = [];
     for (const file of this.app.vault.getMarkdownFiles()) {
-      if (file.path !== root && !file.path.startsWith(`${root}/`)) continue;
-      const cache = this.app.metadataCache.getFileCache(file) || {};
-      rows.push({ path: file.path, title: file.basename, links: Array.isArray(cache.links) ? cache.links.length : 0 });
+      if (!linkHierarchy.inFolder(file.path, root)) continue;
+      let text = "";
+      try {
+        text = this.app.vault.cachedRead ? await this.app.vault.cachedRead(file) : await this.app.vault.read(file);
+      } catch (error) {
+        continue;
+      }
+      const links = [];
+      const seen = new Set();
+      const re = /(!?)\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]/g;
+      let match;
+      while ((match = re.exec(text)) !== null) {
+        const target = this.app.metadataCache.getFirstLinkpathDest(String(match[2] || "").trim(), file.path);
+        if (!target || !linkHierarchy.inFolder(target.path, root) || seen.has(target.path)) continue;
+        seen.add(target.path);
+        links.push({ path: target.path, embed: match[1] === "!" });
+      }
+      notes.push({ path: file.path, links });
     }
-    return reviewCalendar.pickMainNote(rows);
+    return linkHierarchy.buildFolderHierarchy(notes, root);
+  }
+
+  async folderMainNote(folder) {
+    const hierarchy = await this.folderReviewHierarchy(folder);
+    return hierarchy.root ? { path: hierarchy.root, title: linkHierarchy.baseName(hierarchy.root), links: (hierarchy.nodes[hierarchy.root] || {}).links || [] } : null;
   }
 
   async addFolderToReview(folder, options) {
     const opts = options || {};
-    const root = str(folder).trim().replace(/^\/+|\/+$/g, "");
+    const root = linkHierarchy.cleanFolder(folder);
     if (!root) {
       if (!opts.silent) new Notice("Open a note inside the folder first.");
       return null;
@@ -7967,13 +8049,28 @@ ${body}
     config.sets = result.sets;
     config.enabled = true;
     this.settings.noteReview = config;
+    let linked = 0;
     if (opts.detectMainNote !== false && this.reviewCalendarSettings().detectMainNote) {
-      const main = this.folderMainNote(root);
-      if (main) await this.addNoteToReview(this.app.vault.getAbstractFileByPath(main.path), { silent: true });
+      const hierarchy = await this.folderReviewHierarchy(root);
+      for (let index = 0; index < hierarchy.order.length; index++) {
+        const path = hierarchy.order[index];
+        const file = this.app.vault.getAbstractFileByPath(path);
+        if (!file) continue;
+        const added = await this.addNoteToReview(file, { silent: true, skipRefresh: true });
+        if (added) {
+          linked++;
+          await this.app.fileManager.processFrontMatter(file, (fm) => {
+            fm.note_review_order = index;
+          });
+        }
+      }
     }
     await this.save();
     this.refreshViews();
-    if (!opts.silent) new Notice(result.added ? `Added ${root} to whole-note review.` : `${root} is already in whole-note review.`);
+    if (!opts.silent) {
+      const suffix = linked ? ` ${linked} linked note${linked === 1 ? "" : "s"} added in traversal order.` : "";
+      new Notice(result.added ? `Added ${root} to whole-note review.${suffix}` : `${root} is already in whole-note review.${suffix}`);
+    }
     return result.added ? root : null;
   }
 
@@ -8096,8 +8193,10 @@ ${body}
 
   refreshPomodoro() {
     this.refreshPomodoroStatus();
-    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_POMODORO)) {
-      if (leaf.view && leaf.view.render) leaf.view.render();
+    for (const type of [VIEW_TYPE_POMODORO, VIEW_TYPE_REVIEW_SIDEBAR]) {
+      for (const leaf of this.app.workspace.getLeavesOfType(type)) {
+        if (leaf.view && leaf.view.render) leaf.view.render();
+      }
     }
   }
 
@@ -8142,8 +8241,39 @@ ${body}
     config.state = result.state;
     this.settings.pomodoro = config;
     this.refreshPomodoro();
-    if (result.completedPhase) this.save().catch(() => {});
+    if (result.completedPhase) {
+      this.playPomodoroChime();
+      this.save().catch(() => {});
+    }
     return result;
+  }
+
+  /** Short Web Audio chime; silently unavailable runtimes simply skip it. */
+  playPomodoroChime() {
+    const config = pomodoro.normalizePomodoroSettings(this.settings.pomodoro);
+    if (!config.soundEnabled) return false;
+    try {
+      const Ctor = typeof window !== "undefined" ? window.AudioContext || window.webkitAudioContext : null;
+      if (!Ctor) return false;
+      const context = new Ctor();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(880, context.currentTime);
+      gain.gain.setValueAtTime(0.0001, context.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.18, context.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.28);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.3);
+      oscillator.addEventListener("ended", () => {
+        if (context.close) context.close().catch(() => {});
+      });
+      return true;
+    } catch (error) {
+      return false;
+    }
   }
 
   async activatePomodoro() {
@@ -8195,6 +8325,11 @@ ${body}
   }
 
   async openNextDueNote() {
+    return this.openAdjacentReviewNote("next");
+  }
+
+  /** Next or previous due note, wrapping around the queue. Used by commands and the sidebar. */
+  async openAdjacentReviewNote(direction) {
     const queue = this.getNoteQueue({ limit: 0 });
     if (!queue.all.length) {
       new Notice("No whole notes are due for review.");
@@ -8202,10 +8337,34 @@ ${body}
     }
     const active = this.app.workspace.getActiveFile();
     const current = active ? queue.all.findIndex((row) => row.path === active.path) : -1;
-    const next = queue.all[current + 1] || queue.all[0];
+    let next;
+    if (direction === "previous") {
+      next = current > 0 ? queue.all[current - 1] : queue.all[queue.all.length - 1];
+    } else {
+      next = current >= 0 ? queue.all[(current + 1) % queue.all.length] : queue.all[0];
+    }
+    if (!next) return null;
     await this.app.workspace.getLeaf(false).openFile(next.file);
     this.refreshNoteReviewDock();
     return next.file;
+  }
+
+  async activateReviewSidebar() {
+    if (!this.reviewSidebarEnabled()) {
+      new Notice("Turn on Review schedule in Settings → Review schedule.");
+      return null;
+    }
+    const ws = this.app.workspace;
+    let leaf = ws.getLeavesOfType(VIEW_TYPE_REVIEW_SIDEBAR)[0];
+    if (!leaf) {
+      leaf = typeof ws.getRightLeaf === "function" ? ws.getRightLeaf(false) : null;
+      if (!leaf) leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
+      await leaf.setViewState({ type: VIEW_TYPE_REVIEW_SIDEBAR, active: true });
+    }
+    if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
+    await ws.revealLeaf(leaf);
+    if (leaf.view && leaf.view.render) leaf.view.render();
+    return leaf.view;
   }
 
   async activateReviewCalendar() {

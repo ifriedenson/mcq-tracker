@@ -12,6 +12,7 @@ const API_PRESETS = {
   anthropic: { label: "Anthropic (Claude)", kind: "anthropic", base: "https://api.anthropic.com", defaultModel: "claude-sonnet-5-5" },
   openai: { label: "OpenAI", kind: "openai", base: "https://api.openai.com/v1", defaultModel: "" },
   openrouter: { label: "OpenRouter", kind: "openai", base: "https://openrouter.ai/api/v1", defaultModel: "" },
+  together: { label: "Together AI", kind: "openai", base: "https://api.together.xyz/v1", defaultModel: "" },
   google: { label: "Google Gemini", kind: "openai", base: "https://generativelanguage.googleapis.com/v1beta/openai", defaultModel: "" },
   qwen: { label: "Qwen (DashScope)", kind: "openai", base: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", defaultModel: "qwen-plus" },
   ollama: { label: "Ollama (local, offline)", kind: "openai", base: "http://localhost:11434/v1", defaultModel: "", noKey: true, local: true },
