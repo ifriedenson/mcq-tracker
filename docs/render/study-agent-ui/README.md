@@ -1,4 +1,4 @@
-# Study agent UI evidence (rendered from the current worktree)
+# Study agent UI evidence
 
 Captured Nov 7, 2026. Every chat image here is rendered from the serialized
 element tree of the real `AgentView` and its mounted `ChatPanel` with the current
@@ -7,7 +7,7 @@ conversation tab strip and the collapsed **Search vault** disclosure. The empty,
 busy and error states use the real panel state classes (`.qt-hidden`, the inline
 error card, the streaming caret).
 
-There are **18 chat images**: 16 full-pane frames at 900 px tall (thread at
+The fixture set has **18 chat images**: 16 full-pane frames at 900 px tall (thread at
 320/420/560, empty at 320/420/560, busy and error at 420) plus two dedicated
 420 × 230 composer crops. The unchanged settings pair is separate.
 
@@ -150,58 +150,71 @@ DPR, then crop each 900 px pane.
 
 ## Real Obsidian check (1.15.0, Nov 8 2026)
 
-The three assets were downloaded from the published GitHub release `1.291.3`
-(`main.js` SHA-256 `2a94c189…`, `styles.css` `1afb2cea…`, `manifest.json`
-`b61f5534…`), copied into a throwaway vault and loaded by Obsidian 1.15.0 under
-Xvfb (2400 × 1600 screen, 2× device scale, 1200 × 800 CSS window). The plugin
-reports version 1.291.3, and the vault files hash to those same values. AI was enabled,
-**Study agent: open the sidebar** was run, a new chat was started and the
-suggestion rotation was stopped so the seeded deck stayed on screen.
+The three assets were downloaded from the published GitHub release `1.291.4`
+(`main.js` SHA-256 `2a94c189…`, `styles.css` `d03bb2dd…`, `manifest.json`
+`0fbd1b32…`; 6,899,848 / 351,119 / 374 bytes), copied into a throwaway vault and
+loaded by Obsidian 1.15.0 under Xvfb (2400 × 1600 screen, 2× device scale,
+1200 × 800 CSS window). The plugin reports version 1.291.4, and the vault files
+hash to those values. AI was enabled, **Study agent: open the sidebar** was run,
+a new chat was started, and rotation was stopped so the seeded deck stayed on
+screen. The 1.291.4 patch closes the two chrome defects the 1.291.3 coverage run
+exposed: the token gauge now shows its complete label in a wide pane, and
+**How replies work** uses the same `›` chevron as **Usage and context** instead
+of the `ⓘ` glyph that Obsidian's UI font rendered as a square.
 
-Five real-pane captures (cropped from the 2× screenshots) sit next to this
-file:
+The 12 committed captures (`release-*.png`) cover the full suggestion flow:
 
-- `obsidian-empty-narrow-light.png` — 296 × 555 px sidebar, empty state.
-- `obsidian-long-narrow-light.png` — 296 × 600 px sidebar, long suggestion and
-  long draft.
-- `obsidian-long-narrow-dark.png` — the same state in the dark theme.
-- `obsidian-empty-wide-light.png` — 512 × 522 px main-area leaf, empty state.
-- `obsidian-long-wide-light.png` — 512 × 522 px main-area leaf, long state.
+- `release-full-{empty,draft,long}-{light,dark}.png` — 2264 × 1044 px device
+  pixels (1132 × 522 CSS) from Obsidian's default main-area leaf with both
+  splitters collapsed. This is the true full-width case; it is not the 512 px
+  leaf used for the earlier baseline.
+- `release-sidebar-{empty,draft,long}-{light,dark}.png` — 592 × 1110 px device
+  pixels (296 × 555 CSS); the long-title pair grows to 592 × 1200 px
+  (296 × 600 CSS) when the card grows.
+- `empty` keeps the seeded deck; `draft` types **Compare aerobic and anaerobic
+  respiration before Friday's exam** while the deck stays visible; `long`
+  replaces the first suggestion with the long title/detail and clears the
+  composer.
 
-Obsidian clamps its right sidebar near 300 px, so the narrow capture is that
-pane's 296 px content width rather than a forced 320 px; the normal-width
-capture is a real main-area leaf, not a widened sidebar.
+Measured from the live DOM in those panes (`scrollHeight`/`scrollWidth` vs
+`clientHeight`/`clientWidth`):
 
-Measured from the live DOM at those panes:
-
-| Check | 296 px sidebar | 512 px leaf |
+| Check | 1132 px main leaf | 296 px sidebar |
 |---|---|---|
-| Empty copy | 238 × 70 px, `scrollHeight` = `clientHeight` | 397 × 52 px, same |
-| Empty card | 264 px wide, unclipped | 454 px wide, unclipped |
-| Seeded deck / active card | 238 × 116 / 238 × 104 px | 454 × 116 / 454 × 104 px |
-| Long deck / active card | 238 × 162 / 238 × 150 px | 454 × 116 / 454 × 104 px |
-| Long title | 214 × 65 px, 4 lines, unclamped | 430 × 33 px, 2 lines |
-| Long detail | 49 px, intentional three-line clamp | 32 px, two lines |
-| Mode / role chips | 44 / 68 px, **Tutor** / **Private** fully visible | same |
-| Dots | below the deck | below the deck |
-| Controls vs composer | 404–434 vs 466+, no overlap | 409–439 vs 471+, no overlap |
+| Empty state | `emptyTextClipped` false; deck 486 × 116 px | `emptyTextClipped` false; deck 238 × 116 px |
+| Seeded deck / active card | 486 × 116 / 486 × 104 px | 238 × 116 / 238 × 104 px |
+| Long deck / active card | 486 × 116 / 486 × 104 px | 238 × 162 / 238 × 150 px |
+| Long title | 462 × 33 px, 2 lines, unclamped | 214 × 65 px, 4 lines, unclamped |
+| Long detail | 462 × 32 px, 2 lines | 214 × 49 px, 3-line clamp |
+| Dots | 3, below the deck | 3, below the deck |
+| Context chips | 5, one row, unclipped | 5, one row, unclipped |
+| Token gauge | full `0% · ~16 / 12,000 tokens`, 153 px label | hidden by the ≤470 px rule; ring only |
+| Controls / composer | 1132 × 30 / 1132 × 141 px; 32 px gap, no overlap | 296 × 30 / 296 × 141 px; 32 px gap, no overlap |
 | Back-card labels | `visibility: hidden` on all four | same |
 
-All six checks hold in the real app at both widths and in both themes, so no
-stylesheet or markup change was required: the installed release's `styles.css`
-and `main.js` are byte-identical to the published assets. At 296 px the deck grows from 116 to
-162 px for the long suggestion instead of clipping it, and the title keeps all
-four lines.
+The active card is a real `BUTTON` with `tabIndex = 0` and `cursor: pointer`;
+the decorative back-cards stay `aria-hidden` and are not focusable. No capture
+reports `scrollHeight > clientHeight` on the empty copy, deck or active card,
+no chip is clipped, and no control row overlaps the pinned composer. The only
+visible ellipsis is the long descriptive detail in the 296 px sidebar: the title
+keeps all four lines, the card grows from 104 to 150 px, and the detail keeps
+its documented three-line clamp instead of squeezing the title.
+
+Earlier five `obsidian-*.png` captures (296 px sidebar and 512 px leaf, from
+`1.291.3`) remain in the folder as the baseline; the `release-*.png` set is the
+current full-width evidence for `1.291.4`.
 
 The test rig (Xvfb launcher, unpacked Obsidian 1.15.0, throwaway vault and CDP
 drivers) lives under gitignored `artifacts/obsidian-test/`. To reproduce: start
 Xvfb at 2400 × 1600, launch Obsidian with
 `--no-sandbox --disable-gpu --force-device-scale-factor=2
 --remote-debugging-port=9222`, download `main.js`, `styles.css` and
-`manifest.json` from the release into `<vault>/.obsidian/plugins/mcq-tracker/`,
-enable the plugin, then run `run/capture-release.py` with `PYTHONPATH=pylibs` and
-`DISPLAY` set (it opens the true right-sidebar leaf and a main leaf, and crops
-the pane out of each 2× screenshot).
+`manifest.json` from release `1.291.4` into
+`<vault>/.obsidian/plugins/mcq-tracker/`, enable the plugin, then run
+`run/capture-coverage.py` with `PYTHONPATH=pylibs` and `DISPLAY=:102` set. It
+collapses both splitters for the 1132 px leaf, captures all six full-width
+states, expands the 320 px right splitter, and captures the six sidebar states.
+The committed files are the pane crops from the 2× screenshots.
 
 ## Method
 
