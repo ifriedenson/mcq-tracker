@@ -67694,6 +67694,32 @@ function statusText(plugin) {
 }
 
 /**
+ * PDF++'s scrollToSetting scrolls its own .vertical-tab-content. When the tab
+ * is mounted inside MCQ Tracker's settings page, that element grows to the
+ * full content height and has no scroll range; the real scroller is Obsidian's
+ * outer settings pane. Scroll the addressed control into that pane so the
+ * vendor's Customize... and obsidian://pdf-plus links land on the right row.
+ */
+function bindEmbeddedScroll(embedded) {
+  if (!embedded || typeof embedded.scrollToSetting !== "function") return;
+  if (embedded._qtScrollIntoView) return;
+  const vendorScrollToSetting = embedded.scrollToSetting;
+  embedded.scrollToSetting = function (setting, options) {
+    const target = setting && setting.settingEl;
+    if (target && typeof target.scrollIntoView === "function") {
+      target.scrollIntoView({
+        block: "start",
+        inline: "nearest",
+        behavior: (options && options.behavior) || "smooth",
+      });
+      return;
+    }
+    return vendorScrollToSetting.call(this, setting, options);
+  };
+  embedded._qtScrollIntoView = true;
+}
+
+/**
  * Renders the page. PDF++'s host captures its vendor settings tab instead of
  * registering a second top-level plugin tab; this page mounts that tab's own
  * controls so PDF++ is configured in one place with every MCQ Tracker option.
@@ -67770,6 +67796,7 @@ function renderPdfPlusSettings(containerEl, plugin, redisplay) {
     if (!embedded || !embedded.containerEl) throw new Error("the PDF++ settings tab has no container");
     if (typeof embedded.containerEl.addClass === "function") embedded.containerEl.addClass("qt-pdf-plus-embedded");
     plugin._pdfPlusSettingsView = embedded;
+    bindEmbeddedScroll(embedded);
     mount.appendChild(embedded.containerEl);
     const drawing = embedded.display();
     if (drawing && typeof drawing.catch === "function") drawing.catch(warn);

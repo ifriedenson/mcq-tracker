@@ -164,6 +164,39 @@ test("settings navigation: PDF++ lives in the same navigation and hosts the vend
   assert.equal(plugin.app.setting.pluginTabs[0].containerEl, vendor.containerEl, "the real vendor tab keeps its own container");
 });
 
+test("pdf plus settings: vendor scroll targets inside Obsidian's settings pane", async () => {
+  const plugin = await setup();
+  const { tab, dom } = openTab(plugin);
+  class FakeScrollVendorTab {
+    constructor(hostPlugin) {
+      this.plugin = hostPlugin;
+      this.containerEl = dom.root.createDiv({ cls: "pdf-plus-settings" });
+      this.contentEl = this.containerEl.createDiv({ cls: "content" });
+      this.items = { colors: { settingEl: this.contentEl.createDiv({ text: "Colour swatches" }) } };
+    }
+    display() {
+      this.contentEl.createDiv({ text: "PDF++ scroll control" });
+    }
+    scrollTo(id, options) {
+      const setting = this.items[id];
+      if (setting) this.scrollToSetting(setting, options);
+    }
+    scrollToSetting() {
+      this.originalScrollCalls = (this.originalScrollCalls || 0) + 1;
+    }
+  }
+  const vendorPlugin = { manifest: { id: "mcq-tracker-pdf-plus" } };
+  const vendor = new FakeScrollVendorTab(vendorPlugin);
+  plugin.app.setting = { pluginTabs: [vendor] };
+  tab.openPage("pdf-plus");
+  const embedded = plugin._pdfPlusSettingsView;
+  assert.ok(embedded, "the embedded vendor tab was created");
+  const target = embedded.items.colors.settingEl;
+  embedded.scrollTo("colors", { behavior: "auto" });
+  assert.equal(target.__own.scrolledIntoView, true, "the real setting was scrolled into view");
+  assert.equal(embedded.originalScrollCalls, undefined, "the no-op vendor scroll was bypassed");
+});
+
 test("pdf plus settings: Customize links open the integrated MCQ page", async () => {
   const plugin = await setup();
   const calls = [];

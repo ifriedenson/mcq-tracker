@@ -1,3 +1,7 @@
+## 1.291.1 - 2026-11-08
+
+- **PDF++ Customize links scroll to their control.** The embedded vendor settings tab grew to its full content height inside MCQ Tracker's page, so its own `scrollToSetting` had no scroll range; the embedded copy now scrolls the addressed setting into Obsidian's actual settings pane. The page, no-separate-tab behavior, standalone-PDF++ guard and Study agent suggestion deck are unchanged. No schema, provider or dependency changed.
+
 ## 1.291.0 - 2026-11-08
 
 - **PDF++ is one integrated settings surface.** The embedded host captures PDF++'s vendor settings tab instead of registering it as a second top-level plugin tab. **App & documents → PDF++** mounts the controls, and PDF++'s **Customize...** links and `obsidian://pdf-plus` protocol links open that page and scroll the visible copy. PDF++ was already bundled in `main.js`; installing MCQ Tracker does not download a separate plugin. The standalone-PDF++ conflict guard remains. `node --test` passes 2,431 tests; `main.js` is 6,847,319 bytes. No schema, provider or dependency changed.
