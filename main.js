@@ -3588,7 +3588,7 @@ __defs["ai-write-guard"] = function (module, exports, require) {
  * the folders the user configured, and protected tracking properties cannot
  * change when an import updates an existing note.
  */
-const { str } = require("./util");
+const { normalizePath, str } = require("./util");
 
 const PROTECTED_PROPERTIES = [
   "result",
@@ -3632,10 +3632,6 @@ const PROTECTED_PROPERTIES = [
   "grade_stale",
   "verdict_override",
 ];
-
-function normalizePath(path) {
-  return str(path).trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-}
 
 function pathInside(path, root) {
   const file = normalizePath(path);
@@ -4725,6 +4721,7 @@ function mediaRefs(text, options) {
   return out;
 }
 
+/** Anki fields leave apostrophes literal; the shared escapeHtml() escapes them for HTML documents. */
 function escapeHtml(value) {
   return str(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -7882,7 +7879,7 @@ __defs["assignments"] = function (module, exports, require) {
  * (`- [ ] Essay 📅 2026-11-01`) so Tasks, Dataview and similar plugins can see
  * it. The frontmatter stays the source of truth for grades.
  */
-const { addDays, fmtDate, localDate, str } = require("./util");
+const { addDays, clamp, fmtDate, localDate, str } = require("./util");
 const { stringifyYaml } = require("obsidian");
 const courseIdentity = require("./course-identity");
 
@@ -7964,10 +7961,6 @@ function num(value, fallback) {
   if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) return fallback;
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
-}
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
 }
 
 function pct(value) {
@@ -8584,6 +8577,7 @@ function statusAfterCheckbox(status, checked) {
   return status;
 }
 
+/** Assignment naming reads the folder from settings and asks a callback, not a vault; see the shared uniquePath(). */
 function uniquePath(settings, title, exists) {
   const folder = str(settings.folder).trim().replace(/^\/+|\/+$/g, "");
   const base = safeName(title) || "Assignment";
@@ -9293,7 +9287,7 @@ __defs["audio-bookmarks"] = function (module, exports, require) {
  * timestamp and builds a copyable link, but never records, uploads or plays
  * audio itself. See NOTICES.md.
  */
-const { hashString, str } = require("./util");
+const { clampInt, hashString, str } = require("./util");
 
 const MAX_BOOKMARKS = 500;
 const AUDIO_PATTERN = /\.(mp3|m4a|wav|ogg|oga|flac|aac|opus|webm|mp4)$/i;
@@ -9306,10 +9300,6 @@ function enabledValue(value) {
   if (value === false) return false;
   if (value && typeof value === "object" && value.enabled === false) return false;
   return true;
-}
-
-function clamp(value, low, high) {
-  return Math.max(low, Math.min(high, Math.round(value)));
 }
 
 function normalizeAudioBookmarkSettings(value) {
@@ -9330,7 +9320,7 @@ function normalizeBookmark(value) {
   const source = asObject(value);
   const path = str(source.path).trim().replace(/^\/+/, "").slice(0, 500);
   if (!path || !AUDIO_PATTERN.test(path)) return null;
-  const at = clamp(Number(source.at) || 0, 0, 24 * 3600);
+  const at = clampInt(Number(source.at) || 0, 0, 24 * 3600);
   return {
     id: str(source.id).trim().slice(0, 160) || `audio-${hashString([path, at, source.label || ""].join("|"))}`,
     path,
@@ -9348,7 +9338,7 @@ function isAudioPath(path) {
 function parseTimestamp(value) {
   const text = str(value).trim();
   if (!text) return -1;
-  if (/^\d+s$/i.test(text)) return clamp(Number(text.slice(0, -1)), 0, 24 * 3600);
+  if (/^\d+s$/i.test(text)) return clampInt(Number(text.slice(0, -1)), 0, 24 * 3600);
   const parts = text.split(":").map((part) => part.trim());
   if (parts.length < 2 || parts.length > 3) return -1;
   if (parts.some((part) => !/^\d{1,3}$/.test(part))) return -1;
@@ -9358,11 +9348,11 @@ function parseTimestamp(value) {
     : numbers[0] * 3600 + numbers[1] * 60 + numbers[2];
   if (numbers.length === 2 && numbers[1] > 59) return -1;
   if (numbers.length === 3 && (numbers[1] > 59 || numbers[2] > 59)) return -1;
-  return clamp(seconds, 0, 24 * 3600);
+  return clampInt(seconds, 0, 24 * 3600);
 }
 
 function formatTimestamp(seconds) {
-  const total = clamp(Number(seconds) || 0, 0, 24 * 3600);
+  const total = clampInt(Number(seconds) || 0, 0, 24 * 3600);
   const hours = Math.floor(total / 3600);
   const minutes = Math.floor((total % 3600) / 60);
   const rest = total % 60;
@@ -9433,6 +9423,8 @@ __defs["audio-trace"] = function (module, exports, require) {
  * network request, media file, third-party audio code or autoplay.
  */
 
+const { clamp } = require("./util");
+
 const MAX_EVENTS = 48;
 const DEFAULT_OPTIONS = {
   minHz: 180,
@@ -9447,10 +9439,6 @@ const DEFAULT_OPTIONS = {
 function finite(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
-}
-
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
 }
 
 function normalizeOptions(options) {
@@ -10941,6 +10929,7 @@ __defs["calendar-model"] = function (module, exports, require) {
  * baseline commit 35778e473a1d7ad7827c83c065b0f61dcbefdbc5. Labels are English-first;
  * see NOTICES.md.
  */
+const { str } = require("./util");
 const { dateKey, normalizeWeekParity, parseDateKey } = require("./calendar-ics");
 
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -11040,7 +11029,6 @@ const DEFAULT_CALENDAR_SETTINGS = {
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const WEEKDAYS = { monday: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], sunday: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] };
 
-const str = (v) => (v === undefined || v === null ? "" : String(v));
 const subjectKey = (s) => str(s).trim().toLowerCase().replace(/\s+/g, " ");
 const normalizeFolder = (p) => str(p).trim().replace(/^\/+|\/+$/g, "");
 const COURSE_COLOR_RE = /^#[0-9a-f]{6}$/i;
@@ -25221,6 +25209,7 @@ const MAX_MENTION_TOTAL_CHARS = 12000;
 const MAX_MENTION_CANDIDATES = 12;
 const MAX_MENTION_PATH = 300;
 
+/** Mention paths validate each segment and keep a folder's trailing slash; the shared normalizePath() does neither. */
 function normalizePath(value) {
   let path = str(value)
     .trim()
@@ -30220,6 +30209,7 @@ function objectValue(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
+/** Citations also drop `{}` and collapse whitespace; the shared textValue()/boundedText() do not. */
 function textValue(value, max) {
   return str(value).replace(/\r\n?/g, "\n").replace(/[{}]/g, "").replace(/\s+/g, " ").trim().slice(0, max || MAX_TITLE);
 }
@@ -32203,7 +32193,7 @@ __defs["course-health"] = function (module, exports, require) {
  * tasks. This is the offline part of Course Command Center's health-check
  * workflow (MIT): no Canvas request, no login and no note is written.
  */
-const { str } = require("./util");
+const { clampInt, str } = require("./util");
 const { dayValue, addDays } = require("./study-tools");
 const courseIdentity = require("./course-identity");
 
@@ -32219,13 +32209,9 @@ function enabledValue(value) {
   return true;
 }
 
-function clamp(value, low, high) {
-  return Math.max(low, Math.min(high, Math.round(value)));
-}
-
 function clampOr(value, low, high, fallback) {
   const n = Number(value);
-  return Number.isFinite(n) ? clamp(n, low, high) : fallback;
+  return Number.isFinite(n) ? clampInt(n, low, high) : fallback;
 }
 
 function normalizeCourseHealthSettings(value) {
@@ -32678,6 +32664,7 @@ function removeAiSummary(text) {
   return { text: next, removed: true };
 }
 
+/** Course notes use safeName(), which collapses spaces and caps at 90 characters; the shared uniquePath() does not. */
 function uniquePath(vault, folder, name, extension) {
   const ext = extension || "md";
   let path = normalizePath(`${folder}/${safeName(name)}.${ext}`);
@@ -38617,14 +38604,12 @@ module.exports = {
 __defs["focus"] = function (module, exports, require) {
 /* Focus sessions and study-time totals. Pure helpers, so the UI and tests share one clock model. */
 
+const { str } = require("./util");
+
 const FOCUS_STORAGE_KEY = "mcqTrackerFocus";
 const MAX_FOCUS_MS = 4 * 3600 * 1000; // a session left open overnight should not become a 9-hour block
 const MAX_SESSIONS = 5000;
 const DEFAULT_STUDY_LOG = { sessions: [], dailyGoalMinutes: 60, lastCourse: "" };
-
-function str(value) {
-  return value === undefined || value === null ? "" : String(value);
-}
 
 function dayKey(date) {
   const d = date instanceof Date ? date : new Date(date);
@@ -43212,7 +43197,7 @@ __defs["fsrs-train"] = function (module, exports, require) {
  * reviews the vault already stores, and every weight is clamped to a sane range
  * so a bad history cannot produce a negative interval.
  */
-const { str } = require("./util");
+const { clamp, str } = require("./util");
 
 const DEFAULT_WEIGHTS = [
   0.40255, 1.18385, 3.173, 15.69105, 7.1949, 0.5345, 1.4604, 0.0046, 1.54575, 0.1192, 1.01925, 1.9395,
@@ -43223,10 +43208,6 @@ const FACTOR = 19 / 81;
 const MIN_REVIEWS = 30;
 const MAX_WEIGHT = 36500;
 const MIN_WEIGHT = 0.001;
-
-function clamp(value, low, high) {
-  return Math.min(high, Math.max(low, value));
-}
 
 function weight(value) {
   const n = Number(value);
@@ -44195,7 +44176,7 @@ __defs["glossary"] = function (module, exports, require) {
  * memory and never edits, resolves or writes a note. No word leaves the vault
  * and no external dictionary is requested.
  */
-const { str } = require("./util");
+const { clampInt, str } = require("./util");
 
 const MAX_FILES = 500;
 const MAX_ENTRIES = 1000;
@@ -44210,15 +44191,11 @@ function asObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
-function clamp(value, low, high) {
-  return Math.max(low, Math.min(high, Math.round(value)));
-}
-
 function normalizeGlossaryOptions(value) {
   const source = asObject(value);
   return {
     folder: str(source.folder).trim().replace(/^\/+|\/+$/g, "").slice(0, 400),
-    limit: clamp(Number.isFinite(Number(source.limit)) ? Number(source.limit) : DEFAULT_LIMIT, 1, MAX_LIMIT),
+    limit: clampInt(Number.isFinite(Number(source.limit)) ? Number(source.limit) : DEFAULT_LIMIT, 1, MAX_LIMIT),
   };
 }
 
@@ -44429,15 +44406,12 @@ __defs["graph-3d"] = function (module, exports, require) {
  * third-party code. The renderer is deliberately low-resolution and capped so
  * a difficult surface cannot lock the editor.
  */
+const { clamp } = require("./util");
 const { compileScoped } = require("./reference-graph");
 
 const MAX_PIXELS = 80000;
 const DEFAULT_BOUNDS = { xMin: -5, xMax: 5, yMin: -5, yMax: 5, zMin: -5, zMax: 5 };
 const DEFAULT_CAMERA = { yaw: -0.7, pitch: 0.42, distance: 14 };
-
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
-}
 
 function normalizeVector(vector) {
   const length = Math.hypot(vector.x, vector.y, vector.z) || 1;
@@ -44833,14 +44807,7 @@ __defs["graph-3d-export"] = function (module, exports, require) {
  * third-party dependency.
  */
 
-function escapeHtml(value) {
-  return String(value === undefined || value === null ? "" : value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+const { escapeHtml } = require("./util");
 
 function printSummary(scene) {
   const curves = Array.isArray(scene && scene.curves) ? scene.curves.length : 0;
@@ -46036,15 +46003,13 @@ __defs["graph-image"] = function (module, exports, require) {
  * unusable calibration is always a `{ok:false, reason, message}` refusal.
  */
 
+const { textValue } = require("./util");
+
 const IMAGE_LIMITS = {
   minOpacity: 0,
   maxOpacity: 1,
   defaultOpacity: 0.45,
 };
-
-function textValue(value) {
-  return value === null || value === undefined ? "" : String(value);
-}
 
 function finiteNumber(value, fallback) {
   if (value === undefined || value === null || String(value).trim() === "") return fallback;
@@ -46281,6 +46246,8 @@ __defs["graph-print"] = function (module, exports, require) {
  * Obsidian or network dependency, and it never trusts a caller's HTML.
  */
 
+const { escapeHtml, textValue } = require("./util");
+
 const MAX_EXPRESSIONS = 200;
 const MAX_TABLE_ROWS = 500;
 const MAX_TITLE = 120;
@@ -46321,20 +46288,6 @@ footer { border-top: 0.5pt solid #999999; color: #555555; font-size: 9pt; margin
   figure, table, ol { page-break-inside: avoid; }
 }
 `;
-
-function textValue(value) {
-  return value === null || value === undefined ? "" : String(value);
-}
-
-/** Escape text for HTML text nodes and quoted attributes. */
-function escapeHtml(value) {
-  return textValue(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 function cleanTitle(value) {
   return textValue(value).replace(/\s+/g, " ").trim().slice(0, MAX_TITLE);
@@ -46669,6 +46622,8 @@ __defs["graph-table"] = function (module, exports, require) {
  * expressions are parsed locally rather than passed to eval or Function.
  */
 
+const { textValue } = require("./util");
+
 const MIN_COLUMNS = 2;
 const MAX_COLUMNS = 8;
 const MAX_COLUMN_NAME = 24;
@@ -46696,10 +46651,6 @@ const TABLE_FUNCTIONS = {
 };
 
 const TABLE_CONSTANTS = { pi: Math.PI, e: Math.E, tau: Math.PI * 2 };
-
-function textValue(value) {
-  return value === null || value === undefined ? "" : String(value);
-}
 
 /** Trim, collapse whitespace and bound an expression. */
 function normalizeExpression(value) {
@@ -49994,6 +49945,7 @@ function hashText(value) {
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
+/** Knowledge-record paths keep leading/trailing slashes and strip one leading `./`; the shared normalizePath() trims edges. */
 function normalizePath(value) {
   return str(value).replace(/\\/g, "/").replace(/^\.?\//, "").trim();
 }
@@ -51327,10 +51279,6 @@ function enabledValue(value) {
   return true;
 }
 
-function clamp(value, low, high) {
-  return Math.max(low, Math.min(high, Math.round(value)));
-}
-
 function normalizeLectureCompilerSettings(value) {
   const source = asObject(value);
   return {
@@ -51505,7 +51453,8 @@ __defs["link-hierarchy"] = function (module, exports, require) {
  * depth-first in the order they appear in the note. A link to a note in a
  * subfolder brings in that note and its links, not every sibling in its folder.
  */
-const str = (value) => (value === undefined || value === null ? "" : String(value));
+
+const { str } = require("./util");
 
 function cleanFolder(value) {
   return str(value).trim().replace(/^\/+|\/+$/g, "");
@@ -56587,7 +56536,7 @@ __defs["ocr-modal"] = function (module, exports, require) {
  */
 const { Modal, Setting, TFile, normalizePath } = require("obsidian");
 const { FolderSuggest } = require("./modals");
-const { ensureFolder, localDate, str } = require("./util");
+const { ensureFolder, localDate, str, uniquePath } = require("./util");
 const { renderPdfPagesAsPng } = require("./pdf");
 const { OCR_SYSTEM, buildOcrNote, cleanOcrText, ocrPrompt } = require("./ocr");
 
@@ -56601,17 +56550,6 @@ function bytesToBase64(buf) {
   if (typeof btoa === "function") return btoa(binary);
   if (typeof Buffer !== "undefined") return Buffer.from(bytes).toString("base64");
   throw new Error("This device cannot encode page images for the vision model.");
-}
-
-function uniquePath(vault, folder, name) {
-  const safe = str(name).replace(/[\\/:*?"<>|]/g, "-").trim() || "OCR";
-  let path = normalizePath(`${folder}/${safe}.md`);
-  let n = 2;
-  while (vault.getAbstractFileByPath(path)) {
-    path = normalizePath(`${folder}/${safe} ${n}.md`);
-    n++;
-  }
-  return path;
 }
 
 class OcrModal extends Modal {
@@ -56801,7 +56739,7 @@ class OcrModal extends Modal {
         sourceKind: this.method === "local" ? "local-command" : "ai-vision",
         date: localDate(),
       });
-      const path = uniquePath(this.app.vault, folder, note.title);
+      const path = uniquePath(this.app.vault, folder, note.title, "md", "OCR");
       await this.app.vault.create(path, note.text);
       this.plugin.refreshViews();
       this.showDone(path, pages.length);
@@ -58049,7 +57987,7 @@ __defs["paper-scanner"] = function (module, exports, require) {
  */
 const { Modal, Setting, TFile, normalizePath } = require("obsidian");
 const { FolderSuggest } = require("./modals");
-const { ensureFolder, localDate, str } = require("./util");
+const { ensureFolder, localDate, str, uniquePath } = require("./util");
 
 const DEFAULT_SCAN_FOLDER = "Paper scans";
 const FULL_CROP = { x: 0, y: 0, w: 1, h: 1 };
@@ -58058,6 +57996,7 @@ function utf8(text) {
   return new TextEncoder().encode(str(text));
 }
 
+/** Scanning settings coerce a missing value to 0 before the bounds; the shared clamp() leaves NaN to the caller. */
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, Number(value) || 0));
 }
@@ -58207,17 +58146,6 @@ function buildPdfFromJpegs(images) {
   }
   add(`trailer\n<< /Size ${maxObject + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
   return concat(chunks);
-}
-
-function uniquePath(vault, folder, name, extension) {
-  const safe = str(name).replace(/[\\/:*?"<>|]/g, "-").trim() || "Scan";
-  let path = normalizePath(`${folder}/${safe}.${extension || "pdf"}`);
-  let n = 2;
-  while (vault.getAbstractFileByPath(path)) {
-    path = normalizePath(`${folder}/${safe} ${n}.${extension || "pdf"}`);
-    n++;
-  }
-  return path;
 }
 
 async function loadSource(file) {
@@ -58482,7 +58410,7 @@ class PaperScannerModal extends Modal {
       }
       const pdf = buildPdfFromJpegs(images);
       await ensureFolder(this.app, folder);
-      const path = uniquePath(this.app.vault, folder, this.title, "pdf");
+      const path = uniquePath(this.app.vault, folder, this.title, "pdf", "Scan");
       await this.app.vault.createBinary(path, pdf);
       this.plugin.refreshViews();
       this.showDone(el, path, images.length);
@@ -59484,7 +59412,7 @@ __defs["pdf-annotation-index"] = function (module, exports, require) {
  * it lists what is in the vault and links back to the PDF or its sidecar. It
  * never creates, edits or deletes an annotation and never opens the PDF.
  */
-const { str } = require("./util");
+const { clampInt, str } = require("./util");
 const { annotationSummary, parseAnnotationFile, pdfPathFromSidecar } = require("./pdf-annotations");
 
 const MAX_FILES = 1000;
@@ -59501,16 +59429,12 @@ function enabledValue(value) {
   return true;
 }
 
-function clamp(value, low, high) {
-  return Math.max(low, Math.min(high, Math.round(value)));
-}
-
 function normalizePdfAnnotationIndexSettings(value) {
   const source = asObject(value);
   return {
     enabled: enabledValue(value),
     folder: str(source.folder).trim().replace(/^\/+|\/+$/g, "").slice(0, 400),
-    limit: clamp(Number.isFinite(Number(source.limit)) ? Number(source.limit) : 200, 1, 500),
+    limit: clampInt(Number.isFinite(Number(source.limit)) ? Number(source.limit) : 200, 1, 500),
   };
 }
 
@@ -59824,6 +59748,7 @@ __defs["pdf-annotations"] = function (module, exports, require) {
  * old notes to a different document.
  */
 
+const { str } = require("./util");
 const { normalizeHighlightAreas, normalizeInkStrokes, normalizeTextBoxes } = require("./pdf-ink");
 
 const ANNOTATION_BLOCK = "mcq-pdf-annotations";
@@ -59832,10 +59757,6 @@ const ANNOTATION_COLORS = ["yellow", "green", "blue", "red", "purple", "gray"];
 const MARK_TYPES = ["highlight", "underline", "strike", "box", "quote"];
 const MAX_TAGS = 6;
 const MAX_TAG_LENGTH = 24;
-
-function str(value) {
-  return value === undefined || value === null ? "" : String(value);
-}
 
 /** A 64-bit-ish content id: two independent FNV-1a passes over the bytes. */
 function hashBytes(bytes) {
@@ -60122,13 +60043,10 @@ __defs["pdf-annotator-sidebar"] = function (module, exports, require) {
  * DOM renderer that takes plain handlers. The modal owns the state and the
  * sidecar writes; this module only decides what a row says and how it looks.
  */
+const { str } = require("./util");
 const { filterAnnotations, normalizeTags } = require("./pdf-annotations");
 
 const MAX_ROWS = 500;
-
-function str(value) {
-  return value === undefined || value === null ? "" : String(value);
-}
 
 /** Tags typed into one field, comma or hash separated and bounded like the sidecar guard. */
 function tagInput(text) {
@@ -60338,6 +60256,7 @@ __defs["pdf-backlinks"] = function (module, exports, require) {
  * and returns rows for the reader. The sidecar annotator remains a separate,
  * durable model for ink, quotes, notes and marks.
  */
+const { clamp, str } = require("./util");
 const {
   formatPdfDeepLink,
   normalizeColor,
@@ -60349,14 +60268,6 @@ const { normalizeHighlightArea } = require("./pdf-ink");
 
 const MAX_BACKLINKS = 2000;
 const MAX_SELECTION_AREAS = 100;
-
-function str(value) {
-  return value === undefined || value === null ? "" : String(value);
-}
-
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
-}
 
 function cleanPath(value) {
   return str(value).replace(/\\/g, "/").replace(/^\.?\//, "").replace(/\/+/g, "/").trim();
@@ -60789,8 +60700,9 @@ __defs["pdf-editor"] = function (module, exports, require) {
  *
  * The source PDF is never modified: every write goes to a new copy.
  */
+const { clamp, str } = require("./util");
 const { PDFDocument, PDFName, PDFArray, PDFDict, PDFHexString, PDFNumber, PDFNull, PDFRef, PDFTextField, PDFCheckBox, PDFRadioGroup, PDFDropdown, PDFOptionList, StandardFonts, degrees, rgb } = require("../vendor/pdf-lib.js");
-const { INK_COLOR_HEX, MARK_STYLES, clamp, normalizeHighlightAreas, normalizeInkStrokes, normalizeTextBoxes } = require("./pdf-ink");
+const { INK_COLOR_HEX, MARK_STYLES, normalizeHighlightAreas, normalizeInkStrokes, normalizeTextBoxes } = require("./pdf-ink");
 
 const MAX_BYTES = 80 * 1024 * 1024;
 const MAX_PAGES = 2000;
@@ -60846,10 +60758,6 @@ const PAGE_SIZES = [
 const MIN_PAGE_POINTS = 36;
 const MAX_PAGE_POINTS = 5000;
 const TEXT_FONTS = { helvetica: StandardFonts.Helvetica, times: StandardFonts.TimesRoman, courier: StandardFonts.Courier };
-
-function str(value) {
-  return value === undefined || value === null ? "" : String(value);
-}
 
 function round(value, places) {
   const scale = Math.pow(10, places || 0);
@@ -63556,16 +63464,14 @@ __defs["pdf-editor-history"] = function (module, exports, require) {
  * message}` value.
  */
 
+const { str } = require("./util");
+
 const HISTORY_LIMIT = 20;
 const HISTORY_BYTES = 96 * 1024 * 1024;
 const MAX_LIMIT = 100;
 
 function refusal(reason, message) {
   return { ok: false, reason, message };
-}
-
-function str(value) {
-  return value === undefined || value === null ? "" : String(value);
 }
 
 function normalizeLimit(value) {
@@ -63733,6 +63639,7 @@ __defs["pdf-editor-modal"] = function (module, exports, require) {
  * `.annotations.md` sidecar stay exactly as they were. All PDF work lives in
  * `src/pdf-editor.js`; this file only renders and dispatches.
  */
+const { str } = require("./util");
 const { FuzzySuggestModal, Modal, Notice, TFile } = require("obsidian");
 const {
   addBlankPage,
@@ -63795,10 +63702,6 @@ const MAX_THUMBNAILS = 24;
 const THUMBNAIL_SCALE = 0.45;
 /* One undo step per action; the opened file is always kept as state zero. */
 const HISTORY_LIMIT_STEPS = HISTORY_LIMIT;
-
-function str(value) {
-  return value === undefined || value === null ? "" : String(value);
-}
 
 /* Picks another vault PDF to take pages from. */
 class PdfSourcePickerModal extends FuzzySuggestModal {
@@ -65576,6 +65479,8 @@ __defs["pdf-ink"] = function (module, exports, require) {
  * canvas and the sidecar writer.
  */
 
+const { clamp, str } = require("./util");
+
 const INK_COLORS = ["yellow", "green", "blue", "red", "purple", "gray"];
 const INK_TOOLS = ["pen", "highlighter"];
 const MARK_STYLES = ["highlight", "underline", "strike", "box"];
@@ -65593,14 +65498,6 @@ const INK_COLOR_HEX = {
   purple: "#bb6bd9",
   gray: "#828282",
 };
-
-function str(value) {
-  return value === undefined || value === null ? "" : String(value);
-}
-
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
-}
 
 function round(value, places) {
   const scale = Math.pow(10, places || 0);
@@ -65936,18 +65833,18 @@ module.exports = {
   normalizeTextBox,
   normalizeTextBoxes,
   pointToSegmentDistance,
-  clamp,
 };
 };
 
 /* ---- src/pdf-ink-modal.js ---- */
 __defs["pdf-ink-modal"] = function (module, exports, require) {
+const { clamp } = require("./util");
 const { Modal, Notice, Setting, TFile } = require("obsidian");
 const { readPdfPageText, renderPdfPagesAsPng } = require("./pdf");
 const { annotationLink, annotationsMarkdown, hashBytes, parseAnnotationFile, removeAnnotation, sidecarPathFor, upsertAnnotation } = require("./pdf-annotations");
 const { formatPdfDeepLink } = require("./pdf-deep-link");
 const { backlinkAreasFor, backlinkSummary, selectionFromArea } = require("./pdf-backlinks");
-const { INK_COLORS, INK_COLOR_HEX, INK_TOOLS, MARK_STYLES, MAX_INK_POINTS, areaAt, boxAt, clamp, drawInkSegment, drawInkStrokes, drawMarks, eraseStrokesAt, normalizeHighlightArea, normalizeHighlightAreas, normalizeInkStroke, normalizeInkStrokes, normalizeTextBox, normalizeTextBoxes, textInArea } = require("./pdf-ink");
+const { INK_COLORS, INK_COLOR_HEX, INK_TOOLS, MARK_STYLES, MAX_INK_POINTS, areaAt, boxAt, drawInkSegment, drawInkStrokes, drawMarks, eraseStrokesAt, normalizeHighlightArea, normalizeHighlightAreas, normalizeInkStroke, normalizeInkStrokes, normalizeTextBox, normalizeTextBoxes, textInArea } = require("./pdf-ink");
 const { renderSidebar, rowPage, selectionBounds, sidebarRows, tagInput } = require("./pdf-annotator-sidebar");
 const { pageTextFromItems } = require("./reading-companion");
 const { normalizeRect } = require("./pdf-deep-link");
@@ -69346,17 +69243,14 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerEvent(this.app.vault.on("rename", invalidateNotes));
     this.registerEvent(this.app.metadataCache.on("changed", invalidateNotes));
 
-    const refreshPlainCards = () => {
-      const plain = this.settings.cards && this.settings.cards.plainMarkdown;
-      if (!plain || plain.enabled !== true) return;
-      this.refreshPlainCards()
-        .then(() => this.refreshViews())
-        .catch(() => {});
+    const refreshPlainCardsSoon = (file, oldPath) => {
+      if (!this.plainCardsEventRelevant(file, oldPath)) return;
+      this.schedulePlainCardRefresh();
     };
-    this.registerEvent(this.app.vault.on("create", refreshPlainCards));
-    this.registerEvent(this.app.vault.on("delete", refreshPlainCards));
-    this.registerEvent(this.app.vault.on("rename", refreshPlainCards));
-    this.registerEvent(this.app.metadataCache.on("changed", refreshPlainCards));
+    this.registerEvent(this.app.vault.on("create", refreshPlainCardsSoon));
+    this.registerEvent(this.app.vault.on("delete", refreshPlainCardsSoon));
+    this.registerEvent(this.app.vault.on("rename", refreshPlainCardsSoon));
+    this.registerEvent(this.app.metadataCache.on("changed", (file) => refreshPlainCardsSoon(file)));
 
     // The old onload awaited this full-folder scan before any view could open.
     // Start it after layout and repaint Cards once the index is ready.
@@ -69618,7 +69512,11 @@ class QuestionTrackerPlugin extends Plugin {
 
   /** Practice every note in a folder and its sub folders. `expected` waits for freshly written notes to be indexed. */
   async practiceFolder(folder, expected) {
-    const inFolder = () => this.getQuestions().filter((q) => q.file.path.startsWith(folder + "/")).length;
+    const inFolder = () => {
+      // A note written while we wait may not have emitted a vault event yet.
+      this.invalidateSnapshots();
+      return this.getQuestions().filter((q) => q.file.path.startsWith(folder + "/")).length;
+    };
     for (let i = 0; expected && i < 20 && inFolder() < expected; i++) await sleep(250);
     if (!inFolder()) {
       new Notice("No question notes in that folder yet.");
@@ -70623,6 +70521,10 @@ class QuestionTrackerPlugin extends Plugin {
         /* the modal may already be closed */
       }
       this._quickChatModal = null;
+    }
+    if (this._plainCardRefreshTimer) {
+      activeWindow.clearTimeout(this._plainCardRefreshTimer);
+      this._plainCardRefreshTimer = null;
     }
     practiceFullscreen.setPracticeFullscreen(null, false);
     if (this.manager) this.manager.stop();
@@ -75383,8 +75285,8 @@ class QuestionTrackerPlugin extends Plugin {
     for (const issue of parsed.issues.slice(0, 3)) box.createDiv({ cls: "qt-simple-quiz-issue", text: issue });
   }
 
-  /** Draft quiz questions from chosen notes and folders. This method writes nothing. */
-  async generateQuizFromNotes(options) {
+  /** Build the exact generation payload and price it locally. This method sends nothing. */
+  async prepareQuizGeneration(options) {
     if (!this.settings.ai.enabled) throw new Error("Turn on AI features under Settings, Global, Modules first.");
     if (this.moduleOff("mcq")) throw new Error("Turn on MCQ Tracker to create practice questions.");
     const config = normalizeQuizGenerator({ ...normalizeQuizGenerator(this.settings.quizGenerator), ...(options || {}) });
@@ -75400,7 +75302,25 @@ class QuestionTrackerPlugin extends Plugin {
     const source = collectGeneratorSources(sources, { folders: config.folders, maxNotes: 12, focus: config.focus });
     if (!source.text.trim()) throw new Error("No readable notes matched those folders.");
     const prompt = buildQuizGeneratorPrompt({ text: source.text, titles: source.titles, focus: config.focus, count: config.count, language: config.language, types: config.types });
-    const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "generation", maxTokens: 4000 });
+    const maxTokens = aiService.clampMaxTokens(this.settings.ai, 4000);
+    const inputTokens = aiService.estimateRequestTokens(prompt.system, [{ role: "user", content: prompt.user }]);
+    const model = this.aiModelFor("generation");
+    const cost = chatPricing.estimateCost(this.settings.ai.pricing, model, inputTokens, maxTokens);
+    return {
+      config,
+      source,
+      prompt,
+      maxTokens,
+      model,
+      estimate: { ...cost, model, inputTokens, outputTokens: maxTokens },
+    };
+  }
+
+  /** Draft quiz questions from chosen notes and folders. This method writes nothing. */
+  async generateQuizFromNotes(options, prepared) {
+    const plan = prepared && prepared.prompt && prepared.config ? prepared : await this.prepareQuizGeneration(options);
+    const { config, source, prompt } = plan;
+    const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "generation", maxTokens: plan.maxTokens || 4000 });
     const parsed = parseGeneratorQuestions(reply, { count: config.count, types: config.types });
     if (!parsed.items.length) throw new Error("The AI returned no usable questions. Try different notes or fewer types.");
     const verification = await this.verifyDraftQuestions(parsed.items);
@@ -75728,6 +75648,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (!paths.length) throw new Error("The generated cards could not be written to the vault.");
     this.recordAiTranscriptWrite(generated, beforePaths);
     const pushed = await this.pushCardsToAnki({ paths, deck });
+    this.invalidateSnapshots();
     return {
       batch,
       format,
@@ -77353,15 +77274,17 @@ ${body}
 
   getQuestions() {
     const folder = this.settings.questionFolder.trim().replace(/^\/+|\/+$/g, "");
-    const out = [];
-    for (const file of this.app.vault.getMarkdownFiles()) {
-      if (folder && file.path !== folder && !file.path.startsWith(folder + "/")) continue;
-      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-      if (fm && fm.question_id !== undefined && fm.question_id !== null && fm.question_id !== "") {
-        out.push({ file, fm });
+    return this.snapshot("questions:" + folder, () => {
+      const out = [];
+      for (const file of this.app.vault.getMarkdownFiles()) {
+        if (folder && file.path !== folder && !file.path.startsWith(folder + "/")) continue;
+        const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+        if (fm && fm.question_id !== undefined && fm.question_id !== null && fm.question_id !== "") {
+          out.push({ file, fm });
+        }
       }
-    }
-    return out;
+      return out;
+    }).slice();
   }
 
   filtered(questions, options) {
@@ -77381,13 +77304,37 @@ ${body}
 
   /** Every card or vocabulary note, with its effective deck and course. */
   getCards() {
-    const out = [];
-    const plain = this.plainCardIndex || new Map();
-    for (const file of this.app.vault.getMarkdownFiles()) {
-      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-      if (isCardNote(fm) || plain.has(file.path)) out.push(resolveCard(file, fm || {}, this.settings));
-    }
-    return out;
+    return this.snapshot("cards", () => {
+      const out = [];
+      const plain = this.plainCardIndex || new Map();
+      for (const file of this.app.vault.getMarkdownFiles()) {
+        const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+        if (isCardNote(fm) || plain.has(file.path)) out.push(resolveCard(file, fm || {}, this.settings));
+      }
+      return out;
+    }).slice();
+  }
+
+  /** An event can only change the plain-card index when it touches the card folder. */
+  plainCardsEventRelevant(file, oldPath) {
+    const config = normalizePlainCards(this.settings.cards && this.settings.cards.plainMarkdown);
+    if (!config.enabled || !config.folder) return false;
+    return isPlainPath(file && file.path, config.folder) || isPlainPath(oldPath, config.folder);
+  }
+
+  /** Coalesce a burst of vault events into one folder scan. */
+  schedulePlainCardRefresh(delay) {
+    const config = normalizePlainCards(this.settings.cards && this.settings.cards.plainMarkdown);
+    if (!config.enabled || !config.folder) return null;
+    if (this._plainCardRefreshTimer) activeWindow.clearTimeout(this._plainCardRefreshTimer);
+    const wait = delay === undefined ? 300 : Math.max(0, Number(delay) || 0);
+    this._plainCardRefreshTimer = activeWindow.setTimeout(() => {
+      this._plainCardRefreshTimer = null;
+      this.refreshPlainCards()
+        .then(() => this.refreshViews())
+        .catch(() => {});
+    }, wait);
+    return this._plainCardRefreshTimer;
   }
 
   /**
@@ -77396,6 +77343,10 @@ ${body}
    * and receive tracking properties only when they are reviewed.
    */
   async refreshPlainCards(options) {
+    if (this._plainCardRefreshTimer) {
+      activeWindow.clearTimeout(this._plainCardRefreshTimer);
+      this._plainCardRefreshTimer = null;
+    }
     const config = normalizePlainCards(this.settings.cards.plainMarkdown);
     const found = new Map();
     if (config.enabled && config.folder) {
@@ -77412,6 +77363,7 @@ ${body}
       }
     }
     this.plainCardIndex = found;
+    this.invalidateSnapshots();
     if (options && options.refresh) this.refreshViews();
     return found.size;
   }
@@ -78731,6 +78683,7 @@ ${body}
         rows.push({ status: "failed", reason, source: target.importSource || "" });
       }
     }
+    if (created || updated || copied) this.invalidateSnapshots();
     return { created, updated, copied, skipped, errors, rows, media: opts.media || null, total: Array.isArray(parsed) ? parsed.length : 0, duplicateMode: mode };
   }
 
@@ -79088,6 +79041,7 @@ ${body}
       return { ...preview, queued: true, pending: list.length, attemptId: attempt.attemptId };
     }
 
+    this.invalidateSnapshots();
     try {
       const cachedFm = (this.app.metadataCache.getFileCache(file) || {}).frontmatter || {};
       const kind = isCardNote(cachedFm) ? "card" : str(cachedFm.question_id) ? "question" : "note";
@@ -79158,6 +79112,7 @@ ${body}
         }
       }
       this.writePendingAttempts(list);
+      if (sent) this.invalidateSnapshots();
       return { sent, remaining: list.length };
     })().finally(() => {
       this._pendingFlush = null;
@@ -79167,6 +79122,7 @@ ${body}
 
   async setErrorType(file, type) {
     await this.app.fileManager.processFrontMatter(file, (fm) => setLastErrorType(fm, type));
+    this.invalidateSnapshots();
   }
 
   /** Mark a question or card Known for a snooze, Exclude it, or restore it. */
@@ -85959,6 +85915,7 @@ __defs["progress"] = function (module, exports, require) {
  * Progress dashboard data. Pure helpers over question notes, cards and the study log,
  * so the Insights page and the tests share one calculation. Everything stays local.
  */
+const { str } = require("./util");
 const { isDue } = require("./filters");
 const { isStudyable } = require("./study-status");
 const { computeStats, creditSummary, overallStats, parseHistory, weakestRow } = require("./stats");
@@ -85983,10 +85940,6 @@ const MASTERY_WINDOWS = [7, 30];
 
 /** Kept beside the counts so Today, Progress and the embed explain the same pool rule. */
 const MASTERY_POOL_NOTE = "Band counts include hidden, suspended and excluded questions; band practice starts only the studyable ones.";
-
-function str(value) {
-  return value === undefined || value === null ? "" : String(value);
-}
 
 function dayKey(value) {
   const d = value instanceof Date ? value : new Date(value);
@@ -88793,6 +88746,8 @@ module.exports = {
 __defs["quiz-generator-modal"] = function (module, exports, require) {
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
+const chatBudget = require("./chat-budget");
+const chatPricing = require("./chat-pricing");
 const { QUIZ_LANGUAGES, QUIZ_TYPES, normalizeQuizGenerator } = require("./quiz-generator");
 
 /** Choose source folders, type, count and language, then review before writing. */
@@ -88807,8 +88762,10 @@ class QuizGeneratorModal extends Modal {
     this.language = this.config.language;
     this.focus = this.config.focus || "";
     this.types = this.config.types.slice();
+    this.prepared = null;
     this.generated = null;
     this.busy = false;
+    this.busyLabel = "";
     this.error = "";
   }
 
@@ -88827,9 +88784,10 @@ class QuizGeneratorModal extends Modal {
     if (this.error) el.createEl("p", { cls: "qt-error", text: this.error });
     if (this.generated && this.generated.items.length) return this.renderPreview(el);
     if (this.busy) {
-      el.createEl("p", { cls: "qt-hint", text: `Drafting questions in ${this.language}…` });
+      el.createEl("p", { cls: "qt-hint", text: this.busyLabel || `Drafting questions in ${this.language}…` });
       return;
     }
+    if (this.prepared) return this.renderEstimate(el);
 
     const folders = el.createDiv({ cls: "qt-field" });
     folders.createEl("label", { text: "Source folders (comma-separated; blank means the whole vault)" });
@@ -88880,7 +88838,45 @@ class QuizGeneratorModal extends Modal {
     actions.createEl("button", { text: "Cancel", cls: "qt-grow" }).addEventListener("click", () => this.close());
     const go = actions.createEl("button", { text: "Generate draft", cls: "mod-cta qt-grow" });
     go.disabled = !this.plugin.settings.ai.enabled;
-    go.addEventListener("click", () => this.generate());
+    go.addEventListener("click", () => this.prepare());
+  }
+
+  renderEstimate(el) {
+    const p = this.prepared;
+    const est = p.estimate || {};
+    el.createEl("h4", { text: "Ready to send" });
+    const passages = p.source && p.source.retrieval && p.source.retrieval.passages
+      ? ` from ${p.source.retrieval.passages} relevant passage${p.source.retrieval.passages === 1 ? "" : "s"}`
+      : "";
+    el.createDiv({
+      cls: "qt-hint",
+      text: `Model: ${p.model || "not configured"} · ${p.source.count} note${p.source.count === 1 ? "" : "s"}${passages}. No request has been sent yet.`,
+    });
+    if (est.ok) {
+      el.createDiv({
+        cls: "qt-hint qt-chat-cost-line",
+        text: `Estimated cost: ${chatPricing.formatUsd(est.total)} (${chatPricing.formatUsd(est.inputCost)} input + up to ${chatPricing.formatUsd(est.outputCost)} reply at local prices; an estimate, not an invoice).`,
+      });
+      el.createDiv({
+        cls: "qt-hint",
+        text: `~${chatBudget.formatTokenCount(est.inputTokens)} input tokens + up to ${chatBudget.formatTokenCount(est.outputTokens)} reply tokens.`,
+      });
+    } else {
+      el.createDiv({
+        cls: "qt-hint",
+        text: `No local price for ${p.model || "this model"}. Add one under Settings → AI to see a cost estimate before sending. This request is ~${chatBudget.formatTokenCount(est.inputTokens || 0)} input tokens plus up to ${chatBudget.formatTokenCount(est.outputTokens || 0)} reply tokens.`,
+      });
+    }
+    el.createDiv({
+      cls: "qt-hint",
+      text: "The estimate uses the prompt that will be sent and your local model prices. It is not an invoice.",
+    });
+    const actions = el.createDiv({ cls: "qt-row" });
+    actions.createEl("button", { text: "Back", cls: "qt-grow" }).addEventListener("click", () => {
+      this.prepared = null;
+      this.render();
+    });
+    actions.createEl("button", { text: "Send request", cls: "mod-cta qt-grow" }).addEventListener("click", () => this.send());
   }
 
   renderPreview(el) {
@@ -88897,15 +88893,18 @@ class QuizGeneratorModal extends Modal {
     const actions = el.createDiv({ cls: "qt-row" });
     actions.createEl("button", { text: "Back", cls: "qt-grow" }).addEventListener("click", () => {
       this.generated = null;
+      this.prepared = null;
       this.render();
     });
     actions.createEl("button", { text: "Create questions", cls: "mod-cta qt-grow" }).addEventListener("click", () => this.write());
   }
 
-  async generate() {
+  async prepare() {
     if (this.busy) return;
     this.busy = true;
+    this.busyLabel = "Preparing the request…";
     this.error = "";
+    this.prepared = null;
     this.render();
     try {
       const config = normalizeQuizGenerator({
@@ -88917,12 +88916,29 @@ class QuizGeneratorModal extends Modal {
       });
       this.plugin.settings.quizGenerator = config;
       await this.plugin.save();
-      this.generated = await this.plugin.generateQuizFromNotes(config);
+      this.prepared = await this.plugin.prepareQuizGeneration(config);
+    } catch (e) {
+      this.error = str(e && e.message ? e.message : e) || "Could not prepare the quiz request.";
+    }
+    this.busy = false;
+    this.busyLabel = "";
+    this.render();
+  }
+
+  async send() {
+    if (this.busy || !this.prepared) return;
+    this.busy = true;
+    this.busyLabel = `Drafting questions in ${this.language}…`;
+    this.error = "";
+    this.render();
+    try {
+      this.generated = await this.plugin.generateQuizFromNotes(this.prepared.config, this.prepared);
       if (!this.generated.items.length) this.error = "The AI returned no usable questions. Try different notes or fewer types.";
     } catch (e) {
       this.error = str(e && e.message ? e.message : e) || "Could not generate questions.";
     }
     this.busy = false;
+    this.busyLabel = "";
     this.render();
   }
 
@@ -90333,6 +90349,7 @@ __defs["reading-companion"] = function (module, exports, require) {
  * shaping: the reader owns the UI, the Study agent owns the model request, and
  * the prompt names the source link so an answer can cite the exact page.
  */
+const { str } = require("./util");
 const { annotationLink } = require("./pdf-annotations");
 
 const MAX_QUOTE = 4000;
@@ -90341,10 +90358,6 @@ const MAX_QUESTION = 600;
 const MAX_PAGE_TEXT = 6000;
 const DEFAULT_QUESTION =
   "Explain this passage in context. Define any term that matters, say why it matters for the document's argument, and suggest one question I should be able to answer.";
-
-function str(value) {
-  return value === undefined || value === null ? "" : String(value);
-}
 
 function clampPage(value) {
   const n = Math.round(Number(value) || 1);
@@ -90459,7 +90472,7 @@ __defs["reading-library"] = function (module, exports, require) {
  * Adapted from Verso's library/bookshelf/quote idea (MIT) as original,
  * dependency-free code. Nothing here calls a provider or writes a note.
  */
-const { hashString, localDate, str } = require("./util");
+const { boundedText, clampInt, hashString, localDate, str } = require("./util");
 
 const MAX_BOOKS = 300;
 const MAX_QUOTES = 100;
@@ -90479,14 +90492,6 @@ function enabledValue(value) {
   return true;
 }
 
-function textValue(value, max) {
-  return str(value).replace(/\r\n?/g, "\n").trim().slice(0, max);
-}
-
-function clamp(value, low, high) {
-  return Math.max(low, Math.min(high, Math.round(value)));
-}
-
 function numberValue(value, fallback) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -90501,22 +90506,22 @@ function normalizeDate(value) {
 
 function normalizeQuote(value, index) {
   const source = asObject(value);
-  const text = textValue(source.text, MAX_QUOTE);
+  const text = boundedText(source.text, MAX_QUOTE);
   if (!text) return null;
   return {
     id: str(source.id).trim() || `quote-${hashString(`${text}|${index}`)}`,
     text,
-    page: clamp(numberValue(source.page, 0), 0, 20000),
+    page: clampInt(numberValue(source.page, 0), 0, 20000),
     addedOn: normalizeDate(source.addedOn),
   };
 }
 
 function normalizeBook(value, index) {
   const source = asObject(value);
-  const title = textValue(source.title, MAX_TITLE);
+  const title = boundedText(source.title, MAX_TITLE);
   if (!title) return null;
-  const totalPages = clamp(numberValue(source.totalPages, 0), 0, 20000);
-  const rawPage = clamp(numberValue(source.currentPage, 0), 0, 20000);
+  const totalPages = clampInt(numberValue(source.totalPages, 0), 0, 20000);
+  const rawPage = clampInt(numberValue(source.currentPage, 0), 0, 20000);
   const currentPage = totalPages > 0 ? Math.min(totalPages, rawPage) : rawPage;
   const status = BOOK_STATUSES.includes(source.status) ? source.status : "want";
   const quotes = [];
@@ -90529,13 +90534,13 @@ function normalizeBook(value, index) {
   return {
     id: str(source.id).trim() || `book-${hashString(`${title}|${index}`)}`,
     title,
-    author: textValue(source.author, MAX_AUTHOR),
-    course: textValue(source.course, MAX_TITLE),
+    author: boundedText(source.author, MAX_AUTHOR),
+    course: boundedText(source.course, MAX_TITLE),
     due: normalizeDate(source.due),
     totalPages,
     currentPage,
     status,
-    rating: clamp(numberValue(source.rating, 0), 0, 5),
+    rating: clampInt(numberValue(source.rating, 0), 0, 5),
     startedOn: normalizeDate(source.startedOn),
     finishedOn: normalizeDate(source.finishedOn),
     quotes,
@@ -90563,19 +90568,19 @@ function normalizeLibrary(value) {
 /** Creates one book. `input.today` (YYYY-MM-DD) keeps the function testable. */
 function createBook(input, today) {
   const source = asObject(input);
-  const title = textValue(source.title, MAX_TITLE);
+  const title = boundedText(source.title, MAX_TITLE);
   if (!title) return null;
   const day = normalizeDate(source.today) || normalizeDate(today) || localDate();
   const status = BOOK_STATUSES.includes(source.status) ? source.status : "want";
-  const totalPages = clamp(numberValue(source.totalPages, 0), 0, 20000);
-  const currentPage = clamp(numberValue(source.currentPage, 0), 0, totalPages || 20000);
-  const id = str(source.id).trim() || `book-${hashString(`${title}|${textValue(source.author, MAX_AUTHOR)}|${day}|${str(source.seed)}`)}`;
+  const totalPages = clampInt(numberValue(source.totalPages, 0), 0, 20000);
+  const currentPage = clampInt(numberValue(source.currentPage, 0), 0, totalPages || 20000);
+  const id = str(source.id).trim() || `book-${hashString(`${title}|${boundedText(source.author, MAX_AUTHOR)}|${day}|${str(source.seed)}`)}`;
   const book = normalizeBook(
     {
       ...source,
       id,
       title,
-      course: textValue(source.course, MAX_TITLE),
+      course: boundedText(source.course, MAX_TITLE),
       due: normalizeDate(source.due),
       status,
       totalPages,
@@ -90626,7 +90631,7 @@ function addQuote(books, bookId, input, today) {
   if (index < 0) return { books: list, quote: null };
   const source = asObject(input);
   const day = normalizeDate(source.addedOn) || normalizeDate(today) || localDate();
-  const text = textValue(source.text, MAX_QUOTE);
+  const text = boundedText(source.text, MAX_QUOTE);
   if (!text) return { books: list, quote: null };
   const quote = normalizeQuote(
     {
@@ -98707,6 +98712,7 @@ const { str } = require("./util");
 
 const MAX_LIMIT = 25;
 
+/** Review settings return the caller's fallback for a non-finite value; the shared clamp() returns NaN. */
 function clamp(value, min, max, fallback) {
   const n = Number(value);
   if (!Number.isFinite(n)) return fallback;
@@ -99577,7 +99583,8 @@ __defs["review-sidebar-model"] = function (module, exports, require) {
  * forecast buckets, applies the user's sort/filter, and calculates the
  * additive or replacement time target. No Obsidian API and no writes.
  */
-const str = (value) => (value === undefined || value === null ? "" : String(value));
+
+const { str } = require("./util");
 const { addUtcDays, dayDifference, todayKey, validDayKey } = require("./utc-dates");
 
 const SORTS = ["due", "title", "time", "priority"];
@@ -107098,6 +107105,7 @@ __defs["stem-diagrams"] = function (module, exports, require) {
  * The parsers deliberately reject syntax outside the documented subset rather
  * than guessing. Nothing is sent to a provider or fetched from a service.
  */
+const { escapeHtml } = require("./util");
 const { renderSmilesSvg } = require("./smiles");
 const { safeSvg } = require("./svg-safety");
 const { codonEntry } = require("./reference-sheets");
@@ -107108,16 +107116,6 @@ const MAX_CHEM_LINES = 8;
 const MAX_SEQUENCE = 1200;
 const MAX_CIRCUIT_COMPONENTS = 40;
 const MAX_CIRCUIT_NODES = 24;
-
-function escapeHtml(value) {
-  return String(value == null ? "" : value).replace(/[&<>"']/g, (char) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;",
-  }[char]));
-}
 
 function errorResult(message) {
   return { ok: false, error: String(message || "The diagram could not be read.") };
@@ -108851,9 +108849,7 @@ module.exports = {
 __defs["study-plan"] = function (module, exports, require) {
 /* Exam-scoped study plans. The planner only reads existing question/card state. */
 
-function str(value) {
-  return value === undefined || value === null ? "" : String(value);
-}
+const { str } = require("./util");
 
 function normalizeStudyPlanDays(value) {
   const n = Math.round(Number(value));
@@ -111617,7 +111613,7 @@ __defs["study-tools"] = function (module, exports, require) {
  * Local study-tool data. These helpers are deliberately independent of
  * Obsidian so the view, the Today card and the tests share the same rules.
  */
-const { hashString, localDate, str } = require("./util");
+const { clampInt, hashString, localDate, str } = require("./util");
 
 const MAX_LECTURES = 300;
 const MAX_GOALS = 200;
@@ -111664,10 +111660,6 @@ function idFor(prefix, parts) {
 function numberValue(value, fallback) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
-}
-
-function clamp(value, low, high) {
-  return Math.max(low, Math.min(high, Math.round(value)));
 }
 
 function normalizeCornellSettings(value) {
@@ -111727,8 +111719,8 @@ function normalizeGoal(value) {
   const source = value && typeof value === "object" ? value : {};
   const title = str(source.title).trim().slice(0, MAX_TITLE);
   if (!title) return null;
-  const targetMinutes = clamp(numberValue(source.targetMinutes, 60), 1, MAX_GOAL_MINUTES);
-  const minutes = clamp(numberValue(source.minutes, 0), 0, MAX_GOAL_MINUTES);
+  const targetMinutes = clampInt(numberValue(source.targetMinutes, 60), 1, MAX_GOAL_MINUTES);
+  const minutes = clampInt(numberValue(source.minutes, 0), 0, MAX_GOAL_MINUTES);
   const done = source.done === true || minutes >= targetMinutes;
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("goal", [title, source.course, source.due]),
@@ -112312,7 +112304,7 @@ __defs["study-workspace"] = function (module, exports, require) {
  * in Practice, Cards, Calendar or Assignments. The implementations here are
  * original and dependency-free; no third-party source is copied.
  */
-const { hashString, localDate, str } = require("./util");
+const { boundedText, clampInt, hashString, localDate, str } = require("./util");
 const { addDays, dayValue } = require("./study-tools");
 const courseIdentity = require("./course-identity");
 const { fencedQuizBlocks, parseQuizBlock } = require("./quiz-block");
@@ -112363,17 +112355,9 @@ function enabledValue(value) {
   return true;
 }
 
-function textValue(value, max) {
-  return str(value).replace(/\r\n?/g, "\n").trim().slice(0, max || MAX_TEXT);
-}
-
 function numberValue(value, fallback) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
-}
-
-function clamp(value, low, high) {
-  return Math.max(low, Math.min(high, Math.round(value)));
 }
 
 function idFor(prefix, parts) {
@@ -112389,34 +112373,34 @@ function asObject(value) {
 function normalizeFeynmanScores(value) {
   const source = asObject(value);
   const out = {};
-  for (const key of FEYNMAN_DIMENSIONS) out[key] = clamp(numberValue(source[key], 0), 0, 5);
+  for (const key of FEYNMAN_DIMENSIONS) out[key] = clampInt(numberValue(source[key], 0), 0, 5);
   return out;
 }
 
 function normalizeFeynmanSession(value) {
   const source = asObject(value);
-  const topic = textValue(source.topic, MAX_TITLE);
+  const topic = boundedText(source.topic, MAX_TITLE);
   if (!topic) return null;
   const answers = {};
   const rawAnswers = asObject(source.answers);
   for (let i = 0; i < FEYNMAN_KEYS.length; i++) {
     const key = FEYNMAN_KEYS[i];
-    answers[key] = textValue(rawAnswers[key] || source[key], MAX_TEXT);
+    answers[key] = boundedText(rawAnswers[key] || source[key], MAX_TEXT);
   }
-  const step = clamp(numberValue(source.step, 0), 0, FEYNMAN_STEPS.length);
+  const step = clampInt(numberValue(source.step, 0), 0, FEYNMAN_STEPS.length);
   const completed = source.completed === true || step >= FEYNMAN_STEPS.length;
   const aiScores = normalizeFeynmanScores(source.aiScores);
   const hasAi = Object.values(aiScores).every((value) => value > 0);
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("feynman", [topic, source.course || "", source.createdAt || 0]),
     topic,
-    course: textValue(source.course, MAX_TITLE),
+    course: boundedText(source.course, MAX_TITLE),
     step: completed ? FEYNMAN_STEPS.length : step,
     answers,
     scores: normalizeFeynmanScores(source.scores),
     aiScores: hasAi ? aiScores : null,
     aiAverage: hasAi ? feynmanAi.feynmanAiAverage(aiScores) : 0,
-    aiFeedback: textValue(source.aiFeedback, 2000),
+    aiFeedback: boundedText(source.aiFeedback, 2000),
     aiScoredAt: Math.max(0, Math.round(numberValue(source.aiScoredAt, 0))),
     completed,
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
@@ -112440,7 +112424,7 @@ function normalizeFeynmanSettings(value) {
 
 function createFeynmanSession(input, now) {
   const source = asObject(input);
-  const topic = textValue(source.topic, MAX_TITLE);
+  const topic = boundedText(source.topic, MAX_TITLE);
   if (!topic) return null;
   const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
   return normalizeFeynmanSession({
@@ -112462,7 +112446,7 @@ function feynmanWeakPoints(scores) {
 }
 
 function feynmanStepKey(step) {
-  return FEYNMAN_KEYS[clamp(numberValue(step, 0), 0, FEYNMAN_KEYS.length - 1)];
+  return FEYNMAN_KEYS[clampInt(numberValue(step, 0), 0, FEYNMAN_KEYS.length - 1)];
 }
 
 /* ---- Study Flow ---------------------------------------------------------- */
@@ -112474,14 +112458,14 @@ function normalizeFlowStatus(value) {
 
 function normalizeFlowExcerpt(value) {
   const source = asObject(value);
-  const quote = textValue(source.quote, MAX_TEXT);
+  const quote = boundedText(source.quote, MAX_TEXT);
   if (!quote) return null;
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("excerpt", [source.sourcePath || "", quote, source.createdAt || 0]),
-    sourcePath: textValue(source.sourcePath, 500),
+    sourcePath: boundedText(source.sourcePath, 500),
     quote,
-    understanding: textValue(source.understanding, MAX_TEXT),
-    card: textValue(source.card, MAX_TEXT),
+    understanding: boundedText(source.understanding, MAX_TEXT),
+    card: boundedText(source.card, MAX_TEXT),
     status: normalizeFlowStatus(source.status),
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
     reviewedAt: Math.max(0, Math.round(numberValue(source.reviewedAt, 0))),
@@ -112504,7 +112488,7 @@ function normalizeStudyFlow(value) {
 
 function createFlowExcerpt(input, now) {
   const source = asObject(input);
-  const quote = textValue(source.quote, MAX_TEXT);
+  const quote = boundedText(source.quote, MAX_TEXT);
   if (!quote) return null;
   const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
   return normalizeFlowExcerpt({
@@ -112529,7 +112513,7 @@ function flowStats(excerpts) {
 
 function normalizeSubjectProject(value) {
   const source = asObject(value);
-  const title = textValue(source.title, MAX_TITLE);
+  const title = boundedText(source.title, MAX_TITLE);
   if (!title) return null;
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("project", [title, source.due || "", source.createdAt || 0]),
@@ -112542,15 +112526,15 @@ function normalizeSubjectProject(value) {
 
 function normalizeSubject(value) {
   const source = asObject(value);
-  const name = textValue(source.name, MAX_TITLE);
+  const name = boundedText(source.name, MAX_TITLE);
   if (!name) return null;
   const color = /^#[0-9a-f]{6}$/i.test(str(source.color).trim()) ? str(source.color).trim().toLowerCase() : "#7c9cf5";
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("subject", [name]),
     name,
-    folder: textValue(source.folder, 500).replace(/^\/+|\/+$/g, ""),
+    folder: boundedText(source.folder, 500).replace(/^\/+|\/+$/g, ""),
     color,
-    notes: textValue(source.notes, MAX_TEXT),
+    notes: boundedText(source.notes, MAX_TEXT),
     projects: (Array.isArray(source.projects) ? source.projects : []).map(normalizeSubjectProject).filter(Boolean).slice(0, 50),
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
   };
@@ -112558,14 +112542,14 @@ function normalizeSubject(value) {
 
 function normalizeAbsence(value) {
   const source = asObject(value);
-  const subject = textValue(source.subject, MAX_TITLE);
+  const subject = boundedText(source.subject, MAX_TITLE);
   const date = dayValue(source.date);
   if (!subject || !date) return null;
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("absence", [subject, date, source.reason || ""]),
     subject,
     date,
-    reason: textValue(source.reason, MAX_TITLE),
+    reason: boundedText(source.reason, MAX_TITLE),
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
   };
 }
@@ -112646,20 +112630,20 @@ function subjectSummary(subjects, absences, lectures, options) {
 
 function normalizeTopic(value, index) {
   const source = asObject(value);
-  const name = textValue(source.name, MAX_TITLE);
+  const name = boundedText(source.name, MAX_TITLE);
   if (!name) return null;
-  const targetPasses = clamp(numberValue(source.targetPasses, 3), 1, 20);
+  const targetPasses = clampInt(numberValue(source.targetPasses, 3), 1, 20);
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("topic", [name, index || 0]),
     name,
-    passes: clamp(numberValue(source.passes, 0), 0, targetPasses),
+    passes: clampInt(numberValue(source.passes, 0), 0, targetPasses),
     targetPasses,
   };
 }
 
 function normalizePlan(value) {
   const source = asObject(value);
-  const course = textValue(source.course, MAX_TITLE);
+  const course = boundedText(source.course, MAX_TITLE);
   if (!course) return null;
   const topics = [];
   const seen = new Set();
@@ -112674,8 +112658,8 @@ function normalizePlan(value) {
     id: str(source.id).trim().slice(0, 160) || idFor("plan", [course, source.examDate || "", source.createdAt || 0]),
     course,
     examDate: dayValue(source.examDate),
-    bufferDays: clamp(numberValue(source.bufferDays, 2), 0, 60),
-    targetPasses: clamp(numberValue(source.targetPasses, 3), 1, 20),
+    bufferDays: clampInt(numberValue(source.bufferDays, 2), 0, 60),
+    targetPasses: clampInt(numberValue(source.targetPasses, 3), 1, 20),
     topics,
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
   };
@@ -112697,7 +112681,7 @@ function normalizePlanner(value) {
 
 function createPlannerPlan(input, now) {
   const source = asObject(input);
-  if (!textValue(source.course, MAX_TITLE)) return null;
+  if (!boundedText(source.course, MAX_TITLE)) return null;
   const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
   const topics = (Array.isArray(source.topics) ? source.topics : [])
     .map((topic, index) => normalizeTopic(typeof topic === "string" ? { name: topic } : topic, index))
@@ -112737,7 +112721,7 @@ function allocatePlan(plan, today) {
   const source = plan && typeof plan === "object" ? plan : {};
   const start = dayValue(today) || localDate();
   const exam = dayValue(source.examDate);
-  const buffer = clamp(numberValue(source.bufferDays, 0), 0, 60);
+  const buffer = clampInt(numberValue(source.bufferDays, 0), 0, 60);
   const topics = (Array.isArray(source.topics) ? source.topics : []).map((topic) => ({
     name: str(topic.name).trim(),
     remaining: Math.max(0, (Number(topic.targetPasses) || 1) - (Number(topic.passes) || 0)),
@@ -112797,7 +112781,7 @@ function normalizeRecallReviews(value) {
     if (!key || !due) continue;
     out[key] = {
       due,
-      interval: clamp(numberValue(state.interval, 1), 1, 3650),
+      interval: clampInt(numberValue(state.interval, 1), 1, 3650),
       reviews: Math.max(0, Math.round(numberValue(state.reviews, 0))),
       last: dayValue(state.last) || "",
     };
@@ -112811,8 +112795,8 @@ function normalizeRecallScheduler(value) {
   return {
     enabled: enabledValue(value),
     mode,
-    folder: textValue(source.folder, 500).replace(/^\/+|\/+$/g, ""),
-    limit: clamp(numberValue(source.limit, 20), 1, 100),
+    folder: boundedText(source.folder, 500).replace(/^\/+|\/+$/g, ""),
+    limit: clampInt(numberValue(source.limit, 20), 1, 100),
     reviews: normalizeRecallReviews(source.reviews),
   };
 }
@@ -112920,8 +112904,8 @@ function normalizeQuizIndex(value) {
   const source = asObject(value);
   return {
     enabled: enabledValue(value),
-    folder: textValue(source.folder, 500).replace(/^\/+|\/+$/g, ""),
-    limit: clamp(numberValue(source.limit, 50), 1, 200),
+    folder: boundedText(source.folder, 500).replace(/^\/+|\/+$/g, ""),
+    limit: clampInt(numberValue(source.limit, 50), 1, 200),
     recordAttempts: source.recordAttempts === true,
     attempts: normalizeQuizAttempts(source.attempts),
   };
@@ -112929,7 +112913,7 @@ function normalizeQuizIndex(value) {
 
 function quizResult(value) {
   if (!value || typeof value !== "object") return null;
-  const percentage = clamp(numberValue(value.percentage, 0), 0, 100);
+  const percentage = clampInt(numberValue(value.percentage, 0), 0, 100);
   return {
     percentage,
     passed: value.passed === true,
@@ -112940,14 +112924,14 @@ function quizResult(value) {
 
 function normalizeQuizAttempt(value) {
   const source = asObject(value);
-  const path = textValue(source.path, 500);
-  const id = textValue(source.id, 160);
-  const total = clamp(numberValue(source.total, 0), 0, 200);
+  const path = boundedText(source.path, 500);
+  const id = boundedText(source.id, 160);
+  const total = clampInt(numberValue(source.total, 0), 0, 200);
   if (!path || !id || !total) return null;
-  const correct = clamp(numberValue(source.correct, 0), 0, total);
+  const correct = clampInt(numberValue(source.correct, 0), 0, total);
   const missed = [];
   for (const raw of Array.isArray(source.missed) ? source.missed : []) {
-    const label = textValue(raw, 160);
+    const label = boundedText(raw, 160);
     if (label) missed.push(label);
     if (missed.length >= 200) break;
   }
@@ -112960,7 +112944,7 @@ function normalizeQuizAttempt(value) {
     correct,
     percentage: Math.round((correct / total) * 100),
     missed,
-    topic: textValue(source.topic, 120) || folder || "General",
+    topic: boundedText(source.topic, 120) || folder || "General",
   };
 }
 
@@ -112985,7 +112969,7 @@ function buildQuizAttempt(path, id, questions, selections, now) {
     total += 1;
     const pick = picks[index];
     if (pick && typeof pick === "object" && pick.correct === true) correct += 1;
-    else missed.push(textValue(question.question, 160) || `Question ${index + 1}`);
+    else missed.push(boundedText(question.question, 160) || `Question ${index + 1}`);
   });
   if (!total) return null;
   return normalizeQuizAttempt({ path, id, at: now || Date.now(), total, correct, missed });
@@ -112994,7 +112978,7 @@ function buildQuizAttempt(path, id, questions, selections, now) {
 /** Scan parsed notes for quiz blocks and the existing opt-in quizResults data. */
 function collectQuizIndex(entries, options) {
   const opts = options && typeof options === "object" ? options : {};
-  const limit = clamp(numberValue(opts.limit, 50), 1, 200);
+  const limit = clampInt(numberValue(opts.limit, 50), 1, 200);
   const rows = [];
   for (const entry of Array.isArray(entries) ? entries : []) {
     const path = str(entry && entry.path).trim();
@@ -113099,15 +113083,15 @@ function collectQuizIndex(entries, options) {
 
 function normalizeGrade(value) {
   const source = asObject(value);
-  const course = textValue(source.course, MAX_TITLE);
-  const title = textValue(source.title, MAX_TITLE);
+  const course = boundedText(source.course, MAX_TITLE);
+  const title = boundedText(source.title, MAX_TITLE);
   if (!course || !title) return null;
   const weight = numberValue(source.weight, 1);
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("grade", [course, title, source.date || "", source.score || 0]),
     course,
     title,
-    score: clamp(numberValue(source.score, 0), 0, 100),
+    score: clampInt(numberValue(source.score, 0), 0, 100),
     weight: Math.round(Math.max(0.1, Math.min(100, weight)) * 100) / 100,
     date: dayValue(source.date),
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
@@ -113250,16 +113234,16 @@ function tagList(value) {
 
 function normalizeStudyTask(value) {
   const source = asObject(value);
-  const title = textValue(source.title, MAX_TITLE);
+  const title = boundedText(source.title, MAX_TITLE);
   if (!title) return null;
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("task", [title, source.course || "", source.due || "", source.createdAt || 0]),
     title,
-    course: textValue(source.course, MAX_TITLE),
+    course: boundedText(source.course, MAX_TITLE),
     tags: tagList(source.tags),
     due: dayValue(source.due),
     done: source.done === true,
-    source: textValue(source.source, 40) || "manual",
+    source: boundedText(source.source, 40) || "manual",
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
   };
 }
@@ -113287,14 +113271,14 @@ function createStudyTask(input, now) {
 /** Generate one task per topic pass and spread them evenly before the exam. */
 function planExamTasks(input, today, now) {
   const source = asObject(input);
-  const course = textValue(source.course, MAX_TITLE);
+  const course = boundedText(source.course, MAX_TITLE);
   const exam = dayValue(source.examDate);
   const start = dayValue(source.startDate) || dayValue(today) || localDate();
   if (!course || !exam || exam <= start) return [];
   const rawTopics = Array.isArray(source.topics) ? source.topics : str(source.topics).split(/\n|,/);
-  const topics = rawTopics.map((topic) => textValue(typeof topic === "string" ? topic : topic && topic.name, MAX_TITLE)).filter(Boolean);
+  const topics = rawTopics.map((topic) => boundedText(typeof topic === "string" ? topic : topic && topic.name, MAX_TITLE)).filter(Boolean);
   if (!topics.length) return [];
-  const passes = clamp(numberValue(source.passes, 2), 1, 3);
+  const passes = clampInt(numberValue(source.passes, 2), 1, 3);
   const last = addDays(exam, -1);
   const days = [];
   for (let day = start; day && day <= last; day = addDays(day, 1)) days.push(day);
@@ -113343,14 +113327,14 @@ function dueStudyTasks(tasks, today) {
 
 function normalizeAnnotation(value) {
   const source = asObject(value);
-  const quote = textValue(source.quote, MAX_TEXT);
+  const quote = boundedText(source.quote, MAX_TEXT);
   if (!quote) return null;
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("annotation", [source.sourcePath || "", quote, source.createdAt || 0]),
-    sourcePath: textValue(source.sourcePath, 500),
+    sourcePath: boundedText(source.sourcePath, 500),
     quote,
-    question: textValue(source.question, MAX_TEXT),
-    answer: textValue(source.answer, MAX_TEXT),
+    question: boundedText(source.question, MAX_TEXT),
+    answer: boundedText(source.answer, MAX_TEXT),
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
   };
 }
@@ -113379,17 +113363,17 @@ function createAnnotation(input, now) {
 
 function normalizeDeepNotesSession(value) {
   const source = asObject(value);
-  const topic = textValue(source.topic, MAX_TITLE);
+  const topic = boundedText(source.topic, MAX_TITLE);
   if (!topic) return null;
   const answers = {};
   const rawAnswers = asObject(source.answers);
-  for (const step of SOCRATIC_STEPS) answers[step.key] = textValue(rawAnswers[step.key] || source[step.key], MAX_TEXT);
-  const step = clamp(numberValue(source.step, 0), 0, SOCRATIC_STEPS.length);
+  for (const step of SOCRATIC_STEPS) answers[step.key] = boundedText(rawAnswers[step.key] || source[step.key], MAX_TEXT);
+  const step = clampInt(numberValue(source.step, 0), 0, SOCRATIC_STEPS.length);
   const completed = source.completed === true || step >= SOCRATIC_STEPS.length;
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("socratic", [topic, source.createdAt || 0]),
     topic,
-    course: textValue(source.course, MAX_TITLE),
+    course: boundedText(source.course, MAX_TITLE),
     step: completed ? SOCRATIC_STEPS.length : step,
     answers,
     completed,
@@ -113414,14 +113398,14 @@ function normalizeDeepNotes(value) {
 
 function createDeepNotesSession(input, now) {
   const source = asObject(input);
-  const topic = textValue(source.topic, MAX_TITLE);
+  const topic = boundedText(source.topic, MAX_TITLE);
   if (!topic) return null;
   const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
   return normalizeDeepNotesSession({ ...source, id: idFor("socratic", [topic, source.course || "", stamp]), createdAt: stamp, updatedAt: stamp });
 }
 
 function deepNotesStepKey(step) {
-  return SOCRATIC_STEPS[clamp(numberValue(step, 0), 0, SOCRATIC_STEPS.length - 1)].key;
+  return SOCRATIC_STEPS[clampInt(numberValue(step, 0), 0, SOCRATIC_STEPS.length - 1)].key;
 }
 
 
@@ -113430,7 +113414,7 @@ function deepNotesStepKey(step) {
 function retentionForecast(cards, options) {
   const opts = options && typeof options === "object" ? options : {};
   const today = dayValue(opts.today) || localDate();
-  const days = clamp(numberValue(opts.days, 30), 1, 90);
+  const days = clampInt(numberValue(opts.days, 30), 1, 90);
   const list = (Array.isArray(cards) ? cards : []).filter((card) => card && card.fm);
   const forecast = [];
   const counts = new Map();
@@ -113486,19 +113470,19 @@ function retentionForecast(cards, options) {
 
 function normalizeVocabWord(value) {
   const source = asObject(value);
-  const term = textValue(source.term, MAX_TITLE);
+  const term = boundedText(source.term, MAX_TITLE);
   if (!term) return null;
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("vocab", [term, source.definition || "", source.createdAt || 0]),
     term,
-    definition: textValue(source.definition, MAX_TEXT),
-    example: textValue(source.example, MAX_TEXT),
-    media: textValue(source.media, 500),
-    language: textValue(source.language, MAX_TITLE),
+    definition: boundedText(source.definition, MAX_TEXT),
+    example: boundedText(source.example, MAX_TEXT),
+    media: boundedText(source.media, 500),
+    language: boundedText(source.language, MAX_TITLE),
     due: dayValue(source.due),
-    interval: clamp(numberValue(source.interval, 0), 0, 3650),
+    interval: clampInt(numberValue(source.interval, 0), 0, 3650),
     reviews: Math.max(0, Math.round(numberValue(source.reviews, 0))),
-    correct: clamp(numberValue(source.correct, 0), 0, Math.max(0, Math.round(numberValue(source.reviews, 0)))),
+    correct: clampInt(numberValue(source.correct, 0), 0, Math.max(0, Math.round(numberValue(source.reviews, 0)))),
     streak: Math.max(0, Math.round(numberValue(source.streak, 0))),
     lapses: Math.max(0, Math.round(numberValue(source.lapses, 0))),
     lastGrade: ["again", "hard", "good", "easy"].includes(str(source.lastGrade)) ? str(source.lastGrade) : "",
@@ -120119,7 +120103,7 @@ __defs["tag-timer"] = function (module, exports, require) {
  * writes notes or touches the question/card scheduler.
  */
 const { dayKey, formatFocusClock } = require("./focus");
-const { hashString, localDate, str } = require("./util");
+const { clamp, hashString, localDate, str } = require("./util");
 
 const MAX_TIMERS = 200;
 const MAX_BLOCK_TIMERS = 40;
@@ -120133,10 +120117,6 @@ const TAG_RE = /^#[A-Za-z0-9_/-]+$/;
 function timerNumber(value, fallback) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
-}
-
-function clamp(value, low, high) {
-  return Math.max(low, Math.min(high, value));
 }
 
 function tagKey(tag) {
@@ -121949,7 +121929,7 @@ __defs["time-blocks"] = function (module, exports, require) {
  * backlog reuses the plugin's existing study tasks instead of creating a
  * second task system.
  */
-const { hashString, str } = require("./util");
+const { boundedText, hashString, str } = require("./util");
 
 const MAX_BLOCKS = 2000;
 const MAX_PROJECTS = 100;
@@ -121989,10 +121969,6 @@ const TIME_BLOCK_TOUR = [
 
 function objectValue(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-}
-
-function textValue(value, max) {
-  return str(value).replace(/\r\n?/g, "\n").trim().slice(0, max || MAX_TITLE);
 }
 
 function numberValue(value, fallback) {
@@ -122161,7 +122137,7 @@ function subjectColorRows(blocks, subjectColors, projects) {
   const colors = objectValue(subjectColors);
   const rows = new Map();
   for (const block of Array.isArray(blocks) ? blocks : []) {
-    const course = textValue(block && block.course, MAX_TITLE);
+    const course = boundedText(block && block.course, MAX_TITLE);
     if (!course) continue;
     const key = subjectColorKey(course);
     const row = rows.get(key) || { course, color: colors[key] || "", blocks: 0, minutes: 0 };
@@ -122213,7 +122189,7 @@ function statusFromChar(value) {
 
 function normalizeBlockTask(value, createdAt) {
   const source = objectValue(value);
-  const title = textValue(source.title, MAX_TITLE);
+  const title = boundedText(source.title, MAX_TITLE);
   if (!title) return null;
   const status = normalizeTaskStatus(source.status, source.done);
   return {
@@ -122221,16 +122197,16 @@ function normalizeBlockTask(value, createdAt) {
     title,
     done: status === "done",
     status,
-    projectId: textValue(source.projectId, 160),
-    tag: textValue(source.tag, MAX_TITLE),
-    studyTaskId: textValue(source.studyTaskId, 160),
+    projectId: boundedText(source.projectId, 160),
+    tag: boundedText(source.tag, MAX_TITLE),
+    studyTaskId: boundedText(source.studyTaskId, 160),
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, createdAt || 0))),
   };
 }
 
 function normalizeTimeBlock(value) {
   const source = objectValue(value);
-  const title = textValue(source.title, MAX_TITLE);
+  const title = boundedText(source.title, MAX_TITLE);
   const date = dayValue(source.date);
   const untimed = source.untimed === true;
   const start = untimed ? "" : normalizeTime(source.start);
@@ -122247,8 +122223,8 @@ function normalizeTimeBlock(value) {
     tasks.push(task);
     if (tasks.length >= MAX_TASKS_PER_BLOCK) break;
   }
-  const projectId = textValue(source.projectId, 160);
-  const routineId = textValue(source.routineId, 160);
+  const projectId = boundedText(source.projectId, 160);
+  const routineId = boundedText(source.routineId, 160);
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("tb", [date, start, end, title, source.createdAt || 0]),
     date,
@@ -122258,9 +122234,9 @@ function normalizeTimeBlock(value) {
     title,
     type: normalizeType(source.type),
     projectId,
-    course: textValue(source.course, MAX_TITLE),
+    course: boundedText(source.course, MAX_TITLE),
     tags: normalizeBlockTags(source.tags),
-    notes: textValue(source.notes, MAX_TEXT),
+    notes: boundedText(source.notes, MAX_TEXT),
     tasks,
     routineId,
     createdAt,
@@ -122312,16 +122288,16 @@ function normalizeTimeBlocks(value) {
     weekStartsOn: source.weekStartsOn === "sunday" ? "sunday" : "monday",
     dayStart: normalizeTime(source.dayStart) || "07:00",
     dayEnd: normalizeTime(source.dayEnd) || "22:00",
-    notesFolder: textValue(source.notesFolder, 200) || "Time blocks",
-    dailyNoteFolder: textValue(source.dailyNoteFolder, 200),
+    notesFolder: boundedText(source.notesFolder, 200) || "Time blocks",
+    dailyNoteFolder: boundedText(source.dailyNoteFolder, 200),
     scheduleHeading: normalizeScheduleHeading(source.scheduleHeading),
-    backlogPath: textValue(source.backlogPath, 200) || "Backlog.md",
-    routinesPath: textValue(source.routinesPath, 200) || "Routines.md",
-    projectsFolder: textValue(source.projectsFolder, 200) || DEFAULT_PROJECTS_FOLDER,
-    domainsFolder: textValue(source.domainsFolder, 200) || DEFAULT_DOMAINS_FOLDER,
+    backlogPath: boundedText(source.backlogPath, 200) || "Backlog.md",
+    routinesPath: boundedText(source.routinesPath, 200) || "Routines.md",
+    projectsFolder: boundedText(source.projectsFolder, 200) || DEFAULT_PROJECTS_FOLDER,
+    domainsFolder: boundedText(source.domainsFolder, 200) || DEFAULT_DOMAINS_FOLDER,
     autoApplyRoutines: source.autoApplyRoutines === true,
     askAssocOnBlockCreate: source.askAssocOnBlockCreate === true,
-    dropBlockTitle: textValue(source.dropBlockTitle, MAX_TITLE) || DEFAULT_DROP_TITLE,
+    dropBlockTitle: boundedText(source.dropBlockTitle, MAX_TITLE) || DEFAULT_DROP_TITLE,
     subjectColors: normalizeSubjectColors(source.subjectColors),
     view: normalizeView(source.view),
     blocks,
@@ -122344,7 +122320,7 @@ function createTimeBlock(input, now) {
 
 function normalizeTimeProject(value) {
   const source = objectValue(value);
-  const name = textValue(source.name, MAX_TITLE);
+  const name = boundedText(source.name, MAX_TITLE);
   if (!name) return null;
   const id = str(source.id).trim().slice(0, 160) || idFor("tbp", [name, source.kind || "project", source.createdAt || 0]);
   return {
@@ -122352,7 +122328,7 @@ function normalizeTimeProject(value) {
     name,
     kind: normalizeProjectKind(source.kind),
     color: projectColor(source.color, id),
-    course: textValue(source.course, MAX_TITLE),
+    course: boundedText(source.course, MAX_TITLE),
     statusHistory: normalizeProjectHistory(source.statusHistory),
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
   };
@@ -122380,7 +122356,7 @@ function normalizeRoutineDays(value) {
 
 function normalizeTimeRoutine(value) {
   const source = objectValue(value);
-  const title = textValue(source.title, MAX_TITLE);
+  const title = boundedText(source.title, MAX_TITLE);
   const start = normalizeTime(source.start);
   const end = normalizeTime(source.end);
   const days = normalizeRoutineDays(source.days);
@@ -122402,8 +122378,8 @@ function normalizeTimeRoutine(value) {
     start,
     end,
     type: normalizeType(source.type),
-    projectId: textValue(source.projectId, 160),
-    course: textValue(source.course, MAX_TITLE),
+    projectId: boundedText(source.projectId, 160),
+    course: boundedText(source.course, MAX_TITLE),
     tasks,
     createdAt,
   };
@@ -122425,13 +122401,13 @@ function createTimeRoutine(input, now) {
 
 function normalizeBacklogItem(value) {
   const source = objectValue(value);
-  const title = textValue(source.title, MAX_TITLE);
+  const title = boundedText(source.title, MAX_TITLE);
   if (!title) return null;
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("tbb", [title, source.projectId || "", source.createdAt || 0]),
     title,
-    projectId: textValue(source.projectId, 160),
-    course: textValue(source.course, MAX_TITLE),
+    projectId: boundedText(source.projectId, 160),
+    course: boundedText(source.course, MAX_TITLE),
     resurface: dayValue(source.resurface),
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
   };
@@ -122573,12 +122549,12 @@ function calendarDaySummary(events, date, blocks) {
           .map((block) => ({ id: block.id, title: block.title, start: block.start, end: block.end }));
     return {
       id: str(event.uid || event.id).trim() || idFor("tbc", [key, str(event.summary), start, index]),
-      title: textValue(event.summary, MAX_TITLE) || "Untitled event",
+      title: boundedText(event.summary, MAX_TITLE) || "Untitled event",
       start,
       end,
       allDay,
-      location: textValue(event.location, MAX_TITLE),
-      course: textValue(event.course || (event.details && event.details.subject), MAX_TITLE),
+      location: boundedText(event.location, MAX_TITLE),
+      course: boundedText(event.course || (event.details && event.details.subject), MAX_TITLE),
       overlaps: overlapping,
     };
   });
@@ -122636,7 +122612,7 @@ function parseDailyNoteLines(markdown) {
     const match = /^\s*(?:[-*+]\s+)?(?:\[[ xX]\]\s+)?(\d{1,2}:\d{2})(?:\s*(?:-|–|—|to)\s*(\d{1,2}:\d{2}))?\s+(.+?)\s*$/i.exec(line);
     if (!match) continue;
     const start = normalizeTime(match[1]);
-    const title = textValue(match[3], MAX_TITLE);
+    const title = boundedText(match[3], MAX_TITLE);
     if (!start || !title) continue;
     let end = normalizeTime(match[2]);
     if (!end) end = timeFromMinutes(Math.min(minutesOf(start) + 60, 1439));
@@ -123318,7 +123294,7 @@ function normalizeProjectStatusRecord(value) {
     date,
     status,
     ...(intensity !== undefined ? { intensity } : {}),
-    note: textValue(source.note, 500),
+    note: boundedText(source.note, 500),
   };
 }
 
@@ -123415,7 +123391,7 @@ function projectMarkdown(project, options) {
     }
   }
   lines.push("---", "");
-  const body = textValue(settings.body, MAX_TEXT);
+  const body = boundedText(settings.body, MAX_TEXT);
   return lines.join("\n") + (body ? body + "\n" : "# " + value.name + "\n");
 }
 
@@ -123464,7 +123440,7 @@ function parseProjectMarkdown(markdown, path) {
       continue;
     }
     if (/^course\s*:/.test(trimmed)) {
-      course = textValue(trimmed.replace(/^course\s*:/, ""), MAX_TITLE);
+      course = boundedText(trimmed.replace(/^course\s*:/, ""), MAX_TITLE);
       statusMode = false;
       tagsMode = false;
       continue;
@@ -123514,7 +123490,7 @@ function parseProjectMarkdown(markdown, path) {
   const base = str(path).replace(/\\/g, "/").split("/").pop().replace(/\.md$/i, "");
   const heading = /^#\s+(.+)$/m.exec(stripFrontmatter(value));
   return {
-    name: textValue(heading ? heading[1] : base, MAX_TITLE),
+    name: boundedText(heading ? heading[1] : base, MAX_TITLE),
     kind: tags.some((tag) => tag === "mcq/domain" || tag === "kairos/domain") ? "domain" : "project",
     id,
     color,
@@ -123537,7 +123513,7 @@ function projectFilePath(project, settings) {
   const value = normalizeTimeProject(project);
   if (!value) return "";
   const source = objectValue(settings);
-  const folder = value.kind === "domain" ? textValue(source.domainsFolder, 200) || DEFAULT_DOMAINS_FOLDER : textValue(source.projectsFolder, 200) || DEFAULT_PROJECTS_FOLDER;
+  const folder = value.kind === "domain" ? boundedText(source.domainsFolder, 200) || DEFAULT_DOMAINS_FOLDER : boundedText(source.projectsFolder, 200) || DEFAULT_PROJECTS_FOLDER;
   const name = value.name.replace(/[\\/:*?"<>|#^[\]]/g, "-").replace(/\s+/g, " ").trim() || "Project";
   return folder ? folder + "/" + name + ".md" : name + ".md";
 }
@@ -123628,7 +123604,7 @@ function kairosSettingsPatch(value) {
     ["notesFolder", "notesFolder"],
     ["dropBlockTitle", "dropBlockTitle"],
   ]) {
-    const text = textValue(raw[from], 200);
+    const text = boundedText(raw[from], 200);
     if (text) patch[to] = text;
   }
   if (typeof raw.autoApplyRoutines === "boolean") patch.autoApplyRoutines = raw.autoApplyRoutines;
@@ -125228,7 +125204,11 @@ function parseHttpUrl(raw) {
 
 function isLoopbackHost(hostname) {
   const host = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
-  return host === "localhost" || host === "::1" || /^127\./.test(host);
+  if (host === "localhost" || host === "::1") return true;
+  const parts = host.split(".");
+  if (parts.length !== 4 || !parts.every((part) => /^\d{1,3}$/.test(part))) return false;
+  const octets = parts.map(Number);
+  return octets[0] === 127 && octets.every((octet) => octet <= 255);
 }
 
 function cleanUrl(url) {
@@ -125436,7 +125416,15 @@ module.exports = {
 
 /* ---- src/util.js ---- */
 __defs["util"] = function (module, exports, require) {
-const { normalizePath } = require("obsidian");
+let obsidianNormalizePath = null;
+/**
+ * Obsidian's path normalizer, loaded on first use so pure modules can import
+ * these helpers in plain Node tests without the app runtime.
+ */
+function normalizeVaultPath(path) {
+  if (!obsidianNormalizePath) obsidianNormalizePath = require("obsidian").normalizePath;
+  return obsidianNormalizePath(path);
+}
 
 /* ------------------------------------------------------------ pure helpers */
 
@@ -125451,6 +125439,43 @@ const addDays = (d, n) => {
 };
 const fmtClock = (s) => `${Math.floor(s / 60)}:${pad(s % 60)}`;
 const str = (v) => (v === undefined || v === null ? "" : String(v));
+
+/** Numeric clamp that keeps fractions; bounds are expected in `min <= max` order. */
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+/** Numeric clamp for whole counters, rounding before the bounds are applied. */
+const clampInt = (value, low, high) => Math.max(low, Math.min(high, Math.round(value)));
+
+/** Plain text from a possibly missing value; no trimming or truncation. */
+const textValue = (value) => (value === null || value === undefined ? "" : String(value));
+
+/** Trimmed, CRLF-normalized text capped at `max` characters (uncapped when omitted). */
+const boundedText = (value, max) => str(value).replace(/\r\n?/g, "\n").trim().slice(0, max);
+
+/** Path form used by write guards: slashes normalized, edge whitespace and slashes removed. */
+function normalizePath(value) {
+  return str(value).trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+}
+
+const HTML_ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+/** Escape the five HTML-significant characters, apostrophe included. */
+const escapeHtml = (value) => String(value == null ? "" : value).replace(/[&<>"']/g, (char) => HTML_ESCAPES[char]);
+
+/**
+ * First free vault path for `folder/name.ext`, counting `name 2.ext`, `name 3.ext`…
+ * Shared by callers whose naming rule is just the path-illegal characters replaced
+ * with `-`; modules with their own sanitizer keep a documented local helper.
+ */
+function uniquePath(vault, folder, name, extension, fallback) {
+  const ext = extension || "md";
+  const safe = str(name).replace(/[\\/:*?"<>|]/g, "-").trim() || fallback || "Note";
+  let path = normalizeVaultPath(`${folder}/${safe}.${ext}`);
+  let n = 2;
+  while (vault.getAbstractFileByPath(path)) {
+    path = normalizeVaultPath(`${folder}/${safe} ${n}.${ext}`);
+    n++;
+  }
+  return path;
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const fmtMB = (n) => `${Math.round(n / 1048576)} MB`;
@@ -125467,7 +125492,7 @@ function hashString(text) {
 }
 
 async function ensureFolder(app, folder) {
-  const clean = normalizePath(str(folder).trim() || "/");
+  const clean = normalizeVaultPath(str(folder).trim() || "/");
   if (clean === "/" || clean === "") return "";
   let cur = "";
   for (const part of clean.split("/").filter(Boolean)) {
@@ -125490,6 +125515,13 @@ module.exports = {
   addDays,
   fmtClock,
   str,
+  clamp,
+  clampInt,
+  textValue,
+  boundedText,
+  normalizePath,
+  escapeHtml,
+  uniquePath,
   sleep,
   fmtMB,
   hashString,
@@ -125737,7 +125769,7 @@ __defs["vault-task-index"] = function (module, exports, require) {
  * never edits, rewrites or moves a note, and it does not interpret a query
  * language or another plugin's task syntax.
  */
-const { str } = require("./util");
+const { clampInt, str } = require("./util");
 
 const MAX_FILES = 500;
 const MAX_ROWS = 1000;
@@ -125751,16 +125783,12 @@ function asObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
-function clamp(value, low, high) {
-  return Math.max(low, Math.min(high, Math.round(value)));
-}
-
 function normalizeVaultTaskIndexOptions(value) {
   const source = asObject(value);
   return {
     openOnly: source.openOnly === true,
     folder: str(source.folder).trim().replace(/^\/+|\/+$/g, "").slice(0, 400),
-    limit: clamp(Number.isFinite(Number(source.limit)) ? Number(source.limit) : DEFAULT_LIMIT, 1, MAX_LIMIT),
+    limit: clampInt(Number.isFinite(Number(source.limit)) ? Number(source.limit) : DEFAULT_LIMIT, 1, MAX_LIMIT),
   };
 }
 
@@ -125896,6 +125924,7 @@ __defs["vector-field"] = function (module, exports, require) {
  * sampler, quiver geometry and RK4 streamlines are pure and capped; painting is
  * a plain canvas adapter with no WebGL, network request or third-party code.
  */
+const { clamp } = require("./util");
 const { compileScoped } = require("./reference-graph");
 
 const DEFAULTS = {
@@ -125914,10 +125943,6 @@ const MAX_GRID = 25;
 const MAX_STREAMLINE_SEEDS = 16;
 const MAX_STREAMLINE_STEPS = 160;
 const COLORS = ["#5b8def", "#e5534b", "#2ea043", "#d29922", "#a371f7", "#39c5cf"];
-
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
-}
 
 function finite(value, fallback) {
   const number = Number(value);
@@ -128453,10 +128478,6 @@ function asObject(value) {
 function number(value, fallback) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function clamp(value, low, high) {
-  return Math.max(low, Math.min(high, Math.round(value)));
 }
 
 /** Words, characters, sentences and paragraphs in one note body. */

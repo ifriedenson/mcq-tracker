@@ -8,7 +8,7 @@
  */
 const { Modal, Setting, TFile, normalizePath } = require("obsidian");
 const { FolderSuggest } = require("./modals");
-const { ensureFolder, localDate, str } = require("./util");
+const { ensureFolder, localDate, str, uniquePath } = require("./util");
 
 const DEFAULT_SCAN_FOLDER = "Paper scans";
 const FULL_CROP = { x: 0, y: 0, w: 1, h: 1 };
@@ -17,6 +17,7 @@ function utf8(text) {
   return new TextEncoder().encode(str(text));
 }
 
+/** Scanning settings coerce a missing value to 0 before the bounds; the shared clamp() leaves NaN to the caller. */
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, Number(value) || 0));
 }
@@ -166,17 +167,6 @@ function buildPdfFromJpegs(images) {
   }
   add(`trailer\n<< /Size ${maxObject + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
   return concat(chunks);
-}
-
-function uniquePath(vault, folder, name, extension) {
-  const safe = str(name).replace(/[\\/:*?"<>|]/g, "-").trim() || "Scan";
-  let path = normalizePath(`${folder}/${safe}.${extension || "pdf"}`);
-  let n = 2;
-  while (vault.getAbstractFileByPath(path)) {
-    path = normalizePath(`${folder}/${safe} ${n}.${extension || "pdf"}`);
-    n++;
-  }
-  return path;
 }
 
 async function loadSource(file) {
@@ -441,7 +431,7 @@ class PaperScannerModal extends Modal {
       }
       const pdf = buildPdfFromJpegs(images);
       await ensureFolder(this.app, folder);
-      const path = uniquePath(this.app.vault, folder, this.title, "pdf");
+      const path = uniquePath(this.app.vault, folder, this.title, "pdf", "Scan");
       await this.app.vault.createBinary(path, pdf);
       this.plugin.refreshViews();
       this.showDone(el, path, images.length);

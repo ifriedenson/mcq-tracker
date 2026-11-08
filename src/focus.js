@@ -1,14 +1,12 @@
 "use strict";
 /* Focus sessions and study-time totals. Pure helpers, so the UI and tests share one clock model. */
 
+const { str } = require("./util");
+
 const FOCUS_STORAGE_KEY = "mcqTrackerFocus";
 const MAX_FOCUS_MS = 4 * 3600 * 1000; // a session left open overnight should not become a 9-hour block
 const MAX_SESSIONS = 5000;
 const DEFAULT_STUDY_LOG = { sessions: [], dailyGoalMinutes: 60, lastCourse: "" };
-
-function str(value) {
-  return value === undefined || value === null ? "" : String(value);
-}
 
 function dayKey(date) {
   const d = date instanceof Date ? date : new Date(date);

@@ -9,6 +9,7 @@
  * old notes to a different document.
  */
 
+const { str } = require("./util");
 const { normalizeHighlightAreas, normalizeInkStrokes, normalizeTextBoxes } = require("./pdf-ink");
 
 const ANNOTATION_BLOCK = "mcq-pdf-annotations";
@@ -17,10 +18,6 @@ const ANNOTATION_COLORS = ["yellow", "green", "blue", "red", "purple", "gray"];
 const MARK_TYPES = ["highlight", "underline", "strike", "box", "quote"];
 const MAX_TAGS = 6;
 const MAX_TAG_LENGTH = 24;
-
-function str(value) {
-  return value === undefined || value === null ? "" : String(value);
-}
 
 /** A 64-bit-ish content id: two independent FNV-1a passes over the bytes. */
 function hashBytes(bytes) {

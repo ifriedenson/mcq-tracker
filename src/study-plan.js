@@ -1,9 +1,7 @@
 "use strict";
 /* Exam-scoped study plans. The planner only reads existing question/card state. */
 
-function str(value) {
-  return value === undefined || value === null ? "" : String(value);
-}
+const { str } = require("./util");
 
 function normalizeStudyPlanDays(value) {
   const n = Math.round(Number(value));

@@ -7,7 +7,7 @@
  * the folders the user configured, and protected tracking properties cannot
  * change when an import updates an existing note.
  */
-const { str } = require("./util");
+const { normalizePath, str } = require("./util");
 
 const PROTECTED_PROPERTIES = [
   "result",
@@ -51,10 +51,6 @@ const PROTECTED_PROPERTIES = [
   "grade_stale",
   "verdict_override",
 ];
-
-function normalizePath(path) {
-  return str(path).trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-}
 
 function pathInside(path, root) {
   const file = normalizePath(path);

@@ -8,6 +8,8 @@
  * expressions are parsed locally rather than passed to eval or Function.
  */
 
+const { textValue } = require("./util");
+
 const MIN_COLUMNS = 2;
 const MAX_COLUMNS = 8;
 const MAX_COLUMN_NAME = 24;
@@ -35,10 +37,6 @@ const TABLE_FUNCTIONS = {
 };
 
 const TABLE_CONSTANTS = { pi: Math.PI, e: Math.E, tau: Math.PI * 2 };
-
-function textValue(value) {
-  return value === null || value === undefined ? "" : String(value);
-}
 
 /** Trim, collapse whitespace and bound an expression. */
 function normalizeExpression(value) {

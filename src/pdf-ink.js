@@ -8,6 +8,8 @@
  * canvas and the sidecar writer.
  */
 
+const { clamp, str } = require("./util");
+
 const INK_COLORS = ["yellow", "green", "blue", "red", "purple", "gray"];
 const INK_TOOLS = ["pen", "highlighter"];
 const MARK_STYLES = ["highlight", "underline", "strike", "box"];
@@ -25,14 +27,6 @@ const INK_COLOR_HEX = {
   purple: "#bb6bd9",
   gray: "#828282",
 };
-
-function str(value) {
-  return value === undefined || value === null ? "" : String(value);
-}
-
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
-}
 
 function round(value, places) {
   const scale = Math.pow(10, places || 0);
@@ -368,5 +362,4 @@ module.exports = {
   normalizeTextBox,
   normalizeTextBoxes,
   pointToSegmentDistance,
-  clamp,
 };

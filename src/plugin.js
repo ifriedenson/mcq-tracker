@@ -1241,17 +1241,14 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerEvent(this.app.vault.on("rename", invalidateNotes));
     this.registerEvent(this.app.metadataCache.on("changed", invalidateNotes));
 
-    const refreshPlainCards = () => {
-      const plain = this.settings.cards && this.settings.cards.plainMarkdown;
-      if (!plain || plain.enabled !== true) return;
-      this.refreshPlainCards()
-        .then(() => this.refreshViews())
-        .catch(() => {});
+    const refreshPlainCardsSoon = (file, oldPath) => {
+      if (!this.plainCardsEventRelevant(file, oldPath)) return;
+      this.schedulePlainCardRefresh();
     };
-    this.registerEvent(this.app.vault.on("create", refreshPlainCards));
-    this.registerEvent(this.app.vault.on("delete", refreshPlainCards));
-    this.registerEvent(this.app.vault.on("rename", refreshPlainCards));
-    this.registerEvent(this.app.metadataCache.on("changed", refreshPlainCards));
+    this.registerEvent(this.app.vault.on("create", refreshPlainCardsSoon));
+    this.registerEvent(this.app.vault.on("delete", refreshPlainCardsSoon));
+    this.registerEvent(this.app.vault.on("rename", refreshPlainCardsSoon));
+    this.registerEvent(this.app.metadataCache.on("changed", (file) => refreshPlainCardsSoon(file)));
 
     // The old onload awaited this full-folder scan before any view could open.
     // Start it after layout and repaint Cards once the index is ready.
@@ -1513,7 +1510,11 @@ class QuestionTrackerPlugin extends Plugin {
 
   /** Practice every note in a folder and its sub folders. `expected` waits for freshly written notes to be indexed. */
   async practiceFolder(folder, expected) {
-    const inFolder = () => this.getQuestions().filter((q) => q.file.path.startsWith(folder + "/")).length;
+    const inFolder = () => {
+      // A note written while we wait may not have emitted a vault event yet.
+      this.invalidateSnapshots();
+      return this.getQuestions().filter((q) => q.file.path.startsWith(folder + "/")).length;
+    };
     for (let i = 0; expected && i < 20 && inFolder() < expected; i++) await sleep(250);
     if (!inFolder()) {
       new Notice("No question notes in that folder yet.");
@@ -2518,6 +2519,10 @@ class QuestionTrackerPlugin extends Plugin {
         /* the modal may already be closed */
       }
       this._quickChatModal = null;
+    }
+    if (this._plainCardRefreshTimer) {
+      activeWindow.clearTimeout(this._plainCardRefreshTimer);
+      this._plainCardRefreshTimer = null;
     }
     practiceFullscreen.setPracticeFullscreen(null, false);
     if (this.manager) this.manager.stop();
@@ -7278,8 +7283,8 @@ class QuestionTrackerPlugin extends Plugin {
     for (const issue of parsed.issues.slice(0, 3)) box.createDiv({ cls: "qt-simple-quiz-issue", text: issue });
   }
 
-  /** Draft quiz questions from chosen notes and folders. This method writes nothing. */
-  async generateQuizFromNotes(options) {
+  /** Build the exact generation payload and price it locally. This method sends nothing. */
+  async prepareQuizGeneration(options) {
     if (!this.settings.ai.enabled) throw new Error("Turn on AI features under Settings, Global, Modules first.");
     if (this.moduleOff("mcq")) throw new Error("Turn on MCQ Tracker to create practice questions.");
     const config = normalizeQuizGenerator({ ...normalizeQuizGenerator(this.settings.quizGenerator), ...(options || {}) });
@@ -7295,7 +7300,25 @@ class QuestionTrackerPlugin extends Plugin {
     const source = collectGeneratorSources(sources, { folders: config.folders, maxNotes: 12, focus: config.focus });
     if (!source.text.trim()) throw new Error("No readable notes matched those folders.");
     const prompt = buildQuizGeneratorPrompt({ text: source.text, titles: source.titles, focus: config.focus, count: config.count, language: config.language, types: config.types });
-    const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "generation", maxTokens: 4000 });
+    const maxTokens = aiService.clampMaxTokens(this.settings.ai, 4000);
+    const inputTokens = aiService.estimateRequestTokens(prompt.system, [{ role: "user", content: prompt.user }]);
+    const model = this.aiModelFor("generation");
+    const cost = chatPricing.estimateCost(this.settings.ai.pricing, model, inputTokens, maxTokens);
+    return {
+      config,
+      source,
+      prompt,
+      maxTokens,
+      model,
+      estimate: { ...cost, model, inputTokens, outputTokens: maxTokens },
+    };
+  }
+
+  /** Draft quiz questions from chosen notes and folders. This method writes nothing. */
+  async generateQuizFromNotes(options, prepared) {
+    const plan = prepared && prepared.prompt && prepared.config ? prepared : await this.prepareQuizGeneration(options);
+    const { config, source, prompt } = plan;
+    const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "generation", maxTokens: plan.maxTokens || 4000 });
     const parsed = parseGeneratorQuestions(reply, { count: config.count, types: config.types });
     if (!parsed.items.length) throw new Error("The AI returned no usable questions. Try different notes or fewer types.");
     const verification = await this.verifyDraftQuestions(parsed.items);
@@ -7623,6 +7646,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (!paths.length) throw new Error("The generated cards could not be written to the vault.");
     this.recordAiTranscriptWrite(generated, beforePaths);
     const pushed = await this.pushCardsToAnki({ paths, deck });
+    this.invalidateSnapshots();
     return {
       batch,
       format,
@@ -9248,15 +9272,17 @@ ${body}
 
   getQuestions() {
     const folder = this.settings.questionFolder.trim().replace(/^\/+|\/+$/g, "");
-    const out = [];
-    for (const file of this.app.vault.getMarkdownFiles()) {
-      if (folder && file.path !== folder && !file.path.startsWith(folder + "/")) continue;
-      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-      if (fm && fm.question_id !== undefined && fm.question_id !== null && fm.question_id !== "") {
-        out.push({ file, fm });
+    return this.snapshot("questions:" + folder, () => {
+      const out = [];
+      for (const file of this.app.vault.getMarkdownFiles()) {
+        if (folder && file.path !== folder && !file.path.startsWith(folder + "/")) continue;
+        const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+        if (fm && fm.question_id !== undefined && fm.question_id !== null && fm.question_id !== "") {
+          out.push({ file, fm });
+        }
       }
-    }
-    return out;
+      return out;
+    }).slice();
   }
 
   filtered(questions, options) {
@@ -9276,13 +9302,37 @@ ${body}
 
   /** Every card or vocabulary note, with its effective deck and course. */
   getCards() {
-    const out = [];
-    const plain = this.plainCardIndex || new Map();
-    for (const file of this.app.vault.getMarkdownFiles()) {
-      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-      if (isCardNote(fm) || plain.has(file.path)) out.push(resolveCard(file, fm || {}, this.settings));
-    }
-    return out;
+    return this.snapshot("cards", () => {
+      const out = [];
+      const plain = this.plainCardIndex || new Map();
+      for (const file of this.app.vault.getMarkdownFiles()) {
+        const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+        if (isCardNote(fm) || plain.has(file.path)) out.push(resolveCard(file, fm || {}, this.settings));
+      }
+      return out;
+    }).slice();
+  }
+
+  /** An event can only change the plain-card index when it touches the card folder. */
+  plainCardsEventRelevant(file, oldPath) {
+    const config = normalizePlainCards(this.settings.cards && this.settings.cards.plainMarkdown);
+    if (!config.enabled || !config.folder) return false;
+    return isPlainPath(file && file.path, config.folder) || isPlainPath(oldPath, config.folder);
+  }
+
+  /** Coalesce a burst of vault events into one folder scan. */
+  schedulePlainCardRefresh(delay) {
+    const config = normalizePlainCards(this.settings.cards && this.settings.cards.plainMarkdown);
+    if (!config.enabled || !config.folder) return null;
+    if (this._plainCardRefreshTimer) activeWindow.clearTimeout(this._plainCardRefreshTimer);
+    const wait = delay === undefined ? 300 : Math.max(0, Number(delay) || 0);
+    this._plainCardRefreshTimer = activeWindow.setTimeout(() => {
+      this._plainCardRefreshTimer = null;
+      this.refreshPlainCards()
+        .then(() => this.refreshViews())
+        .catch(() => {});
+    }, wait);
+    return this._plainCardRefreshTimer;
   }
 
   /**
@@ -9291,6 +9341,10 @@ ${body}
    * and receive tracking properties only when they are reviewed.
    */
   async refreshPlainCards(options) {
+    if (this._plainCardRefreshTimer) {
+      activeWindow.clearTimeout(this._plainCardRefreshTimer);
+      this._plainCardRefreshTimer = null;
+    }
     const config = normalizePlainCards(this.settings.cards.plainMarkdown);
     const found = new Map();
     if (config.enabled && config.folder) {
@@ -9307,6 +9361,7 @@ ${body}
       }
     }
     this.plainCardIndex = found;
+    this.invalidateSnapshots();
     if (options && options.refresh) this.refreshViews();
     return found.size;
   }
@@ -10626,6 +10681,7 @@ ${body}
         rows.push({ status: "failed", reason, source: target.importSource || "" });
       }
     }
+    if (created || updated || copied) this.invalidateSnapshots();
     return { created, updated, copied, skipped, errors, rows, media: opts.media || null, total: Array.isArray(parsed) ? parsed.length : 0, duplicateMode: mode };
   }
 
@@ -10983,6 +11039,7 @@ ${body}
       return { ...preview, queued: true, pending: list.length, attemptId: attempt.attemptId };
     }
 
+    this.invalidateSnapshots();
     try {
       const cachedFm = (this.app.metadataCache.getFileCache(file) || {}).frontmatter || {};
       const kind = isCardNote(cachedFm) ? "card" : str(cachedFm.question_id) ? "question" : "note";
@@ -11053,6 +11110,7 @@ ${body}
         }
       }
       this.writePendingAttempts(list);
+      if (sent) this.invalidateSnapshots();
       return { sent, remaining: list.length };
     })().finally(() => {
       this._pendingFlush = null;
@@ -11062,6 +11120,7 @@ ${body}
 
   async setErrorType(file, type) {
     await this.app.fileManager.processFrontMatter(file, (fm) => setLastErrorType(fm, type));
+    this.invalidateSnapshots();
   }
 
   /** Mark a question or card Known for a snooze, Exclude it, or restore it. */

@@ -4,13 +4,10 @@
  * DOM renderer that takes plain handlers. The modal owns the state and the
  * sidecar writes; this module only decides what a row says and how it looks.
  */
+const { str } = require("./util");
 const { filterAnnotations, normalizeTags } = require("./pdf-annotations");
 
 const MAX_ROWS = 500;
-
-function str(value) {
-  return value === undefined || value === null ? "" : String(value);
-}
 
 /** Tags typed into one field, comma or hash separated and bounded like the sidecar guard. */
 function tagInput(text) {

@@ -1,10 +1,11 @@
 "use strict";
+const { clamp } = require("./util");
 const { Modal, Notice, Setting, TFile } = require("obsidian");
 const { readPdfPageText, renderPdfPagesAsPng } = require("./pdf");
 const { annotationLink, annotationsMarkdown, hashBytes, parseAnnotationFile, removeAnnotation, sidecarPathFor, upsertAnnotation } = require("./pdf-annotations");
 const { formatPdfDeepLink } = require("./pdf-deep-link");
 const { backlinkAreasFor, backlinkSummary, selectionFromArea } = require("./pdf-backlinks");
-const { INK_COLORS, INK_COLOR_HEX, INK_TOOLS, MARK_STYLES, MAX_INK_POINTS, areaAt, boxAt, clamp, drawInkSegment, drawInkStrokes, drawMarks, eraseStrokesAt, normalizeHighlightArea, normalizeHighlightAreas, normalizeInkStroke, normalizeInkStrokes, normalizeTextBox, normalizeTextBoxes, textInArea } = require("./pdf-ink");
+const { INK_COLORS, INK_COLOR_HEX, INK_TOOLS, MARK_STYLES, MAX_INK_POINTS, areaAt, boxAt, drawInkSegment, drawInkStrokes, drawMarks, eraseStrokesAt, normalizeHighlightArea, normalizeHighlightAreas, normalizeInkStroke, normalizeInkStrokes, normalizeTextBox, normalizeTextBoxes, textInArea } = require("./pdf-ink");
 const { renderSidebar, rowPage, selectionBounds, sidebarRows, tagInput } = require("./pdf-annotator-sidebar");
 const { pageTextFromItems } = require("./reading-companion");
 const { normalizeRect } = require("./pdf-deep-link");

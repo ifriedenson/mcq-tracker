@@ -61,6 +61,7 @@ function hashText(value) {
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
+/** Knowledge-record paths keep leading/trailing slashes and strip one leading `./`; the shared normalizePath() trims edges. */
 function normalizePath(value) {
   return str(value).replace(/\\/g, "/").replace(/^\.?\//, "").trim();
 }

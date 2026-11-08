@@ -7,6 +7,7 @@
  * `.annotations.md` sidecar stay exactly as they were. All PDF work lives in
  * `src/pdf-editor.js`; this file only renders and dispatches.
  */
+const { str } = require("./util");
 const { FuzzySuggestModal, Modal, Notice, TFile } = require("obsidian");
 const {
   addBlankPage,
@@ -69,10 +70,6 @@ const MAX_THUMBNAILS = 24;
 const THUMBNAIL_SCALE = 0.45;
 /* One undo step per action; the opened file is always kept as state zero. */
 const HISTORY_LIMIT_STEPS = HISTORY_LIMIT;
-
-function str(value) {
-  return value === undefined || value === null ? "" : String(value);
-}
 
 /* Picks another vault PDF to take pages from. */
 class PdfSourcePickerModal extends FuzzySuggestModal {

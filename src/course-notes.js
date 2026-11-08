@@ -162,6 +162,7 @@ function removeAiSummary(text) {
   return { text: next, removed: true };
 }
 
+/** Course notes use safeName(), which collapses spaces and caps at 90 characters; the shared uniquePath() does not. */
 function uniquePath(vault, folder, name, extension) {
   const ext = extension || "md";
   let path = normalizePath(`${folder}/${safeName(name)}.${ext}`);

@@ -12,6 +12,7 @@
  * and returns rows for the reader. The sidecar annotator remains a separate,
  * durable model for ink, quotes, notes and marks.
  */
+const { clamp, str } = require("./util");
 const {
   formatPdfDeepLink,
   normalizeColor,
@@ -23,14 +24,6 @@ const { normalizeHighlightArea } = require("./pdf-ink");
 
 const MAX_BACKLINKS = 2000;
 const MAX_SELECTION_AREAS = 100;
-
-function str(value) {
-  return value === undefined || value === null ? "" : String(value);
-}
-
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
-}
 
 function cleanPath(value) {
   return str(value).replace(/\\/g, "/").replace(/^\.?\//, "").replace(/\/+/g, "/").trim();

@@ -8,15 +8,12 @@
  * third-party code. The renderer is deliberately low-resolution and capped so
  * a difficult surface cannot lock the editor.
  */
+const { clamp } = require("./util");
 const { compileScoped } = require("./reference-graph");
 
 const MAX_PIXELS = 80000;
 const DEFAULT_BOUNDS = { xMin: -5, xMax: 5, yMin: -5, yMax: 5, zMin: -5, zMax: 5 };
 const DEFAULT_CAMERA = { yaw: -0.7, pitch: 0.42, distance: 14 };
-
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
-}
 
 function normalizeVector(vector) {
   const length = Math.hypot(vector.x, vector.y, vector.z) || 1;

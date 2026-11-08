@@ -22,10 +22,6 @@ function enabledValue(value) {
   return true;
 }
 
-function clamp(value, low, high) {
-  return Math.max(low, Math.min(high, Math.round(value)));
-}
-
 function normalizeLectureCompilerSettings(value) {
   const source = asObject(value);
   return {

@@ -9,6 +9,7 @@
  * baseline commit 35778e473a1d7ad7827c83c065b0f61dcbefdbc5. Labels are English-first;
  * see NOTICES.md.
  */
+const { str } = require("./util");
 const { dateKey, normalizeWeekParity, parseDateKey } = require("./calendar-ics");
 
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -108,7 +109,6 @@ const DEFAULT_CALENDAR_SETTINGS = {
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const WEEKDAYS = { monday: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], sunday: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] };
 
-const str = (v) => (v === undefined || v === null ? "" : String(v));
 const subjectKey = (s) => str(s).trim().toLowerCase().replace(/\s+/g, " ");
 const normalizeFolder = (p) => str(p).trim().replace(/^\/+|\/+$/g, "");
 const COURSE_COLOR_RE = /^#[0-9a-f]{6}$/i;

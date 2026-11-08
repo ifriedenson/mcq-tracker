@@ -4,7 +4,7 @@
  * in Practice, Cards, Calendar or Assignments. The implementations here are
  * original and dependency-free; no third-party source is copied.
  */
-const { hashString, localDate, str } = require("./util");
+const { boundedText, clampInt, hashString, localDate, str } = require("./util");
 const { addDays, dayValue } = require("./study-tools");
 const courseIdentity = require("./course-identity");
 const { fencedQuizBlocks, parseQuizBlock } = require("./quiz-block");
@@ -55,17 +55,9 @@ function enabledValue(value) {
   return true;
 }
 
-function textValue(value, max) {
-  return str(value).replace(/\r\n?/g, "\n").trim().slice(0, max || MAX_TEXT);
-}
-
 function numberValue(value, fallback) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
-}
-
-function clamp(value, low, high) {
-  return Math.max(low, Math.min(high, Math.round(value)));
 }
 
 function idFor(prefix, parts) {
@@ -81,34 +73,34 @@ function asObject(value) {
 function normalizeFeynmanScores(value) {
   const source = asObject(value);
   const out = {};
-  for (const key of FEYNMAN_DIMENSIONS) out[key] = clamp(numberValue(source[key], 0), 0, 5);
+  for (const key of FEYNMAN_DIMENSIONS) out[key] = clampInt(numberValue(source[key], 0), 0, 5);
   return out;
 }
 
 function normalizeFeynmanSession(value) {
   const source = asObject(value);
-  const topic = textValue(source.topic, MAX_TITLE);
+  const topic = boundedText(source.topic, MAX_TITLE);
   if (!topic) return null;
   const answers = {};
   const rawAnswers = asObject(source.answers);
   for (let i = 0; i < FEYNMAN_KEYS.length; i++) {
     const key = FEYNMAN_KEYS[i];
-    answers[key] = textValue(rawAnswers[key] || source[key], MAX_TEXT);
+    answers[key] = boundedText(rawAnswers[key] || source[key], MAX_TEXT);
   }
-  const step = clamp(numberValue(source.step, 0), 0, FEYNMAN_STEPS.length);
+  const step = clampInt(numberValue(source.step, 0), 0, FEYNMAN_STEPS.length);
   const completed = source.completed === true || step >= FEYNMAN_STEPS.length;
   const aiScores = normalizeFeynmanScores(source.aiScores);
   const hasAi = Object.values(aiScores).every((value) => value > 0);
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("feynman", [topic, source.course || "", source.createdAt || 0]),
     topic,
-    course: textValue(source.course, MAX_TITLE),
+    course: boundedText(source.course, MAX_TITLE),
     step: completed ? FEYNMAN_STEPS.length : step,
     answers,
     scores: normalizeFeynmanScores(source.scores),
     aiScores: hasAi ? aiScores : null,
     aiAverage: hasAi ? feynmanAi.feynmanAiAverage(aiScores) : 0,
-    aiFeedback: textValue(source.aiFeedback, 2000),
+    aiFeedback: boundedText(source.aiFeedback, 2000),
     aiScoredAt: Math.max(0, Math.round(numberValue(source.aiScoredAt, 0))),
     completed,
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
@@ -132,7 +124,7 @@ function normalizeFeynmanSettings(value) {
 
 function createFeynmanSession(input, now) {
   const source = asObject(input);
-  const topic = textValue(source.topic, MAX_TITLE);
+  const topic = boundedText(source.topic, MAX_TITLE);
   if (!topic) return null;
   const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
   return normalizeFeynmanSession({
@@ -154,7 +146,7 @@ function feynmanWeakPoints(scores) {
 }
 
 function feynmanStepKey(step) {
-  return FEYNMAN_KEYS[clamp(numberValue(step, 0), 0, FEYNMAN_KEYS.length - 1)];
+  return FEYNMAN_KEYS[clampInt(numberValue(step, 0), 0, FEYNMAN_KEYS.length - 1)];
 }
 
 /* ---- Study Flow ---------------------------------------------------------- */
@@ -166,14 +158,14 @@ function normalizeFlowStatus(value) {
 
 function normalizeFlowExcerpt(value) {
   const source = asObject(value);
-  const quote = textValue(source.quote, MAX_TEXT);
+  const quote = boundedText(source.quote, MAX_TEXT);
   if (!quote) return null;
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("excerpt", [source.sourcePath || "", quote, source.createdAt || 0]),
-    sourcePath: textValue(source.sourcePath, 500),
+    sourcePath: boundedText(source.sourcePath, 500),
     quote,
-    understanding: textValue(source.understanding, MAX_TEXT),
-    card: textValue(source.card, MAX_TEXT),
+    understanding: boundedText(source.understanding, MAX_TEXT),
+    card: boundedText(source.card, MAX_TEXT),
     status: normalizeFlowStatus(source.status),
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
     reviewedAt: Math.max(0, Math.round(numberValue(source.reviewedAt, 0))),
@@ -196,7 +188,7 @@ function normalizeStudyFlow(value) {
 
 function createFlowExcerpt(input, now) {
   const source = asObject(input);
-  const quote = textValue(source.quote, MAX_TEXT);
+  const quote = boundedText(source.quote, MAX_TEXT);
   if (!quote) return null;
   const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
   return normalizeFlowExcerpt({
@@ -221,7 +213,7 @@ function flowStats(excerpts) {
 
 function normalizeSubjectProject(value) {
   const source = asObject(value);
-  const title = textValue(source.title, MAX_TITLE);
+  const title = boundedText(source.title, MAX_TITLE);
   if (!title) return null;
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("project", [title, source.due || "", source.createdAt || 0]),
@@ -234,15 +226,15 @@ function normalizeSubjectProject(value) {
 
 function normalizeSubject(value) {
   const source = asObject(value);
-  const name = textValue(source.name, MAX_TITLE);
+  const name = boundedText(source.name, MAX_TITLE);
   if (!name) return null;
   const color = /^#[0-9a-f]{6}$/i.test(str(source.color).trim()) ? str(source.color).trim().toLowerCase() : "#7c9cf5";
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("subject", [name]),
     name,
-    folder: textValue(source.folder, 500).replace(/^\/+|\/+$/g, ""),
+    folder: boundedText(source.folder, 500).replace(/^\/+|\/+$/g, ""),
     color,
-    notes: textValue(source.notes, MAX_TEXT),
+    notes: boundedText(source.notes, MAX_TEXT),
     projects: (Array.isArray(source.projects) ? source.projects : []).map(normalizeSubjectProject).filter(Boolean).slice(0, 50),
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
   };
@@ -250,14 +242,14 @@ function normalizeSubject(value) {
 
 function normalizeAbsence(value) {
   const source = asObject(value);
-  const subject = textValue(source.subject, MAX_TITLE);
+  const subject = boundedText(source.subject, MAX_TITLE);
   const date = dayValue(source.date);
   if (!subject || !date) return null;
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("absence", [subject, date, source.reason || ""]),
     subject,
     date,
-    reason: textValue(source.reason, MAX_TITLE),
+    reason: boundedText(source.reason, MAX_TITLE),
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
   };
 }
@@ -338,20 +330,20 @@ function subjectSummary(subjects, absences, lectures, options) {
 
 function normalizeTopic(value, index) {
   const source = asObject(value);
-  const name = textValue(source.name, MAX_TITLE);
+  const name = boundedText(source.name, MAX_TITLE);
   if (!name) return null;
-  const targetPasses = clamp(numberValue(source.targetPasses, 3), 1, 20);
+  const targetPasses = clampInt(numberValue(source.targetPasses, 3), 1, 20);
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("topic", [name, index || 0]),
     name,
-    passes: clamp(numberValue(source.passes, 0), 0, targetPasses),
+    passes: clampInt(numberValue(source.passes, 0), 0, targetPasses),
     targetPasses,
   };
 }
 
 function normalizePlan(value) {
   const source = asObject(value);
-  const course = textValue(source.course, MAX_TITLE);
+  const course = boundedText(source.course, MAX_TITLE);
   if (!course) return null;
   const topics = [];
   const seen = new Set();
@@ -366,8 +358,8 @@ function normalizePlan(value) {
     id: str(source.id).trim().slice(0, 160) || idFor("plan", [course, source.examDate || "", source.createdAt || 0]),
     course,
     examDate: dayValue(source.examDate),
-    bufferDays: clamp(numberValue(source.bufferDays, 2), 0, 60),
-    targetPasses: clamp(numberValue(source.targetPasses, 3), 1, 20),
+    bufferDays: clampInt(numberValue(source.bufferDays, 2), 0, 60),
+    targetPasses: clampInt(numberValue(source.targetPasses, 3), 1, 20),
     topics,
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
   };
@@ -389,7 +381,7 @@ function normalizePlanner(value) {
 
 function createPlannerPlan(input, now) {
   const source = asObject(input);
-  if (!textValue(source.course, MAX_TITLE)) return null;
+  if (!boundedText(source.course, MAX_TITLE)) return null;
   const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
   const topics = (Array.isArray(source.topics) ? source.topics : [])
     .map((topic, index) => normalizeTopic(typeof topic === "string" ? { name: topic } : topic, index))
@@ -429,7 +421,7 @@ function allocatePlan(plan, today) {
   const source = plan && typeof plan === "object" ? plan : {};
   const start = dayValue(today) || localDate();
   const exam = dayValue(source.examDate);
-  const buffer = clamp(numberValue(source.bufferDays, 0), 0, 60);
+  const buffer = clampInt(numberValue(source.bufferDays, 0), 0, 60);
   const topics = (Array.isArray(source.topics) ? source.topics : []).map((topic) => ({
     name: str(topic.name).trim(),
     remaining: Math.max(0, (Number(topic.targetPasses) || 1) - (Number(topic.passes) || 0)),
@@ -489,7 +481,7 @@ function normalizeRecallReviews(value) {
     if (!key || !due) continue;
     out[key] = {
       due,
-      interval: clamp(numberValue(state.interval, 1), 1, 3650),
+      interval: clampInt(numberValue(state.interval, 1), 1, 3650),
       reviews: Math.max(0, Math.round(numberValue(state.reviews, 0))),
       last: dayValue(state.last) || "",
     };
@@ -503,8 +495,8 @@ function normalizeRecallScheduler(value) {
   return {
     enabled: enabledValue(value),
     mode,
-    folder: textValue(source.folder, 500).replace(/^\/+|\/+$/g, ""),
-    limit: clamp(numberValue(source.limit, 20), 1, 100),
+    folder: boundedText(source.folder, 500).replace(/^\/+|\/+$/g, ""),
+    limit: clampInt(numberValue(source.limit, 20), 1, 100),
     reviews: normalizeRecallReviews(source.reviews),
   };
 }
@@ -612,8 +604,8 @@ function normalizeQuizIndex(value) {
   const source = asObject(value);
   return {
     enabled: enabledValue(value),
-    folder: textValue(source.folder, 500).replace(/^\/+|\/+$/g, ""),
-    limit: clamp(numberValue(source.limit, 50), 1, 200),
+    folder: boundedText(source.folder, 500).replace(/^\/+|\/+$/g, ""),
+    limit: clampInt(numberValue(source.limit, 50), 1, 200),
     recordAttempts: source.recordAttempts === true,
     attempts: normalizeQuizAttempts(source.attempts),
   };
@@ -621,7 +613,7 @@ function normalizeQuizIndex(value) {
 
 function quizResult(value) {
   if (!value || typeof value !== "object") return null;
-  const percentage = clamp(numberValue(value.percentage, 0), 0, 100);
+  const percentage = clampInt(numberValue(value.percentage, 0), 0, 100);
   return {
     percentage,
     passed: value.passed === true,
@@ -632,14 +624,14 @@ function quizResult(value) {
 
 function normalizeQuizAttempt(value) {
   const source = asObject(value);
-  const path = textValue(source.path, 500);
-  const id = textValue(source.id, 160);
-  const total = clamp(numberValue(source.total, 0), 0, 200);
+  const path = boundedText(source.path, 500);
+  const id = boundedText(source.id, 160);
+  const total = clampInt(numberValue(source.total, 0), 0, 200);
   if (!path || !id || !total) return null;
-  const correct = clamp(numberValue(source.correct, 0), 0, total);
+  const correct = clampInt(numberValue(source.correct, 0), 0, total);
   const missed = [];
   for (const raw of Array.isArray(source.missed) ? source.missed : []) {
-    const label = textValue(raw, 160);
+    const label = boundedText(raw, 160);
     if (label) missed.push(label);
     if (missed.length >= 200) break;
   }
@@ -652,7 +644,7 @@ function normalizeQuizAttempt(value) {
     correct,
     percentage: Math.round((correct / total) * 100),
     missed,
-    topic: textValue(source.topic, 120) || folder || "General",
+    topic: boundedText(source.topic, 120) || folder || "General",
   };
 }
 
@@ -677,7 +669,7 @@ function buildQuizAttempt(path, id, questions, selections, now) {
     total += 1;
     const pick = picks[index];
     if (pick && typeof pick === "object" && pick.correct === true) correct += 1;
-    else missed.push(textValue(question.question, 160) || `Question ${index + 1}`);
+    else missed.push(boundedText(question.question, 160) || `Question ${index + 1}`);
   });
   if (!total) return null;
   return normalizeQuizAttempt({ path, id, at: now || Date.now(), total, correct, missed });
@@ -686,7 +678,7 @@ function buildQuizAttempt(path, id, questions, selections, now) {
 /** Scan parsed notes for quiz blocks and the existing opt-in quizResults data. */
 function collectQuizIndex(entries, options) {
   const opts = options && typeof options === "object" ? options : {};
-  const limit = clamp(numberValue(opts.limit, 50), 1, 200);
+  const limit = clampInt(numberValue(opts.limit, 50), 1, 200);
   const rows = [];
   for (const entry of Array.isArray(entries) ? entries : []) {
     const path = str(entry && entry.path).trim();
@@ -791,15 +783,15 @@ function collectQuizIndex(entries, options) {
 
 function normalizeGrade(value) {
   const source = asObject(value);
-  const course = textValue(source.course, MAX_TITLE);
-  const title = textValue(source.title, MAX_TITLE);
+  const course = boundedText(source.course, MAX_TITLE);
+  const title = boundedText(source.title, MAX_TITLE);
   if (!course || !title) return null;
   const weight = numberValue(source.weight, 1);
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("grade", [course, title, source.date || "", source.score || 0]),
     course,
     title,
-    score: clamp(numberValue(source.score, 0), 0, 100),
+    score: clampInt(numberValue(source.score, 0), 0, 100),
     weight: Math.round(Math.max(0.1, Math.min(100, weight)) * 100) / 100,
     date: dayValue(source.date),
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
@@ -942,16 +934,16 @@ function tagList(value) {
 
 function normalizeStudyTask(value) {
   const source = asObject(value);
-  const title = textValue(source.title, MAX_TITLE);
+  const title = boundedText(source.title, MAX_TITLE);
   if (!title) return null;
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("task", [title, source.course || "", source.due || "", source.createdAt || 0]),
     title,
-    course: textValue(source.course, MAX_TITLE),
+    course: boundedText(source.course, MAX_TITLE),
     tags: tagList(source.tags),
     due: dayValue(source.due),
     done: source.done === true,
-    source: textValue(source.source, 40) || "manual",
+    source: boundedText(source.source, 40) || "manual",
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
   };
 }
@@ -979,14 +971,14 @@ function createStudyTask(input, now) {
 /** Generate one task per topic pass and spread them evenly before the exam. */
 function planExamTasks(input, today, now) {
   const source = asObject(input);
-  const course = textValue(source.course, MAX_TITLE);
+  const course = boundedText(source.course, MAX_TITLE);
   const exam = dayValue(source.examDate);
   const start = dayValue(source.startDate) || dayValue(today) || localDate();
   if (!course || !exam || exam <= start) return [];
   const rawTopics = Array.isArray(source.topics) ? source.topics : str(source.topics).split(/\n|,/);
-  const topics = rawTopics.map((topic) => textValue(typeof topic === "string" ? topic : topic && topic.name, MAX_TITLE)).filter(Boolean);
+  const topics = rawTopics.map((topic) => boundedText(typeof topic === "string" ? topic : topic && topic.name, MAX_TITLE)).filter(Boolean);
   if (!topics.length) return [];
-  const passes = clamp(numberValue(source.passes, 2), 1, 3);
+  const passes = clampInt(numberValue(source.passes, 2), 1, 3);
   const last = addDays(exam, -1);
   const days = [];
   for (let day = start; day && day <= last; day = addDays(day, 1)) days.push(day);
@@ -1035,14 +1027,14 @@ function dueStudyTasks(tasks, today) {
 
 function normalizeAnnotation(value) {
   const source = asObject(value);
-  const quote = textValue(source.quote, MAX_TEXT);
+  const quote = boundedText(source.quote, MAX_TEXT);
   if (!quote) return null;
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("annotation", [source.sourcePath || "", quote, source.createdAt || 0]),
-    sourcePath: textValue(source.sourcePath, 500),
+    sourcePath: boundedText(source.sourcePath, 500),
     quote,
-    question: textValue(source.question, MAX_TEXT),
-    answer: textValue(source.answer, MAX_TEXT),
+    question: boundedText(source.question, MAX_TEXT),
+    answer: boundedText(source.answer, MAX_TEXT),
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
   };
 }
@@ -1071,17 +1063,17 @@ function createAnnotation(input, now) {
 
 function normalizeDeepNotesSession(value) {
   const source = asObject(value);
-  const topic = textValue(source.topic, MAX_TITLE);
+  const topic = boundedText(source.topic, MAX_TITLE);
   if (!topic) return null;
   const answers = {};
   const rawAnswers = asObject(source.answers);
-  for (const step of SOCRATIC_STEPS) answers[step.key] = textValue(rawAnswers[step.key] || source[step.key], MAX_TEXT);
-  const step = clamp(numberValue(source.step, 0), 0, SOCRATIC_STEPS.length);
+  for (const step of SOCRATIC_STEPS) answers[step.key] = boundedText(rawAnswers[step.key] || source[step.key], MAX_TEXT);
+  const step = clampInt(numberValue(source.step, 0), 0, SOCRATIC_STEPS.length);
   const completed = source.completed === true || step >= SOCRATIC_STEPS.length;
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("socratic", [topic, source.createdAt || 0]),
     topic,
-    course: textValue(source.course, MAX_TITLE),
+    course: boundedText(source.course, MAX_TITLE),
     step: completed ? SOCRATIC_STEPS.length : step,
     answers,
     completed,
@@ -1106,14 +1098,14 @@ function normalizeDeepNotes(value) {
 
 function createDeepNotesSession(input, now) {
   const source = asObject(input);
-  const topic = textValue(source.topic, MAX_TITLE);
+  const topic = boundedText(source.topic, MAX_TITLE);
   if (!topic) return null;
   const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
   return normalizeDeepNotesSession({ ...source, id: idFor("socratic", [topic, source.course || "", stamp]), createdAt: stamp, updatedAt: stamp });
 }
 
 function deepNotesStepKey(step) {
-  return SOCRATIC_STEPS[clamp(numberValue(step, 0), 0, SOCRATIC_STEPS.length - 1)].key;
+  return SOCRATIC_STEPS[clampInt(numberValue(step, 0), 0, SOCRATIC_STEPS.length - 1)].key;
 }
 
 
@@ -1122,7 +1114,7 @@ function deepNotesStepKey(step) {
 function retentionForecast(cards, options) {
   const opts = options && typeof options === "object" ? options : {};
   const today = dayValue(opts.today) || localDate();
-  const days = clamp(numberValue(opts.days, 30), 1, 90);
+  const days = clampInt(numberValue(opts.days, 30), 1, 90);
   const list = (Array.isArray(cards) ? cards : []).filter((card) => card && card.fm);
   const forecast = [];
   const counts = new Map();
@@ -1178,19 +1170,19 @@ function retentionForecast(cards, options) {
 
 function normalizeVocabWord(value) {
   const source = asObject(value);
-  const term = textValue(source.term, MAX_TITLE);
+  const term = boundedText(source.term, MAX_TITLE);
   if (!term) return null;
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("vocab", [term, source.definition || "", source.createdAt || 0]),
     term,
-    definition: textValue(source.definition, MAX_TEXT),
-    example: textValue(source.example, MAX_TEXT),
-    media: textValue(source.media, 500),
-    language: textValue(source.language, MAX_TITLE),
+    definition: boundedText(source.definition, MAX_TEXT),
+    example: boundedText(source.example, MAX_TEXT),
+    media: boundedText(source.media, 500),
+    language: boundedText(source.language, MAX_TITLE),
     due: dayValue(source.due),
-    interval: clamp(numberValue(source.interval, 0), 0, 3650),
+    interval: clampInt(numberValue(source.interval, 0), 0, 3650),
     reviews: Math.max(0, Math.round(numberValue(source.reviews, 0))),
-    correct: clamp(numberValue(source.correct, 0), 0, Math.max(0, Math.round(numberValue(source.reviews, 0)))),
+    correct: clampInt(numberValue(source.correct, 0), 0, Math.max(0, Math.round(numberValue(source.reviews, 0)))),
     streak: Math.max(0, Math.round(numberValue(source.streak, 0))),
     lapses: Math.max(0, Math.round(numberValue(source.lapses, 0))),
     lastGrade: ["again", "hard", "good", "easy"].includes(str(source.lastGrade)) ? str(source.lastGrade) : "",

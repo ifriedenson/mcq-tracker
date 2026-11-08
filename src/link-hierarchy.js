@@ -8,7 +8,8 @@
  * depth-first in the order they appear in the note. A link to a note in a
  * subfolder brings in that note and its links, not every sibling in its folder.
  */
-const str = (value) => (value === undefined || value === null ? "" : String(value));
+
+const { str } = require("./util");
 
 function cleanFolder(value) {
   return str(value).trim().replace(/^\/+|\/+$/g, "");

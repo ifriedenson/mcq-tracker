@@ -17,6 +17,7 @@ const MAX_MENTION_TOTAL_CHARS = 12000;
 const MAX_MENTION_CANDIDATES = 12;
 const MAX_MENTION_PATH = 300;
 
+/** Mention paths validate each segment and keep a folder's trailing slash; the shared normalizePath() does neither. */
 function normalizePath(value) {
   let path = str(value)
     .trim()

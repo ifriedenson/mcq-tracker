@@ -239,6 +239,7 @@ function mediaRefs(text, options) {
   return out;
 }
 
+/** Anki fields leave apostrophes literal; the shared escapeHtml() escapes them for HTML documents. */
 function escapeHtml(value) {
   return str(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }

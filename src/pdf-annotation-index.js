@@ -5,7 +5,7 @@
  * it lists what is in the vault and links back to the PDF or its sidecar. It
  * never creates, edits or deletes an annotation and never opens the PDF.
  */
-const { str } = require("./util");
+const { clampInt, str } = require("./util");
 const { annotationSummary, parseAnnotationFile, pdfPathFromSidecar } = require("./pdf-annotations");
 
 const MAX_FILES = 1000;
@@ -22,16 +22,12 @@ function enabledValue(value) {
   return true;
 }
 
-function clamp(value, low, high) {
-  return Math.max(low, Math.min(high, Math.round(value)));
-}
-
 function normalizePdfAnnotationIndexSettings(value) {
   const source = asObject(value);
   return {
     enabled: enabledValue(value),
     folder: str(source.folder).trim().replace(/^\/+|\/+$/g, "").slice(0, 400),
-    limit: clamp(Number.isFinite(Number(source.limit)) ? Number(source.limit) : 200, 1, 500),
+    limit: clampInt(Number.isFinite(Number(source.limit)) ? Number(source.limit) : 200, 1, 500),
   };
 }
 

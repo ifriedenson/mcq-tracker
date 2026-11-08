@@ -7,14 +7,7 @@
  * third-party dependency.
  */
 
-function escapeHtml(value) {
-  return String(value === undefined || value === null ? "" : value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+const { escapeHtml } = require("./util");
 
 function printSummary(scene) {
   const curves = Array.isArray(scene && scene.curves) ? scene.curves.length : 0;

@@ -10,6 +10,7 @@
  * The parsers deliberately reject syntax outside the documented subset rather
  * than guessing. Nothing is sent to a provider or fetched from a service.
  */
+const { escapeHtml } = require("./util");
 const { renderSmilesSvg } = require("./smiles");
 const { safeSvg } = require("./svg-safety");
 const { codonEntry } = require("./reference-sheets");
@@ -20,16 +21,6 @@ const MAX_CHEM_LINES = 8;
 const MAX_SEQUENCE = 1200;
 const MAX_CIRCUIT_COMPONENTS = 40;
 const MAX_CIRCUIT_NODES = 24;
-
-function escapeHtml(value) {
-  return String(value == null ? "" : value).replace(/[&<>"']/g, (char) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;",
-  }[char]));
-}
 
 function errorResult(message) {
   return { ok: false, error: String(message || "The diagram could not be read.") };

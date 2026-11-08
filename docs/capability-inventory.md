@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 428 groups, 2984 exports. **Commands:** 227. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 428 groups, 2983 exports. **Commands:** 227. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -318,7 +318,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `pdfDeepLink` | 8 | `tests/feature-engines.test.js`, `tests/pdf-backlinks.test.js`, `tests/pdf-deep-link.test.js` |
 | `pdfEditor` | 56 | `tests/pdf-editor-window.test.js`, `tests/pdf-plus-boot.test.js`, `tests/pdf-reader-page-ops.test.js` |
 | `pdfEditorModal` | 3 | `tests/pdf-editor-window.test.js`, `tests/pdf-plus-boot.test.js` |
-| `pdfInk` | 27 | `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-backlinks.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-plus-boot.test.js`, `tests/pdf-reader-page-ops.test.js` |
+| `pdfInk` | 26 | `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-backlinks.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-plus-boot.test.js`, `tests/pdf-reader-page-ops.test.js` |
 | `pdfInkModal` | 2 | `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-plus-boot.test.js`, `tests/pdf-reader-page-ops.test.js` |
 | `pdfLatex` | 6 | `tests/feature-engines.test.js`, `tests/pdf-latex.test.js` |
 | `pdfPlus` | 8 | `tests/pdf-plus-boot.test.js`, `tests/pdf-plus.test.js`, `tests/settings-navigation.test.js` |

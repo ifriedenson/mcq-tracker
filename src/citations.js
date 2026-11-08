@@ -14,6 +14,7 @@ function objectValue(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
+/** Citations also drop `{}` and collapse whitespace; the shared textValue()/boundedText() do not. */
 function textValue(value, max) {
   return str(value).replace(/\r\n?/g, "\n").replace(/[{}]/g, "").replace(/\s+/g, " ").trim().slice(0, max || MAX_TITLE);
 }

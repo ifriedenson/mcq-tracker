@@ -7,7 +7,7 @@
  * (`- [ ] Essay 📅 2026-11-01`) so Tasks, Dataview and similar plugins can see
  * it. The frontmatter stays the source of truth for grades.
  */
-const { addDays, fmtDate, localDate, str } = require("./util");
+const { addDays, clamp, fmtDate, localDate, str } = require("./util");
 const { stringifyYaml } = require("obsidian");
 const courseIdentity = require("./course-identity");
 
@@ -89,10 +89,6 @@ function num(value, fallback) {
   if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) return fallback;
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
-}
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
 }
 
 function pct(value) {
@@ -709,6 +705,7 @@ function statusAfterCheckbox(status, checked) {
   return status;
 }
 
+/** Assignment naming reads the folder from settings and asks a callback, not a vault; see the shared uniquePath(). */
 function uniquePath(settings, title, exists) {
   const folder = str(settings.folder).trim().replace(/^\/+|\/+$/g, "");
   const base = safeName(title) || "Assignment";

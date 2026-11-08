@@ -23,10 +23,6 @@ function number(value, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function clamp(value, low, high) {
-  return Math.max(low, Math.min(high, Math.round(value)));
-}
-
 /** Words, characters, sentences and paragraphs in one note body. */
 function countText(text) {
   const source = str(text).replace(/\r\n?/g, "\n");

@@ -7,6 +7,8 @@
  * network request, media file, third-party audio code or autoplay.
  */
 
+const { clamp } = require("./util");
+
 const MAX_EVENTS = 48;
 const DEFAULT_OPTIONS = {
   minHz: 180,
@@ -21,10 +23,6 @@ const DEFAULT_OPTIONS = {
 function finite(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
-}
-
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
 }
 
 function normalizeOptions(options) {

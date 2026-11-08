@@ -13781,8 +13781,8 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   line-height: 1.25;
 }
 
-/* A long title must grow the card, not squeeze the detail down to a sliver.
-   The detail keeps its intentional three-line clamp and the deck grows. */
+/* A long title or detail must grow the card, not squeeze the other line into
+   a sliver or truncate the suggested action. The deck grows with the card. */
 .qt-agent-suggestion-title,
 .qt-agent-suggestion-detail {
   flex: 0 0 auto;
@@ -13790,13 +13790,10 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   overflow-wrap: anywhere;
 }
 .qt-agent-suggestion-detail {
-  display: -webkit-box;
-  overflow: hidden;
+  display: block;
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
   line-height: 1.35;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
 }
 .qt-agent-suggestion-dots {
   display: flex;

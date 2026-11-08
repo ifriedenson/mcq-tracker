@@ -9,7 +9,7 @@
  * reviews the vault already stores, and every weight is clamped to a sane range
  * so a bad history cannot produce a negative interval.
  */
-const { str } = require("./util");
+const { clamp, str } = require("./util");
 
 const DEFAULT_WEIGHTS = [
   0.40255, 1.18385, 3.173, 15.69105, 7.1949, 0.5345, 1.4604, 0.0046, 1.54575, 0.1192, 1.01925, 1.9395,
@@ -20,10 +20,6 @@ const FACTOR = 19 / 81;
 const MIN_REVIEWS = 30;
 const MAX_WEIGHT = 36500;
 const MIN_WEIGHT = 0.001;
-
-function clamp(value, low, high) {
-  return Math.min(high, Math.max(low, value));
-}
 
 function weight(value) {
   const n = Number(value);

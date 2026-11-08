@@ -33,6 +33,17 @@ test("URL safety: remote credentials require HTTPS, loopback HTTP stays usable",
   assert.throws(() => urlSafety.safeApiBase("https://user:pass@api.example.com/v1"), /username or password/);
 });
 
+test("URL safety: loopback lookalike hostnames are not treated as local", () => {
+  for (const host of ["localhost", "127.0.0.1", "127.10.20.30", "::1", "[::1]"]) {
+    assert.equal(urlSafety.isLoopbackHost(host), true, host);
+  }
+  for (const host of ["127.0.0.1.example.com", "127.example.com", "localhost.example.com", "notlocalhost", "::1.example.com"]) {
+    assert.equal(urlSafety.isLoopbackHost(host), false, host);
+  }
+  assert.throws(() => urlSafety.safeApiBase("http://127.0.0.1.example.com:4096"), /must use https/);
+  assert.throws(() => urlSafety.safeApiBase("http://localhost.example.com:4096"), /must use https/);
+});
+
 test("calendar URL safety: public feeds require HTTPS and oversized responses are rejected", () => {
   assert.equal(urlSafety.safeCalendarFeedUrl("https://example.com/feed.ics"), "https://example.com/feed.ics");
   assert.throws(() => urlSafety.safeCalendarFeedUrl("http://example.com/feed.ics"), /must use https/);

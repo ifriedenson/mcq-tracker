@@ -9,15 +9,13 @@
  * unusable calibration is always a `{ok:false, reason, message}` refusal.
  */
 
+const { textValue } = require("./util");
+
 const IMAGE_LIMITS = {
   minOpacity: 0,
   maxOpacity: 1,
   defaultOpacity: 0.45,
 };
-
-function textValue(value) {
-  return value === null || value === undefined ? "" : String(value);
-}
 
 function finiteNumber(value, fallback) {
   if (value === undefined || value === null || String(value).trim() === "") return fallback;

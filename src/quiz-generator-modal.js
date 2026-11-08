@@ -1,6 +1,8 @@
 "use strict";
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
+const chatBudget = require("./chat-budget");
+const chatPricing = require("./chat-pricing");
 const { QUIZ_LANGUAGES, QUIZ_TYPES, normalizeQuizGenerator } = require("./quiz-generator");
 
 /** Choose source folders, type, count and language, then review before writing. */
@@ -15,8 +17,10 @@ class QuizGeneratorModal extends Modal {
     this.language = this.config.language;
     this.focus = this.config.focus || "";
     this.types = this.config.types.slice();
+    this.prepared = null;
     this.generated = null;
     this.busy = false;
+    this.busyLabel = "";
     this.error = "";
   }
 
@@ -35,9 +39,10 @@ class QuizGeneratorModal extends Modal {
     if (this.error) el.createEl("p", { cls: "qt-error", text: this.error });
     if (this.generated && this.generated.items.length) return this.renderPreview(el);
     if (this.busy) {
-      el.createEl("p", { cls: "qt-hint", text: `Drafting questions in ${this.language}…` });
+      el.createEl("p", { cls: "qt-hint", text: this.busyLabel || `Drafting questions in ${this.language}…` });
       return;
     }
+    if (this.prepared) return this.renderEstimate(el);
 
     const folders = el.createDiv({ cls: "qt-field" });
     folders.createEl("label", { text: "Source folders (comma-separated; blank means the whole vault)" });
@@ -88,7 +93,45 @@ class QuizGeneratorModal extends Modal {
     actions.createEl("button", { text: "Cancel", cls: "qt-grow" }).addEventListener("click", () => this.close());
     const go = actions.createEl("button", { text: "Generate draft", cls: "mod-cta qt-grow" });
     go.disabled = !this.plugin.settings.ai.enabled;
-    go.addEventListener("click", () => this.generate());
+    go.addEventListener("click", () => this.prepare());
+  }
+
+  renderEstimate(el) {
+    const p = this.prepared;
+    const est = p.estimate || {};
+    el.createEl("h4", { text: "Ready to send" });
+    const passages = p.source && p.source.retrieval && p.source.retrieval.passages
+      ? ` from ${p.source.retrieval.passages} relevant passage${p.source.retrieval.passages === 1 ? "" : "s"}`
+      : "";
+    el.createDiv({
+      cls: "qt-hint",
+      text: `Model: ${p.model || "not configured"} · ${p.source.count} note${p.source.count === 1 ? "" : "s"}${passages}. No request has been sent yet.`,
+    });
+    if (est.ok) {
+      el.createDiv({
+        cls: "qt-hint qt-chat-cost-line",
+        text: `Estimated cost: ${chatPricing.formatUsd(est.total)} (${chatPricing.formatUsd(est.inputCost)} input + up to ${chatPricing.formatUsd(est.outputCost)} reply at local prices; an estimate, not an invoice).`,
+      });
+      el.createDiv({
+        cls: "qt-hint",
+        text: `~${chatBudget.formatTokenCount(est.inputTokens)} input tokens + up to ${chatBudget.formatTokenCount(est.outputTokens)} reply tokens.`,
+      });
+    } else {
+      el.createDiv({
+        cls: "qt-hint",
+        text: `No local price for ${p.model || "this model"}. Add one under Settings → AI to see a cost estimate before sending. This request is ~${chatBudget.formatTokenCount(est.inputTokens || 0)} input tokens plus up to ${chatBudget.formatTokenCount(est.outputTokens || 0)} reply tokens.`,
+      });
+    }
+    el.createDiv({
+      cls: "qt-hint",
+      text: "The estimate uses the prompt that will be sent and your local model prices. It is not an invoice.",
+    });
+    const actions = el.createDiv({ cls: "qt-row" });
+    actions.createEl("button", { text: "Back", cls: "qt-grow" }).addEventListener("click", () => {
+      this.prepared = null;
+      this.render();
+    });
+    actions.createEl("button", { text: "Send request", cls: "mod-cta qt-grow" }).addEventListener("click", () => this.send());
   }
 
   renderPreview(el) {
@@ -105,15 +148,18 @@ class QuizGeneratorModal extends Modal {
     const actions = el.createDiv({ cls: "qt-row" });
     actions.createEl("button", { text: "Back", cls: "qt-grow" }).addEventListener("click", () => {
       this.generated = null;
+      this.prepared = null;
       this.render();
     });
     actions.createEl("button", { text: "Create questions", cls: "mod-cta qt-grow" }).addEventListener("click", () => this.write());
   }
 
-  async generate() {
+  async prepare() {
     if (this.busy) return;
     this.busy = true;
+    this.busyLabel = "Preparing the request…";
     this.error = "";
+    this.prepared = null;
     this.render();
     try {
       const config = normalizeQuizGenerator({
@@ -125,12 +171,29 @@ class QuizGeneratorModal extends Modal {
       });
       this.plugin.settings.quizGenerator = config;
       await this.plugin.save();
-      this.generated = await this.plugin.generateQuizFromNotes(config);
+      this.prepared = await this.plugin.prepareQuizGeneration(config);
+    } catch (e) {
+      this.error = str(e && e.message ? e.message : e) || "Could not prepare the quiz request.";
+    }
+    this.busy = false;
+    this.busyLabel = "";
+    this.render();
+  }
+
+  async send() {
+    if (this.busy || !this.prepared) return;
+    this.busy = true;
+    this.busyLabel = `Drafting questions in ${this.language}…`;
+    this.error = "";
+    this.render();
+    try {
+      this.generated = await this.plugin.generateQuizFromNotes(this.prepared.config, this.prepared);
       if (!this.generated.items.length) this.error = "The AI returned no usable questions. Try different notes or fewer types.";
     } catch (e) {
       this.error = str(e && e.message ? e.message : e) || "Could not generate questions.";
     }
     this.busy = false;
+    this.busyLabel = "";
     this.render();
   }
 

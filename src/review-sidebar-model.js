@@ -4,7 +4,8 @@
  * forecast buckets, applies the user's sort/filter, and calculates the
  * additive or replacement time target. No Obsidian API and no writes.
  */
-const str = (value) => (value === undefined || value === null ? "" : String(value));
+
+const { str } = require("./util");
 const { addUtcDays, dayDifference, todayKey, validDayKey } = require("./utc-dates");
 
 const SORTS = ["due", "title", "time", "priority"];

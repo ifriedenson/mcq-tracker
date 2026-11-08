@@ -4,7 +4,7 @@
  * tasks. This is the offline part of Course Command Center's health-check
  * workflow (MIT): no Canvas request, no login and no note is written.
  */
-const { str } = require("./util");
+const { clampInt, str } = require("./util");
 const { dayValue, addDays } = require("./study-tools");
 const courseIdentity = require("./course-identity");
 
@@ -20,13 +20,9 @@ function enabledValue(value) {
   return true;
 }
 
-function clamp(value, low, high) {
-  return Math.max(low, Math.min(high, Math.round(value)));
-}
-
 function clampOr(value, low, high, fallback) {
   const n = Number(value);
-  return Number.isFinite(n) ? clamp(n, low, high) : fallback;
+  return Number.isFinite(n) ? clampInt(n, low, high) : fallback;
 }
 
 function normalizeCourseHealthSettings(value) {

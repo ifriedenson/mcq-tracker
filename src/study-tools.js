@@ -3,7 +3,7 @@
  * Local study-tool data. These helpers are deliberately independent of
  * Obsidian so the view, the Today card and the tests share the same rules.
  */
-const { hashString, localDate, str } = require("./util");
+const { clampInt, hashString, localDate, str } = require("./util");
 
 const MAX_LECTURES = 300;
 const MAX_GOALS = 200;
@@ -50,10 +50,6 @@ function idFor(prefix, parts) {
 function numberValue(value, fallback) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
-}
-
-function clamp(value, low, high) {
-  return Math.max(low, Math.min(high, Math.round(value)));
 }
 
 function normalizeCornellSettings(value) {
@@ -113,8 +109,8 @@ function normalizeGoal(value) {
   const source = value && typeof value === "object" ? value : {};
   const title = str(source.title).trim().slice(0, MAX_TITLE);
   if (!title) return null;
-  const targetMinutes = clamp(numberValue(source.targetMinutes, 60), 1, MAX_GOAL_MINUTES);
-  const minutes = clamp(numberValue(source.minutes, 0), 0, MAX_GOAL_MINUTES);
+  const targetMinutes = clampInt(numberValue(source.targetMinutes, 60), 1, MAX_GOAL_MINUTES);
+  const minutes = clampInt(numberValue(source.minutes, 0), 0, MAX_GOAL_MINUTES);
   const done = source.done === true || minutes >= targetMinutes;
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("goal", [title, source.course, source.due]),

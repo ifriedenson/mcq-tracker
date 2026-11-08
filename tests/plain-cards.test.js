@@ -118,3 +118,72 @@ test("plugin: a plain note without a front/back structure stays out of the card 
   assert.equal(await plugin.refreshPlainCards(), 1);
   assert.deepEqual(plugin.getCards().map((card) => card.file.path), ["Flashcards/Good.md"]);
 });
+
+test("plugin: repeated question and card reads reuse the cache until data changes", async () => {
+  const notes = [
+    { path: "Questions/One.md", fm: { question_id: "one" } },
+    { path: "Cards/One.md", fm: { card_id: "one", deck: "Default" } },
+  ];
+  const app = makeApp(notes);
+  app.files[1].fm = { card_id: "one", deck: "Default" };
+  const plugin = new QT(app);
+  await plugin.onload();
+
+  let scans = 0;
+  const original = app.vault.getMarkdownFiles;
+  app.vault.getMarkdownFiles = () => {
+    scans++;
+    return original();
+  };
+
+  const first = plugin.getQuestions();
+  const second = plugin.getQuestions();
+  assert.equal(scans, 1);
+  assert.notEqual(second, first);
+  assert.equal(second[0], first[0]);
+  assert.equal(second.length, 1);
+
+  const cards = plugin.getCards();
+  const cardsAgain = plugin.getCards();
+  assert.equal(scans, 2);
+  assert.notEqual(cardsAgain, cards);
+  assert.equal(cardsAgain[0], cards[0]);
+
+  await plugin.recordCardReview(cards[0], "good", 5);
+  scans = 0;
+  const afterReview = plugin.getCards();
+  assert.equal(scans, 1, "a review invalidates the card cache");
+  assert.equal(afterReview[0].fm.attempts, 1);
+
+  scans = 0;
+  plugin.settings.questionFolder = "Elsewhere";
+  assert.equal(plugin.getQuestions().length, 0);
+  assert.equal(scans, 1, "changing the question folder does not reuse another folder's cache");
+});
+
+test("plugin: plain-card events are debounced and limited to the card folder", async () => {
+  const app = makeApp([
+    { path: "Flashcards/Inside.md", noFm: true, text: "Front\n---\nBack" },
+    { path: "Notes/Outside.md", noFm: true, text: "Front\n---\nBack" },
+  ]);
+  app.files.forEach((file) => (file.fm = {}));
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.cards.plainMarkdown = { enabled: true, folder: "Flashcards" };
+
+  const inside = app.files.find((file) => file.path === "Flashcards/Inside.md");
+  const outside = app.files.find((file) => file.path === "Notes/Outside.md");
+  assert.equal(plugin.plainCardsEventRelevant(inside), true);
+  assert.equal(plugin.plainCardsEventRelevant(outside), false);
+  assert.equal(plugin.plainCardsEventRelevant(outside, "Flashcards/Inside.md"), true);
+
+  let scans = 0;
+  plugin.refreshPlainCards = async () => {
+    scans++;
+    return 0;
+  };
+  plugin.schedulePlainCardRefresh(0);
+  plugin.schedulePlainCardRefresh(0);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(scans, 1);
+});

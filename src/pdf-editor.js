@@ -9,8 +9,9 @@
  *
  * The source PDF is never modified: every write goes to a new copy.
  */
+const { clamp, str } = require("./util");
 const { PDFDocument, PDFName, PDFArray, PDFDict, PDFHexString, PDFNumber, PDFNull, PDFRef, PDFTextField, PDFCheckBox, PDFRadioGroup, PDFDropdown, PDFOptionList, StandardFonts, degrees, rgb } = require("../vendor/pdf-lib.js");
-const { INK_COLOR_HEX, MARK_STYLES, clamp, normalizeHighlightAreas, normalizeInkStrokes, normalizeTextBoxes } = require("./pdf-ink");
+const { INK_COLOR_HEX, MARK_STYLES, normalizeHighlightAreas, normalizeInkStrokes, normalizeTextBoxes } = require("./pdf-ink");
 
 const MAX_BYTES = 80 * 1024 * 1024;
 const MAX_PAGES = 2000;
@@ -66,10 +67,6 @@ const PAGE_SIZES = [
 const MIN_PAGE_POINTS = 36;
 const MAX_PAGE_POINTS = 5000;
 const TEXT_FONTS = { helvetica: StandardFonts.Helvetica, times: StandardFonts.TimesRoman, courier: StandardFonts.Courier };
-
-function str(value) {
-  return value === undefined || value === null ? "" : String(value);
-}
 
 function round(value, places) {
   const scale = Math.pow(10, places || 0);

@@ -8,6 +8,7 @@ const { str } = require("./util");
 
 const MAX_LIMIT = 25;
 
+/** Review settings return the caller's fallback for a non-finite value; the shared clamp() returns NaN. */
 function clamp(value, min, max, fallback) {
   const n = Number(value);
   if (!Number.isFinite(n)) return fallback;

@@ -21,7 +21,11 @@ function parseHttpUrl(raw) {
 
 function isLoopbackHost(hostname) {
   const host = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
-  return host === "localhost" || host === "::1" || /^127\./.test(host);
+  if (host === "localhost" || host === "::1") return true;
+  const parts = host.split(".");
+  if (parts.length !== 4 || !parts.every((part) => /^\d{1,3}$/.test(part))) return false;
+  const octets = parts.map(Number);
+  return octets[0] === 127 && octets.every((octet) => octet <= 255);
 }
 
 function cleanUrl(url) {

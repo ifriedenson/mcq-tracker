@@ -110,6 +110,10 @@ test("study agent keeps the empty state bounded and the persona visible at sideb
   assert.match(card, /grid-area:\s*1 \/ 1/);
   assert.match(card, /height:\s*auto/, "a long title grows the card instead of overflowing it");
   assert.match(card, /min-height:\s*104px/);
+  const detailBlocks = css.match(/(?:^|\n)\.qt-agent-suggestion-detail \{[^}]*\}/g) || [];
+  const detail = detailBlocks.find((block) => block.includes("display:")) || "";
+  assert.match(detail, /display:\s*block/, "the full suggestion detail must stay readable");
+  assert.doesNotMatch(detail, /-webkit-line-clamp|overflow:\s*hidden/, "the suggestion detail must not be truncated");
   assert.match(css, /\.qt-agent-suggestion-card:not\(\.is-active\) > \* \{[^}]*visibility:\s*hidden/s, "back-card labels must not paint through the active card");
   assert.match(empty, /width:\s*calc\(100% - 32px\)/);
 

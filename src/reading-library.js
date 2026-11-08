@@ -4,7 +4,7 @@
  * Adapted from Verso's library/bookshelf/quote idea (MIT) as original,
  * dependency-free code. Nothing here calls a provider or writes a note.
  */
-const { hashString, localDate, str } = require("./util");
+const { boundedText, clampInt, hashString, localDate, str } = require("./util");
 
 const MAX_BOOKS = 300;
 const MAX_QUOTES = 100;
@@ -24,14 +24,6 @@ function enabledValue(value) {
   return true;
 }
 
-function textValue(value, max) {
-  return str(value).replace(/\r\n?/g, "\n").trim().slice(0, max);
-}
-
-function clamp(value, low, high) {
-  return Math.max(low, Math.min(high, Math.round(value)));
-}
-
 function numberValue(value, fallback) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -46,22 +38,22 @@ function normalizeDate(value) {
 
 function normalizeQuote(value, index) {
   const source = asObject(value);
-  const text = textValue(source.text, MAX_QUOTE);
+  const text = boundedText(source.text, MAX_QUOTE);
   if (!text) return null;
   return {
     id: str(source.id).trim() || `quote-${hashString(`${text}|${index}`)}`,
     text,
-    page: clamp(numberValue(source.page, 0), 0, 20000),
+    page: clampInt(numberValue(source.page, 0), 0, 20000),
     addedOn: normalizeDate(source.addedOn),
   };
 }
 
 function normalizeBook(value, index) {
   const source = asObject(value);
-  const title = textValue(source.title, MAX_TITLE);
+  const title = boundedText(source.title, MAX_TITLE);
   if (!title) return null;
-  const totalPages = clamp(numberValue(source.totalPages, 0), 0, 20000);
-  const rawPage = clamp(numberValue(source.currentPage, 0), 0, 20000);
+  const totalPages = clampInt(numberValue(source.totalPages, 0), 0, 20000);
+  const rawPage = clampInt(numberValue(source.currentPage, 0), 0, 20000);
   const currentPage = totalPages > 0 ? Math.min(totalPages, rawPage) : rawPage;
   const status = BOOK_STATUSES.includes(source.status) ? source.status : "want";
   const quotes = [];
@@ -74,13 +66,13 @@ function normalizeBook(value, index) {
   return {
     id: str(source.id).trim() || `book-${hashString(`${title}|${index}`)}`,
     title,
-    author: textValue(source.author, MAX_AUTHOR),
-    course: textValue(source.course, MAX_TITLE),
+    author: boundedText(source.author, MAX_AUTHOR),
+    course: boundedText(source.course, MAX_TITLE),
     due: normalizeDate(source.due),
     totalPages,
     currentPage,
     status,
-    rating: clamp(numberValue(source.rating, 0), 0, 5),
+    rating: clampInt(numberValue(source.rating, 0), 0, 5),
     startedOn: normalizeDate(source.startedOn),
     finishedOn: normalizeDate(source.finishedOn),
     quotes,
@@ -108,19 +100,19 @@ function normalizeLibrary(value) {
 /** Creates one book. `input.today` (YYYY-MM-DD) keeps the function testable. */
 function createBook(input, today) {
   const source = asObject(input);
-  const title = textValue(source.title, MAX_TITLE);
+  const title = boundedText(source.title, MAX_TITLE);
   if (!title) return null;
   const day = normalizeDate(source.today) || normalizeDate(today) || localDate();
   const status = BOOK_STATUSES.includes(source.status) ? source.status : "want";
-  const totalPages = clamp(numberValue(source.totalPages, 0), 0, 20000);
-  const currentPage = clamp(numberValue(source.currentPage, 0), 0, totalPages || 20000);
-  const id = str(source.id).trim() || `book-${hashString(`${title}|${textValue(source.author, MAX_AUTHOR)}|${day}|${str(source.seed)}`)}`;
+  const totalPages = clampInt(numberValue(source.totalPages, 0), 0, 20000);
+  const currentPage = clampInt(numberValue(source.currentPage, 0), 0, totalPages || 20000);
+  const id = str(source.id).trim() || `book-${hashString(`${title}|${boundedText(source.author, MAX_AUTHOR)}|${day}|${str(source.seed)}`)}`;
   const book = normalizeBook(
     {
       ...source,
       id,
       title,
-      course: textValue(source.course, MAX_TITLE),
+      course: boundedText(source.course, MAX_TITLE),
       due: normalizeDate(source.due),
       status,
       totalPages,
@@ -171,7 +163,7 @@ function addQuote(books, bookId, input, today) {
   if (index < 0) return { books: list, quote: null };
   const source = asObject(input);
   const day = normalizeDate(source.addedOn) || normalizeDate(today) || localDate();
-  const text = textValue(source.text, MAX_QUOTE);
+  const text = boundedText(source.text, MAX_QUOTE);
   if (!text) return { books: list, quote: null };
   const quote = normalizeQuote(
     {

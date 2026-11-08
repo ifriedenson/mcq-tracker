@@ -7,7 +7,7 @@
  */
 const { Modal, Setting, TFile, normalizePath } = require("obsidian");
 const { FolderSuggest } = require("./modals");
-const { ensureFolder, localDate, str } = require("./util");
+const { ensureFolder, localDate, str, uniquePath } = require("./util");
 const { renderPdfPagesAsPng } = require("./pdf");
 const { OCR_SYSTEM, buildOcrNote, cleanOcrText, ocrPrompt } = require("./ocr");
 
@@ -21,17 +21,6 @@ function bytesToBase64(buf) {
   if (typeof btoa === "function") return btoa(binary);
   if (typeof Buffer !== "undefined") return Buffer.from(bytes).toString("base64");
   throw new Error("This device cannot encode page images for the vision model.");
-}
-
-function uniquePath(vault, folder, name) {
-  const safe = str(name).replace(/[\\/:*?"<>|]/g, "-").trim() || "OCR";
-  let path = normalizePath(`${folder}/${safe}.md`);
-  let n = 2;
-  while (vault.getAbstractFileByPath(path)) {
-    path = normalizePath(`${folder}/${safe} ${n}.md`);
-    n++;
-  }
-  return path;
 }
 
 class OcrModal extends Modal {
@@ -221,7 +210,7 @@ class OcrModal extends Modal {
         sourceKind: this.method === "local" ? "local-command" : "ai-vision",
         date: localDate(),
       });
-      const path = uniquePath(this.app.vault, folder, note.title);
+      const path = uniquePath(this.app.vault, folder, note.title, "md", "OCR");
       await this.app.vault.create(path, note.text);
       this.plugin.refreshViews();
       this.showDone(path, pages.length);

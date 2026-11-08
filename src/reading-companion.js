@@ -4,6 +4,7 @@
  * shaping: the reader owns the UI, the Study agent owns the model request, and
  * the prompt names the source link so an answer can cite the exact page.
  */
+const { str } = require("./util");
 const { annotationLink } = require("./pdf-annotations");
 
 const MAX_QUOTE = 4000;
@@ -12,10 +13,6 @@ const MAX_QUESTION = 600;
 const MAX_PAGE_TEXT = 6000;
 const DEFAULT_QUESTION =
   "Explain this passage in context. Define any term that matters, say why it matters for the document's argument, and suggest one question I should be able to answer.";
-
-function str(value) {
-  return value === undefined || value === null ? "" : String(value);
-}
 
 function clampPage(value) {
   const n = Math.round(Number(value) || 1);

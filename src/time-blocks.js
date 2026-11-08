@@ -5,7 +5,7 @@
  * backlog reuses the plugin's existing study tasks instead of creating a
  * second task system.
  */
-const { hashString, str } = require("./util");
+const { boundedText, hashString, str } = require("./util");
 
 const MAX_BLOCKS = 2000;
 const MAX_PROJECTS = 100;
@@ -45,10 +45,6 @@ const TIME_BLOCK_TOUR = [
 
 function objectValue(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-}
-
-function textValue(value, max) {
-  return str(value).replace(/\r\n?/g, "\n").trim().slice(0, max || MAX_TITLE);
 }
 
 function numberValue(value, fallback) {
@@ -217,7 +213,7 @@ function subjectColorRows(blocks, subjectColors, projects) {
   const colors = objectValue(subjectColors);
   const rows = new Map();
   for (const block of Array.isArray(blocks) ? blocks : []) {
-    const course = textValue(block && block.course, MAX_TITLE);
+    const course = boundedText(block && block.course, MAX_TITLE);
     if (!course) continue;
     const key = subjectColorKey(course);
     const row = rows.get(key) || { course, color: colors[key] || "", blocks: 0, minutes: 0 };
@@ -269,7 +265,7 @@ function statusFromChar(value) {
 
 function normalizeBlockTask(value, createdAt) {
   const source = objectValue(value);
-  const title = textValue(source.title, MAX_TITLE);
+  const title = boundedText(source.title, MAX_TITLE);
   if (!title) return null;
   const status = normalizeTaskStatus(source.status, source.done);
   return {
@@ -277,16 +273,16 @@ function normalizeBlockTask(value, createdAt) {
     title,
     done: status === "done",
     status,
-    projectId: textValue(source.projectId, 160),
-    tag: textValue(source.tag, MAX_TITLE),
-    studyTaskId: textValue(source.studyTaskId, 160),
+    projectId: boundedText(source.projectId, 160),
+    tag: boundedText(source.tag, MAX_TITLE),
+    studyTaskId: boundedText(source.studyTaskId, 160),
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, createdAt || 0))),
   };
 }
 
 function normalizeTimeBlock(value) {
   const source = objectValue(value);
-  const title = textValue(source.title, MAX_TITLE);
+  const title = boundedText(source.title, MAX_TITLE);
   const date = dayValue(source.date);
   const untimed = source.untimed === true;
   const start = untimed ? "" : normalizeTime(source.start);
@@ -303,8 +299,8 @@ function normalizeTimeBlock(value) {
     tasks.push(task);
     if (tasks.length >= MAX_TASKS_PER_BLOCK) break;
   }
-  const projectId = textValue(source.projectId, 160);
-  const routineId = textValue(source.routineId, 160);
+  const projectId = boundedText(source.projectId, 160);
+  const routineId = boundedText(source.routineId, 160);
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("tb", [date, start, end, title, source.createdAt || 0]),
     date,
@@ -314,9 +310,9 @@ function normalizeTimeBlock(value) {
     title,
     type: normalizeType(source.type),
     projectId,
-    course: textValue(source.course, MAX_TITLE),
+    course: boundedText(source.course, MAX_TITLE),
     tags: normalizeBlockTags(source.tags),
-    notes: textValue(source.notes, MAX_TEXT),
+    notes: boundedText(source.notes, MAX_TEXT),
     tasks,
     routineId,
     createdAt,
@@ -368,16 +364,16 @@ function normalizeTimeBlocks(value) {
     weekStartsOn: source.weekStartsOn === "sunday" ? "sunday" : "monday",
     dayStart: normalizeTime(source.dayStart) || "07:00",
     dayEnd: normalizeTime(source.dayEnd) || "22:00",
-    notesFolder: textValue(source.notesFolder, 200) || "Time blocks",
-    dailyNoteFolder: textValue(source.dailyNoteFolder, 200),
+    notesFolder: boundedText(source.notesFolder, 200) || "Time blocks",
+    dailyNoteFolder: boundedText(source.dailyNoteFolder, 200),
     scheduleHeading: normalizeScheduleHeading(source.scheduleHeading),
-    backlogPath: textValue(source.backlogPath, 200) || "Backlog.md",
-    routinesPath: textValue(source.routinesPath, 200) || "Routines.md",
-    projectsFolder: textValue(source.projectsFolder, 200) || DEFAULT_PROJECTS_FOLDER,
-    domainsFolder: textValue(source.domainsFolder, 200) || DEFAULT_DOMAINS_FOLDER,
+    backlogPath: boundedText(source.backlogPath, 200) || "Backlog.md",
+    routinesPath: boundedText(source.routinesPath, 200) || "Routines.md",
+    projectsFolder: boundedText(source.projectsFolder, 200) || DEFAULT_PROJECTS_FOLDER,
+    domainsFolder: boundedText(source.domainsFolder, 200) || DEFAULT_DOMAINS_FOLDER,
     autoApplyRoutines: source.autoApplyRoutines === true,
     askAssocOnBlockCreate: source.askAssocOnBlockCreate === true,
-    dropBlockTitle: textValue(source.dropBlockTitle, MAX_TITLE) || DEFAULT_DROP_TITLE,
+    dropBlockTitle: boundedText(source.dropBlockTitle, MAX_TITLE) || DEFAULT_DROP_TITLE,
     subjectColors: normalizeSubjectColors(source.subjectColors),
     view: normalizeView(source.view),
     blocks,
@@ -400,7 +396,7 @@ function createTimeBlock(input, now) {
 
 function normalizeTimeProject(value) {
   const source = objectValue(value);
-  const name = textValue(source.name, MAX_TITLE);
+  const name = boundedText(source.name, MAX_TITLE);
   if (!name) return null;
   const id = str(source.id).trim().slice(0, 160) || idFor("tbp", [name, source.kind || "project", source.createdAt || 0]);
   return {
@@ -408,7 +404,7 @@ function normalizeTimeProject(value) {
     name,
     kind: normalizeProjectKind(source.kind),
     color: projectColor(source.color, id),
-    course: textValue(source.course, MAX_TITLE),
+    course: boundedText(source.course, MAX_TITLE),
     statusHistory: normalizeProjectHistory(source.statusHistory),
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
   };
@@ -436,7 +432,7 @@ function normalizeRoutineDays(value) {
 
 function normalizeTimeRoutine(value) {
   const source = objectValue(value);
-  const title = textValue(source.title, MAX_TITLE);
+  const title = boundedText(source.title, MAX_TITLE);
   const start = normalizeTime(source.start);
   const end = normalizeTime(source.end);
   const days = normalizeRoutineDays(source.days);
@@ -458,8 +454,8 @@ function normalizeTimeRoutine(value) {
     start,
     end,
     type: normalizeType(source.type),
-    projectId: textValue(source.projectId, 160),
-    course: textValue(source.course, MAX_TITLE),
+    projectId: boundedText(source.projectId, 160),
+    course: boundedText(source.course, MAX_TITLE),
     tasks,
     createdAt,
   };
@@ -481,13 +477,13 @@ function createTimeRoutine(input, now) {
 
 function normalizeBacklogItem(value) {
   const source = objectValue(value);
-  const title = textValue(source.title, MAX_TITLE);
+  const title = boundedText(source.title, MAX_TITLE);
   if (!title) return null;
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("tbb", [title, source.projectId || "", source.createdAt || 0]),
     title,
-    projectId: textValue(source.projectId, 160),
-    course: textValue(source.course, MAX_TITLE),
+    projectId: boundedText(source.projectId, 160),
+    course: boundedText(source.course, MAX_TITLE),
     resurface: dayValue(source.resurface),
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
   };
@@ -629,12 +625,12 @@ function calendarDaySummary(events, date, blocks) {
           .map((block) => ({ id: block.id, title: block.title, start: block.start, end: block.end }));
     return {
       id: str(event.uid || event.id).trim() || idFor("tbc", [key, str(event.summary), start, index]),
-      title: textValue(event.summary, MAX_TITLE) || "Untitled event",
+      title: boundedText(event.summary, MAX_TITLE) || "Untitled event",
       start,
       end,
       allDay,
-      location: textValue(event.location, MAX_TITLE),
-      course: textValue(event.course || (event.details && event.details.subject), MAX_TITLE),
+      location: boundedText(event.location, MAX_TITLE),
+      course: boundedText(event.course || (event.details && event.details.subject), MAX_TITLE),
       overlaps: overlapping,
     };
   });
@@ -692,7 +688,7 @@ function parseDailyNoteLines(markdown) {
     const match = /^\s*(?:[-*+]\s+)?(?:\[[ xX]\]\s+)?(\d{1,2}:\d{2})(?:\s*(?:-|–|—|to)\s*(\d{1,2}:\d{2}))?\s+(.+?)\s*$/i.exec(line);
     if (!match) continue;
     const start = normalizeTime(match[1]);
-    const title = textValue(match[3], MAX_TITLE);
+    const title = boundedText(match[3], MAX_TITLE);
     if (!start || !title) continue;
     let end = normalizeTime(match[2]);
     if (!end) end = timeFromMinutes(Math.min(minutesOf(start) + 60, 1439));
@@ -1374,7 +1370,7 @@ function normalizeProjectStatusRecord(value) {
     date,
     status,
     ...(intensity !== undefined ? { intensity } : {}),
-    note: textValue(source.note, 500),
+    note: boundedText(source.note, 500),
   };
 }
 
@@ -1471,7 +1467,7 @@ function projectMarkdown(project, options) {
     }
   }
   lines.push("---", "");
-  const body = textValue(settings.body, MAX_TEXT);
+  const body = boundedText(settings.body, MAX_TEXT);
   return lines.join("\n") + (body ? body + "\n" : "# " + value.name + "\n");
 }
 
@@ -1520,7 +1516,7 @@ function parseProjectMarkdown(markdown, path) {
       continue;
     }
     if (/^course\s*:/.test(trimmed)) {
-      course = textValue(trimmed.replace(/^course\s*:/, ""), MAX_TITLE);
+      course = boundedText(trimmed.replace(/^course\s*:/, ""), MAX_TITLE);
       statusMode = false;
       tagsMode = false;
       continue;
@@ -1570,7 +1566,7 @@ function parseProjectMarkdown(markdown, path) {
   const base = str(path).replace(/\\/g, "/").split("/").pop().replace(/\.md$/i, "");
   const heading = /^#\s+(.+)$/m.exec(stripFrontmatter(value));
   return {
-    name: textValue(heading ? heading[1] : base, MAX_TITLE),
+    name: boundedText(heading ? heading[1] : base, MAX_TITLE),
     kind: tags.some((tag) => tag === "mcq/domain" || tag === "kairos/domain") ? "domain" : "project",
     id,
     color,
@@ -1593,7 +1589,7 @@ function projectFilePath(project, settings) {
   const value = normalizeTimeProject(project);
   if (!value) return "";
   const source = objectValue(settings);
-  const folder = value.kind === "domain" ? textValue(source.domainsFolder, 200) || DEFAULT_DOMAINS_FOLDER : textValue(source.projectsFolder, 200) || DEFAULT_PROJECTS_FOLDER;
+  const folder = value.kind === "domain" ? boundedText(source.domainsFolder, 200) || DEFAULT_DOMAINS_FOLDER : boundedText(source.projectsFolder, 200) || DEFAULT_PROJECTS_FOLDER;
   const name = value.name.replace(/[\\/:*?"<>|#^[\]]/g, "-").replace(/\s+/g, " ").trim() || "Project";
   return folder ? folder + "/" + name + ".md" : name + ".md";
 }
@@ -1684,7 +1680,7 @@ function kairosSettingsPatch(value) {
     ["notesFolder", "notesFolder"],
     ["dropBlockTitle", "dropBlockTitle"],
   ]) {
-    const text = textValue(raw[from], 200);
+    const text = boundedText(raw[from], 200);
     if (text) patch[to] = text;
   }
   if (typeof raw.autoApplyRoutines === "boolean") patch.autoApplyRoutines = raw.autoApplyRoutines;

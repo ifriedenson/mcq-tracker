@@ -3,6 +3,7 @@
  * Progress dashboard data. Pure helpers over question notes, cards and the study log,
  * so the Insights page and the tests share one calculation. Everything stays local.
  */
+const { str } = require("./util");
 const { isDue } = require("./filters");
 const { isStudyable } = require("./study-status");
 const { computeStats, creditSummary, overallStats, parseHistory, weakestRow } = require("./stats");
@@ -27,10 +28,6 @@ const MASTERY_WINDOWS = [7, 30];
 
 /** Kept beside the counts so Today, Progress and the embed explain the same pool rule. */
 const MASTERY_POOL_NOTE = "Band counts include hidden, suspended and excluded questions; band practice starts only the studyable ones.";
-
-function str(value) {
-  return value === undefined || value === null ? "" : String(value);
-}
 
 function dayKey(value) {
   const d = value instanceof Date ? value : new Date(value);

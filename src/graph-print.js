@@ -8,6 +8,8 @@
  * Obsidian or network dependency, and it never trusts a caller's HTML.
  */
 
+const { escapeHtml, textValue } = require("./util");
+
 const MAX_EXPRESSIONS = 200;
 const MAX_TABLE_ROWS = 500;
 const MAX_TITLE = 120;
@@ -48,20 +50,6 @@ footer { border-top: 0.5pt solid #999999; color: #555555; font-size: 9pt; margin
   figure, table, ol { page-break-inside: avoid; }
 }
 `;
-
-function textValue(value) {
-  return value === null || value === undefined ? "" : String(value);
-}
-
-/** Escape text for HTML text nodes and quoted attributes. */
-function escapeHtml(value) {
-  return textValue(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 function cleanTitle(value) {
   return textValue(value).replace(/\s+/g, " ").trim().slice(0, MAX_TITLE);

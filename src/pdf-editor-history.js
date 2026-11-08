@@ -14,16 +14,14 @@
  * message}` value.
  */
 
+const { str } = require("./util");
+
 const HISTORY_LIMIT = 20;
 const HISTORY_BYTES = 96 * 1024 * 1024;
 const MAX_LIMIT = 100;
 
 function refusal(reason, message) {
   return { ok: false, reason, message };
-}
-
-function str(value) {
-  return value === undefined || value === null ? "" : String(value);
 }
 
 function normalizeLimit(value) {

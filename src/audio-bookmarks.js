@@ -5,7 +5,7 @@
  * timestamp and builds a copyable link, but never records, uploads or plays
  * audio itself. See NOTICES.md.
  */
-const { hashString, str } = require("./util");
+const { clampInt, hashString, str } = require("./util");
 
 const MAX_BOOKMARKS = 500;
 const AUDIO_PATTERN = /\.(mp3|m4a|wav|ogg|oga|flac|aac|opus|webm|mp4)$/i;
@@ -18,10 +18,6 @@ function enabledValue(value) {
   if (value === false) return false;
   if (value && typeof value === "object" && value.enabled === false) return false;
   return true;
-}
-
-function clamp(value, low, high) {
-  return Math.max(low, Math.min(high, Math.round(value)));
 }
 
 function normalizeAudioBookmarkSettings(value) {
@@ -42,7 +38,7 @@ function normalizeBookmark(value) {
   const source = asObject(value);
   const path = str(source.path).trim().replace(/^\/+/, "").slice(0, 500);
   if (!path || !AUDIO_PATTERN.test(path)) return null;
-  const at = clamp(Number(source.at) || 0, 0, 24 * 3600);
+  const at = clampInt(Number(source.at) || 0, 0, 24 * 3600);
   return {
     id: str(source.id).trim().slice(0, 160) || `audio-${hashString([path, at, source.label || ""].join("|"))}`,
     path,
@@ -60,7 +56,7 @@ function isAudioPath(path) {
 function parseTimestamp(value) {
   const text = str(value).trim();
   if (!text) return -1;
-  if (/^\d+s$/i.test(text)) return clamp(Number(text.slice(0, -1)), 0, 24 * 3600);
+  if (/^\d+s$/i.test(text)) return clampInt(Number(text.slice(0, -1)), 0, 24 * 3600);
   const parts = text.split(":").map((part) => part.trim());
   if (parts.length < 2 || parts.length > 3) return -1;
   if (parts.some((part) => !/^\d{1,3}$/.test(part))) return -1;
@@ -70,11 +66,11 @@ function parseTimestamp(value) {
     : numbers[0] * 3600 + numbers[1] * 60 + numbers[2];
   if (numbers.length === 2 && numbers[1] > 59) return -1;
   if (numbers.length === 3 && (numbers[1] > 59 || numbers[2] > 59)) return -1;
-  return clamp(seconds, 0, 24 * 3600);
+  return clampInt(seconds, 0, 24 * 3600);
 }
 
 function formatTimestamp(seconds) {
-  const total = clamp(Number(seconds) || 0, 0, 24 * 3600);
+  const total = clampInt(Number(seconds) || 0, 0, 24 * 3600);
   const hours = Math.floor(total / 3600);
   const minutes = Math.floor((total % 3600) / 60);
   const rest = total % 60;

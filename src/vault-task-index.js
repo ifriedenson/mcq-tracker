@@ -5,7 +5,7 @@
  * never edits, rewrites or moves a note, and it does not interpret a query
  * language or another plugin's task syntax.
  */
-const { str } = require("./util");
+const { clampInt, str } = require("./util");
 
 const MAX_FILES = 500;
 const MAX_ROWS = 1000;
@@ -19,16 +19,12 @@ function asObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
-function clamp(value, low, high) {
-  return Math.max(low, Math.min(high, Math.round(value)));
-}
-
 function normalizeVaultTaskIndexOptions(value) {
   const source = asObject(value);
   return {
     openOnly: source.openOnly === true,
     folder: str(source.folder).trim().replace(/^\/+|\/+$/g, "").slice(0, 400),
-    limit: clamp(Number.isFinite(Number(source.limit)) ? Number(source.limit) : DEFAULT_LIMIT, 1, MAX_LIMIT),
+    limit: clampInt(Number.isFinite(Number(source.limit)) ? Number(source.limit) : DEFAULT_LIMIT, 1, MAX_LIMIT),
   };
 }
 

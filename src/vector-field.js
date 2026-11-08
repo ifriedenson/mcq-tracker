@@ -6,6 +6,7 @@
  * sampler, quiver geometry and RK4 streamlines are pure and capped; painting is
  * a plain canvas adapter with no WebGL, network request or third-party code.
  */
+const { clamp } = require("./util");
 const { compileScoped } = require("./reference-graph");
 
 const DEFAULTS = {
@@ -24,10 +25,6 @@ const MAX_GRID = 25;
 const MAX_STREAMLINE_SEEDS = 16;
 const MAX_STREAMLINE_STEPS = 160;
 const COLORS = ["#5b8def", "#e5534b", "#2ea043", "#d29922", "#a371f7", "#39c5cf"];
-
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
-}
 
 function finite(value, fallback) {
   const number = Number(value);

@@ -6,7 +6,7 @@
  * writes notes or touches the question/card scheduler.
  */
 const { dayKey, formatFocusClock } = require("./focus");
-const { hashString, localDate, str } = require("./util");
+const { clamp, hashString, localDate, str } = require("./util");
 
 const MAX_TIMERS = 200;
 const MAX_BLOCK_TIMERS = 40;
@@ -20,10 +20,6 @@ const TAG_RE = /^#[A-Za-z0-9_/-]+$/;
 function timerNumber(value, fallback) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
-}
-
-function clamp(value, low, high) {
-  return Math.max(low, Math.min(high, value));
 }
 
 function tagKey(tag) {
