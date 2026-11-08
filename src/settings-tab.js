@@ -693,6 +693,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Mobile practice view")
+      .setDesc(
+        "Keep the phone practice question screen on phones and tablets. Turn this off to use the computer question and review layout on an iPad or phone. Desktop always uses the computer layout; notes, attempts and scheduling are unchanged."
+      )
+      .addToggle((t) =>
+        t.setValue(st.mobilePracticeView !== false).onChange(async (v) => {
+          st.mobilePracticeView = v === true;
+          await this.plugin.save();
+          this.plugin.refreshViews();
+        })
+      );
+
+    new Setting(containerEl)
       .setName("Exam-ready badge")
       .setDesc(
         "After a question is answered, show Exam ready once it has N correct answers in a row. This reads the existing streak and changes no attempt, history, review date, Auto Anki, Text2Anki or Spaced Repetition output. Off by default."

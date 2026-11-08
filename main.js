@@ -31209,6 +31209,7 @@ const DEFAULT_SETTINGS = {
   needsFixing: false, // opt-in: flag questions missed on five distinct days for repair
   autoPauseOnMobile: true,
   distractionFreePractice: true, // mobile only: hide Obsidian chrome while a question/result is active
+  mobilePracticeView: true, // phones/tablets: use the phone question screen; off gives the computer layout
   explanationDefault: "wrong", // "show" | "wrong" (only after a miss) | "hide"
   closedBook: false, // opt-in: hide the Open note shortcut until the current question is submitted
   hints: false, // opt-in: show a question's optional Hint section before answering
@@ -69375,6 +69376,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (!["show", "wrong", "hide"].includes(this.settings.explanationDefault)) this.settings.explanationDefault = "wrong";
     this.settings.closedBook = this.settings.closedBook === true;
     this.settings.distractionFreePractice = this.settings.distractionFreePractice !== false;
+    this.settings.mobilePracticeView = this.settings.mobilePracticeView !== false;
     this.settings.hints = this.settings.hints === true;
     this.settings.examReady = this.settings.examReady === true;
     this.settings.examReadyPasses = normalizeExamReadyPasses(this.settings.examReadyPasses);
@@ -84642,7 +84644,7 @@ class PracticeView extends ItemView {
     root.addClass("qt-wide");
     // Phones get their own question screen: one slim bar, Passage/Question tabs,
     // an answer bar that only appears once a choice is picked, and a More sheet.
-    const mobile = Platform.isMobile === true;
+    const mobile = Platform.isMobile === true && p.settings.mobilePracticeView !== false;
     if (mobile) root.addClass("qt-mobile");
 
     // ---- header: where you are, timer, pause, flag, more
@@ -86365,7 +86367,7 @@ class PracticeView extends ItemView {
     // A phone gets its own review screen. Tablets keep the shared split they
     // already used; Platform.isPhone is false there, and older API builds that
     // do not expose it fall back to the phone branch.
-    if (Platform.isMobile === true && Platform.isPhone !== false) {
+    if (Platform.isMobile === true && Platform.isPhone !== false && p.settings.mobilePracticeView !== false) {
       this.renderMobileResult(root);
       return;
     }
@@ -103822,6 +103824,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           st.distractionFreePractice = v === true;
           await this.plugin.save();
           this.plugin.syncPracticeFullscreen();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Mobile practice view")
+      .setDesc(
+        "Keep the phone practice question screen on phones and tablets. Turn this off to use the computer question and review layout on an iPad or phone. Desktop always uses the computer layout; notes, attempts and scheduling are unchanged."
+      )
+      .addToggle((t) =>
+        t.setValue(st.mobilePracticeView !== false).onChange(async (v) => {
+          st.mobilePracticeView = v === true;
+          await this.plugin.save();
+          this.plugin.refreshViews();
         })
       );
 

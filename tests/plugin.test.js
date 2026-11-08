@@ -48,6 +48,18 @@ test("an unknown saved tutor role safely falls back to private", async () => {
   assert.equal(plugin.settings.ai.tutorRole, "private");
 });
 
+test("mobile practice view defaults on and keeps an explicit off", async () => {
+  const app = makeApp(NOTES);
+  const fresh = new QT(app);
+  await fresh.loadSettings();
+  assert.equal(fresh.settings.mobilePracticeView, true);
+
+  const off = new QT(app);
+  off.saved = { mobilePracticeView: false };
+  await off.loadSettings();
+  assert.equal(off.settings.mobilePracticeView, false);
+});
+
 test("the folder filter shows a search box only when there are many folders (or when asked)", async () => {
   const { plugin } = await start();
   assert.equal(plugin.folderSearchOn(3), false);

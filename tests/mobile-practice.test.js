@@ -35,7 +35,7 @@ after(() => {
   obsidian.Platform.isPhone = false;
 });
 
-async function setup(mobile, phone = mobile) {
+async function setup(mobile, phone = mobile, mobileView = true) {
   const app = makeApp([{ path: "Questions/mobile-1.md", fm: { answer: "B", choices: 4 }, text: NOTE }]);
   const plugin = new QT(app);
   await plugin.onload();
@@ -45,6 +45,7 @@ async function setup(mobile, phone = mobile) {
   view.contentEl = dom.root;
   const file = app.files[0];
   await view.loadQuestion({ file, fm: file.fm }, true);
+  plugin.settings.mobilePracticeView = mobileView;
   obsidian.Platform.isMobile = mobile;
   obsidian.Platform.isPhone = phone;
   view.render();
@@ -56,7 +57,7 @@ async function setupResult(options = {}) {
   const mobile = options.mobile !== false;
   const phone = options.phone === undefined ? mobile : options.phone;
   const answer = options.answer || "A";
-  const result = await setup(mobile, phone);
+  const result = await setup(mobile, phone, options.mobileView !== false);
   // Count only the result tree, not the question tree the fake DOM keeps from setup().
   result.dom = makeDom();
   result.view.contentEl = result.dom.root;
@@ -342,6 +343,29 @@ test("desktop practice keeps its split, footer controls and long labels", async 
   assert.ok(dom.texts().includes("Skip (don't log)"));
   assert.equal(byClass(dom, "qt-m-answerbar").length, 0);
   assert.equal(dom.texts().includes("How sure are you?"), true);
+});
+
+test("turning mobile view off gives an iPad and a phone the computer practice layout", async () => {
+  const ipadDefault = await setup(true, false);
+  assert.ok(byClass(ipadDefault.dom, "qt-mobile").length, "the iPad keeps the phone question screen by default");
+
+  const ipad = await setup(true, false, false);
+  assert.equal(byClass(ipad.dom, "qt-mobile").length, 0, "the iPad gets the computer question screen");
+  assert.equal(byClass(ipad.dom, "qt-qhead").length, 1, "the desktop question header is used");
+  assert.ok(ipad.dom.texts().includes("Skip (don't log)"), "desktop labels return");
+  assert.equal(byClass(ipad.dom, "qt-m-answerbar").length, 0, "no phone answer bar");
+
+  const ipadResult = await setupResult({ mobile: true, phone: false, mobileView: false });
+  assert.equal(byClass(ipadResult.dom, "qt-mobile").length, 0, "the iPad review is the shared desktop review");
+  assert.equal(byClass(ipadResult.dom, "qt-banner").length, 1);
+  assert.equal(byClass(ipadResult.dom, "qt-done").length, 1);
+
+  const phone = await setup(true, true, false);
+  assert.equal(byClass(phone.dom, "qt-mobile").length, 0, "a phone can choose the computer layout too");
+  assert.equal(byClass(phone.dom, "qt-qhead").length, 1);
+
+  const desktop = await setup(false, false, true);
+  assert.equal(byClass(desktop.dom, "qt-mobile").length, 0, "desktop stays computer with mobile view on");
 });
 
 /* ---- review screen: the dedicated phone shell is a real branch, not CSS ---- */

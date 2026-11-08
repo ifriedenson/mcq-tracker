@@ -69,6 +69,7 @@ const DEFAULT_SETTINGS = {
   needsFixing: false, // opt-in: flag questions missed on five distinct days for repair
   autoPauseOnMobile: true,
   distractionFreePractice: true, // mobile only: hide Obsidian chrome while a question/result is active
+  mobilePracticeView: true, // phones/tablets: use the phone question screen; off gives the computer layout
   explanationDefault: "wrong", // "show" | "wrong" (only after a miss) | "hide"
   closedBook: false, // opt-in: hide the Open note shortcut until the current question is submitted
   hints: false, // opt-in: show a question's optional Hint section before answering

@@ -1305,7 +1305,7 @@ class PracticeView extends ItemView {
     root.addClass("qt-wide");
     // Phones get their own question screen: one slim bar, Passage/Question tabs,
     // an answer bar that only appears once a choice is picked, and a More sheet.
-    const mobile = Platform.isMobile === true;
+    const mobile = Platform.isMobile === true && p.settings.mobilePracticeView !== false;
     if (mobile) root.addClass("qt-mobile");
 
     // ---- header: where you are, timer, pause, flag, more
@@ -3028,7 +3028,7 @@ class PracticeView extends ItemView {
     // A phone gets its own review screen. Tablets keep the shared split they
     // already used; Platform.isPhone is false there, and older API builds that
     // do not expose it fall back to the phone branch.
-    if (Platform.isMobile === true && Platform.isPhone !== false) {
+    if (Platform.isMobile === true && Platform.isPhone !== false && p.settings.mobilePracticeView !== false) {
       this.renderMobileResult(root);
       return;
     }

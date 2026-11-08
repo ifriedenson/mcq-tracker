@@ -4,10 +4,14 @@ MCQ Tracker has two deliberate practice layouts, not one layout that is stretche
 to fit every screen:
 
 - **Phone** is the dedicated mobile screen. The question screen is selected by
-  `Platform.isMobile === true`. The post-answer review adds
-  `Platform.isPhone !== false` so an iPad/tablet keeps the shared review split it
-  has today. Older Obsidian builds that do not expose `isPhone` fall back to the
-  phone layout.
+  `Platform.isMobile === true` while the **Mobile practice view** switch is on
+  (the default). The post-answer review adds `Platform.isPhone !== false` so an
+  iPad/tablet keeps the shared review split it has today. Older Obsidian builds
+  that do not expose `isPhone` fall back to the phone layout.
+- **Mobile practice view** is a switch on **Practice session** settings. Turning
+  it off gives an iPad or phone the desktop question and review tree, so an iPad
+  can use the computer layout. Desktop is always the computer layout, and notes,
+  attempts and scheduling are unchanged.
 - **Desktop** uses the shared split-screen practice layout. A narrow desktop
   pane keeps desktop markup and labels; it must never receive the phone tree.
 - **Tablet** is a deliberate boundary: its existing question screen still
@@ -69,6 +73,20 @@ Desktop and tablet review keep the original layout:
 None of the `.qt-m-*` classes, and never `.qt-mobile`, are added on desktop or
 tablet review.
 
+## Mobile practice view switch
+
+**Mobile practice view** is on by default on **Practice session** settings. It
+only chooses the rendered practice tree:
+
+- On, a phone uses the mobile question and review screens; an iPad uses the
+  mobile question screen and the shared review split (the existing behavior).
+- Off, an iPad or phone uses the desktop question and shared review tree.
+- Desktop ignores the switch and always uses the desktop tree.
+
+The switch writes `settings.mobilePracticeView` and refreshes open practice
+views immediately. It does not change the Settings navigation, notes, attempts,
+scheduling or the separate distraction-free chrome setting.
+
 ## CSS boundary
 
 Phone layout rules live in the `phone question layout` block in `styles.css`.
@@ -117,7 +135,7 @@ cannot create.
 
 ## Tests
 
-`tests/mobile-practice.test.js` covers **17 focused tests**. It renders the same
+`tests/mobile-practice.test.js` covers **18 focused tests**. It renders the same
 question and review with `Platform` set for phone, desktop and tablet, and
 covers:
 

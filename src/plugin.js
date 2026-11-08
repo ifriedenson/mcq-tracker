@@ -1322,6 +1322,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (!["show", "wrong", "hide"].includes(this.settings.explanationDefault)) this.settings.explanationDefault = "wrong";
     this.settings.closedBook = this.settings.closedBook === true;
     this.settings.distractionFreePractice = this.settings.distractionFreePractice !== false;
+    this.settings.mobilePracticeView = this.settings.mobilePracticeView !== false;
     this.settings.hints = this.settings.hints === true;
     this.settings.examReady = this.settings.examReady === true;
     this.settings.examReadyPasses = normalizeExamReadyPasses(this.settings.examReadyPasses);

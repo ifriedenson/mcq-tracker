@@ -132,6 +132,13 @@ test("settings navigation: a page opens the existing renderer for its module and
   assert.equal(tab.activePage, "study-nudge", "an unknown page is ignored");
 });
 
+test("settings navigation: the practice page exposes the mobile view switch", async () => {
+  const { tab } = openTab(await setup());
+  tab.openPage("mcq-practice");
+  assert.ok(obsidian.settingNames.includes("Mobile practice view"));
+  assert.ok(obsidian.settingNames.includes("Distraction-free practice mode"));
+});
+
 test("settings navigation: PDF++ lives in the same navigation and hosts the vendor tab", async () => {
   const plugin = await setup();
   const { tab, dom } = openTab(plugin);

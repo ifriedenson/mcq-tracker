@@ -1,6 +1,6 @@
 {
   "name": "mcq-tracker",
-  "version": "1.293.1",
+  "version": "1.293.2",
   "private": true,
   "license": "MIT",
   "description": "Obsidian plugin for exam practice, spaced review, cards, courses and grades, with optional AI.",
