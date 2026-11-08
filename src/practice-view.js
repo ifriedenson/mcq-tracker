@@ -25,6 +25,8 @@ const { STUDY_SKIN_LABELS, buildMatchPairs, normalizeStudyMode, normalizeStudySk
 const { StudyMatchModal } = require("./study-match-modal");
 const { practiceKeyboardAction } = require("./practice-keys");
 const practiceFullscreen = require("./practice-fullscreen");
+const practiceTools = require("./practice-tools");
+const calculator = require("./calculator");
 
 class PracticeView extends ItemView {
   constructor(leaf, plugin) {
@@ -50,6 +52,26 @@ class PracticeView extends ItemView {
     this.mobileResultTab = "review";
     this.keyboardSubmit = null;
     this.keyboardHandler = (event) => this.handlePracticeKey(event);
+    // Bluebook-style testing tools. Eliminations and highlights are kept per
+    // question for as long as this view is open, like the official app keeps
+    // them for the length of a module.
+    this.toolsOpen = false;
+    this.activeTool = "";
+    this.eliminatorMode = false;
+    this.eliminatedByPath = new Map();
+    this.highlightsByPath = new Map();
+    this.answeredPaths = new Set();
+    this.visited = [];
+    this.zoom = 100;
+    this.lineReader = false;
+    this.timerHidden = false;
+    this.contrast = false;
+    this.expandPassage = false;
+    this.timerWarned = false;
+    this.toolSelection = null;
+    this.highlightColor = "yellow";
+    this.highlightStyle = "highlight";
+    this.calc = { expression: "", result: "", error: "", mode: "basic" };
   }
 
   getViewType() {
@@ -106,9 +128,17 @@ class PracticeView extends ItemView {
 
   tick() {
     if (!this.timerEl || this.state !== "question") return;
-    const s = this.quickSession && this.quickSession.kind === "time"
-      ? this.quickSession.value * 60 - quickRemainingSeconds(this.quickSession)
-      : Math.floor(this.plugin.elapsedMs() / 1000);
+    const countdown = this.quickSession && this.quickSession.kind === "time" ? quickRemainingSeconds(this.quickSession) : null;
+    const s = countdown === null ? Math.floor(this.plugin.elapsedMs() / 1000) : this.quickSession.value * 60 - countdown;
+    if (countdown !== null && practiceTools.shouldWarnFive(countdown, this.timerWarned)) {
+      this.timerWarned = true;
+      this.timerHidden = false;
+      new Notice("Five minutes remaining in Quick Practice.", 6000);
+      // The warning arrives from the interval, not from a click, so redraw next tick.
+      if (typeof activeWindow !== "undefined" && activeWindow && typeof activeWindow.setTimeout === "function") {
+        activeWindow.setTimeout(() => this.state === "question" && this.render(), 0);
+      }
+    }
     this.timerEl.setText(fmtClock(s));
     const target = Number(this.current && this.current.fm.target_seconds) || 0;
     this.timerEl.toggleClass("is-over", !!target && s > target);
@@ -153,6 +183,9 @@ class PracticeView extends ItemView {
     this.sel = "";
     this.conf = 0;
     this.hintShown = false;
+    this.toolSelection = null;
+    this.timerWarned = false;
+    if (!this.visited.some((item) => item.path === q.file.path)) this.visited.push({ path: q.file.path });
     this.matchOrder =
       this.current.mode === "match"
         ? shuffleForSeed(this.current.pairs.map((_pair, i) => i), q.file.path)
@@ -481,6 +514,14 @@ class PracticeView extends ItemView {
   handlePracticeKey(event) {
     if (!this.isPracticeKeyboardActive()) return "";
     const target = event && event.target;
+    const tag = String((target && target.tagName) || "").toLowerCase();
+    const editable = tag === "input" || tag === "textarea" || !!(target && target.isContentEditable === true);
+    const tool = editable ? "" : practiceTools.practiceToolShortcut(event);
+    if (tool) {
+      if (event && typeof event.preventDefault === "function") event.preventDefault();
+      this.runTool(tool);
+      return tool;
+    }
     if (target && activeDocument && activeDocument.body && target !== activeDocument.body) {
       const contains = this.contentEl && this.contentEl.contains;
       if (typeof contains === "function" && !contains.call(this.contentEl, target)) return "";
@@ -554,6 +595,7 @@ class PracticeView extends ItemView {
       new Notice("Saved offline. This result will be added to the note when the vault is writable.", 7000);
     }
     this.plugin.clearSession();
+    this.answeredPaths.add(q.file.path);
     this.tally.n++;
     if (correct) this.tally.correct++;
     this.notesText = q.sections.notes;
@@ -1257,6 +1299,10 @@ class PracticeView extends ItemView {
     bar.createDiv({ cls: "qt-meta", text: meta });
     const tw = bar.createDiv({ cls: "qt-timer-wrap" });
     this.timerEl = tw.createSpan({ cls: "qt-timer" });
+    const timerCountdown = this.quickSession && this.quickSession.kind === "time" ? quickRemainingSeconds(this.quickSession) : null;
+    if (!practiceTools.timerVisible(this.timerHidden, timerCountdown === null ? Number.POSITIVE_INFINITY : timerCountdown)) {
+      this.timerEl.addClass("is-hidden");
+    }
     const pb = tw.createEl("button", { cls: "qt-icon-btn", attr: { "aria-label": paused ? "Resume" : "Pause" } });
     setIcon(pb, paused ? "play" : "pause");
     pb.addEventListener("click", () => {
@@ -1274,6 +1320,18 @@ class PracticeView extends ItemView {
       this.render();
     });
     const tools = bar.createDiv({ cls: "qt-exam-tools" });
+    if (!mobile) {
+      const menuBtn = tools.createEl("button", { cls: "qt-icon-btn", attr: { "aria-label": "Question menu", title: "Question menu" } });
+      setIcon(menuBtn, "list");
+      menuBtn.addEventListener("click", () => this.runTool("navigator"));
+      const toolsBtn = tools.createEl("button", {
+        cls: "qt-icon-btn qt-tools-btn",
+        attr: { "aria-label": "Testing tools", title: "Testing tools", "aria-expanded": String(this.toolsOpen) },
+      });
+      setIcon(toolsBtn, "sliders-horizontal");
+      toolsBtn.toggleClass("is-on", this.toolsOpen);
+      toolsBtn.addEventListener("click", () => this.toggleToolsOpen());
+    }
     if (!closedBook && !mobile) {
       const open = tools.createEl("button", { cls: "qt-icon-btn", attr: { "aria-label": "Open note" } });
       setIcon(open, "file-text");
@@ -1306,6 +1364,8 @@ class PracticeView extends ItemView {
       setIcon(moreBtn, "more-horizontal");
     }
 
+    this.renderToolsDrawer(root, q);
+
     // ---- two panes: passage on the left, question + choices on the right
     const hasStim = !!q.sections.stimulus;
     // On a phone the passage becomes a tab so the question gets the whole screen.
@@ -1315,6 +1375,16 @@ class PracticeView extends ItemView {
     const right = split.createDiv({ cls: `qt-pane qt-pane-right${mobile ? " qt-m-question" : ""}` });
     // The phone question body scrolls on its own so the answer bar can stay put.
     const body = mobile ? right.createDiv({ cls: "qt-m-scroll" }) : right;
+    if (this.contrast) split.addClass("qt-tools-contrast");
+    if (this.expandPassage && hasStim) split.addClass("qt-passage-expanded");
+    if (this.zoom !== 100) split.style.zoom = `${this.zoom}%`;
+    if (this.lineReader) this.mountLineReader(split);
+    if (left) {
+      left.addEventListener("mouseup", () => this.rememberSelection("stimulus"));
+      left.addEventListener("keyup", () => this.rememberSelection("stimulus"));
+    }
+    body.addEventListener("mouseup", () => this.rememberSelection("question"));
+    body.addEventListener("keyup", () => this.rememberSelection("question"));
     if (tabs && left) {
       const tabButtons = [];
       const show = (which) => {
@@ -1421,6 +1491,8 @@ class PracticeView extends ItemView {
       add("Bury", doBury);
       add("Suspend", doSuspend);
       add("Exclude", doExclude, "qt-status-exclude");
+      add("Question menu", () => this.runTool("navigator"));
+      add("Testing tools", () => this.toggleToolsOpen());
       if (!closedBook) add("Open question note", () => this.app.workspace.getLeaf("tab").openFile(q.file));
       add("End session", doEnd);
       const close = sheet.createEl("button", { text: "Close", cls: "qt-m-sheet-close" });
@@ -1443,7 +1515,11 @@ class PracticeView extends ItemView {
       return;
     }
 
-    if (left) this.md(q.sections.stimulus, left.createDiv({ cls: "qt-stimulus" }), path);
+    if (left) {
+      const stimulusEl = left.createDiv({ cls: "qt-stimulus" });
+      this.md(q.sections.stimulus, stimulusEl, path);
+      this.paintHighlights(stimulusEl, path, "stimulus");
+    }
 
     // question header: number badge + flag (like "Mark for Review"); the phone bar already carries both
     if (!mobile) {
@@ -1459,7 +1535,9 @@ class PracticeView extends ItemView {
       });
     }
 
-    this.md(q.sections.question || "*No `## Question` section found in this note.*", body.createDiv({ cls: "qt-stem" }), path);
+    const stemEl = body.createDiv({ cls: "qt-stem" });
+    this.md(q.sections.question || "*No `## Question` section found in this note.*", stemEl, path);
+    this.paintHighlights(stemEl, path, "question");
 
     const hintText = str(q.sections.hint).trim();
     if (hintText && p.settings.hints === true && !closedBook) {
@@ -1482,7 +1560,8 @@ class PracticeView extends ItemView {
     let submit = null;
     const ready = () => {
       if (!this.sel) return false;
-      if (mode !== "match") return true;
+      if (mode !== "match") return !practiceTools.isEliminated(this.toolLetters(path), this.sel);
+      if (parseChoiceSet(this.sel).some((letter) => practiceTools.isEliminated(this.toolLetters(path), letter))) return false;
       const picks = parsePicks(this.sel);
       return picks.length === q.pairs.length && picks.every((pick) => pick >= 0);
     };
@@ -1501,11 +1580,28 @@ class PracticeView extends ItemView {
       const multi = mode === "multi";
       const picked = new Set(parseChoiceSet(this.sel));
       const btns = [];
+      const eliminated = this.toolLetters(path);
       for (const L of letters) {
         const b = ans.createEl("button", { cls: "qt-choice" });
         b.createSpan({ cls: "qt-letter", text: L });
         if (byLetter[L]) this.md(byLetter[L], b.createDiv({ cls: "qt-choice-text" }), path);
+        if (practiceTools.isEliminated(eliminated, L)) b.addClass("is-eliminated");
         b.addEventListener("click", () => {
+          if (this.eliminatorMode) {
+            practiceTools.toggleEliminated(eliminated, L);
+            if (picked.has(L)) {
+              picked.delete(L);
+              this.sel = formatChoiceSet([...picked]);
+            } else if (this.sel === L) {
+              this.sel = "";
+            }
+            this.render();
+            return;
+          }
+          if (practiceTools.isEliminated(eliminated, L)) {
+            new Notice("This option is crossed out. Bring it back to choose it.");
+            return;
+          }
           if (multi) {
             if (picked.has(L)) picked.delete(L);
             else picked.add(L);
@@ -1517,7 +1613,8 @@ class PracticeView extends ItemView {
           }
           refresh();
         });
-        if (multi ? picked.has(L) : this.sel === L) b.addClass("is-selected");
+        if ((multi ? picked.has(L) : this.sel === L) && !practiceTools.isEliminated(eliminated, L)) b.addClass("is-selected");
+        b.setAttr("aria-pressed", String(multi ? picked.has(L) : this.sel === L));
         btns.push(b);
       }
       if (multi) ans.createDiv({ cls: "qt-hint", text: "Select all that apply." });
@@ -1618,6 +1715,450 @@ class PracticeView extends ItemView {
       submit.disabled = true;
       this.submit();
     });
+  }
+
+  /* ---- Bluebook-style testing tools */
+
+  toggleToolsOpen() {
+    this.toolsOpen = !this.toolsOpen;
+    if (!this.toolsOpen) this.activeTool = "";
+    this.render();
+  }
+
+  /** Runs one tool from a button or a keyboard shortcut. */
+  runTool(id) {
+    if (this.state !== "question") return;
+    const action = String(id || "");
+    if (!action) return;
+    if (action === "zoom-in") {
+      this.zoom = practiceTools.zoomIn(this.zoom);
+      this.render();
+      return;
+    }
+    if (action === "zoom-out") {
+      this.zoom = practiceTools.zoomOut(this.zoom);
+      this.render();
+      return;
+    }
+    if (action === "zoom-reset") {
+      this.zoom = 100;
+      this.render();
+      return;
+    }
+    if (action === "review") {
+      const file = this.current ? this.current.file : null;
+      if (!file) return;
+      this.plugin.toggleFlag(file).then((now) => {
+        if (this.current) this.current.fm.flagged = now;
+        this.render();
+      });
+      return;
+    }
+    if (action === "timer") this.timerHidden = !this.timerHidden;
+    else if (action === "line-reader" || action === "lineReader") this.lineReader = !this.lineReader;
+    else if (action === "contrast") this.contrast = !this.contrast;
+    else if (action === "expand") {
+      this.expandPassage = !this.expandPassage;
+      if (this.expandPassage && Platform.isMobile === true) this.mobileTab = "passage";
+    } else if (action === "eliminator") {
+      this.eliminatorMode = !this.eliminatorMode;
+      this.activeTool = this.eliminatorMode ? "eliminator" : "";
+    } else if (practiceTools.TOOL_IDS.includes(action)) {
+      this.toolsOpen = true;
+      this.activeTool = this.activeTool === action ? "" : action;
+    } else {
+      return;
+    }
+    this.render();
+  }
+
+  toolActive(id, q) {
+    if (id === "timer") return this.timerHidden;
+    if (id === "eliminator") return this.eliminatorMode;
+    if (id === "lineReader") return this.lineReader;
+    if (id === "contrast") return this.contrast;
+    if (id === "expand") return this.expandPassage;
+    if (id === "review") return !!(q && q.fm && q.fm.flagged === true);
+    if (id === "zoom") return this.zoom !== 100;
+    return this.activeTool === id;
+  }
+
+  toolLetters(path) {
+    if (!this.eliminatedByPath.has(path)) this.eliminatedByPath.set(path, new Set());
+    return this.eliminatedByPath.get(path);
+  }
+
+  toolHighlights(path) {
+    if (!this.highlightsByPath.has(path)) this.highlightsByPath.set(path, []);
+    return this.highlightsByPath.get(path);
+  }
+
+  renderToolsDrawer(root, q) {
+    if (!this.toolsOpen) return;
+    const drawer = root.createDiv({ cls: "qt-tools-drawer" });
+    const head = drawer.createDiv({ cls: "qt-tools-head" });
+    head.createEl("h4", { text: "Testing tools" });
+    const close = head.createEl("button", { text: "Close", cls: "qt-link" });
+    close.addEventListener("click", () => {
+      this.toolsOpen = false;
+      this.activeTool = "";
+      this.render();
+    });
+    const grid = drawer.createDiv({ cls: "qt-tools-grid" });
+    for (const tool of practiceTools.BLUEBOOK_TOOLS) {
+      const active = this.toolActive(tool.id, q);
+      const button = grid.createEl("button", {
+        cls: `qt-tool-btn${active ? " is-on" : ""}`,
+        attr: { "aria-pressed": String(!!active), title: tool.description },
+      });
+      const icon = button.createSpan({ cls: "qt-tool-ic" });
+      setIcon(icon, tool.icon);
+      const label = tool.id === "timer" && this.timerHidden ? "Show timer" : tool.label;
+      button.createSpan({ cls: "qt-tool-label", text: label });
+      if (tool.id === "expand" && !(q && q.sections.stimulus)) button.disabled = true;
+      button.addEventListener("click", () => this.runTool(tool.id));
+    }
+    if (this.activeTool) this.renderToolPanel(drawer.createDiv({ cls: "qt-tools-panel" }), q);
+  }
+
+  renderToolPanel(panel, q) {
+    const path = q.file.path;
+    if (this.activeTool === "eliminator") return this.renderEliminatorPanel(panel, path);
+    if (this.activeTool === "highlights") return this.renderHighlightsPanel(panel, path);
+    if (this.activeTool === "calculator") return this.renderCalculatorPanel(panel);
+    if (this.activeTool === "reference") return this.renderReferencePanel(panel);
+    if (this.activeTool === "navigator") return this.renderNavigatorPanel(panel);
+    if (this.activeTool === "zoom") return this.renderZoomPanel(panel);
+    if (this.activeTool === "help") return this.renderHelpPanel(panel);
+    panel.createDiv({ cls: "qt-tool-hint", text: "Pick a tool above. Mark for review also sits beside the question number." });
+  }
+
+  renderEliminatorPanel(panel, path) {
+    const eliminated = practiceTools.eliminatedLetters(this.toolLetters(path));
+    panel.createDiv({
+      cls: "qt-tool-hint",
+      text: eliminated.length
+        ? `Crossed out: ${eliminated.join(", ")}. Click a crossed-out choice to bring it back.`
+        : "Click a choice to cross it out. Click it again to bring it back.",
+    });
+    if (!eliminated.length) return;
+    const row = panel.createDiv({ cls: "qt-row qt-small-row" });
+    const clear = row.createEl("button", { text: `Bring back ${eliminated.length} crossed out` });
+    clear.addEventListener("click", () => {
+      practiceTools.clearEliminated(this.toolLetters(path));
+      this.render();
+    });
+  }
+
+  renderCalculatorPanel(panel) {
+    const calc = this.calc;
+    const modeRow = panel.createDiv({ cls: "qt-row qt-small-row" });
+    for (const mode of calculator.CALCULATOR_MODES) {
+      const button = modeRow.createEl("button", {
+        text: mode === "basic" ? "Basic" : "Scientific",
+        cls: `qt-calc-mode${calc.mode === mode ? " is-selected" : ""}`,
+      });
+      button.setAttr("aria-pressed", String(calc.mode === mode));
+      button.addEventListener("click", () => {
+        calc.mode = mode;
+        this.render();
+      });
+    }
+    const input = panel.createEl("input", {
+      type: "text",
+      cls: "qt-calc-input",
+      attr: { placeholder: "2 + 2", "aria-label": "Calculator expression" },
+    });
+    input.value = calc.expression;
+    input.addEventListener("input", () => {
+      calc.expression = input.value;
+    });
+    const evaluate = () => {
+      const result = calculator.evaluateCalculator(calc.expression);
+      calc.result = result.ok ? result.text : "";
+      calc.error = result.ok ? "" : result.error;
+      this.render();
+    };
+    input.addEventListener("keydown", (event) => {
+      if (event && event.key === "Enter") evaluate();
+    });
+    panel.createDiv({ cls: calc.error ? "qt-calc-error" : "qt-calc-result", text: calc.error || calc.result || "0" });
+    const keys =
+      calc.mode === "scientific" ? calculator.SCIENTIFIC_KEYS.concat(calculator.BASIC_KEYS) : calculator.BASIC_KEYS;
+    const pad = panel.createDiv({ cls: "qt-calc-keys" });
+    for (const row of keys) {
+      for (const token of row) {
+        const key = pad.createEl("button", {
+          text: token,
+          cls: `qt-calc-key${token === "=" ? " mod-cta" : ""}`,
+          attr: { "aria-label": token === "=" ? "Evaluate" : token },
+        });
+        key.addEventListener("click", () => {
+          if (token === "=") {
+            evaluate();
+            return;
+          }
+          calc.expression = calculator.appendCalculatorToken(calc.expression, token);
+          if (token === "C" || token === "⌫") {
+            calc.result = "";
+            calc.error = "";
+          }
+          input.value = calc.expression;
+        });
+      }
+    }
+  }
+
+  renderZoomPanel(panel) {
+    const row = panel.createDiv({ cls: "qt-row qt-small-row" });
+    const out = row.createEl("button", { text: "−", attr: { "aria-label": "Zoom out" } });
+    out.disabled = this.zoom <= practiceTools.ZOOM_MIN;
+    out.addEventListener("click", () => this.runTool("zoom-out"));
+    row.createSpan({ cls: "qt-zoom-label", text: practiceTools.zoomLabel(this.zoom) });
+    const inn = row.createEl("button", { text: "+", attr: { "aria-label": "Zoom in" } });
+    inn.disabled = this.zoom >= practiceTools.ZOOM_MAX;
+    inn.addEventListener("click", () => this.runTool("zoom-in"));
+    const reset = panel.createEl("button", { text: "Reset to 100%" });
+    reset.disabled = this.zoom === 100;
+    reset.addEventListener("click", () => this.runTool("zoom-reset"));
+    panel.createDiv({
+      cls: "qt-tool-hint",
+      text: "Zoom applies to the passage and question panes. Ctrl/⌘ with Plus, Minus or 0 does the same.",
+    });
+  }
+
+  renderReferencePanel(panel) {
+    panel.createDiv({
+      cls: "qt-tool-hint",
+      text: "Standard SAT math reference formulas, available offline. The Reference module has longer sheets.",
+    });
+    for (const group of practiceTools.SAT_REFERENCE_SHEET) {
+      const box = panel.createDiv({ cls: "qt-ref-group" });
+      box.createEl("h5", { text: group.group });
+      for (const item of group.items) {
+        const row = box.createDiv({ cls: "qt-ref-row" });
+        row.createSpan({ cls: "qt-ref-name", text: item.name });
+        row.createSpan({ cls: "qt-ref-formula", text: item.formula });
+      }
+    }
+  }
+
+  renderHighlightsPanel(panel, path) {
+    panel.createDiv({
+      cls: "qt-tool-hint",
+      text:
+        this.toolSelection && this.toolSelection.quote
+          ? `Selected: “${this.toolSelection.quote.slice(0, 80)}${this.toolSelection.quote.length > 80 ? "…" : ""}”`
+          : "Select text in the passage or question, then highlight it here.",
+    });
+    const colors = panel.createDiv({ cls: "qt-hl-colors" });
+    for (const color of practiceTools.HIGHLIGHT_COLORS) {
+      const swatch = colors.createEl("button", {
+        cls: `qt-hl-swatch${this.highlightColor === color.id ? " is-selected" : ""}`,
+        attr: { "aria-label": `${color.label} highlight`, title: color.label },
+      });
+      swatch.style.background = color.value;
+      swatch.addEventListener("click", () => {
+        this.highlightColor = color.id;
+        this.render();
+      });
+    }
+    const styles = panel.createDiv({ cls: "qt-row qt-small-row" });
+    for (const style of practiceTools.HIGHLIGHT_STYLES) {
+      const button = styles.createEl("button", {
+        text: style === "underline" ? "Underline" : "Highlight",
+        cls: this.highlightStyle === style ? "is-selected" : "",
+      });
+      button.setAttr("aria-pressed", String(this.highlightStyle === style));
+      button.addEventListener("click", () => {
+        this.highlightStyle = style;
+        this.render();
+      });
+    }
+    const add = panel.createEl("button", { text: "Highlight selection", cls: "mod-cta" });
+    add.disabled = !(this.toolSelection && this.toolSelection.quote);
+    add.addEventListener("click", () => this.addHighlightFromSelection());
+    const list = this.toolHighlights(path);
+    if (!list.length) {
+      panel.createDiv({ cls: "qt-tool-hint", text: "No highlights for this question yet." });
+      return;
+    }
+    const rows = panel.createDiv({ cls: "qt-hl-list" });
+    for (const highlight of list) {
+      const row = rows.createDiv({ cls: "qt-hl-row" });
+      const quote = row.createDiv({
+        cls: `qt-hl-quote qt-hl-${highlight.color}${highlight.style === "underline" ? " is-underline" : ""}`,
+      });
+      quote.createSpan({ text: highlight.quote });
+      const note = row.createEl("input", { type: "text", cls: "qt-hl-note", attr: { placeholder: "Note", "aria-label": "Highlight note" } });
+      note.value = highlight.note || "";
+      note.addEventListener("input", () => practiceTools.updateHighlight(list, highlight.id, { note: note.value }));
+      const remove = row.createEl("button", { text: "Remove", cls: "qt-link" });
+      remove.addEventListener("click", () => {
+        practiceTools.removeHighlight(list, highlight.id);
+        this.render();
+      });
+    }
+  }
+
+  renderNavigatorPanel(panel) {
+    const items = this.navigatorItems();
+    const summary = practiceTools.navigatorSummary(items);
+    panel.createDiv({
+      cls: "qt-nav-summary",
+      text: `${summary.answered} answered · ${summary.flagged} flagged · ${summary.skipped} skipped · ${summary.total} in this session`,
+    });
+    const list = panel.createDiv({ cls: "qt-nav-rows" });
+    for (const row of practiceTools.navigatorRows(items)) {
+      const button = list.createEl("button", {
+        cls: `qt-nav-btn is-${row.status}${row.flagged ? " is-flagged" : ""}`,
+        text: String(row.number),
+        attr: { "aria-label": `${row.label}, ${row.status}${row.flagged ? ", flagged" : ""}` },
+      });
+      button.addEventListener("click", () => this.goToQuestion(row.path));
+    }
+    panel.createDiv({
+      cls: "qt-tool-hint",
+      text: this.quickSession ? "Questions come from this Quick Practice session." : "Questions you have opened in this practice session.",
+    });
+  }
+
+  renderHelpPanel(panel) {
+    panel.createDiv({
+      cls: "qt-tool-hint",
+      text: "These tools work offline and are modelled on the Bluebook app. They are not the official test application.",
+    });
+    for (const line of practiceTools.PRACTICE_TOOL_DIRECTIONS) panel.createDiv({ cls: "qt-tool-row", text: line });
+    panel.createEl("h5", { text: "Keyboard shortcuts" });
+    const table = panel.createDiv({ cls: "qt-shortcuts" });
+    for (const row of practiceTools.TOOL_SHORTCUTS) {
+      const line = table.createDiv({ cls: "qt-shortcut-row" });
+      line.createSpan({ cls: "qt-shortcut-keys", text: row.keys });
+      line.createSpan({ text: row.label });
+    }
+  }
+
+  navigatorItems() {
+    const p = this.plugin;
+    const currentPath = this.current ? this.current.file.path : "";
+    const flaggedOf = (path) => {
+      const question = p.getQuestions().find((item) => item.file.path === path);
+      return !!(question && question.fm && question.fm.flagged === true);
+    };
+    const paths = this.quickSession ? this.quickSession.paths.slice() : this.visited.map((item) => item.path);
+    return paths.map((path, index) => ({
+      path,
+      number: index + 1,
+      answered: this.answeredPaths.has(path),
+      flagged: flaggedOf(path),
+      current: path === currentPath,
+    }));
+  }
+
+  async goToQuestion(path) {
+    if (!path) return;
+    const question = this.plugin.getQuestions().find((item) => item.file.path === path);
+    if (!question) {
+      new Notice("That question is no longer available.");
+      return;
+    }
+    if (this.quickSession) {
+      const at = this.quickSession.paths.indexOf(path);
+      if (at >= 0) {
+        this.quickSession.index = at;
+        this.plugin.settings.quickSession = packQuickSession(this.quickSession);
+        await this.plugin.save();
+      }
+    }
+    await this.loadQuestion(question, false);
+    this.toolsOpen = false;
+    this.render();
+  }
+
+  rememberSelection(section) {
+    const selection = this.readSelection();
+    if (selection && selection.quote) {
+      selection.section = section === "stimulus" ? "stimulus" : "question";
+      this.toolSelection = selection;
+    }
+  }
+
+  readSelection() {
+    if (typeof activeDocument === "undefined" || !activeDocument || typeof activeDocument.getSelection !== "function") return null;
+    const selection = activeDocument.getSelection();
+    if (!selection || selection.isCollapsed || !selection.rangeCount) return null;
+    const quote = str(selection.toString()).replace(/\s+/g, " ").trim();
+    if (quote.length < 2) return null;
+    return { quote };
+  }
+
+  addHighlightFromSelection() {
+    const selection = this.toolSelection;
+    if (!selection || !selection.quote) {
+      new Notice("Select text in the passage or question first.");
+      return;
+    }
+    const path = this.current ? this.current.file.path : "";
+    if (!path) return;
+    practiceTools.addHighlight(this.toolHighlights(path), {
+      quote: selection.quote,
+      color: this.highlightColor,
+      style: this.highlightStyle,
+      section: selection.section,
+    });
+    this.render();
+  }
+
+  /** Wraps the stored quotes in <mark> inside one rendered section. */
+  paintHighlights(container, path, section) {
+    const list = practiceTools.highlightsForSection(this.toolHighlights(path), section);
+    if (!list.length || !container) return 0;
+    if (typeof container.childNodes !== "object" || container.childNodes === null) return 0;
+    const doc = container.ownerDocument;
+    if (!doc || typeof doc.createTreeWalker !== "function" || typeof doc.createTextNode !== "function" || typeof doc.createElement !== "function") {
+      return 0;
+    }
+    const walker = doc.createTreeWalker(container, 4);
+    const nodes = [];
+    let node = walker.nextNode();
+    while (node) {
+      nodes.push(node);
+      node = walker.nextNode();
+    }
+    let painted = 0;
+    for (const textNode of nodes) {
+      const text = String(textNode.nodeValue || "");
+      if (!text) continue;
+      const ranges = practiceTools.findQuoteRanges(text, list.map((item) => item.quote));
+      if (!ranges.length) continue;
+      const fragment = doc.createDocumentFragment();
+      let at = 0;
+      for (const range of ranges) {
+        if (range.index > at) fragment.appendChild(doc.createTextNode(text.slice(at, range.index)));
+        const entry = list.find((item) => item.quote === range.quote) || list[0];
+        const mark = doc.createElement("mark");
+        mark.className = `qt-hl qt-hl-${entry.color}${entry.style === "underline" ? " is-underline" : ""}`;
+        mark.setAttribute("data-highlight", entry.id);
+        mark.textContent = text.slice(range.index, range.index + range.length);
+        fragment.appendChild(mark);
+        at = range.index + range.length;
+        painted++;
+      }
+      if (at < text.length) fragment.appendChild(doc.createTextNode(text.slice(at)));
+      if (textNode.parentNode) textNode.parentNode.replaceChild(fragment, textNode);
+    }
+    return painted;
+  }
+
+  mountLineReader(split) {
+    const band = split.createDiv({ cls: "qt-line-reader", attr: { "aria-hidden": "true" } });
+    const place = (event) => {
+      const y = Number(event && event.clientY);
+      if (!Number.isFinite(y)) return;
+      band.style.top = `${Math.max(0, y - 32)}px`;
+    };
+    split.addEventListener("pointermove", place);
+    split.addEventListener("mousemove", place);
   }
 
   renderChat(root) {

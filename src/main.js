@@ -32,6 +32,7 @@ const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, m
 const { PracticeView } = require("./practice-view");
 const practiceKeys = require("./practice-keys");
 const practiceFullscreen = require("./practice-fullscreen");
+const practiceTools = require("./practice-tools");
 const { API_PRESETS, ApiClient, apiTurns, friendlyApiError } = require("./api-client");
 const modelDiscovery = require("./model-discovery");
 const reading = require("./reading");
@@ -314,6 +315,7 @@ QuestionTrackerPlugin.__test = {
   PracticeView,
   practiceKeys,
   practiceFullscreen,
+  practiceTools,
   OpenCodeClient,
   API_PRESETS,
   ApiClient,

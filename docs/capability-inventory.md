@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 425 groups, 2941 exports. **Commands:** 221. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 426 groups, 2974 exports. **Commands:** 221. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -55,7 +55,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `PdfImportModal` | 0 | `tests/empty-state.test.js`, `tests/import-source.test.js`, `tests/views.test.js` |
 | `PdfInkModal` | 0 | `tests/pdf-backlinks.test.js`, `tests/pdf-ink.test.js` |
 | `PomodoroView` | 0 | `tests/mobile-module-layout.test.js`, `tests/pomodoro-view.test.js` |
-| `PracticeView` | 0 | `tests/closed-book.test.js`, `tests/empty-state.test.js`, `tests/exam-ready.test.js`, `tests/hints.test.js`, `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/mobile-practice.test.js`, `tests/modules.test.js`, `tests/needs-fixing.test.js`, `tests/practice-fullscreen.test.js`, `tests/practice-keys.test.js`, `tests/study-modes.test.js`, `tests/study-skin.test.js`, `tests/study-status.test.js`, `tests/views.test.js` |
+| `PracticeView` | 0 | `tests/closed-book.test.js`, `tests/empty-state.test.js`, `tests/exam-ready.test.js`, `tests/hints.test.js`, `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/mobile-practice.test.js`, `tests/modules.test.js`, `tests/needs-fixing.test.js`, `tests/practice-fullscreen.test.js`, `tests/practice-keys.test.js`, `tests/practice-tools.test.js`, `tests/study-modes.test.js`, `tests/study-skin.test.js`, `tests/study-status.test.js`, `tests/views.test.js` |
 | `QUICK_COUNT_OPTIONS` | 3 | `tests/uncited-groups.test.js` |
 | `QUICK_START_URL` | 0 | `tests/empty-state.test.js` |
 | `QUICK_TIME_OPTIONS` | 3 | `tests/uncited-groups.test.js` |
@@ -328,6 +328,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `pomodoro` | 16 | `tests/pomodoro.test.js` |
 | `practiceFullscreen` | 6 | `tests/practice-fullscreen.test.js` |
 | `practiceKeys` | 1 | `tests/practice-keys.test.js` |
+| `practiceTools` | 33 | `tests/practice-tools.test.js` |
 | `progress` | 18 | `tests/p1-knowledge.test.js` |
 | `provenance` | 10 | `tests/import.test.js`, `tests/source-recall.test.js` |
 | `qtiArchive` | 1 | `tests/cards-import.test.js` |

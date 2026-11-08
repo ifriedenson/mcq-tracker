@@ -14454,3 +14454,362 @@ body.is-mobile .qt-screen .qt-local-events-tab {
     animation: none;
   }
 }
+
+/* ================= Bluebook-style testing tools =================
+   The Practice view's tool drawer. Every rule is scoped to qt-tools-* or a
+   tool class so the rest of the exam layout is untouched. */
+
+.qt-timer.is-hidden {
+  visibility: hidden;
+}
+
+.qt-tools-drawer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 46vh;
+  overflow-y: auto;
+  padding: 10px 16px 12px;
+  background: var(--background-secondary);
+  border-bottom: 2px solid var(--background-modifier-border-hover);
+}
+
+.qt-tools-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.qt-tools-head h4 {
+  margin: 0;
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold);
+}
+
+.qt-tools-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.qt-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 4px 10px;
+  border: 1px solid var(--background-modifier-border-hover);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-tool-btn:hover:not(:disabled) {
+  border-color: var(--text-faint);
+  color: var(--text-normal);
+}
+
+.qt-tool-btn.is-on {
+  border-color: var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 12%, var(--background-primary));
+  color: var(--interactive-accent);
+}
+
+.qt-tool-btn:disabled {
+  opacity: 0.45;
+}
+
+.qt-tool-ic {
+  display: inline-flex;
+}
+
+.qt-tools-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: var(--font-ui-small);
+}
+
+.qt-tools-panel h5 {
+  margin: 6px 0 0;
+  font-size: var(--font-ui-smaller);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.qt-tool-hint,
+.qt-tool-row {
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.qt-tool-row {
+  display: block;
+}
+
+/* option eliminator */
+
+.qt-exam .qt-choice.is-eliminated {
+  border-style: dashed;
+  color: var(--text-faint);
+}
+
+.qt-exam .qt-choice.is-eliminated .qt-letter,
+.qt-exam .qt-choice.is-eliminated .qt-choice-text {
+  text-decoration: line-through;
+}
+
+.qt-exam .qt-choice.is-eliminated .qt-letter {
+  border-color: var(--text-faint);
+  background: transparent;
+  color: var(--text-faint);
+}
+
+/* highlights and notes */
+
+.qt-hl {
+  border-radius: 2px;
+  padding: 0 1px;
+  color: inherit;
+}
+
+.qt-hl-yellow {
+  background: color-mix(in srgb, var(--color-yellow) 55%, transparent);
+}
+
+.qt-hl-green {
+  background: color-mix(in srgb, var(--color-green) 55%, transparent);
+}
+
+.qt-hl-blue {
+  background: color-mix(in srgb, var(--color-blue) 55%, transparent);
+}
+
+.qt-hl-pink {
+  background: color-mix(in srgb, var(--color-pink) 55%, transparent);
+}
+
+.qt-hl.is-underline {
+  background: transparent;
+  text-decoration: underline;
+}
+
+.qt-hl-colors {
+  display: flex;
+  gap: 8px;
+}
+
+.qt-hl-swatch {
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  box-shadow: none;
+}
+
+.qt-hl-swatch.is-selected {
+  border-color: var(--text-normal);
+}
+
+.qt-hl-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.8fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 0;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.qt-hl-quote {
+  color: var(--text-normal);
+}
+
+.qt-hl-note {
+  width: 100%;
+}
+
+/* line reader */
+
+.qt-line-reader {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 64px;
+  z-index: 8;
+  pointer-events: none;
+  border-top: 2px solid var(--interactive-accent);
+  border-bottom: 2px solid var(--interactive-accent);
+  box-shadow: 0 0 0 100vmax color-mix(in srgb, var(--text-normal) 28%, transparent);
+}
+
+/* zoom, contrast and expanded passage */
+
+.qt-split.qt-tools-contrast {
+  background: Canvas;
+  color: CanvasText;
+}
+
+.qt-split.qt-tools-contrast .qt-pane {
+  background: Canvas;
+  color: CanvasText;
+}
+
+.qt-split.qt-tools-contrast .qt-choice {
+  border-color: CanvasText;
+  background: Canvas;
+  color: CanvasText;
+}
+
+.qt-split.qt-tools-contrast .qt-letter {
+  border-color: CanvasText;
+  color: CanvasText;
+}
+
+.qt-split.qt-passage-expanded {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.qt-split.qt-passage-expanded .qt-pane-right {
+  display: none;
+}
+
+/* calculator */
+
+.qt-calc-input {
+  width: 100%;
+  font-family: var(--font-monospace);
+}
+
+.qt-calc-result,
+.qt-calc-error {
+  min-height: 1.5em;
+  font-family: var(--font-monospace);
+}
+
+.qt-calc-result {
+  font-size: 1.15em;
+}
+
+.qt-calc-error {
+  color: var(--text-error);
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-calc-keys {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  max-width: 420px;
+}
+
+.qt-calc-key {
+  min-height: 36px;
+}
+
+/* reference sheet */
+
+.qt-ref-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.qt-ref-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  gap: 10px;
+}
+
+.qt-ref-name {
+  color: var(--text-muted);
+}
+
+.qt-ref-formula {
+  font-family: var(--font-monospace);
+}
+
+/* question menu */
+
+.qt-nav-summary {
+  color: var(--text-muted);
+}
+
+.qt-nav-rows {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.qt-nav-btn {
+  min-width: 40px;
+  min-height: 34px;
+}
+
+.qt-nav-btn.is-answered {
+  border-color: var(--interactive-accent);
+  color: var(--interactive-accent);
+}
+
+.qt-nav-btn.is-flagged {
+  box-shadow: inset 0 0 0 2px var(--text-accent);
+}
+
+.qt-nav-btn.is-current {
+  background: var(--text-normal);
+  border-color: var(--text-normal);
+  color: var(--background-primary);
+}
+
+/* shortcuts and directions */
+
+.qt-shortcuts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.qt-shortcut-row {
+  display: grid;
+  grid-template-columns: minmax(130px, auto) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.qt-shortcut-keys {
+  font-family: var(--font-monospace);
+}
+
+/* phone drawer keeps the same tools with larger targets */
+
+@media (max-width: 700px) {
+  .qt-tools-drawer {
+    max-height: 40vh;
+    padding: 8px 10px 10px;
+  }
+
+  .qt-tool-btn {
+    min-height: 44px;
+  }
+
+  .qt-hl-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .qt-hl-note {
+    grid-column: 1 / -1;
+  }
+}
+
+.qt-zoom-label {
+  min-width: 56px;
+  text-align: center;
+  font-family: var(--font-monospace);
+}

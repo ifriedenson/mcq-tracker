@@ -409,6 +409,10 @@ Run the command **Add missing tracking properties to all question notes** to add
 4. Choose an answer, say how sure you are, and **Submit**.
 5. On the result screen you can review the question, show or hide the explanation, tag why you missed it, write notes, flag the question, open the note, or ask the AI. Press **Next question** to continue. **Known** and **Exclude** are beside the answer controls and stay available after you answer.
 
+### Testing tools in Practice
+
+**Testing tools** in the question bar (or **Testing tools** in the phone More sheet) opens the Bluebook-style tool set: **Option eliminator** crosses out choices you can restore later, **Highlights & notes** keeps a coloured highlight or underline with a note on the selection, and **Line reader** shadows everything except the band under your pointer. The drawer also has a local Basic/Scientific **Calculator**, the **Reference sheet** of SAT formulas, **Zoom** from 50% to 200%, **Color contrast**, **Expand passage**, **Directions & help**, mark for review, and a **Question menu** that counts answered, skipped and flagged questions and jumps back to any of them. The timer can be hidden; a Quick Practice countdown brings it back with a five-minute warning. The shortcuts match the documented Bluebook map (F1 for help, Ctrl or ⌘ + Alt + C/R/G/T/V/O, Ctrl or ⌘ + L and H, and Ctrl or ⌘ with Plus, Minus and 0). Eliminations and highlights belong to the question for the session and are never written to your notes. Nothing from College Board or Desmos is bundled.
+
 ### Quick add questions
 
 **Quick add questions from pasted text** turns a paste into ordinary question notes, one per block, so a set does not have to be typed one file at a time. Nothing is written until the preview is confirmed.
