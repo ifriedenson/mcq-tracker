@@ -150,9 +150,11 @@ DPR, then crop each 900 px pane.
 
 ## Real Obsidian check (1.15.0, Nov 8 2026)
 
-The build (`main.js`, `manifest.json`, `styles.css`; plugin 1.291.2, whose
-`main.js` and `styles.css` are unchanged in 1.291.3) was copied into a throwaway vault and opened in Obsidian 1.15.0 under Xvfb
-(2400 × 1600 screen, 2× device scale, 1200 × 800 CSS window). AI was enabled,
+The three assets were downloaded from the published GitHub release `1.291.3`
+(`main.js` SHA-256 `2a94c189…`, `styles.css` `1afb2cea…`, `manifest.json`
+`b61f5534…`), copied into a throwaway vault and loaded by Obsidian 1.15.0 under
+Xvfb (2400 × 1600 screen, 2× device scale, 1200 × 800 CSS window). The plugin
+reports version 1.291.3, and the vault files hash to those same values. AI was enabled,
 **Study agent: open the sidebar** was run, a new chat was started and the
 suggestion rotation was stopped so the seeded deck stayed on screen.
 
@@ -186,8 +188,8 @@ Measured from the live DOM at those panes:
 | Back-card labels | `visibility: hidden` on all four | same |
 
 All six checks hold in the real app at both widths and in both themes, so no
-stylesheet or markup change was required: `styles.css` and the built `main.js`
-are byte-identical to the reviewed build. At 296 px the deck grows from 116 to
+stylesheet or markup change was required: the installed release's `styles.css`
+and `main.js` are byte-identical to the published assets. At 296 px the deck grows from 116 to
 162 px for the long suggestion instead of clipping it, and the title keeps all
 four lines.
 
@@ -195,10 +197,11 @@ The test rig (Xvfb launcher, unpacked Obsidian 1.15.0, throwaway vault and CDP
 drivers) lives under gitignored `artifacts/obsidian-test/`. To reproduce: start
 Xvfb at 2400 × 1600, launch Obsidian with
 `--no-sandbox --disable-gpu --force-device-scale-factor=2
---remote-debugging-port=9222`, copy the three bundle files into
-`<vault>/.obsidian/plugins/mcq-tracker/`, enable the plugin, then run
-`run/capture-real2.py` and `run/capture-wide.py` with `PYTHONPATH=pylibs` and
-`DISPLAY` set (the drivers crop the pane out of each 2× screenshot).
+--remote-debugging-port=9222`, download `main.js`, `styles.css` and
+`manifest.json` from the release into `<vault>/.obsidian/plugins/mcq-tracker/`,
+enable the plugin, then run `run/capture-release.py` with `PYTHONPATH=pylibs` and
+`DISPLAY` set (it opens the true right-sidebar leaf and a main leaf, and crops
+the pane out of each 2× screenshot).
 
 ## Method
 
