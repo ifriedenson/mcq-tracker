@@ -24,6 +24,15 @@ function openHelp(plugin, state) {
   return { dom, modal };
 }
 
+async function withRequests(handler, fn) {
+  obsidian.requestImpl = handler;
+  try {
+    return await fn();
+  } finally {
+    obsidian.requestImpl = null;
+  }
+}
+
 test("ai import help: the import entry point opens the explanation when AI is off", async () => {
   const { plugin } = await setup();
   plugin.settings.ai.enabled = false;
@@ -37,52 +46,74 @@ test("ai import help: the import entry point opens the explanation when AI is of
   assert.equal(obsidian.notices.some((n) => /Turn on AI features/.test(n)), false, "no terse dead-end notice");
 });
 
-test("ai import help: the explanation carries the documentation's AI split and data caveat", async () => {
+test("ai import help: the explanation keeps the AI split, the data caveat and the beginner controls", async () => {
   const { plugin } = await setup();
   const { dom } = openHelp(plugin, "off");
   const text = dom.texts().join("\n");
 
   for (const needle of [
     "Turning a PDF, PowerPoint or Word file into question notes is the one everyday step that needs AI.",
-    "Writing question notes by hand, practice, timed tests, review and Today, cards, the calendar, assignments, and the reference and AP tools",
-    "Direct AI: turn on AI features and add a provider key.",
+    "Practice, timed tests, review and Today, cards, the calendar, assignments, and the reference and AP tools all work without it.",
+    "Direct AI uses your own provider key.",
     "The file's text is sent to that provider",
-    "OpenCode agent (desktop)",
+    "The OpenCode agent (desktop) is the other route",
     "There is no offline PDF-to-question converter.",
     "import ready-made flashcards (Quizlet, Kahoot, Moodle, QTI, GIFT, CSV or Markdown)",
   ]) assert.ok(text.includes(needle), `the explanation says: ${needle}`);
 
-  assert.ok(dom.find("Enable AI features and open settings").length, "the setup route is actionable");
-  assert.ok(dom.find("Write a question note instead").length, "the manual route is actionable");
+  assert.equal(dom.field("AI provider").value, "anthropic", "the recommended provider is preselected");
+  assert.ok(dom.find("Create a key ↗").length, "the key page is one click");
+  assert.ok(dom.find("Fetch models").length, "the shared fetch control is here");
+  assert.ok(dom.find("Test connection").length, "the shared test control is here");
+  assert.ok(dom.find("Paste questions instead (works offline)").length, "the offline route is the obvious alternative");
+  assert.equal(dom.find("Write a question note instead").length, 0, "the confusing manual wording is gone");
 });
 
-test("ai import help: enabling AI saves the switch and opens settings", async () => {
+test("ai import help: the full wizard enables AI and opens the importer", async () => {
   const { plugin } = await setup();
-  plugin.settings.ai.enabled = false;
-  let opened = 0;
-  plugin.openSettings = () => { opened++; };
+  let imports = 0;
+  plugin.openPdfImport = () => {
+    imports++;
+  };
   const { dom, modal } = openHelp(plugin, "off");
 
-  await dom.click("Enable AI features and open settings");
+  await withRequests(
+    async (request) => {
+      if (request.method === "GET") {
+        return { status: 200, json: { data: [{ id: "claude-sonnet-4-5" }, { id: "claude-haiku-4-5" }] } };
+      }
+      return { status: 200, json: { content: [{ type: "text", text: "OK" }] } };
+    },
+    async () => {
+      dom.type(dom.field("API key"), "sk-ant-test");
+      await dom.clickLast("Fetch models");
+      assert.equal(plugin.settings.ai.api.model, "claude-sonnet-4-5");
+      await dom.clickLast("Test connection");
+      await dom.clickLast("Continue to import");
+    }
+  );
 
-  assert.equal(plugin.settings.ai.enabled, true, "AI features are switched on");
-  assert.equal(opened, 1, "settings are opened to add the key or finish setup");
-  assert.equal(modal.closed, true, "the help closes once the route is taken");
-});
-
-test("ai import help: the manual route opens Quick add", async () => {
-  const { plugin } = await setup();
-  let quickAdd = 0;
-  plugin.openQuickAdd = () => { quickAdd++; };
-  const { dom, modal } = openHelp(plugin, "off");
-
-  await dom.click("Write a question note instead");
-
-  assert.equal(quickAdd, 1, "the manual question-note path opens");
+  assert.equal(plugin.settings.ai.enabled, true);
+  assert.equal(plugin.settings.ai.backend, "api");
+  assert.equal(imports, 1, "the importer opens after a real test");
   assert.equal(modal.closed, true);
 });
 
-test("ai import help: a Direct AI import without a key offers the key route", async () => {
+test("ai import help: the offline route closes the help and opens Quick add", async () => {
+  const { plugin } = await setup();
+  let quickAdd = 0;
+  plugin.openQuickAdd = () => {
+    quickAdd++;
+  };
+  const { dom, modal } = openHelp(plugin, "off");
+
+  await dom.clickLast("Paste questions instead (works offline)");
+
+  assert.equal(quickAdd, 1, "the offline paste path opens");
+  assert.equal(modal.closed, true);
+});
+
+test("ai import help: a Direct AI import without a key still offers the wizard", async () => {
   const { plugin } = await setup();
   plugin.settings.ai.enabled = true;
   plugin.settings.ai.backend = "api";
@@ -90,9 +121,10 @@ test("ai import help: a Direct AI import without a key offers the key route", as
 
   assert.equal(T.importAiState(plugin), "no-key");
   const { dom } = openHelp(plugin);
-  assert.ok(dom.find("Add a provider key in settings").length, "the key fix is actionable");
-  assert.equal(dom.find("Enable AI features and open settings").length, 0, "the off-state button is not shown");
-  assert.equal(dom.find("Add a provider key to import a file").length, 1, "the title names the missing key");
+  assert.equal(dom.field("AI provider").value, "openai");
+  assert.ok(dom.find("Create a key ↗").length, "the OpenAI key page is offered");
+  assert.ok(dom.find("Fetch models").length);
+  assert.equal(dom.find("Add a provider key in settings").length, 0, "the old settings detour is gone");
 });
 
 test("ai import help: a configured import still opens the importer", async () => {

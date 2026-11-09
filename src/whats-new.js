@@ -6,6 +6,35 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.297.0",
+    date: "November 9, 2026",
+    title: "A first import anyone can finish",
+    summary:
+      "The PDF path now says it needs AI, offers an offline paste route beside it, and walks a first-time user from a recommended provider to a tested model without ever guessing a model name.",
+    highlights: [
+      {
+        title: "The AI step is labelled",
+        body: "The empty screen and Practice now say Import files (needs AI). Paste questions instead (works offline) sits beside it and opens Quick add, which needs no key.",
+      },
+      {
+        title: "Three steps to a working connection",
+        body: "A recommended provider is preselected, Create a key opens that provider's key page, and Fetch models chooses a sensible model from the provider's own list so the field is never empty.",
+      },
+      {
+        title: "Tested before the import",
+        body: "Test connection sends one short request and explains a rejected key, an empty model list or an offline device. Continue stays disabled until the setup actually works.",
+      },
+      {
+        title: "One implementation everywhere",
+        body: "The inline wizard and Settings share the same model fetch and connection test, so a setup that works in one place works in the other.",
+      },
+      {
+        title: "Start here names the offline route",
+        body: "Where the guide used to say write a note by hand, it now points at Quick add questions from pasted text, which works with AI off.",
+      },
+    ],
+  },
+  {
     version: "1.296.0",
     date: "November 9, 2026",
     title: "A simpler start",

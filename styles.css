@@ -4421,6 +4421,42 @@ body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tra
 .qt-onboard-form select {
   width: 100%;
 }
+.qt-ai-connect-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.qt-ai-connect-actions button {
+  flex: 1 1 8rem;
+  width: auto;
+}
+.qt-ai-connect-create {
+  align-self: flex-start;
+}
+.qt-ai-connect-status {
+  padding: 0.65rem 0.75rem;
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  overflow-wrap: anywhere;
+}
+.qt-ai-connect-status.is-ok {
+  color: var(--text-success);
+  border-color: var(--text-success);
+}
+.qt-ai-connect-status.is-error {
+  color: var(--text-error);
+  border-color: var(--text-error);
+}
+.qt-ai-connect-offline {
+  color: var(--text-accent);
+}
+.qt-ai-connect-advanced summary {
+  padding: 0.35rem 0;
+  color: var(--text-accent);
+  cursor: pointer;
+}
 
 
 /* Today: a phone-first launch card. Scoped under .qt-today so it never changes

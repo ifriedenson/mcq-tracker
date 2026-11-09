@@ -1,7 +1,7 @@
 {
   "id": "mcq-tracker",
   "name": "MCQ Tracker",
-  "version": "1.296.0",
+  "version": "1.297.0",
   "minAppVersion": "1.8.7",
   "description": "Turn notes and PDFs into exam-style practice in Obsidian: seven question formats, spaced review, timed tests and cards. Every attempt stays on its note. Free, local-first, no telemetry.",
   "author": "Isaac Friedenson",

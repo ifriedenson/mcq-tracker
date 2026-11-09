@@ -2847,6 +2847,550 @@ module.exports = {
 };
 };
 
+/* ---- src/ai-connection.js ---- */
+__defs["ai-connection"] = function (module, exports, require) {
+/*
+ * One shared implementation for the Direct AI connection: which provider to
+ * recommend, where its key page lives, how a sensible model is chosen, and the
+ * one fetch/test pair used by the practice wizard, the import help modal and
+ * Settings. Nothing here renders UI, so every surface behaves the same.
+ */
+const { API_PRESETS, ApiClient, friendlyApiError } = require("./api-client");
+const { normalizeModelList } = require("./model-discovery");
+const { storeApiKey } = require("./secret-keys");
+const { str } = require("./util");
+
+const RECOMMENDED_PROVIDER = "anthropic";
+
+/* The page a beginner needs: sign in, create a key, copy it. No other lookup. */
+const KEY_PAGES = {
+  anthropic: "https://console.anthropic.com/settings/keys",
+  openai: "https://platform.openai.com/api-keys",
+  openrouter: "https://openrouter.ai/keys",
+  together: "https://api.together.xyz/settings/api-keys",
+  google: "https://aistudio.google.com/app/apikey",
+  qwen: "https://modelstudio.console.alibabacloud.com/model/settings/api-key",
+};
+
+function providerPreset(provider) {
+  return API_PRESETS[str(provider).trim()] || API_PRESETS.custom;
+}
+
+function providerLabel(provider) {
+  return providerPreset(provider).label;
+}
+
+function isRecommendedProvider(provider) {
+  return str(provider).trim() === RECOMMENDED_PROVIDER;
+}
+
+/** The provider's key page, or "" for local servers and an unknown provider. */
+function keyPageUrl(provider) {
+  return KEY_PAGES[str(provider).trim()] || "";
+}
+
+function keyPageHost(provider) {
+  const url = keyPageUrl(provider);
+  if (!url) return "";
+  try {
+    return new URL(url).hostname.replace(/^www\./i, "");
+  } catch (e) {
+    return "";
+  }
+}
+
+/**
+ * Preferred chat families per provider, most useful first. These are only
+ * hints for picking from a fetched list; the provider's own list stays the
+ * source of truth.
+ */
+const PREFERRED_MODELS = {
+  anthropic: [/^claude-sonnet/i, /^claude-3[.-]7-sonnet/i, /^claude-3[.-]5-sonnet/i, /^claude/i],
+  openai: [/^gpt-5/i, /^gpt-4\.1/i, /^gpt-4o/i, /^gpt-4/i, /^o\d/i, /^gpt/i],
+  google: [/^gemini-2\.5-pro/i, /^gemini-2\.5-flash/i, /^gemini/i],
+  qwen: [/^qwen-plus/i, /^qwen-max/i, /^qwen/i],
+  openrouter: [/claude.*sonnet/i, /gpt-5/i, /gemini-2\.5-pro/i, /claude/i, /gpt/i],
+  together: [/llama.*(70b|405b|instruct)/i, /qwen/i, /llama/i],
+};
+
+function preferredPatterns(provider) {
+  return PREFERRED_MODELS[str(provider).trim()] || [];
+}
+
+/**
+ * Pick a model a beginner can keep: a valid saved choice first, then the
+ * provider's own default, then a stable family, then the provider's first
+ * chat model. Never returns a name that is not offered when a list exists.
+ */
+function chooseModel(options) {
+  const opts = options || {};
+  const list = normalizeModelList(opts.models);
+  const current = str(opts.saved).trim();
+  if (current && (!list.length || list.includes(current))) return current;
+  const fallback = str(providerPreset(opts.provider).defaultModel).trim();
+  if (fallback && (!list.length || list.includes(fallback))) return fallback;
+  for (const pattern of preferredPatterns(opts.provider)) {
+    const hit = list.find((id) => pattern.test(id));
+    if (hit) return hit;
+  }
+  return list[0] || current || fallback;
+}
+
+/** Switch provider and reset everything that addressed the old one. */
+function applyProvider(ai, provider) {
+  const id = API_PRESETS[provider] ? provider : RECOMMENDED_PROVIDER;
+  const api = ai.api || (ai.api = {});
+  api.provider = id;
+  api.baseUrl = "";
+  api.model = API_PRESETS[id].defaultModel || "";
+  api.models = [];
+  return id;
+}
+
+/**
+ * Read the provider's model list through the existing ApiClient, persist it,
+ * and optionally choose a model. The practice wizard asks for autoPick; the
+ * Settings page keeps its explicit dropdown.
+ */
+async function fetchModels(plugin, options) {
+  const opts = options || {};
+  if (plugin.backend() !== "api") {
+    throw new Error("Runtime model discovery is available for Direct AI. Choose Direct API in the AI settings.");
+  }
+  const ai = plugin.settings.ai;
+  const api = ai.api || (ai.api = {});
+  const key = str(opts.key).trim();
+  if (key) {
+    storeApiKey(plugin.app, api, api.provider, key);
+    await plugin.save();
+  }
+  const found = await new ApiClient(ai, plugin.app).listModels();
+  api.models = found.models.slice();
+  let model = "";
+  if (opts.autoPick === true) {
+    model = chooseModel({ provider: api.provider, saved: api.model, models: found.models });
+    if (model) api.model = model;
+  }
+  await plugin.save();
+  return { ...found, model };
+}
+
+/** One short chat request. It does not spend a quiz or record any usage. */
+async function testConnection(plugin, options) {
+  const opts = options || {};
+  if (plugin.backend() !== "api") {
+    throw new Error("Test connection here checks Direct API. OpenCode has its own Test in AI settings.");
+  }
+  const ai = plugin.settings.ai;
+  const api = ai.api || {};
+  const key = str(opts.key).trim();
+  if (key) {
+    storeApiKey(plugin.app, api, api.provider, key);
+    await plugin.save();
+  }
+  if (!str(api.model).trim()) throw new Error("Choose a model first. Fetch models fills this in for you.");
+  const reply = await new ApiClient(ai, plugin.app).chat(
+    "You are a connection test.",
+    [{ role: "user", content: "Reply with the single word OK." }],
+    { maxTokens: 24 }
+  );
+  return str(reply).trim();
+}
+
+/**
+ * Turn a provider failure into one sentence a beginner can act on: what went
+ * wrong and the next click. The setup screen shows this verbatim.
+ */
+function connectionProblem(error, provider) {
+  const raw = str(error && error.message ? error.message : error);
+  const friendly = friendlyApiError(error);
+  const canCreate = !!keyPageUrl(provider);
+  if (/HTTP 401|HTTP 403|rejected the API key/i.test(raw)) {
+    return `${friendly} Check that the whole key was pasted${canCreate ? ", or create a new one with Create a key" : ""}.`;
+  }
+  if (/ENOTFOUND|ECONNREFUSED|Failed to fetch|net::|ETIMEDOUT|Couldn't reach the provider/i.test(raw)) {
+    return `${friendly} Paste questions instead (it works offline), or try again when you're back online.`;
+  }
+  if (/empty model list|only non-chat|did not expose a model list|not in a recognised format/i.test(raw)) {
+    return `${friendly} Try another provider, or paste questions instead (it works offline).`;
+  }
+  if (/Add your API key/i.test(raw)) {
+    return `${friendly} Create a key, then paste it above.`;
+  }
+  if (/Add a base URL/i.test(raw)) {
+    return `${friendly} Add the server's address above.`;
+  }
+  return friendly;
+}
+
+module.exports = {
+  KEY_PAGES,
+  RECOMMENDED_PROVIDER,
+  applyProvider,
+  chooseModel,
+  connectionProblem,
+  fetchModels,
+  isRecommendedProvider,
+  keyPageHost,
+  keyPageUrl,
+  preferredPatterns,
+  providerLabel,
+  providerPreset,
+  testConnection,
+};
+};
+
+/* ---- src/ai-connection-form.js ---- */
+__defs["ai-connection-form"] = function (module, exports, require) {
+/*
+ * The beginner connection form shared by the practice setup screen and the
+ * import help modal. It uses the same fetch/test helpers as Settings:
+ * recommended provider -> Create a key -> paste -> Fetch models (one is chosen)
+ * -> Test connection -> Continue. Paste questions stays available throughout.
+ */
+const { API_PRESETS } = require("./api-client");
+const { normalizeModelList } = require("./model-discovery");
+const { hasSecretStorage, resolveApiKey } = require("./secret-keys");
+const { openExternal } = require("./settings-ui");
+const {
+  applyProvider,
+  connectionProblem,
+  fetchModels,
+  isRecommendedProvider,
+  keyPageHost,
+  keyPageUrl,
+  providerLabel,
+  recommendedProvider,
+  testConnection,
+} = require("./ai-connection");
+const { str } = require("./util");
+
+function renderAiConnectionForm(container, options) {
+  const opts = options || {};
+  const plugin = opts.plugin;
+  const onReady = opts.onReady || (() => {});
+  const onUseOpenCode = opts.onUseOpenCode || null;
+  const ai = plugin.settings.ai || (plugin.settings.ai = {});
+  if (!ai.api) ai.api = {};
+  if (!ai.api.provider) ai.api.provider = recommendedProvider();
+  const api = ai.api;
+
+  let pendingKey = "";
+  let tested = false;
+  let busy = false;
+  let error = "";
+  let notice = "";
+  let otherVisible = false;
+  let allowConfigured = false;
+
+  const presetAtStart = API_PRESETS[api.provider] || API_PRESETS.custom;
+  const startKey = presetAtStart.noKey ? "local" : resolveApiKey(plugin.app, api);
+  allowConfigured = !!startKey && !!str(api.model).trim();
+
+  const preset = () => API_PRESETS[api.provider] || API_PRESETS.custom;
+  const local = () => preset().noKey === true;
+  const savedKey = () => {
+    try {
+      return resolveApiKey(plugin.app, api);
+    } catch (e) {
+      return "";
+    }
+  };
+  const currentKey = () => (local() ? "local" : pendingKey.trim() || savedKey());
+  const currentModel = () => str(api.model).trim();
+  const canContinue = () => !busy && !!currentKey() && !!currentModel() && (tested || allowConfigured);
+
+  function statusText() {
+    if (error) return error;
+    if (notice) return notice;
+    if (busy) return "Working…";
+    if (tested) return `Connected. ${currentModel()} is ready. Continue to import.`;
+    if (allowConfigured) return "Ready. Test the connection, then continue.";
+    if (!currentKey()) return "Paste your key, then press Fetch models.";
+    if (!currentModel()) return "Press Fetch models and one is chosen for you.";
+    return "Press Test connection to check the key and model.";
+  }
+
+  function draw() {
+    container.empty();
+    const body = container;
+    const provider = api.provider;
+    const kind = preset();
+
+    body.createDiv({ cls: "qt-label", text: "AI provider" });
+    const providerSelect = body.createEl("select", { cls: "qt-select", attr: { "aria-label": "AI provider" } });
+    for (const [id, item] of Object.entries(API_PRESETS)) {
+      const recommended = isRecommendedProvider(id) ? " — recommended" : "";
+      providerSelect.createEl("option", { value: id, text: `${item.label}${recommended}` });
+    }
+    providerSelect.value = provider;
+    providerSelect.disabled = busy;
+    providerSelect.addEventListener("change", async () => {
+      applyProvider(ai, providerSelect.value);
+      pendingKey = "";
+      tested = false;
+      error = "";
+      notice = "";
+      otherVisible = false;
+      allowConfigured = false;
+      await plugin.save();
+      draw();
+    });
+
+    body.createDiv({
+      cls: "qt-hint",
+      text: isRecommendedProvider(provider)
+        ? `${providerLabel(provider)} is recommended for a first setup: it works on desktop and phone, and Fetch models chooses one for you.`
+        : `${providerLabel(provider)} uses the key from its own dashboard.`,
+    });
+
+    const keyUrl = keyPageUrl(provider);
+    if (keyUrl) {
+      const host = keyPageHost(provider);
+      const create = body.createEl("button", { text: "Create a key ↗", cls: "qt-ai-connect-create" });
+      create.setAttr("aria-label", "Create an API key in your browser");
+      create.addEventListener("click", () => openExternal(keyUrl));
+      body.createDiv({
+        cls: "qt-hint",
+        text: `Opens ${host} in your browser. Sign in, create a key, copy it, then paste it below. This page stays in Obsidian.`,
+      });
+    }
+
+    if (kind.kind === "openai" && !kind.base) {
+      body.createDiv({ cls: "qt-label", text: "Server address" });
+      const url = body.createEl("input", {
+        type: "text",
+        cls: "qt-fsearch",
+        attr: { placeholder: "https://.../v1", "aria-label": "Server address" },
+      });
+      url.value = api.baseUrl || "";
+      url.disabled = busy;
+      url.addEventListener("input", () => {
+        api.baseUrl = url.value.trim();
+        tested = false;
+        allowConfigured = false;
+        if (continueBtn) continueBtn.disabled = !canContinue();
+        if (statusEl) statusEl.setText(statusText());
+      });
+    }
+
+    let continueBtn = null;
+    let statusEl = null;
+    if (!local()) {
+      body.createDiv({ cls: "qt-label", text: "API key" });
+      const keyInput = body.createEl("input", {
+        type: "password",
+        cls: "qt-fsearch",
+        attr: {
+          placeholder: savedKey() ? "Using a saved key — paste a new one to replace it" : "Paste your key",
+          "aria-label": "API key",
+        },
+      });
+      keyInput.value = pendingKey;
+      keyInput.disabled = busy;
+      keyInput.addEventListener("input", () => {
+        pendingKey = keyInput.value;
+        tested = false;
+        allowConfigured = false;
+        error = "";
+        if (continueBtn) continueBtn.disabled = !canContinue();
+        if (statusEl) statusEl.setText(statusText());
+      });
+      body.createDiv({
+        cls: "qt-hint",
+        text: hasSecretStorage(plugin.app)
+          ? "Saved in Obsidian's Secret Storage, outside data.json."
+          : "Saved as plain text in this plugin's data.json, which syncs with your vault.",
+      });
+    } else {
+      body.createDiv({ cls: "qt-hint", text: "No key needed. Start the local server first, then fetch its models." });
+    }
+
+    const actions = body.createDiv({ cls: "qt-ai-connect-actions" });
+    const fetchBtn = actions.createEl("button", { text: "Fetch models" });
+    fetchBtn.disabled = busy;
+    fetchBtn.addEventListener("click", async () => {
+      await runFetch();
+    });
+    const testBtn = actions.createEl("button", { text: "Test connection", cls: "mod-cta" });
+    testBtn.disabled = busy;
+    testBtn.addEventListener("click", async () => {
+      await runTest();
+    });
+
+    statusEl = body.createDiv({
+      cls: `qt-ai-connect-status${error ? " is-error" : tested ? " is-ok" : ""}`,
+      text: statusText(),
+    });
+
+    body.createDiv({ cls: "qt-label", text: "Model" });
+    const modelSelect = body.createEl("select", { cls: "qt-select", attr: { "aria-label": "Model" } });
+    const ids = [];
+    const add = (id) => {
+      const value = str(id).trim();
+      if (value && !ids.includes(value)) ids.push(value);
+    };
+    add(currentModel());
+    add(kind.defaultModel);
+    for (const id of normalizeModelList(api.models)) add(id);
+    modelSelect.createEl("option", {
+      value: "",
+      text: currentModel() || ids.length ? "Choose a model" : "No model yet — press Fetch models",
+    });
+    for (const id of ids) modelSelect.createEl("option", { value: id, text: id });
+    modelSelect.createEl("option", { value: "__other__", text: "Other model…" });
+    modelSelect.value = otherVisible ? "__other__" : currentModel() && ids.includes(currentModel()) ? currentModel() : currentModel() ? "__other__" : "";
+    modelSelect.disabled = busy;
+    modelSelect.addEventListener("change", () => {
+      if (modelSelect.value === "__other__") {
+        otherVisible = true;
+        draw();
+        return;
+      }
+      api.model = modelSelect.value;
+      tested = false;
+      allowConfigured = false;
+      error = "";
+      notice = "";
+      if (continueBtn) continueBtn.disabled = !canContinue();
+      if (statusEl) {
+        statusEl.setText(statusText());
+        statusEl.toggleClass("is-ok", false);
+        statusEl.toggleClass("is-error", false);
+      }
+    });
+    body.createDiv({
+      cls: "qt-hint",
+      text: ids.length > 1 ? "Chosen from the provider's list. You can change it, but the picked model is a safe default." : "Fetch models fills this in from the provider.",
+    });
+
+    if (otherVisible) {
+      body.createDiv({ cls: "qt-label", text: "Model name" });
+      const other = body.createEl("input", {
+        type: "text",
+        cls: "qt-fsearch",
+        attr: { placeholder: "exact model id", "aria-label": "Model name" },
+      });
+      other.value = currentModel();
+      other.disabled = busy;
+      other.addEventListener("input", () => {
+        api.model = other.value.trim();
+        tested = false;
+        allowConfigured = false;
+        error = "";
+        if (continueBtn) continueBtn.disabled = !canContinue();
+        if (statusEl) statusEl.setText(statusText());
+      });
+    }
+
+    continueBtn = body.createEl("button", { text: "Continue to import", cls: "mod-cta qt-primary" });
+    continueBtn.disabled = !canContinue();
+    continueBtn.addEventListener("click", async () => {
+      await finish();
+    });
+
+    body
+      .createEl("button", { text: "Paste questions instead (works offline)", cls: "qt-ai-connect-offline" })
+      .addEventListener("click", () => {
+        if (typeof opts.onOffline === "function") opts.onOffline();
+        plugin.openQuickAdd();
+      });
+
+    const advanced = body.createEl("details", { cls: "qt-ai-connect-advanced" });
+    advanced.createEl("summary", { text: "Use the OpenCode agent instead" });
+    advanced.createDiv({
+      cls: "qt-hint",
+      text: "OpenCode runs on this computer and needs its own provider. It can read notes and use tools, which the direct key path does not. Configure it once in settings.",
+    });
+    advanced.createEl("button", { text: "Open OpenCode settings" }).addEventListener("click", async () => {
+      ai.backend = "opencode";
+      ai.enabled = true;
+      await plugin.save();
+      if (typeof onUseOpenCode === "function") onUseOpenCode();
+      plugin.openSettings();
+    });
+  }
+
+  async function runFetch() {
+    error = "";
+    notice = "Finding models…";
+    busy = true;
+    draw();
+    try {
+      const found = await fetchModels(plugin, { key: pendingKey, autoPick: true });
+      pendingKey = "";
+      allowConfigured = false;
+      tested = false;
+      const skipped = found.skipped ? ` Skipped ${found.skipped} non-chat model${found.skipped === 1 ? "" : "s"}.` : "";
+      notice = `Found ${found.models.length} chat model${found.models.length === 1 ? "" : "s"}. Chose ${found.model}.${skipped} Now test the connection.`;
+    } catch (e) {
+      error = connectionProblem(e, api.provider);
+      notice = "";
+    } finally {
+      busy = false;
+      draw();
+    }
+  }
+
+  async function runTest() {
+    if (!currentKey()) {
+      error = "Paste your API key first, or use Create a key.";
+      notice = "";
+      draw();
+      return;
+    }
+    error = "";
+    notice = "Checking the connection…";
+    busy = true;
+    draw();
+    try {
+      if (!currentModel()) {
+        const found = await fetchModels(plugin, { key: pendingKey, autoPick: true });
+        pendingKey = "";
+        allowConfigured = false;
+        if (!found.model) throw new Error("The provider returned an empty model list.");
+      }
+      const reply = await testConnection(plugin, { key: pendingKey });
+      pendingKey = "";
+      allowConfigured = false;
+      tested = true;
+      notice = `Connected. ${currentModel()} replied “${reply.slice(0, 40) || "OK"}”. Continue to import.`;
+    } catch (e) {
+      tested = false;
+      error = connectionProblem(e, api.provider);
+      notice = "";
+    } finally {
+      busy = false;
+      draw();
+    }
+  }
+
+  async function finish() {
+    if (!canContinue()) {
+      error = !currentKey() ? "Paste your API key first, or use Create a key." : "Test the connection before continuing.";
+      notice = "";
+      draw();
+      return;
+    }
+    ai.backend = "api";
+    ai.enabled = true;
+    try {
+      await plugin.save();
+    } catch (e) {
+      error = connectionProblem(e, api.provider);
+      draw();
+      return;
+    }
+    await Promise.resolve(onReady({ provider: api.provider, model: currentModel() }));
+  }
+
+  draw();
+  return { redraw: draw };
+}
+
+module.exports = { renderAiConnectionForm };
+};
+
 /* ---- src/ai-context.js ---- */
 __defs["ai-context"] = function (module, exports, require) {
 /*
@@ -3001,6 +3545,7 @@ __defs["ai-import-modal"] = function (module, exports, require) {
 const { Modal } = require("obsidian");
 const { API_PRESETS } = require("./api-client");
 const { resolveApiKey } = require("./secret-keys");
+const { renderAiConnectionForm } = require("./ai-connection-form");
 
 /**
  * How ready the current settings are for the one AI-only import path.
@@ -3025,8 +3570,10 @@ function importAiState(plugin) {
 
 /**
  * The document-to-question import is the one everyday workflow that needs AI.
- * This replaces the old one-line notice with the same split the Start here
- * note, README and website use, plus a direct setup or manual-question action.
+ * This is where a first-time user connects it: the provider is recommended,
+ * the key page opens from here, one model is chosen from the fetched list, and
+ * the connection is tested before the importer opens. Paste questions stays
+ * visible as the offline way forward.
  */
 class AiImportHelpModal extends Modal {
   constructor(app, plugin, state) {
@@ -3044,63 +3591,38 @@ class AiImportHelpModal extends Modal {
     el.empty();
     if (typeof el.addClass === "function") el.addClass("qt-ai-import-help");
 
-    el.createEl("h3", {
-      text: this.state === "no-key" ? "Add a provider key to import a file" : "Turning a file into questions needs AI",
-    });
+    el.createEl("h3", { text: "Connect AI to import a file" });
     el.createEl("p", {
       cls: "qt-hint",
       text:
         "Turning a PDF, PowerPoint or Word file into question notes is the one everyday step that needs AI. " +
-        "Writing question notes by hand, practice, timed tests, review and Today, cards, the calendar, assignments, " +
-        "and the reference and AP tools all work without it.",
+        "Practice, timed tests, review and Today, cards, the calendar, assignments, and the reference and AP tools all work without it.",
+    });
+    el.createEl("p", {
+      cls: "qt-hint",
+      text:
+        "Direct AI uses your own provider key. The file's text is sent to that provider, which may charge for long files. " +
+        "The OpenCode agent (desktop) is the other route; its settings are under the advanced section below.",
     });
 
-    el.createEl("h4", { text: "How the import gets AI" });
-    const options = el.createEl("ul", { cls: "qt-ai-import-options" });
-    options.createEl("li", {
-      text:
-        "Direct AI: turn on AI features and add a provider key. The file's text is sent to that provider, " +
-        "which may charge for long files.",
-    });
-    options.createEl("li", {
-      text:
-        "OpenCode agent (desktop): install OpenCode and configure a provider there. The agent writes the notes " +
-        "in your vault; the file's text still goes to that provider.",
+    const form = el.createDiv({ cls: "qt-onboard-form" });
+    renderAiConnectionForm(form, {
+      plugin: this.plugin,
+      onReady: () => {
+        this.close();
+        this.plugin.openPdfImport();
+      },
+      onOffline: () => this.close(),
+      onUseOpenCode: () => this.close(),
     });
 
     el.createEl("p", {
       cls: "qt-hint",
       text:
-        "There is no offline PDF-to-question converter. If you would rather not enable AI, write the question note " +
-        "yourself, or import ready-made flashcards (Quizlet, Kahoot, Moodle, QTI, GIFT, CSV or Markdown). Both stay local.",
+        "There is no offline PDF-to-question converter. Paste questions instead — Quick add works offline — " +
+        "or import ready-made flashcards (Quizlet, Kahoot, Moodle, QTI, GIFT, CSV or Markdown). Both stay local.",
     });
-
-    const row = el.createDiv({ cls: "qt-row qt-ai-import-actions" });
-    if (this.state === "off") {
-      const enable = row.createEl("button", { text: "Enable AI features and open settings", cls: "mod-cta" });
-      enable.addEventListener("click", async () => {
-        if (!this.plugin.settings.ai) this.plugin.settings.ai = {};
-        this.plugin.settings.ai.enabled = true;
-        await this.plugin.save();
-        if (typeof this.plugin.refreshViews === "function") this.plugin.refreshViews();
-        this.close();
-        this.plugin.openSettings();
-      });
-    } else if (this.state === "no-key") {
-      row
-        .createEl("button", { text: "Add a provider key in settings", cls: "mod-cta" })
-        .addEventListener("click", () => {
-          this.close();
-          this.plugin.openSettings();
-        });
-    }
-    row
-      .createEl("button", { text: "Write a question note instead" })
-      .addEventListener("click", () => {
-        this.close();
-        this.plugin.openQuickAdd();
-      });
-    row.createEl("button", { text: "Close" }).addEventListener("click", () => this.close());
+    el.createEl("button", { text: "Close" }).addEventListener("click", () => this.close());
   }
 }
 
@@ -68408,6 +68930,7 @@ const { WelcomeModal } = require("./welcome-modal");
 const { WhatsNewModal } = require("./whats-new-modal");
 const { releaseFor, whatsNewShouldShow } = require("./whats-new");
 const { AiImportHelpModal, importAiState } = require("./ai-import-modal");
+const aiConnection = require("./ai-connection");
 const { FocusLogModal } = require("./focus-modal");
 const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normalizeStudyLog, pauseFocus, resumeFocus, startFocus, studySummary } = require("./focus");
 const { WELCOME_EXAMPLE, WELCOME_NOTE_PATH, WELCOME_PRESETS, markWelcomeSeen, welcomeNoteMarkdown, welcomeShouldShow } = require("./welcome");
@@ -74508,12 +75031,12 @@ class QuestionTrackerPlugin extends Plugin {
 
   /** Ask the Direct AI provider for its current chat-model list. */
   async refreshAiModels() {
-    if (this.backend() !== "api") throw new Error("Runtime model discovery is available for Direct AI. Choose Direct API in the AI settings.");
-    const ai = this.settings.ai;
-    const found = await new ApiClient(ai, this.app).listModels();
-    ai.api.models = found.models.slice();
-    await this.save();
-    return found;
+    return aiConnection.fetchModels(this);
+  }
+
+  /** One short request that confirms the key and model work, shared by every surface. */
+  async testAiConnection() {
+    return aiConnection.testConnection(this);
   }
 
   /** Save one model chosen from the fetched list, or typed by hand. */
@@ -83687,8 +84210,7 @@ const { gradeMatching, parsePicks, shuffleForSeed } = require("./matching");
 const { variantSummary, variantValuesText } = require("./parameterized");
 const { FolderFilterSuggest, NameModal } = require("./modals");
 const { ChatPanel } = require("./chat-panel");
-const { API_PRESETS } = require("./api-client");
-const { hasSecretStorage, resolveApiKey, storeApiKey } = require("./secret-keys");
+const { renderAiConnectionForm } = require("./ai-connection-form");
 const { QUICK_START_URL, aiReady, emptyState } = require("./empty-state");
 const { groupIssues } = require("./importer");
 const { buildGeneralContext, buildTutorContext } = require("./opencode-client");
@@ -84373,7 +84895,8 @@ class PracticeView extends ItemView {
 
     // The two shortcuts people reach for before choosing a preset or filter.
     const shortcuts = root.createDiv({ cls: "qt-row qt-small-row" });
-    shortcuts.createEl("button", { text: "Import questions" }).addEventListener("click", () => this.startImport());
+    shortcuts.createEl("button", { text: "Import questions (needs AI)" }).addEventListener("click", () => this.startImport());
+    shortcuts.createEl("button", { text: "Paste questions (offline)" }).addEventListener("click", () => p.openQuickAdd());
     if (st.ai.enabled) {
       shortcuts.createEl("button", { text: "AI assistant" }).addEventListener("click", () => {
         this.state = "chat";
@@ -84576,8 +85099,12 @@ class PracticeView extends ItemView {
     root.addClass("qt-onboard");
     const card = root.createDiv({ cls: "qt-onboard-card" });
     card.createEl("h3", { text: "No questions yet" });
-    card.createDiv({ cls: "qt-onboard-text", text: "Extract multiple-choice questions from your PDFs, PowerPoints, Word files and more. Each one becomes a note you can practice." });
-    card.createEl("button", { text: "Import files", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.startImport());
+    card.createDiv({
+      cls: "qt-onboard-text",
+      text: "Practice, cards and timed tests work offline. Turning a PDF, PowerPoint or Word file into question notes needs AI, and you can connect a provider on the next screen.",
+    });
+    card.createEl("button", { text: "Import files (needs AI)", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.startImport());
+    card.createEl("button", { text: "Paste questions instead (works offline)" }).addEventListener("click", () => this.plugin.openQuickAdd());
     card.createEl("button", { text: "Open Start here note" }).addEventListener("click", () => this.plugin.openWelcomeNote().catch(() => this.plugin.openWelcome()));
     card.createEl("a", { text: "Quick-start guide", cls: "qt-onboard-link external-link", href: QUICK_START_URL, attr: { target: "_blank", rel: "noopener" } });
     card.createDiv({ cls: "qt-onboard-text", text: "New to Obsidian? The Start here note teaches the basics and has a step-by-step AP path." });
@@ -84620,120 +85147,30 @@ class PracticeView extends ItemView {
 
   renderAiSetup(root) {
     const p = this.plugin;
-    const ai = p.settings.ai;
-    const api = ai.api;
-    const back = () => {
-      this.state = "idle";
-      this.render();
-    };
-    const finish = async () => {
-      await p.save();
-      this.state = "idle";
-      this.render();
-      p.openPdfImport();
-    };
     root.addClass("qt-onboard");
     const card = root.createDiv({ cls: "qt-onboard-card" });
-    card.createEl("h3", { text: "Set up AI to import files" });
+    card.createEl("h3", { text: "Connect AI to import files" });
     card.createDiv({
       cls: "qt-onboard-text",
-      text: "Importing uses an AI model to read your document. The file's text is sent to the provider you choose. Nothing is sent until you start an import.",
+      text: "Importing a PDF, PowerPoint or Word file needs an AI model to read the text. Connect a provider here once; nothing is sent until you start an import.",
     });
-
-    let useApi = true;
-    const body = card.createDiv({ cls: "qt-onboard-form" });
-    const draw = () => {
-      body.empty();
-      if (Platform.isDesktopApp) {
-        body.createDiv({ cls: "qt-label", text: "How do you want to connect?" });
-        const how = body.createEl("select", { cls: "qt-select", attr: { "aria-label": "Connection method" } });
-        how.createEl("option", { value: "api", text: "My own API key" });
-        how.createEl("option", { value: "opencode", text: "OpenCode (runs on this computer)" });
-        how.value = useApi ? "api" : "opencode";
-        how.addEventListener("change", () => {
-          useApi = how.value === "api";
-          draw();
-        });
-      }
-      if (useApi) drawApi();
-      else drawOpenCode();
-    };
-    const drawApi = () => {
-      body.createDiv({ cls: "qt-label", text: "Provider" });
-      const prov = body.createEl("select", { cls: "qt-select", attr: { "aria-label": "Provider" } });
-      for (const [id, pr] of Object.entries(API_PRESETS)) prov.createEl("option", { value: id, text: pr.label });
-      prov.value = api.provider;
-      prov.addEventListener("change", () => {
-        api.provider = prov.value;
-        api.baseUrl = "";
-        api.model = API_PRESETS[prov.value].defaultModel;
-        draw();
-      });
-      const preset = API_PRESETS[api.provider] || API_PRESETS.custom;
-      if (preset.kind === "openai" && !preset.base) {
-        body.createDiv({ cls: "qt-label", text: "Base URL" });
-        const url = body.createEl("input", { type: "text", cls: "qt-fsearch", attr: { placeholder: "https://.../v1" } });
-        url.value = api.baseUrl || "";
-        url.addEventListener("input", () => (api.baseUrl = url.value.trim()));
-      }
-      let keyEl = null;
-      const existingKey = resolveApiKey(this.plugin.app, api);
-      const secretStorage = hasSecretStorage(this.plugin.app);
-      if (!preset.noKey) {
-        body.createDiv({ cls: "qt-label", text: "API key" });
-        keyEl = body.createEl("input", {
-          type: "password",
-          cls: "qt-fsearch",
-          attr: { placeholder: existingKey ? "Using a saved key — leave blank to keep it" : "Paste your key" },
-        });
-        body.createDiv({
-          cls: "qt-hint",
-          text: secretStorage
-            ? "Saved in Obsidian's Secret Storage, outside data.json."
-            : "Saved as plain text in this plugin's data.json, which syncs with your vault.",
-        });
-      }
-      body.createDiv({ cls: "qt-label", text: "Model" });
-      const model = body.createEl("input", { type: "text", cls: "qt-fsearch", attr: { placeholder: "model name" } });
-      model.value = api.model || "";
-      const go = body.createEl("button", { text: "Save and continue", cls: "mod-cta qt-primary" });
-      go.addEventListener("click", async () => {
-        const key = keyEl ? str(keyEl.value).trim() : "";
-        const name = str(model.value).trim();
-        if (keyEl && !key && !existingKey) return new Notice("Paste your API key first.");
-        if (!name) return new Notice("Enter the model name your provider lists.");
-        if (keyEl && key) storeApiKey(this.plugin.app, api, api.provider, key);
-        api.model = name;
-        ai.backend = "api";
-        ai.enabled = true;
-        await finish();
-      });
-    };
-    let openedSettings = false;
-    const drawOpenCode = () => {
-      body.createDiv({
-        cls: "qt-hint",
-        text: "OpenCode needs an AI provider and key of its own. Open the plugin settings to connect one (the first time, you'll be asked to confirm a download), then come back here.",
-      });
-      const open = body.createEl("button", { text: "Open AI settings", cls: openedSettings ? "" : "mod-cta qt-primary" });
-      open.addEventListener("click", async () => {
-        ai.backend = "opencode";
-        ai.autoDeclined = false;
-        await p.save();
-        p.openSettings();
-        openedSettings = true;
-        draw();
-      });
-      if (!openedSettings) return;
-      const go = body.createEl("button", { text: "Continue to import", cls: "mod-cta qt-primary" });
-      go.addEventListener("click", async () => {
-        ai.backend = "opencode";
-        ai.enabled = true;
-        await finish();
-      });
-    };
-    draw();
-    card.createEl("button", { text: "Back" }).addEventListener("click", back);
+    const form = card.createDiv({ cls: "qt-onboard-form" });
+    renderAiConnectionForm(form, {
+      plugin: p,
+      onReady: async () => {
+        this.state = "idle";
+        this.render();
+        p.openPdfImport();
+      },
+      onUseOpenCode: () => {
+        this.state = "idle";
+        this.render();
+      },
+    });
+    card.createEl("button", { text: "Back" }).addEventListener("click", () => {
+      this.state = "idle";
+      this.render();
+    });
   }
 
   renderStudy(root) {
@@ -103627,6 +104064,7 @@ const { renderPdfPlusSettings } = require("./pdf-plus-settings");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const { ASSIGNMENTS_TABS, renderAssignmentsSettings } = require("./assignments-settings");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
+const { connectionProblem } = require("./ai-connection");
 const { STUDY_TOOL_SETTINGS_BY_ID, STUDY_TOOL_SETTINGS_MODULES, renderStudyToolSettings } = require("./study-tool-settings");
 const { STUDY_MODE_LABELS, STUDY_SKIN_LABELS, normalizeStudyMode, normalizeStudySkin } = require("./study-skin");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
@@ -104740,16 +105178,24 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             }
           })
         );
-      new Setting(section).setName("Test").addButton((b) =>
-        b.setButtonText("Test").onClick(async () => {
-          try {
-            const r = await new ApiClient(ai, this.app).chat("You are a connection test.", [{ role: "user", content: "Reply with the single word OK." }]);
-            new Notice(`Connected. Reply: ${r.trim().slice(0, 60)}`, 6000);
-          } catch (e) {
-            new Notice(friendlyApiError(e), 10000);
-          }
-        })
-      );
+      new Setting(section)
+        .setName("Test connection")
+        .setDesc("Sends one short request to confirm the key and model work. It generates no questions.")
+        .addButton((b) =>
+          b.setButtonText("Test").onClick(async () => {
+            b.setDisabled(true);
+            b.setButtonText("Testing...");
+            try {
+              const reply = await this.plugin.testAiConnection();
+              new Notice(`Connected. Reply: ${reply.slice(0, 60)}`, 6000);
+            } catch (e) {
+              new Notice(connectionProblem(e, ai.api.provider), 10000);
+            } finally {
+              b.setDisabled(false);
+              b.setButtonText("Test");
+            }
+          })
+        );
     };
 
     const renderOpenCode = () => {
@@ -130334,7 +130780,7 @@ const WELCOME_STEPS = [
 ];
 
 function welcomeNoteMarkdown() {
-  return "---\nmcq_tracker_welcome: true\n---\n\n# Start here with MCQ Tracker\n\nThis note is created once, on your first run. It is a normal Obsidian note: read it, edit it, or delete it when it has done its job. MCQ Tracker does not need this note to work.\n\n> [!tip] The one-minute version\n> Press **Ctrl/Cmd+P**, type **Open welcome guide**, and press Enter. Choose **Try the example question**. It writes one ordinary note to **Questions/** and opens Practice. Answer it, submit, and open **Today** tomorrow to see it come back.\n\n## Pick your path\n\n| If this sounds like you | Read |\n| --- | --- |\n| I have never used Obsidian. | [[#New to Obsidian in five minutes]] |\n| I am taking an AP course. | [[#AP student path]] |\n| I use Obsidian, but not this plugin. | [[#Obsidian user path]] |\n| I want the shortcuts and file formats. | [[#Power-user shortcuts]] |\n\nYou can read all four; they are short. Nothing here locks you in.\n\n## What needs AI, and what does not\n\nMost of this plugin works with AI turned off. One everyday step does need it: turning a PDF or another document into question notes.\n\n> [!important] Turning a PDF into questions needs AI\n> There is no offline PDF-to-question converter. **Import questions from a file (PDF, PowerPoint, Word)** needs **AI features** turned on, plus either a provider key (**Direct AI**) or the **OpenCode agent** on desktop. The file's text is sent to that provider, which may charge for long files. Without AI set up, the import stops and asks you to turn it on.\n\n| Works with AI off | Needs AI turned on and a provider or the OpenCode agent |\n| --- | --- |\n| Writing question notes by hand, the example question, practice, timed tests, review and **Today** | Turning a PDF, PowerPoint, Word or other document into question notes |\n| Making cards by hand, card review, cram, `.apkg` import/export and AnkiConnect | Tutor chat and the Study agent; AI grading of free response and the optional AI second opinion on typed answers |\n| Calendar, classes, exams, assignments, grades and GPA | Generating questions, quizzes or cards from a document, photo or handwritten page |\n| Reference tools, AP resources and the unofficial AP score calculator | Summarising a course note, and turning PDF pages into a LaTeX note |\n\n**If you do not have AI:** write one question note by hand, or import ready-made flashcards (Quizlet, Kahoot, Moodle, QTI, GIFT, CSV or Markdown). Practice, review, cards, the calendar and the reference tools all keep working.\n\n## New to Obsidian in five minutes\n\nObsidian is a note-taking app. It is not a website and it does not need an account.\n\n- **A vault is a folder.** Everything you see is a file in that folder. Back it up the same way you back up school files.\n- **The left sidebar is your file list.** If you close this note, it is still there. Click **MCQ Tracker Start here** to return.\n- **The command palette is the action search.** Press **Ctrl/Cmd+P**, type the name of something you want to do, and press Enter. This is how you reach most of MCQ Tracker. On a phone, the same command names are available from the app menu.\n- **Settings is the gear at the bottom-left.** The plugin switches live under **Settings → Global → Modules**.\n- **The top block between the two --- lines is note properties.** Question notes use it to store the answer and your review history. Leave it alone until you are comfortable; editing it can change how a question is graded.\n- **Reading and editing are separate.** Use the book/pencil control at the top-right, or run **Toggle reading view** from the command palette. You do not need to edit this note.\n- **Links are two opening square brackets.** Type two square brackets in any note, start typing a note name, and press Enter. You do not need links to start.\n\n> [!note] If you get lost\n> Press **Ctrl/Cmd+P** and type **Open Start here note**. That brings this note back. If that does not work, open **Settings → Global → About** and choose **Open Start here note**.\n\n## AP student path\n\nThe short version: use the AP setup, add your exam date, bring in one small unit of practice, then let **Today** tell you what to do.\n\n1. **Choose the AP starting setup.** Press **Ctrl/Cmd+P**, type **Open welcome guide**, and choose **Choose modules**. Pick **AP courses**. This turns on questions, cards, the calendar, assignments, and Reference (where AP resources and the AP score calculator live). AI stays off.\n2. **Put the exam on your calendar.** Run **Open AP resources**, choose your course, and open **AP exam calendar** for the official date. Then run **Exams: add an exam** and add that date. Class times are optional; add them later if you want them.\n3. **Bring in one small batch of practice.** Start with one unit, not the whole course.\n   **This step needs AI.** Turning a file into questions has no offline version: turn on AI features and add a provider key (**Direct AI**), or use the **OpenCode agent** on desktop. Without that, write one question note by hand or import ready-made flashcards, then continue at step 4.\n   - For multiple-choice, run **Import questions from a file (PDF, PowerPoint, Word)**. A unit review, teacher handout, or your own notes are enough. The plugin previews what it found before writing anything.\n   - For free response, run **AP: import free-response questions from a PDF**, or **AP: create a free-response note**. Put the PDF in your vault first. If you have a released FRQ and scoring guidelines from AP Central, download them yourself and import the PDF. The plugin reads the text layer, and you approve the questions before they are saved.\n   - AP Classroom is account-gated. The plugin never signs in, scrapes, or stores College Board content; use your own AP Classroom access in a browser.\n4. **Practice for a short session.** Run **Open practice view**. Filter to your course or one skill, or run **Quick Practice** for 2, 5, or 10 minutes. For written answers, run **AP: open free-response practice and grader**. The rubric grade is a study aid, not an official AP score.\n5. **Review the next day.** Run **Open Today**. It brings back due questions, FRQs, cards, deadlines, and the next exam. If you want an estimate after a full practice exam, run **Open AP score calculator**. It is an unofficial estimate, not a prediction.\n6. **Use the official pages when you need them.** Run **Open AP resources** for the course page, exam format, released FRQs and scoring guidelines, AP Students dates, AP Classroom, and the exam calendar.\n\nSupported AP resource packs: AP Biology, Calculus AB, Calculus BC, Chemistry, English Language and Composition, Statistics, U.S. History, and World History: Modern.\n\n> [!warning] Keep it honest\n> AP is a trademark of the College Board. This plugin is not affiliated with or endorsed by the College Board. The score estimator and FRQ grader are practice aids.\n\n## Obsidian user path\n\nYou already know the app, so here is the shortest route:\n\n1. Run **Open welcome guide** and choose **Try the example question** for a working question and a review date.\n2. Run **Import questions from a file (PDF, PowerPoint, Word)** for a real unit, or write a question note in **Questions/**.\n3. Run **Open practice view** for filters and sessions, **Open Today** for the due queue, and **Open welcome guide → Choose modules** to match the plugin to your course load.\n4. Question notes are ordinary Markdown. **question_id**, **course**, **skill**, **answer**, and **question_type** live in properties; attempts and review dates are written back to the same note.\n5. The README has the full command, format, import, cards, calendar, and AI reference.\n\n## Power-user shortcuts\n\n- **Quick Practice from anywhere:** obsidian://mcq-tracker-quick?minutes=10&course=AP%20Biology. Use **minutes** 2, 5 or 10, or **count** 5, 10 or 20, not both. The course name must match the note's **course** property.\n- **Useful commands:** **Open practice view**, **Open Today**, **Quick Practice**, **Import questions from a file (PDF, PowerPoint, Word)**, **Open AP resources**, **Open AP score calculator**, **AP: import free-response questions from a PDF**, **AP: open free-response practice and grader**.\n- **Notes are the database:** default question notes are under **Questions/**; review state stays in their properties. Importers write ordinary notes, not a locked database.\n- **Optional integrations:** AnkiConnect, .apkg import/export, CouchDB sync, .ics calendars, Full Calendar notes, and AI through your own provider key. All are opt-in. Document-to-question import needs AI; the Quizlet, Kahoot, Moodle, QTI, GIFT, CSV, Markdown and .apkg importers are local.\n- **Markdown blocks:** mcq-quiz, quiz-maker, quizport, study-map, and mcq-dashboard are available if you prefer writing study material directly in notes. The README has the formats.\n- **Settings map:** **Global** has modules and about; **MCQ Tracker**, **Cards**, **Calendar**, **Assignments**, and **Reference** own their pages.\n\n## If something does not work\n\n- **The note did not open automatically:** open **MCQ Tracker Start here** in the left sidebar, or run **Open Start here note**.\n- **A command is missing:** the module may be off. Open **Settings → Global → Modules** and turn it on. Turning a module off hides its views; it does not delete notes.\n- **An import looks wrong:** the plugin previews imports. Cancel the preview and nothing is written.\n- **An import says to turn on AI:** that step is AI-only. PDF and document imports have no offline converter. Everything else here still works without AI.\n- **You need more detail:** open the [README](https://github.com/ifriedenson/mcq-tracker#readme) or the [website](https://ifriedenson.github.io/mcq-tracker/).\n\n## Make this guide better\n\nThis note is intentionally plain Markdown. If a step was unclear, edit it with what you needed to know, or send feedback. Clearer first-run instructions help the next student.\n\n- [Read the full README](https://github.com/ifriedenson/mcq-tracker#readme)\n- [Open the website](https://ifriedenson.github.io/mcq-tracker/)\n- [Send feedback](https://tally.so/r/PRDe1d)\n\nIt is safe to delete this note when you are done; **Open Start here note** will create it again if you want it back.\n";
+  return "---\nmcq_tracker_welcome: true\n---\n\n# Start here with MCQ Tracker\n\nThis note is created once, on your first run. It is a normal Obsidian note: read it, edit it, or delete it when it has done its job. MCQ Tracker does not need this note to work.\n\n> [!tip] The one-minute version\n> Press **Ctrl/Cmd+P**, type **Open welcome guide**, and press Enter. Choose **Try the example question**. It writes one ordinary note to **Questions/** and opens Practice. Answer it, submit, and open **Today** tomorrow to see it come back.\n\n## Pick your path\n\n| If this sounds like you | Read |\n| --- | --- |\n| I have never used Obsidian. | [[#New to Obsidian in five minutes]] |\n| I am taking an AP course. | [[#AP student path]] |\n| I use Obsidian, but not this plugin. | [[#Obsidian user path]] |\n| I want the shortcuts and file formats. | [[#Power-user shortcuts]] |\n\nYou can read all four; they are short. Nothing here locks you in.\n\n## What needs AI, and what does not\n\nMost of this plugin works with AI turned off. One everyday step does need it: turning a PDF or another document into question notes.\n\n> [!important] Turning a PDF into questions needs AI\n> There is no offline PDF-to-question converter. **Import questions from a file (PDF, PowerPoint, Word)** needs **AI features** turned on, plus either a provider key (**Direct AI**) or the **OpenCode agent** on desktop. The file's text is sent to that provider, which may charge for long files. Without AI set up, the import stops and asks you to turn it on.\n\n| Works with AI off | Needs AI turned on and a provider or the OpenCode agent |\n| --- | --- |\n| Writing question notes by hand, the example question, practice, timed tests, review and **Today** | Turning a PDF, PowerPoint, Word or other document into question notes |\n| Making cards by hand, card review, cram, `.apkg` import/export and AnkiConnect | Tutor chat and the Study agent; AI grading of free response and the optional AI second opinion on typed answers |\n| Calendar, classes, exams, assignments, grades and GPA | Generating questions, quizzes or cards from a document, photo or handwritten page |\n| Reference tools, AP resources and the unofficial AP score calculator | Summarising a course note, and turning PDF pages into a LaTeX note |\n\n**If you do not have AI:** run **Quick add questions from pasted text** and paste questions you already have; it works offline. You can also import ready-made flashcards (Quizlet, Kahoot, Moodle, QTI, GIFT, CSV or Markdown). Practice, review, cards, the calendar and the reference tools all keep working.\n\n## New to Obsidian in five minutes\n\nObsidian is a note-taking app. It is not a website and it does not need an account.\n\n- **A vault is a folder.** Everything you see is a file in that folder. Back it up the same way you back up school files.\n- **The left sidebar is your file list.** If you close this note, it is still there. Click **MCQ Tracker Start here** to return.\n- **The command palette is the action search.** Press **Ctrl/Cmd+P**, type the name of something you want to do, and press Enter. This is how you reach most of MCQ Tracker. On a phone, the same command names are available from the app menu.\n- **Settings is the gear at the bottom-left.** The plugin switches live under **Settings → Global → Modules**.\n- **The top block between the two --- lines is note properties.** Question notes use it to store the answer and your review history. Leave it alone until you are comfortable; editing it can change how a question is graded.\n- **Reading and editing are separate.** Use the book/pencil control at the top-right, or run **Toggle reading view** from the command palette. You do not need to edit this note.\n- **Links are two opening square brackets.** Type two square brackets in any note, start typing a note name, and press Enter. You do not need links to start.\n\n> [!note] If you get lost\n> Press **Ctrl/Cmd+P** and type **Open Start here note**. That brings this note back. If that does not work, open **Settings → Global → About** and choose **Open Start here note**.\n\n## AP student path\n\nThe short version: use the AP setup, add your exam date, bring in one small unit of practice, then let **Today** tell you what to do.\n\n1. **Choose the AP starting setup.** Press **Ctrl/Cmd+P**, type **Open welcome guide**, and choose **Choose modules**. Pick **AP courses**. This turns on questions, cards, the calendar, assignments, and Reference (where AP resources and the AP score calculator live). AI stays off.\n2. **Put the exam on your calendar.** Run **Open AP resources**, choose your course, and open **AP exam calendar** for the official date. Then run **Exams: add an exam** and add that date. Class times are optional; add them later if you want them.\n3. **Bring in one small batch of practice.** Start with one unit, not the whole course.\n   **This step needs AI.** Turning a file into questions has no offline version: turn on AI features and add a provider key (**Direct AI**), or use the **OpenCode agent** on desktop. Without that, run **Quick add questions from pasted text** (it works offline) or import ready-made flashcards, then continue at step 4.\n   - For multiple-choice, run **Import questions from a file (PDF, PowerPoint, Word)**. A unit review, teacher handout, or your own notes are enough. The plugin previews what it found before writing anything.\n   - For free response, run **AP: import free-response questions from a PDF**, or **AP: create a free-response note**. Put the PDF in your vault first. If you have a released FRQ and scoring guidelines from AP Central, download them yourself and import the PDF. The plugin reads the text layer, and you approve the questions before they are saved.\n   - AP Classroom is account-gated. The plugin never signs in, scrapes, or stores College Board content; use your own AP Classroom access in a browser.\n4. **Practice for a short session.** Run **Open practice view**. Filter to your course or one skill, or run **Quick Practice** for 2, 5, or 10 minutes. For written answers, run **AP: open free-response practice and grader**. The rubric grade is a study aid, not an official AP score.\n5. **Review the next day.** Run **Open Today**. It brings back due questions, FRQs, cards, deadlines, and the next exam. If you want an estimate after a full practice exam, run **Open AP score calculator**. It is an unofficial estimate, not a prediction.\n6. **Use the official pages when you need them.** Run **Open AP resources** for the course page, exam format, released FRQs and scoring guidelines, AP Students dates, AP Classroom, and the exam calendar.\n\nSupported AP resource packs: AP Biology, Calculus AB, Calculus BC, Chemistry, English Language and Composition, Statistics, U.S. History, and World History: Modern.\n\n> [!warning] Keep it honest\n> AP is a trademark of the College Board. This plugin is not affiliated with or endorsed by the College Board. The score estimator and FRQ grader are practice aids.\n\n## Obsidian user path\n\nYou already know the app, so here is the shortest route:\n\n1. Run **Open welcome guide** and choose **Try the example question** for a working question and a review date.\n2. Run **Import questions from a file (PDF, PowerPoint, Word)** for a real unit, or write a question note in **Questions/**.\n3. Run **Open practice view** for filters and sessions, **Open Today** for the due queue, and **Open welcome guide → Choose modules** to match the plugin to your course load.\n4. Question notes are ordinary Markdown. **question_id**, **course**, **skill**, **answer**, and **question_type** live in properties; attempts and review dates are written back to the same note.\n5. The README has the full command, format, import, cards, calendar, and AI reference.\n\n## Power-user shortcuts\n\n- **Quick Practice from anywhere:** obsidian://mcq-tracker-quick?minutes=10&course=AP%20Biology. Use **minutes** 2, 5 or 10, or **count** 5, 10 or 20, not both. The course name must match the note's **course** property.\n- **Useful commands:** **Open practice view**, **Open Today**, **Quick Practice**, **Import questions from a file (PDF, PowerPoint, Word)**, **Open AP resources**, **Open AP score calculator**, **AP: import free-response questions from a PDF**, **AP: open free-response practice and grader**.\n- **Notes are the database:** default question notes are under **Questions/**; review state stays in their properties. Importers write ordinary notes, not a locked database.\n- **Optional integrations:** AnkiConnect, .apkg import/export, CouchDB sync, .ics calendars, Full Calendar notes, and AI through your own provider key. All are opt-in. Document-to-question import needs AI; the Quizlet, Kahoot, Moodle, QTI, GIFT, CSV, Markdown and .apkg importers are local.\n- **Markdown blocks:** mcq-quiz, quiz-maker, quizport, study-map, and mcq-dashboard are available if you prefer writing study material directly in notes. The README has the formats.\n- **Settings map:** **Global** has modules and about; **MCQ Tracker**, **Cards**, **Calendar**, **Assignments**, and **Reference** own their pages.\n\n## If something does not work\n\n- **The note did not open automatically:** open **MCQ Tracker Start here** in the left sidebar, or run **Open Start here note**.\n- **A command is missing:** the module may be off. Open **Settings → Global → Modules** and turn it on. Turning a module off hides its views; it does not delete notes.\n- **An import looks wrong:** the plugin previews imports. Cancel the preview and nothing is written.\n- **An import says to turn on AI:** that step is AI-only. PDF and document imports have no offline converter. Everything else here still works without AI.\n- **You need more detail:** open the [README](https://github.com/ifriedenson/mcq-tracker#readme) or the [website](https://ifriedenson.github.io/mcq-tracker/).\n\n## Make this guide better\n\nThis note is intentionally plain Markdown. If a step was unclear, edit it with what you needed to know, or send feedback. Clearer first-run instructions help the next student.\n\n- [Read the full README](https://github.com/ifriedenson/mcq-tracker#readme)\n- [Open the website](https://ifriedenson.github.io/mcq-tracker/)\n- [Send feedback](https://tally.so/r/PRDe1d)\n\nIt is safe to delete this note when you are done; **Open Start here note** will create it again if you want it back.\n";
 }
 
 function emptyWelcomeState() {
@@ -130714,6 +131160,35 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.297.0",
+    date: "November 9, 2026",
+    title: "A first import anyone can finish",
+    summary:
+      "The PDF path now says it needs AI, offers an offline paste route beside it, and walks a first-time user from a recommended provider to a tested model without ever guessing a model name.",
+    highlights: [
+      {
+        title: "The AI step is labelled",
+        body: "The empty screen and Practice now say Import files (needs AI). Paste questions instead (works offline) sits beside it and opens Quick add, which needs no key.",
+      },
+      {
+        title: "Three steps to a working connection",
+        body: "A recommended provider is preselected, Create a key opens that provider's key page, and Fetch models chooses a sensible model from the provider's own list so the field is never empty.",
+      },
+      {
+        title: "Tested before the import",
+        body: "Test connection sends one short request and explains a rejected key, an empty model list or an offline device. Continue stays disabled until the setup actually works.",
+      },
+      {
+        title: "One implementation everywhere",
+        body: "The inline wizard and Settings share the same model fetch and connection test, so a setup that works in one place works in the other.",
+      },
+      {
+        title: "Start here names the offline route",
+        body: "Where the guide used to say write a note by hand, it now points at Quick add questions from pasted text, which works with AI off.",
+      },
+    ],
+  },
   {
     version: "1.296.0",
     date: "November 9, 2026",
@@ -131767,6 +132242,8 @@ const { renderSettingsTabs } = require("./settings-ui");
 const { FindQuestionModal, FolderFilterSuggest, QuestionFolderModal } = require("./modals");
 const { PdfImportModal } = require("./import-modal");
 const { AiImportHelpModal, importAiState } = require("./ai-import-modal");
+const aiConnection = require("./ai-connection");
+const { renderAiConnectionForm } = require("./ai-connection-form");
 const courseNotes = require("./course-notes");
 const paperScanner = require("./paper-scanner");
 const documentClassify = require("./document-classify");
@@ -132214,6 +132691,8 @@ QuestionTrackerPlugin.__test = {
   PdfImportModal,
   AiImportHelpModal,
   importAiState,
+  aiConnection,
+  renderAiConnectionForm,
   courseNotes,
   paperScanner,
   documentClassify,

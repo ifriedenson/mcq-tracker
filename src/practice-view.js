@@ -12,8 +12,7 @@ const { gradeMatching, parsePicks, shuffleForSeed } = require("./matching");
 const { variantSummary, variantValuesText } = require("./parameterized");
 const { FolderFilterSuggest, NameModal } = require("./modals");
 const { ChatPanel } = require("./chat-panel");
-const { API_PRESETS } = require("./api-client");
-const { hasSecretStorage, resolveApiKey, storeApiKey } = require("./secret-keys");
+const { renderAiConnectionForm } = require("./ai-connection-form");
 const { QUICK_START_URL, aiReady, emptyState } = require("./empty-state");
 const { groupIssues } = require("./importer");
 const { buildGeneralContext, buildTutorContext } = require("./opencode-client");
@@ -698,7 +697,8 @@ class PracticeView extends ItemView {
 
     // The two shortcuts people reach for before choosing a preset or filter.
     const shortcuts = root.createDiv({ cls: "qt-row qt-small-row" });
-    shortcuts.createEl("button", { text: "Import questions" }).addEventListener("click", () => this.startImport());
+    shortcuts.createEl("button", { text: "Import questions (needs AI)" }).addEventListener("click", () => this.startImport());
+    shortcuts.createEl("button", { text: "Paste questions (offline)" }).addEventListener("click", () => p.openQuickAdd());
     if (st.ai.enabled) {
       shortcuts.createEl("button", { text: "AI assistant" }).addEventListener("click", () => {
         this.state = "chat";
@@ -901,8 +901,12 @@ class PracticeView extends ItemView {
     root.addClass("qt-onboard");
     const card = root.createDiv({ cls: "qt-onboard-card" });
     card.createEl("h3", { text: "No questions yet" });
-    card.createDiv({ cls: "qt-onboard-text", text: "Extract multiple-choice questions from your PDFs, PowerPoints, Word files and more. Each one becomes a note you can practice." });
-    card.createEl("button", { text: "Import files", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.startImport());
+    card.createDiv({
+      cls: "qt-onboard-text",
+      text: "Practice, cards and timed tests work offline. Turning a PDF, PowerPoint or Word file into question notes needs AI, and you can connect a provider on the next screen.",
+    });
+    card.createEl("button", { text: "Import files (needs AI)", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.startImport());
+    card.createEl("button", { text: "Paste questions instead (works offline)" }).addEventListener("click", () => this.plugin.openQuickAdd());
     card.createEl("button", { text: "Open Start here note" }).addEventListener("click", () => this.plugin.openWelcomeNote().catch(() => this.plugin.openWelcome()));
     card.createEl("a", { text: "Quick-start guide", cls: "qt-onboard-link external-link", href: QUICK_START_URL, attr: { target: "_blank", rel: "noopener" } });
     card.createDiv({ cls: "qt-onboard-text", text: "New to Obsidian? The Start here note teaches the basics and has a step-by-step AP path." });
@@ -945,120 +949,30 @@ class PracticeView extends ItemView {
 
   renderAiSetup(root) {
     const p = this.plugin;
-    const ai = p.settings.ai;
-    const api = ai.api;
-    const back = () => {
-      this.state = "idle";
-      this.render();
-    };
-    const finish = async () => {
-      await p.save();
-      this.state = "idle";
-      this.render();
-      p.openPdfImport();
-    };
     root.addClass("qt-onboard");
     const card = root.createDiv({ cls: "qt-onboard-card" });
-    card.createEl("h3", { text: "Set up AI to import files" });
+    card.createEl("h3", { text: "Connect AI to import files" });
     card.createDiv({
       cls: "qt-onboard-text",
-      text: "Importing uses an AI model to read your document. The file's text is sent to the provider you choose. Nothing is sent until you start an import.",
+      text: "Importing a PDF, PowerPoint or Word file needs an AI model to read the text. Connect a provider here once; nothing is sent until you start an import.",
     });
-
-    let useApi = true;
-    const body = card.createDiv({ cls: "qt-onboard-form" });
-    const draw = () => {
-      body.empty();
-      if (Platform.isDesktopApp) {
-        body.createDiv({ cls: "qt-label", text: "How do you want to connect?" });
-        const how = body.createEl("select", { cls: "qt-select", attr: { "aria-label": "Connection method" } });
-        how.createEl("option", { value: "api", text: "My own API key" });
-        how.createEl("option", { value: "opencode", text: "OpenCode (runs on this computer)" });
-        how.value = useApi ? "api" : "opencode";
-        how.addEventListener("change", () => {
-          useApi = how.value === "api";
-          draw();
-        });
-      }
-      if (useApi) drawApi();
-      else drawOpenCode();
-    };
-    const drawApi = () => {
-      body.createDiv({ cls: "qt-label", text: "Provider" });
-      const prov = body.createEl("select", { cls: "qt-select", attr: { "aria-label": "Provider" } });
-      for (const [id, pr] of Object.entries(API_PRESETS)) prov.createEl("option", { value: id, text: pr.label });
-      prov.value = api.provider;
-      prov.addEventListener("change", () => {
-        api.provider = prov.value;
-        api.baseUrl = "";
-        api.model = API_PRESETS[prov.value].defaultModel;
-        draw();
-      });
-      const preset = API_PRESETS[api.provider] || API_PRESETS.custom;
-      if (preset.kind === "openai" && !preset.base) {
-        body.createDiv({ cls: "qt-label", text: "Base URL" });
-        const url = body.createEl("input", { type: "text", cls: "qt-fsearch", attr: { placeholder: "https://.../v1" } });
-        url.value = api.baseUrl || "";
-        url.addEventListener("input", () => (api.baseUrl = url.value.trim()));
-      }
-      let keyEl = null;
-      const existingKey = resolveApiKey(this.plugin.app, api);
-      const secretStorage = hasSecretStorage(this.plugin.app);
-      if (!preset.noKey) {
-        body.createDiv({ cls: "qt-label", text: "API key" });
-        keyEl = body.createEl("input", {
-          type: "password",
-          cls: "qt-fsearch",
-          attr: { placeholder: existingKey ? "Using a saved key — leave blank to keep it" : "Paste your key" },
-        });
-        body.createDiv({
-          cls: "qt-hint",
-          text: secretStorage
-            ? "Saved in Obsidian's Secret Storage, outside data.json."
-            : "Saved as plain text in this plugin's data.json, which syncs with your vault.",
-        });
-      }
-      body.createDiv({ cls: "qt-label", text: "Model" });
-      const model = body.createEl("input", { type: "text", cls: "qt-fsearch", attr: { placeholder: "model name" } });
-      model.value = api.model || "";
-      const go = body.createEl("button", { text: "Save and continue", cls: "mod-cta qt-primary" });
-      go.addEventListener("click", async () => {
-        const key = keyEl ? str(keyEl.value).trim() : "";
-        const name = str(model.value).trim();
-        if (keyEl && !key && !existingKey) return new Notice("Paste your API key first.");
-        if (!name) return new Notice("Enter the model name your provider lists.");
-        if (keyEl && key) storeApiKey(this.plugin.app, api, api.provider, key);
-        api.model = name;
-        ai.backend = "api";
-        ai.enabled = true;
-        await finish();
-      });
-    };
-    let openedSettings = false;
-    const drawOpenCode = () => {
-      body.createDiv({
-        cls: "qt-hint",
-        text: "OpenCode needs an AI provider and key of its own. Open the plugin settings to connect one (the first time, you'll be asked to confirm a download), then come back here.",
-      });
-      const open = body.createEl("button", { text: "Open AI settings", cls: openedSettings ? "" : "mod-cta qt-primary" });
-      open.addEventListener("click", async () => {
-        ai.backend = "opencode";
-        ai.autoDeclined = false;
-        await p.save();
-        p.openSettings();
-        openedSettings = true;
-        draw();
-      });
-      if (!openedSettings) return;
-      const go = body.createEl("button", { text: "Continue to import", cls: "mod-cta qt-primary" });
-      go.addEventListener("click", async () => {
-        ai.backend = "opencode";
-        ai.enabled = true;
-        await finish();
-      });
-    };
-    draw();
-    card.createEl("button", { text: "Back" }).addEventListener("click", back);
+    const form = card.createDiv({ cls: "qt-onboard-form" });
+    renderAiConnectionForm(form, {
+      plugin: p,
+      onReady: async () => {
+        this.state = "idle";
+        this.render();
+        p.openPdfImport();
+      },
+      onUseOpenCode: () => {
+        this.state = "idle";
+        this.render();
+      },
+    });
+    card.createEl("button", { text: "Back" }).addEventListener("click", () => {
+      this.state = "idle";
+      this.render();
+    });
   }
 
   renderStudy(root) {

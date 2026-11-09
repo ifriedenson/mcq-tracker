@@ -93,9 +93,10 @@ test("ApiClient uses a Secret Storage key selected by name", () => {
   assert.equal(new T.ApiClient(ai, app).cfg().key, "sk-live");
 });
 
-test("the settings connection test gives ApiClient the app so Secret Storage resolves", () => {
+test("the settings connection test uses the shared service so Secret Storage resolves", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "src", "settings-tab.js"), "utf8");
-  assert.match(source, /new ApiClient\(ai, this\.app\)\.chat/);
+  assert.match(source, /this\.plugin\.testAiConnection\(\)/);
+  assert.match(source, /connectionProblem\(e, ai\.api\.provider\)/);
   assert.match(source, /selectApiSecret\(api, api\.provider, value\)/);
 });
 

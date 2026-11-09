@@ -16,6 +16,7 @@ test("every view and panel form control carries an accessible name", () => {
     .filter((name) => /(view|panel|dock|explorer|empty-state)\.js$/.test(name))
     .map((name) => path.join("src", name));
   names.push("src/view-helpers.js");
+  names.push("src/ai-connection-form.js");
 
   const missing = [];
   for (const file of names) {
@@ -36,7 +37,8 @@ test("the swept views keep the accessible names the review added", () => {
     ["insights-view.js", [/aria-label": "Show mastery for"/]],
     ["today-view.js", [/aria-label": "Show mastery for"/]],
     ["local-events-view.js", [/aria-label": label/, /aria-label": "Category"/, /aria-label": "Colour"/, /aria-label": "Repeat"/, /aria-label": "Description"/]],
-    ["practice-view.js", [/aria-label": "Filter preset"/, /aria-label": "Pick questions"/, /aria-label": "Connection method"/, /aria-label": "Provider"/, /aria-label": "Session length"/, /aria-label": "Session length value"/]],
+    ["practice-view.js", [/aria-label": "Filter preset"/, /aria-label": "Pick questions"/, /aria-label": "Session length"/, /aria-label": "Session length value"/]],
+    ["ai-connection-form.js", [/aria-label": "AI provider"/, /aria-label": "API key"/, /aria-label": "Model"/, /aria-label": "Model name"/]],
     ["reference-view.js", [/qt-ref-punnett-field[\s\S]{0,200}"aria-label": label/, /aria-label": "AP course"/, /aria-label": "Exam"/, /aria-label": "Target AP score"/]],
     ["study-workspace-view.js", [/aria-label": label/, /aria-label": SCORE_LABELS\[dimension\]/, /label: `Read sentence \$\{index \+ 1\} aloud`/]],
     ["view-helpers.js", [/aria-label": `Match item \$\{i \+ 1\}`/]],

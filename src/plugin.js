@@ -165,6 +165,7 @@ const { WelcomeModal } = require("./welcome-modal");
 const { WhatsNewModal } = require("./whats-new-modal");
 const { releaseFor, whatsNewShouldShow } = require("./whats-new");
 const { AiImportHelpModal, importAiState } = require("./ai-import-modal");
+const aiConnection = require("./ai-connection");
 const { FocusLogModal } = require("./focus-modal");
 const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normalizeStudyLog, pauseFocus, resumeFocus, startFocus, studySummary } = require("./focus");
 const { WELCOME_EXAMPLE, WELCOME_NOTE_PATH, WELCOME_PRESETS, markWelcomeSeen, welcomeNoteMarkdown, welcomeShouldShow } = require("./welcome");
@@ -6265,12 +6266,12 @@ class QuestionTrackerPlugin extends Plugin {
 
   /** Ask the Direct AI provider for its current chat-model list. */
   async refreshAiModels() {
-    if (this.backend() !== "api") throw new Error("Runtime model discovery is available for Direct AI. Choose Direct API in the AI settings.");
-    const ai = this.settings.ai;
-    const found = await new ApiClient(ai, this.app).listModels();
-    ai.api.models = found.models.slice();
-    await this.save();
-    return found;
+    return aiConnection.fetchModels(this);
+  }
+
+  /** One short request that confirms the key and model work, shared by every surface. */
+  async testAiConnection() {
+    return aiConnection.testConnection(this);
   }
 
   /** Save one model chosen from the fetched list, or typed by hand. */

@@ -5,7 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const { load } = require("./helpers/load");
 const { makeApp, makeDom } = require("./helpers/fake");
-const { T, Plugin: QT } = load();
+const { T, Plugin: QT, obsidian } = load();
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const GOOD = (name) => ({ path: `Questions/${name}.md`, fm: { answer: "B" } });
@@ -151,13 +151,14 @@ test("aiReady: needs AI on, and a key and model for the direct API", async () =>
 
 /* ------------------------------------------------------------ the screen */
 
-test("screen: with no questions it shows the headline, the explanation, Import files and the guide link", async () => {
+test("screen: with no questions it names the AI step, offers the offline paste path and links the guide", async () => {
   const { dom, view } = await setup([JOURNAL]);
   view.render();
   const texts = dom.texts();
   assert.ok(texts.includes("No questions yet"));
-  assert.ok(texts.some((t) => /Extract multiple-choice questions from your PDFs, PowerPoints, Word files/.test(t)));
-  assert.ok(texts.includes("Import files"));
+  assert.ok(texts.some((t) => /Turning a PDF, PowerPoint or Word file into question notes needs AI/.test(t)));
+  assert.ok(texts.includes("Import files (needs AI)"));
+  assert.ok(texts.includes("Paste questions instead (works offline)"));
   const guide = dom.find("Quick-start guide")[0];
   assert.equal(guide.meta.href, T.QUICK_START_URL);
   assert.ok(!texts.includes("Start")); // none of the practice controls
@@ -171,29 +172,38 @@ test("screen: Import files opens the import flow when AI is set up", async () =>
   Object.assign(plugin.settings.ai, { enabled: true, backend: "api" });
   plugin.settings.ai.api.keys.anthropic = "sk-test";
   view.render();
-  await dom.click("Import files");
+  await dom.click("Import files (needs AI)");
   assert.equal(plugin.imports, 1);
   assert.equal(view.state, "idle");
 });
 
-test("screen: with no AI set up, Import files goes to setup first, then on to the import flow", async () => {
+test("screen: a cold start pastes a key, fetches a model, tests it, then imports", async () => {
   const { plugin, dom, view } = await setup([]);
   view.render();
-  await dom.click("Import files");
+  await dom.click("Import files (needs AI)");
   assert.equal(plugin.imports, 0, "does not open the import yet");
   assert.equal(view.state, "ai-setup");
-  assert.ok(dom.texts().includes("Set up AI to import files"));
+  assert.ok(dom.texts().includes("Connect AI to import files"));
+  assert.equal(dom.field("AI provider").value, "anthropic", "the recommended provider is preselected");
+  assert.ok(dom.texts().some((text) => /Anthropic \(Claude\) — recommended/.test(text)));
+  assert.equal(dom.field("Model name"), undefined, "the happy path never asks for a model name");
+  assert.equal(dom.find("Save and continue").length, 0, "the old dead-end save is gone");
 
-  // continuing without a key is refused
-  await dom.click("Save and continue");
-  assert.equal(plugin.imports, 0);
-  assert.equal(plugin.settings.ai.enabled, false);
-
-  // fill in the key and model
-  const field = (ph) => dom.all.find((o) => o.meta && o.meta.attr && o.meta.attr.placeholder === ph);
-  field("Paste your key").value = "sk-abc";
-  field("model name").value = "claude-sonnet-5-5";
-  await dom.click("Save and continue");
+  obsidian.requestImpl = async (request) => {
+    if (request.method === "GET") {
+      return { status: 200, json: { data: [{ id: "claude-sonnet-4-5" }, { id: "claude-haiku-4-5" }] } };
+    }
+    return { status: 200, json: { content: [{ type: "text", text: "OK" }] } };
+  };
+  try {
+    dom.type(dom.field("API key"), "sk-abc");
+    await dom.clickLast("Fetch models");
+    assert.equal(plugin.settings.ai.api.model, "claude-sonnet-4-5", "a model was chosen automatically");
+    await dom.clickLast("Test connection");
+    await dom.clickLast("Continue to import");
+  } finally {
+    obsidian.requestImpl = null;
+  }
   const ai = plugin.settings.ai;
   assert.equal(ai.enabled, true);
   assert.equal(ai.backend, "api");
@@ -203,27 +213,22 @@ test("screen: with no AI set up, Import files goes to setup first, then on to th
   assert.equal(view.state, "idle");
 });
 
-test("screen: choosing OpenCode opens the settings, then Continue returns to the import flow", async () => {
+test("screen: the advanced OpenCode route opens its settings and is not a dead end", async () => {
   const { plugin, dom, view } = await setup([]);
   view.render();
-  await dom.click("Import files");
-  const how = dom.all.find((o) => o.meta && o.meta.tag === "select");
-  how.value = "opencode";
-  how.handlers.find((h) => h.ev === "change").fn({});
-  await dom.click("Open AI settings");
+  await dom.click("Import files (needs AI)");
+  await dom.click("Open OpenCode settings");
   assert.equal(plugin.openSettingsCalls, 1);
   assert.equal(plugin.settings.ai.backend, "opencode");
-  assert.equal(plugin.settings.ai.enabled, false, "not on until they continue");
+  assert.equal(plugin.settings.ai.enabled, true, "the settings path leaves AI on");
+  assert.equal(view.state, "idle");
   assert.equal(plugin.imports, 0);
-  await dom.click("Continue to import");
-  assert.equal(plugin.settings.ai.enabled, true);
-  assert.equal(plugin.imports, 1);
 });
 
 test("screen: Back from AI setup returns to the empty screen without changing settings", async () => {
   const { plugin, dom, view } = await setup([]);
   view.render();
-  await dom.click("Import files");
+  await dom.click("Import files (needs AI)");
   await dom.click("Back");
   assert.equal(view.state, "idle");
   assert.equal(plugin.settings.ai.enabled, false);

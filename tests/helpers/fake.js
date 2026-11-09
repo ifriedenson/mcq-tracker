@@ -262,6 +262,29 @@ function makeDom() {
       for (const h of hit.handlers.filter((x) => x.ev === "click")) await h.fn({});
     },
     texts: () => all.map((o) => o.meta && o.meta.text).filter((t) => typeof t === "string"),
+    /** the newest recorded element matching a predicate (a redrawn form leaves older copies behind) */
+    last: (predicate) => all.filter(predicate).at(-1),
+    /** the newest control with this accessible name */
+    field: (label) => {
+      const named = (o) =>
+        o.meta && ((o.meta.attrs && o.meta.attrs["aria-label"]) || (o.meta.attr && o.meta.attr["aria-label"]));
+      const matches = all.filter((o) => named(o) === label);
+      return matches[matches.length - 1];
+    },
+    /** type into a field and fire its input handlers */
+    type: (element, value) => {
+      element.value = value;
+      const own = element.__own || element;
+      for (const handler of (own.handlers || []).filter((entry) => entry.ev === "input")) handler.fn({});
+    },
+    /** click the newest element with this text, after any redraw */
+    clickLast: async (text) => {
+      const hit = all
+        .filter((o) => o.meta && (text instanceof RegExp ? text.test(o.meta.text || "") : o.meta.text === text) && o.handlers.some((h) => h.ev === "click"))
+        .at(-1);
+      if (!hit) throw new Error(`no clickable element with text ${text}`);
+      for (const handler of hit.handlers.filter((entry) => entry.ev === "click")) await handler.fn({});
+    },
   };
 }
 

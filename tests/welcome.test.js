@@ -112,6 +112,7 @@ test("welcome: the Start here note says which parts need AI and which do not", (
   assert.ok(text.includes("**OpenCode agent**"), "the note names the desktop agent path");
   assert.ok(text.includes("| Works with AI off | Needs AI turned on"), "the note splits local work from AI work");
   assert.ok(text.includes("Writing question notes by hand"), "manual questions are listed as local");
+  assert.ok(text.includes("Quick add questions from pasted text"), "the offline paste route is named");
   assert.ok(text.includes("AP resources and the unofficial AP score calculator"), "AP reference tools are listed as local");
   assert.match(text, /Bring in one small batch of practice[\s\S]*?This step needs AI/, "the AP path warns before the import");
   assert.match(text, /An import says to turn on AI/);

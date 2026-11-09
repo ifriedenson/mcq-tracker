@@ -25,6 +25,7 @@ const { renderPdfPlusSettings } = require("./pdf-plus-settings");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const { ASSIGNMENTS_TABS, renderAssignmentsSettings } = require("./assignments-settings");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
+const { connectionProblem } = require("./ai-connection");
 const { STUDY_TOOL_SETTINGS_BY_ID, STUDY_TOOL_SETTINGS_MODULES, renderStudyToolSettings } = require("./study-tool-settings");
 const { STUDY_MODE_LABELS, STUDY_SKIN_LABELS, normalizeStudyMode, normalizeStudySkin } = require("./study-skin");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
@@ -1138,16 +1139,24 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             }
           })
         );
-      new Setting(section).setName("Test").addButton((b) =>
-        b.setButtonText("Test").onClick(async () => {
-          try {
-            const r = await new ApiClient(ai, this.app).chat("You are a connection test.", [{ role: "user", content: "Reply with the single word OK." }]);
-            new Notice(`Connected. Reply: ${r.trim().slice(0, 60)}`, 6000);
-          } catch (e) {
-            new Notice(friendlyApiError(e), 10000);
-          }
-        })
-      );
+      new Setting(section)
+        .setName("Test connection")
+        .setDesc("Sends one short request to confirm the key and model work. It generates no questions.")
+        .addButton((b) =>
+          b.setButtonText("Test").onClick(async () => {
+            b.setDisabled(true);
+            b.setButtonText("Testing...");
+            try {
+              const reply = await this.plugin.testAiConnection();
+              new Notice(`Connected. Reply: ${reply.slice(0, 60)}`, 6000);
+            } catch (e) {
+              new Notice(connectionProblem(e, ai.api.provider), 10000);
+            } finally {
+              b.setDisabled(false);
+              b.setButtonText("Test");
+            }
+          })
+        );
     };
 
     const renderOpenCode = () => {
