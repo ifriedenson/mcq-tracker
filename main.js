@@ -48469,6 +48469,352 @@ module.exports = {
 };
 };
 
+/* ---- src/hotkey-audit.js ---- */
+__defs["hotkey-audit"] = function (module, exports, require) {
+/*
+ * Read-only hotkey audit. It compares the effective bindings of this plugin's
+ * commands with Obsidian's own commands and never writes a hotkey.
+ *
+ * Obsidian stores custom overrides in hotkeyManager.customKeys and command
+ * defaults in hotkeyManager.defaultKeys or Command.hotkeys. A custom key for a
+ * command replaces its defaults; an empty custom list means the user removed
+ * all bindings, so defaults must not leak back in.
+ */
+
+const MODIFIER_ORDER = { ctrl: 0, meta: 1, alt: 2, shift: 3 };
+const KEY_ALIASES = {
+  " ": "space",
+  spacebar: "space",
+  esc: "escape",
+  return: "enter",
+  del: "delete",
+  arrowup: "up",
+  arrowdown: "down",
+  arrowleft: "left",
+  arrowright: "right",
+};
+
+function text(value) {
+  return String(value == null ? "" : value).trim();
+}
+
+function commandList(app) {
+  const map = app && app.commands && app.commands.commands;
+  if (!map) return [];
+  if (Array.isArray(map)) return map.filter((command) => command && command.id);
+  if (typeof map === "object") {
+    return Object.keys(map)
+      .map((id) => map[id])
+      .filter((command) => command && command.id);
+  }
+  return [];
+}
+
+function communityPluginIds(app, ownId) {
+  const ids = new Set([ownId]);
+  const plugins = app && app.plugins && app.plugins.plugins;
+  if (plugins && typeof plugins === "object") {
+    for (const id of Object.keys(plugins)) ids.add(id);
+  }
+  const manifests = app && app.plugins && app.plugins.manifests;
+  if (manifests && typeof manifests === "object") {
+    for (const id of Object.keys(manifests)) ids.add(id);
+  }
+  return ids;
+}
+
+function isOwnCommand(id, ownId) {
+  return id === ownId || id.startsWith(`${ownId}:`);
+}
+
+/** Core commands are the ones not owned by an enabled community plugin. */
+function isCoreCommand(id, communityIds, ownId) {
+  if (isOwnCommand(id, ownId)) return false;
+  const colon = id.indexOf(":");
+  const prefix = colon >= 0 ? id.slice(0, colon) : id;
+  return !communityIds.has(prefix);
+}
+
+function customFor(manager, commandId) {
+  const custom = manager && manager.customKeys;
+  if (!custom || typeof custom !== "object" || !Object.prototype.hasOwnProperty.call(custom, commandId)) {
+    return null;
+  }
+  return Array.isArray(custom[commandId]) ? custom[commandId] : [];
+}
+
+function defaultsFor(manager, command) {
+  const defaults = manager && manager.defaultKeys;
+  if (defaults && typeof defaults === "object" && Object.prototype.hasOwnProperty.call(defaults, command.id)) {
+    return Array.isArray(defaults[command.id]) ? defaults[command.id] : [];
+  }
+  return Array.isArray(command.hotkeys) ? command.hotkeys : [];
+}
+
+/** Custom bindings win, including an explicitly empty list. */
+function effectiveHotkeys(manager, command) {
+  const custom = customFor(manager, command.id);
+  if (custom !== null) return custom;
+  if (manager && typeof manager.getHotkeys === "function") {
+    try {
+      const keys = manager.getHotkeys(command.id);
+      if (Array.isArray(keys) && keys.length) return keys;
+    } catch (e) {
+      /* fall through to the default table */
+    }
+  }
+  return defaultsFor(manager, command);
+}
+
+function normalizeKey(value) {
+  const raw = String(value == null ? "" : value);
+  if (raw === " ") return "space";
+  const lower = text(raw).toLowerCase();
+  return KEY_ALIASES[lower] || lower;
+}
+
+function modifierName(value) {
+  const name = text(value).toLowerCase();
+  if (name === "cmd" || name === "command" || name === "meta") return "meta";
+  if (name === "ctrl" || name === "control") return "ctrl";
+  if (name === "alt" || name === "option") return "alt";
+  if (name === "shift") return "shift";
+  return name;
+}
+
+function compareModifiers(left, right) {
+  const a = Object.prototype.hasOwnProperty.call(MODIFIER_ORDER, left) ? MODIFIER_ORDER[left] : 9;
+  const b = Object.prototype.hasOwnProperty.call(MODIFIER_ORDER, right) ? MODIFIER_ORDER[right] : 9;
+  return a - b || left.localeCompare(right);
+}
+
+function modifierLabel(modifier, isMac) {
+  if (modifier === "ctrl") return "Ctrl";
+  if (modifier === "meta") return isMac ? "Cmd" : "Meta";
+  if (modifier === "alt") return "Alt";
+  if (modifier === "shift") return "Shift";
+  return modifier.charAt(0).toUpperCase() + modifier.slice(1);
+}
+
+function keyLabel(key) {
+  if (key === "space") return "Space";
+  if (key === "escape") return "Esc";
+  if (key === "enter") return "Enter";
+  if (key === "delete") return "Delete";
+  if (key === "backspace") return "Backspace";
+  if (key === "tab") return "Tab";
+  if (key === "up" || key === "down" || key === "left" || key === "right") {
+    return key.charAt(0).toUpperCase() + key.slice(1);
+  }
+  if (key.length === 1) return key.toUpperCase();
+  return key.charAt(0).toUpperCase() + key.slice(1);
+}
+
+/** Normalize one Obsidian Hotkey for comparison and display. */
+function normalizeBinding(hotkey, isMac) {
+  if (!hotkey || typeof hotkey !== "object") return null;
+  const rawKey = String(hotkey.key == null ? "" : hotkey.key);
+  if (!rawKey || (text(rawKey) === "" && rawKey !== " ")) return null;
+  const modifiers = Array.isArray(hotkey.modifiers) ? hotkey.modifiers : [];
+  const normalized = new Set();
+  for (const raw of modifiers) {
+    const name = text(raw).toLowerCase();
+    if (!name) continue;
+    if (name === "mod") normalized.add(isMac ? "meta" : "ctrl");
+    else normalized.add(modifierName(name));
+  }
+  const ordered = [...normalized].sort(compareModifiers);
+  const key = normalizeKey(rawKey);
+  return {
+    id: ordered.concat(key).join("+"),
+    key,
+    modifiers: ordered,
+    label: ordered.map((modifier) => modifierLabel(modifier, isMac)).concat(keyLabel(key)).join("+"),
+  };
+}
+
+function emptyReport(reason) {
+  return {
+    available: false,
+    reason,
+    conflicts: [],
+    pluginCommandCount: 0,
+    pluginBindingCount: 0,
+    coreCommandCount: 0,
+    coreBindingCount: 0,
+  };
+}
+
+function auditHotkeys(app, options) {
+  const opts = options || {};
+  const manager = app && app.hotkeyManager;
+  if (!manager) return emptyReport("Obsidian's hotkey manager is not available in this window.");
+  const commands = commandList(app);
+  if (!commands.length) return emptyReport("Obsidian did not expose any commands to audit.");
+
+  const ownId = text(opts.pluginId) || "mcq-tracker";
+  const isMac = opts.isMac === true;
+  const communityIds = communityPluginIds(app, ownId);
+  const own = [];
+  const core = [];
+
+  for (const command of commands) {
+    const id = text(command.id);
+    if (!id) continue;
+    const target = isOwnCommand(id, ownId) ? own : isCoreCommand(id, communityIds, ownId) ? core : null;
+    if (!target) continue;
+    const seen = new Set();
+    for (const raw of effectiveHotkeys(manager, command)) {
+      const binding = normalizeBinding(raw, isMac);
+      if (!binding || seen.has(binding.id)) continue;
+      seen.add(binding.id);
+      target.push({ command, binding });
+    }
+  }
+
+  const coreByKey = new Map();
+  for (const item of core) {
+    if (!coreByKey.has(item.binding.id)) coreByKey.set(item.binding.id, []);
+    const list = coreByKey.get(item.binding.id);
+    if (!list.some((entry) => entry.command.id === item.command.id)) list.push(item);
+  }
+
+  const conflicts = [];
+  const seen = new Set();
+  for (const item of own) {
+    const matches = coreByKey.get(item.binding.id) || [];
+    if (!matches.length) continue;
+    const coreIds = matches.map((entry) => entry.command.id).sort();
+    const signature = `${item.command.id}|${item.binding.id}|${coreIds.join(",")}`;
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+    conflicts.push({
+      shortcut: item.binding.label,
+      shortcutId: item.binding.id,
+      command: {
+        id: item.command.id,
+        name: text(item.command.name) || item.command.id,
+      },
+      core: matches
+        .slice()
+        .sort((left, right) => (text(left.command.name) || left.command.id).localeCompare(text(right.command.name) || right.command.id))
+        .map((entry) => ({
+          id: entry.command.id,
+          name: text(entry.command.name) || entry.command.id,
+        })),
+    });
+  }
+
+  conflicts.sort((left, right) => left.shortcutId.localeCompare(right.shortcutId) || left.command.name.localeCompare(right.command.name));
+  return {
+    available: true,
+    conflicts,
+    pluginCommandCount: new Set(own.map((entry) => entry.command.id)).size,
+    pluginBindingCount: own.length,
+    coreCommandCount: new Set(core.map((entry) => entry.command.id)).size,
+    coreBindingCount: core.length,
+  };
+}
+
+module.exports = {
+  auditHotkeys,
+  commandList,
+  effectiveHotkeys,
+  isCoreCommand,
+  normalizeBinding,
+  normalizeKey,
+};
+};
+
+/* ---- src/hotkey-audit-modal.js ---- */
+__defs["hotkey-audit-modal"] = function (module, exports, require) {
+const { Modal } = require("obsidian");
+
+class HotkeyAuditModal extends Modal {
+  constructor(app, report) {
+    super(app);
+    this.report = report || { available: false, conflicts: [] };
+  }
+
+  onOpen() {
+    this.modalEl.addClass("qt-hotkey-audit-modal");
+    this.render();
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+
+  render() {
+    const el = this.contentEl;
+    el.empty();
+    el.createEl("h2", { text: "Hotkey audit" });
+    const report = this.report;
+
+    if (!report.available) {
+      el.createEl("p", {
+        cls: "setting-item-description",
+        text: report.reason || "Obsidian's hotkey list is not available in this window.",
+      });
+      this.renderActions(el);
+      return;
+    }
+
+    el.createEl("p", {
+      cls: "setting-item-description",
+      text: "A read-only check of MCQ Tracker's assigned shortcuts against Obsidian's own commands. Nothing is changed.",
+    });
+    el.createDiv({
+      cls: "qt-hotkey-audit-counts",
+      text: `${report.pluginBindingCount} MCQ Tracker shortcut${report.pluginBindingCount === 1 ? "" : "s"} checked against ${report.coreBindingCount} assigned Obsidian core shortcut${report.coreBindingCount === 1 ? "" : "s"}.`,
+    });
+
+    if (!report.conflicts.length) {
+      const clear = el.createDiv({ cls: "qt-hotkey-audit-clear" });
+      clear.createEl("strong", { text: "No collisions found." });
+      clear.createEl("p", {
+        text:
+          report.pluginBindingCount === 0
+            ? "MCQ Tracker has no assigned shortcuts, so there is nothing to collide with."
+            : "Every MCQ Tracker shortcut is distinct from the Obsidian core shortcuts currently assigned on this device.",
+      });
+      this.renderActions(el);
+      return;
+    }
+
+    el.createEl("p", {
+      cls: "qt-hotkey-audit-summary",
+      text: `${report.conflicts.length} shortcut${report.conflicts.length === 1 ? "" : "s"} also used by Obsidian:`,
+    });
+    const list = el.createDiv({ cls: "qt-hotkey-audit-list" });
+    for (const conflict of report.conflicts) {
+      const row = list.createDiv({ cls: "qt-hotkey-audit-item" });
+      row.createDiv({ cls: "qt-hotkey-audit-key", text: conflict.shortcut });
+      const body = row.createDiv({ cls: "qt-hotkey-audit-body" });
+      body.createEl("strong", { text: conflict.command.name });
+      body.createDiv({ cls: "qt-hotkey-audit-command", text: conflict.command.id });
+      body.createDiv({ cls: "qt-hotkey-audit-core-label", text: "Obsidian core:" });
+      for (const core of conflict.core) {
+        body.createDiv({
+          cls: "qt-hotkey-audit-core",
+          text: `${core.name} (${core.id})`,
+        });
+      }
+    }
+    this.renderActions(el);
+  }
+
+  renderActions(el) {
+    const actions = el.createDiv({ cls: "qt-hotkey-audit-actions" });
+    actions.createEl("button", { text: "Close", cls: "mod-cta" }).addEventListener("click", () => this.close());
+  }
+}
+
+module.exports = {
+  HotkeyAuditModal,
+};
+};
+
 /* ---- src/hotkey-cleanup.js ---- */
 __defs["hotkey-cleanup"] = function (module, exports, require) {
 /*
@@ -69264,6 +69610,8 @@ const { annotationLink, annotationSummary, annotationsMarkdown, normalizeTags, p
 const { WelcomeModal } = require("./welcome-modal");
 const { WhatsNewModal } = require("./whats-new-modal");
 const { releaseFor, whatsNewShouldShow } = require("./whats-new");
+const { auditHotkeys } = require("./hotkey-audit");
+const { HotkeyAuditModal } = require("./hotkey-audit-modal");
 const { AiImportHelpModal, importAiState } = require("./ai-import-modal");
 const aiConnection = require("./ai-connection");
 const { FocusLogModal } = require("./focus-modal");
@@ -69575,6 +69923,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-welcome", name: "Open welcome guide", callback: () => this.openWelcome() });
     this.addCommand({ id: "open-welcome-note", name: "Open Start here note", callback: () => this.openWelcomeNote().catch(() => this.openWelcome()) });
     this.addCommand({ id: "open-whats-new", name: "Show what's new", callback: () => this.openWhatsNew() });
+    this.addCommand({ id: "hotkey-audit", name: "Hotkey audit: find conflicts with Obsidian shortcuts", callback: () => this.runHotkeyAudit() });
     this.addCommand({ id: "focus-start", name: "Focus: start a 25-minute session", callback: () => this.startFocusSession(25, this.settings.studyLog.lastCourse) });
     this.addCommand({ id: "tag-timer-stop-all", name: "Tag Timer: stop all running timers", callback: () => this.stopAllTagTimers() });
     this.addCommand({ id: "focus-log", name: "Focus: log study time", callback: () => this.openFocusLog() });
@@ -71240,6 +71589,16 @@ class QuestionTrackerPlugin extends Plugin {
 
   openWelcome() {
     new WelcomeModal(this.app, this).open();
+  }
+
+  /** Read-only comparison of this plugin's shortcuts with Obsidian's core shortcuts. */
+  runHotkeyAudit() {
+    const report = auditHotkeys(this.app, {
+      pluginId: (this.manifest && this.manifest.id) || "mcq-tracker",
+      isMac: !!Platform.isMacOS,
+    });
+    new HotkeyAuditModal(this.app, report).open();
+    return report;
   }
 
   /** The local release note for this version, also reachable from the palette. */
@@ -131506,6 +131865,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.299.2",
+    date: "November 9, 2026",
+    title: "A shortcut check you can trust",
+    summary:
+      "A new Hotkey audit command lists any MCQ Tracker shortcut that overlaps an Obsidian core shortcut, using the keys actually assigned on this device.",
+    highlights: [
+      {
+        title: "One command, a clear list",
+        body: "Run Hotkey audit from the command palette. It shows each collision with the MCQ Tracker command and the Obsidian command that shares the same keys.",
+      },
+      {
+        title: "Current assignments only",
+        body: "Custom hotkeys replace defaults, and a removed custom shortcut does not leak its old default back in. Other community plugins are left out, so the list stays focused on Obsidian core.",
+      },
+      {
+        title: "Read-only and local",
+        body: "The audit never changes a binding and makes no network request. It reads Obsidian's own hotkey tables in the current window.",
+      },
+      {
+        title: "Works on every platform",
+        body: "Mod is compared as Ctrl on Windows and Linux and as Cmd on macOS, so the same chord is not reported as a false collision across platforms.",
+      },
+    ],
+  },
+  {
     version: "1.299.1",
     date: "November 9, 2026",
     title: "Ctrl/Cmd+P stays yours",
@@ -132704,6 +133088,8 @@ const { FocusLogModal } = require("./focus-modal");
 const { WelcomeModal } = require("./welcome-modal");
 const whatsNew = require("./whats-new");
 const { WhatsNewModal } = require("./whats-new-modal");
+const hotkeyAudit = require("./hotkey-audit");
+const { HotkeyAuditModal } = require("./hotkey-audit-modal");
 const referenceElements = require("./reference-elements");
 const referenceGraph = require("./reference-graph");
 const { ReferenceView } = require("./reference-view");
@@ -133014,6 +133400,8 @@ QuestionTrackerPlugin.__test = {
   whatsNew,
   WelcomeModal,
   WhatsNewModal,
+  hotkeyAudit,
+  HotkeyAuditModal,
   focus,
   studyPlan,
   analytics,

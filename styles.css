@@ -17097,3 +17097,87 @@ body.is-mobile .qt-review-sidebar-review, body.is-mobile .qt-review-sidebar-grad
     width: 100%;
   }
 }
+
+/* Hotkey audit: read-only collision list. Theme variables only. */
+.qt-hotkey-audit-modal {
+  width: min(38rem, calc(100vw - 2rem));
+}
+
+.qt-hotkey-audit-counts {
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  margin-bottom: 12px;
+}
+
+.qt-hotkey-audit-clear,
+.qt-hotkey-audit-summary {
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.qt-hotkey-audit-clear strong {
+  color: var(--text-normal);
+}
+
+.qt-hotkey-audit-clear p {
+  margin: 4px 0 0;
+}
+
+.qt-hotkey-audit-list {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 4px;
+  max-height: 52vh;
+  overflow: auto;
+}
+
+.qt-hotkey-audit-item {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  display: grid;
+  gap: 8px;
+  padding: 11px 12px;
+}
+
+.qt-hotkey-audit-key {
+  color: var(--text-accent);
+  font-family: var(--font-monospace);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.qt-hotkey-audit-command {
+  color: var(--text-faint);
+  font-family: var(--font-monospace);
+  font-size: 0.76rem;
+  margin-top: 2px;
+}
+
+.qt-hotkey-audit-core-label {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  margin-top: 7px;
+}
+
+.qt-hotkey-audit-core {
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.qt-hotkey-audit-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.qt-hotkey-audit-actions button {
+  min-height: 2.75rem;
+}
+
+@media (max-width: 480px) {
+  .qt-hotkey-audit-actions button {
+    width: 100%;
+  }
+}

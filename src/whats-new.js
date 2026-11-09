@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.299.2",
+    date: "November 9, 2026",
+    title: "A shortcut check you can trust",
+    summary:
+      "A new Hotkey audit command lists any MCQ Tracker shortcut that overlaps an Obsidian core shortcut, using the keys actually assigned on this device.",
+    highlights: [
+      {
+        title: "One command, a clear list",
+        body: "Run Hotkey audit from the command palette. It shows each collision with the MCQ Tracker command and the Obsidian command that shares the same keys.",
+      },
+      {
+        title: "Current assignments only",
+        body: "Custom hotkeys replace defaults, and a removed custom shortcut does not leak its old default back in. Other community plugins are left out, so the list stays focused on Obsidian core.",
+      },
+      {
+        title: "Read-only and local",
+        body: "The audit never changes a binding and makes no network request. It reads Obsidian's own hotkey tables in the current window.",
+      },
+      {
+        title: "Works on every platform",
+        body: "Mod is compared as Ctrl on Windows and Linux and as Cmd on macOS, so the same chord is not reported as a false collision across platforms.",
+      },
+    ],
+  },
+  {
     version: "1.299.1",
     date: "November 9, 2026",
     title: "Ctrl/Cmd+P stays yours",

@@ -165,6 +165,8 @@ const { annotationLink, annotationSummary, annotationsMarkdown, normalizeTags, p
 const { WelcomeModal } = require("./welcome-modal");
 const { WhatsNewModal } = require("./whats-new-modal");
 const { releaseFor, whatsNewShouldShow } = require("./whats-new");
+const { auditHotkeys } = require("./hotkey-audit");
+const { HotkeyAuditModal } = require("./hotkey-audit-modal");
 const { AiImportHelpModal, importAiState } = require("./ai-import-modal");
 const aiConnection = require("./ai-connection");
 const { FocusLogModal } = require("./focus-modal");
@@ -476,6 +478,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-welcome", name: "Open welcome guide", callback: () => this.openWelcome() });
     this.addCommand({ id: "open-welcome-note", name: "Open Start here note", callback: () => this.openWelcomeNote().catch(() => this.openWelcome()) });
     this.addCommand({ id: "open-whats-new", name: "Show what's new", callback: () => this.openWhatsNew() });
+    this.addCommand({ id: "hotkey-audit", name: "Hotkey audit: find conflicts with Obsidian shortcuts", callback: () => this.runHotkeyAudit() });
     this.addCommand({ id: "focus-start", name: "Focus: start a 25-minute session", callback: () => this.startFocusSession(25, this.settings.studyLog.lastCourse) });
     this.addCommand({ id: "tag-timer-stop-all", name: "Tag Timer: stop all running timers", callback: () => this.stopAllTagTimers() });
     this.addCommand({ id: "focus-log", name: "Focus: log study time", callback: () => this.openFocusLog() });
@@ -2141,6 +2144,16 @@ class QuestionTrackerPlugin extends Plugin {
 
   openWelcome() {
     new WelcomeModal(this.app, this).open();
+  }
+
+  /** Read-only comparison of this plugin's shortcuts with Obsidian's core shortcuts. */
+  runHotkeyAudit() {
+    const report = auditHotkeys(this.app, {
+      pluginId: (this.manifest && this.manifest.id) || "mcq-tracker",
+      isMac: !!Platform.isMacOS,
+    });
+    new HotkeyAuditModal(this.app, report).open();
+    return report;
   }
 
   /** The local release note for this version, also reachable from the palette. */

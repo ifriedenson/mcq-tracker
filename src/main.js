@@ -243,6 +243,8 @@ const { FocusLogModal } = require("./focus-modal");
 const { WelcomeModal } = require("./welcome-modal");
 const whatsNew = require("./whats-new");
 const { WhatsNewModal } = require("./whats-new-modal");
+const hotkeyAudit = require("./hotkey-audit");
+const { HotkeyAuditModal } = require("./hotkey-audit-modal");
 const referenceElements = require("./reference-elements");
 const referenceGraph = require("./reference-graph");
 const { ReferenceView } = require("./reference-view");
@@ -553,6 +555,8 @@ QuestionTrackerPlugin.__test = {
   whatsNew,
   WelcomeModal,
   WhatsNewModal,
+  hotkeyAudit,
+  HotkeyAuditModal,
   focus,
   studyPlan,
   analytics,

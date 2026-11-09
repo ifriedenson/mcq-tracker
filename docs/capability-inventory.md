@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 437 groups, 3048 exports. **Commands:** 231. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 439 groups, 3054 exports. **Commands:** 232. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -40,6 +40,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `FrqImportPreviewModal` | 0 | `tests/frq-import.test.js` |
 | `FrqPdfPickerModal` | 0 | `tests/frq-import.test.js` |
 | `GLOBAL_TABS` | 3 | `tests/modules.test.js` |
+| `HotkeyAuditModal` | 0 | `tests/hotkey-audit.test.js` |
 | `InsightsView` | 0 | `tests/knowledge-record-scenario.test.js`, `tests/knowledge-view.test.js`, `tests/study-plan.test.js`, `tests/views.test.js` |
 | `LocalEventModal` | 0 | `tests/feature-surfaces.test.js` |
 | `LocalEventsView` | 0 | `tests/mobile-calendar-agenda.test.js` |
@@ -259,6 +260,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `hasFilters` | 0 | `tests/uncited-groups.test.js` |
 | `hasValidQuestion` | 0 | `tests/empty-state.test.js` |
 | `history` | 23 | `tests/history.test.js`, `tests/needs-fixing.test.js` |
+| `hotkeyAudit` | 6 | `tests/hotkey-audit.test.js` |
 | `importAiState` | 0 | `tests/ai-import-help.test.js` |
 | `indexOfficialIds` | 0 | `tests/import.test.js` |
 | `inferMode` | 0 | `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/question-types.test.js` |
@@ -457,6 +459,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `open-welcome` | Open welcome guide | `openWelcome` | `tests/welcome.test.js` |
 | `open-welcome-note` | Open Start here note | `openWelcomeNote` | `tests/welcome.test.js` |
 | `open-whats-new` | Show what's new | `openWhatsNew` | `tests/whats-new.test.js` |
+| `hotkey-audit` | Hotkey audit: find conflicts with Obsidian shortcuts | `runHotkeyAudit` | `tests/hotkey-audit.test.js` |
 | `focus-start` | Focus: start a 25-minute session | `startFocusSession` | `tests/focus.test.js` |
 | `tag-timer-stop-all` | Tag Timer: stop all running timers | `stopAllTagTimers` | `tests/tag-timer.test.js` |
 | `focus-log` | Focus: log study time | `openFocusLog` | `tests/focus.test.js`, `tests/ui-layout.test.js` |
@@ -469,7 +472,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `import-pdf` | Import questions from a file (PDF, PowerPoint, Word) | `openPdfImport` | `tests/ai-beginner-wizard.test.js`, `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/modules.test.js`, `tests/plugin.test.js` |
 | `import-service-export` | Import notes from an export (Airtable, Notion, Evernote, Keep, Bear, Roam) | `importActiveServiceExport` | `tests/service-import.test.js` |
 | `import-service-clipboard` | Import notes from a pasted export | `importServiceClipboard` | `tests/service-import.test.js` |
-| `quick-add` | Quick add questions from pasted text | `openQuickAdd` | `tests/ai-import-help.test.js`, `tests/note-quiz-clipboard.test.js`, `tests/plugin.test.js`, `tests/quick-add.test.js`, `tests/quiz-generator.test.js` |
+| `quick-add` | Quick add questions from pasted text | `openQuickAdd` | `tests/ai-import-help.test.js`, `tests/hotkey-audit.test.js`, `tests/note-quiz-clipboard.test.js`, `tests/plugin.test.js`, `tests/quick-add.test.js`, `tests/quiz-generator.test.js` |
 | `import-quiz-clipboard` | Import a generated quiz from the clipboard | `openQuizClipboardImport` | `tests/note-quiz-clipboard.test.js` |
 | `export-study-bundle` | Export a study bundle (backup of questions and cards) | `exportStudyBundle` | `tests/study-bundle-import.test.js`, `tests/study-bundle.test.js` |
 | `import-study-bundle` | Import a study bundle (restore questions and cards) | `importStudyBundle` | `tests/study-bundle-import.test.js` |
@@ -525,7 +528,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `calendar-add-schedule` | Calendar: add an .ics schedule | `openCalendarImport` | `tests/command-effects.test.js` |
 | `calendar-note-next-class` | Calendar: create or open the note for the next class | `openNextClassNote` | `tests/command-effects.test.js` |
 | `calendar-export` | Calendar: export the visible schedule to .ics | `exportCalendarIcs` | `tests/calendar.test.js`, `tests/term-calendar.test.js` |
-| `open-cards` | Open cards | `activateCards` | `tests/cards.test.js`, `tests/hotkey-cleanup.test.js`, `tests/plugin.test.js` |
+| `open-cards` | Open cards | `activateCards` | `tests/cards.test.js`, `tests/hotkey-audit.test.js`, `tests/hotkey-cleanup.test.js`, `tests/plugin.test.js` |
 | `ankiweb-find-deck` | Cards: find a deck on AnkiWeb | `openAnkiWebSearch` | `tests/plugin.test.js` |
 | `open-assignments` | Open assignments and grades | `activateAssignments` | `tests/core-values.test.js`, `tests/plugin.test.js`, `tests/today.test.js` |
 | `open-study-tools` | Open Study Tools | `activateStudyTools` | `tests/plugin.test.js` |
