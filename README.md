@@ -26,10 +26,11 @@ Choose the path that matches you.
 
 1. **Download and open Obsidian.** Install it from [obsidian.md/download](https://obsidian.md/download). You should see Obsidian's vault picker.
 2. **Create a vault.** Choose a folder for your notes and open it. Obsidian should show an empty file list and a note area.
-3. **Open Settings → Community plugins.** The gear is at the bottom-left. You should see **Restricted mode** turned on.
-4. **Turn off Restricted mode.** Click **Exit Restricted mode** and confirm. You should see **Browse** and **No plugins installed**.
-5. **Browse and search.** Click **Browse**, search for `MCQ Tracker`, and open the result. You should see the plugin page with an **Install** button.
-6. **Install and enable.** Click **Install**, then **Enable**. The plugin appears under your installed plugins, and its **Start here** screen may open.
+_   **Open https://community.obsidian.md/plugins/mcq-tracker and add to Obsidian. If this does not work, continue to 7.**_
+4. **Open Settings → Community plugins.** The gear is at the bottom-left. You should see **Restricted mode** turned on.
+5. **Turn off Restricted mode.** Click **Exit Restricted mode** and confirm. You should see **Browse** and **No plugins installed**.
+6. **Browse and search.** Click **Browse**, search for `MCQ Tracker`, and open the result. You should see the plugin page with an **Install** button.
+7. **Install and enable.** Click **Install**, then **Enable**. The plugin appears under your installed plugins, and its **Start here** screen may open.
 
 <img src="docs/images/install-community-plugin.png" alt="Obsidian Community plugins search showing MCQ Tracker by Isaac Friedenson, version 1.294.0, with the Install button." width="760">
 
