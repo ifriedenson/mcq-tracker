@@ -6,33 +6,6 @@ MCQ Tracker is the question-first study plugin for Obsidian. Practise exam-style
 
 Obsidian is a note-taking app that keeps your notes in a folder called a **vault**. A **community plugin** is an add-on you install inside Obsidian.
 
-<img src="docs/images/hero-practice.png" alt="MCQ Tracker Practice view showing a multiple-choice question, answer choices, a timer and Submit." width="900">
-
-## Why MCQ Tracker
-
-- **It starts with questions, not a deck to maintain.** Write or import questions, answer them, and let the review schedule follow the result. You can still add whole notes and cards when that is the better unit.
-- **It tells you why you missed.** Confidence ratings, mistake tags, per-skill accuracy, weak-spot practice, answer explanations and a review date all stay on the question note.
-- **It covers the whole exam week.** Timed multi-section tests, AP-style free response, a gradebook, exam-aware study plans and a calendar sit beside the question bank.
-- **Your notes are the database.** Review state lives in each note's properties, so it travels with the vault, survives a plugin reinstall, and remains readable by Dataview or a text editor.
-- **The optional parts stay optional.** AI, AnkiConnect, CouchDB sync and the calendar feeds are off or unused until you turn them on. Nothing is sent anywhere by default.
-
-## What you get
-
-| Area | Included |
-| --- | --- |
-| **Practice** | Multiple choice, student-produced response, fill-in, matching, true/false, select-all and free response (FRQ); hints, confidence, cross-out, flags and per-question timing. |
-| **Tests** | Timed multi-section tests, resume, a question navigator, mark for review, option shuffle, a pass mark and Bluebook-style tools. |
-| **Review** | Whole-note review in a dock under the note, a review sidebar, a due-date calendar, FSRS, SM-2 and the interval ladder; Again/Hard/Good/Easy previews, keyboard grading, requeue, skip, postpone, undo and lapse checkpoints. |
-| **Cards** | Flashcards, cloze, reversed, multiple-choice, typed and image-occlusion cards; decks, vocabulary, cram, `.apkg` import/export and optional AnkiConnect sync. |
-| **Study agent** | Optional note-grounded chat with tutor roles, an **Objective coach** role, local cited vault search, PDF context, plan-then-act, write review, memory and saved conversations. |
-| **Study tools** | Feynman sessions, recall queues, Cornell notes, study flow, reading library, mind maps, study plans, time blocks, citations and reference sheets. |
-| **Calendar** | Classes and exams from `.ics` or Full Calendar notes, local event CRUD with categories and recurrence, assignment deadlines, grades and study planning. |
-| **Statistics** | Attempts, accuracy, confidence calibration, weak spots, study activity, true retention by maturity, memory-now, distributions, leeches and per-deck summaries. |
-| **Import/export** | PDF, PowerPoint, Word/OpenDocument, HTML, RTF, Markdown, CSV, text, Quizlet, Kahoot, Moodle, QTI, GIFT, `.apkg`, Mochi and ICS. |
-| **Focus** | Pomodoro timer with work/short-break/long-break phases, a completion sound, a daily goal and a study log. |
-
-<img src="docs/images/cards-review.png" alt="Cards view with two flashcards ready to review, deck filters and a Start review button." width="440"> <img src="docs/images/insights-overview.png" alt="Insights Overview with attempts, accuracy, due counts, course health and study activity." width="440">
-
 ## Install
 
 Choose the path that matches you.
@@ -65,6 +38,33 @@ Open **Settings → Community plugins**, turn off Restricted mode if needed, the
 To update later, use **Check for updates** on the Community plugins page.
 
 </details>
+
+<img src="docs/images/hero-practice.png" alt="MCQ Tracker Practice view showing a multiple-choice question, answer choices, a timer and Submit." width="900">
+
+## Why MCQ Tracker
+
+- **It starts with questions, not a deck to maintain.** Write or import questions, answer them, and let the review schedule follow the result. You can still add whole notes and cards when that is the better unit.
+- **It tells you why you missed.** Confidence ratings, mistake tags, per-skill accuracy, weak-spot practice, answer explanations and a review date all stay on the question note.
+- **It covers the whole exam week.** Timed multi-section tests, AP-style free response, a gradebook, exam-aware study plans and a calendar sit beside the question bank.
+- **Your notes are the database.** Review state lives in each note's properties, so it travels with the vault, survives a plugin reinstall, and remains readable by Dataview or a text editor.
+- **The optional parts stay optional.** AI, AnkiConnect, CouchDB sync and the calendar feeds are off or unused until you turn them on. Nothing is sent anywhere by default.
+
+## What you get
+
+| Area | Included |
+| --- | --- |
+| **Practice** | Multiple choice, student-produced response, fill-in, matching, true/false, select-all and free response (FRQ); hints, confidence, cross-out, flags and per-question timing. |
+| **Tests** | Timed multi-section tests, resume, a question navigator, mark for review, option shuffle, a pass mark and Bluebook-style tools. |
+| **Review** | Whole-note review in a dock under the note, a review sidebar, a due-date calendar, FSRS, SM-2 and the interval ladder; Again/Hard/Good/Easy previews, keyboard grading, requeue, skip, postpone, undo and lapse checkpoints. |
+| **Cards** | Flashcards, cloze, reversed, multiple-choice, typed and image-occlusion cards; decks, vocabulary, cram, `.apkg` import/export and optional AnkiConnect sync. |
+| **Study agent** | Optional note-grounded chat with tutor roles, an **Objective coach** role, local cited vault search, PDF context, plan-then-act, write review, memory and saved conversations. |
+| **Study tools** | Feynman sessions, recall queues, Cornell notes, study flow, reading library, mind maps, study plans, time blocks, citations and reference sheets. |
+| **Calendar** | Classes and exams from `.ics` or Full Calendar notes, local event CRUD with categories and recurrence, assignment deadlines, grades and study planning. |
+| **Statistics** | Attempts, accuracy, confidence calibration, weak spots, study activity, true retention by maturity, memory-now, distributions, leeches and per-deck summaries. |
+| **Import/export** | PDF, PowerPoint, Word/OpenDocument, HTML, RTF, Markdown, CSV, text, Quizlet, Kahoot, Moodle, QTI, GIFT, `.apkg`, Mochi and ICS. |
+| **Focus** | Pomodoro timer with work/short-break/long-break phases, a completion sound, a daily goal and a study log. |
+
+<img src="docs/images/cards-review.png" alt="Cards view with two flashcards ready to review, deck filters and a Start review button." width="440"> <img src="docs/images/insights-overview.png" alt="Insights Overview with attempts, accuracy, due counts, course health and study activity." width="440">
 
 ## Quick start
 
