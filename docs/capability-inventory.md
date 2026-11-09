@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 431 groups, 3012 exports. **Commands:** 229. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 435 groups, 3030 exports. **Commands:** 231. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -15,6 +15,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `API_SYSTEM` | 0 | `tests/ai-write-guard.test.js` |
 | `ASSIGNMENTS_TABS` | 3 | `tests/modules.test.js` |
 | `AgentEditReviewModal` | 0 | `tests/feature-surfaces.test.js` |
+| `AiImportHelpModal` | 0 | `tests/ai-import-help.test.js` |
 | `ApiClient` | 0 | `tests/chat-stream.test.js`, `tests/local-models.test.js`, `tests/model-discovery.test.js`, `tests/ocr.test.js`, `tests/qwen-preset.test.js`, `tests/secret-keys.test.js` |
 | `AssignmentModal` | 0 | `tests/feature-surfaces.test.js` |
 | `AssignmentsView` | 0 | `tests/assignments.test.js`, `tests/mobile-module-layout.test.js` |
@@ -28,7 +29,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `CardView` | 0 | `tests/card-cram.test.js`, `tests/card-learning.test.js`, `tests/card-mother-cram.test.js`, `tests/card-reveal.test.js`, `tests/card-speech.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/interval-preview.test.js`, `tests/mobile-module-layout.test.js`, `tests/source-recall.test.js`, `tests/study-status.test.js` |
 | `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/chat-branches.test.js`, `tests/chat-panel-copilot.test.js`, `tests/chat-panel-mentions.test.js`, `tests/diagnostics-gauge.test.js`, `tests/memory-export.test.js`, `tests/note-context.test.js`, `tests/quick-ask.test.js`, `tests/security-hardening.test.js`, `tests/skills-pricing.test.js`, `tests/think-first.test.js` |
 | `CourseOverviewModal` | 0 | `tests/core-values.test.js` |
-| `DEFAULT_SETTINGS` | 117 | `tests/grading.test.js` |
+| `DEFAULT_SETTINGS` | 118 | `tests/grading.test.js` |
 | `DocumentReviewModal` | 0 | `tests/feature-surfaces.test.js` |
 | `DueQueueModal` | 0 | `tests/feature-surfaces.test.js` |
 | `EpubReaderModal` | 0 | `tests/epub.test.js` |
@@ -52,7 +53,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `OpenCodeClient` | 0 | `tests/chat-stream.test.js`, `tests/opencode-compat.test.js` |
 | `OpenCodeManager` | 0 | `tests/opencode-compat.test.js` |
 | `PdfAnnotationModal` | 0 | `tests/feature-surfaces.test.js` |
-| `PdfImportModal` | 0 | `tests/empty-state.test.js`, `tests/import-source.test.js`, `tests/views.test.js` |
+| `PdfImportModal` | 0 | `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/import-existing-folder.test.js`, `tests/import-properties.test.js`, `tests/import-source.test.js`, `tests/views.test.js` |
 | `PdfInkModal` | 0 | `tests/pdf-backlinks.test.js`, `tests/pdf-ink.test.js` |
 | `PomodoroView` | 0 | `tests/mobile-module-layout.test.js`, `tests/pomodoro-view.test.js` |
 | `PracticeView` | 0 | `tests/closed-book.test.js`, `tests/empty-state.test.js`, `tests/exam-ready.test.js`, `tests/hints.test.js`, `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/mobile-practice.test.js`, `tests/modules.test.js`, `tests/needs-fixing.test.js`, `tests/practice-chrome.test.js`, `tests/practice-fullscreen.test.js`, `tests/practice-keys.test.js`, `tests/practice-tools.test.js`, `tests/study-modes.test.js`, `tests/study-skin.test.js`, `tests/study-status.test.js`, `tests/views.test.js` |
@@ -60,7 +61,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `QUICK_START_URL` | 0 | `tests/empty-state.test.js` |
 | `QUICK_TIME_OPTIONS` | 3 | `tests/uncited-groups.test.js` |
 | `QuestionFolderModal` | 0 | `tests/views.test.js` |
-| `QuestionTrackerSettingTab` | 0 | `tests/feature-surfaces.test.js`, `tests/settings-navigation.test.js` |
+| `QuestionTrackerSettingTab` | 0 | `tests/feature-surfaces.test.js`, `tests/settings-navigation.test.js`, `tests/settings-simple-mode.test.js` |
 | `QuickAddModal` | 0 | `tests/feature-surfaces.test.js` |
 | `QuickAskModal` | 0 | `tests/quick-ask.test.js` |
 | `QuickChatModal` | 0 | `tests/quick-chat-bookmarks.test.js` |
@@ -82,6 +83,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `TranscriptPracticeModal` | 0 | `tests/feature-surfaces.test.js` |
 | `WeakSpotModal` | 0 | `tests/feature-surfaces.test.js` |
 | `WelcomeModal` | 0 | `tests/feature-surfaces.test.js`, `tests/welcome.test.js` |
+| `WhatsNewModal` | 0 | `tests/feature-surfaces.test.js`, `tests/whats-new.test.js` |
 | `activityLevel` | 0 | `tests/analytics.test.js` |
 | `adaptiveSession` | 5 | `tests/adaptive-session.test.js` |
 | `adaptiveTargetRank` | 0 | `tests/filters.test.js` |
@@ -256,6 +258,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `hasFilters` | 0 | `tests/uncited-groups.test.js` |
 | `hasValidQuestion` | 0 | `tests/empty-state.test.js` |
 | `history` | 23 | `tests/history.test.js`, `tests/needs-fixing.test.js` |
+| `importAiState` | 0 | `tests/ai-import-help.test.js` |
 | `indexOfficialIds` | 0 | `tests/import.test.js` |
 | `inferMode` | 0 | `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/question-types.test.js` |
 | `intervalPreview` | 4 | `tests/interval-preview.test.js` |
@@ -305,7 +308,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `parameterized` | 14 | `tests/parameterized.test.js` |
 | `parseDashboardBlock` | 0 | `tests/analytics-embed.test.js` |
 | `parseHistory` | 0 | `tests/p1-knowledge.test.js`, `tests/stats.test.js` |
-| `parseNote` | 0 | `tests/adaptive-parity.test.js`, `tests/empty-state.test.js`, `tests/hints.test.js`, `tests/import.test.js`, `tests/note-quiz-clipboard.test.js`, `tests/quick-add.test.js`, `tests/transcript.test.js` |
+| `parseNote` | 0 | `tests/adaptive-parity.test.js`, `tests/empty-state.test.js`, `tests/hints.test.js`, `tests/import-existing-folder.test.js`, `tests/import.test.js`, `tests/note-quiz-clipboard.test.js`, `tests/quick-add.test.js`, `tests/transcript.test.js` |
 | `parseScheduleBlock` | 0 | `tests/calendar.test.js` |
 | `parseSections` | 0 | `tests/grading.test.js`, `tests/hints.test.js`, `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/needs-fixing.test.js`, `tests/question-types.test.js`, `tests/views.test.js` |
 | `partsToTurns` | 0 | `tests/chat-panel-copilot.test.js`, `tests/feature-surfaces.test.js` |
@@ -376,8 +379,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `serviceImport` | 22 | `tests/service-import.test.js` |
 | `sessionReport` | 5 | `tests/session-report.test.js` |
 | `setLastErrorType` | 0 | `tests/grading.test.js` |
-| `settingsCategories` | 5 | `tests/settings-navigation.test.js` |
-| `settingsGlobal` | 7 | `tests/settings-consolidation.test.js` |
+| `settingsCategories` | 9 | `tests/settings-navigation.test.js`, `tests/settings-simple-mode.test.js` |
+| `settingsGlobal` | 8 | `tests/settings-consolidation.test.js`, `tests/settings-simple-mode.test.js` |
 | `sfcCards` | 11 | `tests/sfc-cards.test.js` |
 | `simpleFlashcards` | 2 | `tests/simple-flashcards.test.js` |
 | `simpleNoteQuiz` | 15 | `tests/simple-note-quiz.test.js` |
@@ -438,7 +441,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `weekStart` | 0 | `tests/stats.test.js` |
 | `weeklyAccuracy` | 0 | `tests/stats.test.js` |
 | `weightOf` | 0 | `tests/uncited-groups.test.js` |
-| `welcome` | 14 | `tests/welcome.test.js` |
+| `welcome` | 16 | `tests/welcome.test.js`, `tests/whats-new.test.js` |
+| `whatsNew` | 10 | `tests/feature-surfaces.test.js`, `tests/whats-new.test.js` |
 | `wordnet` | 18 | `tests/wordnet.test.js` |
 | `writingSessions` | 11 | `tests/writing-sessions.test.js` |
 | `zipWrite` | 2 | `tests/epub.test.js`, `tests/study-bundle-import.test.js` |
@@ -449,6 +453,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | --- | --- | --- | --- |
 | `open-practice-view` | Open practice view | `activateView` | `tests/calendar.test.js`, `tests/cards-extract.test.js`, `tests/daily-quiz.test.js`, `tests/modules.test.js`, `tests/plugin.test.js`, `tests/quick-practice-uri.test.js`, `tests/today.test.js`, `tests/views.test.js` |
 | `open-welcome` | Open welcome guide | `openWelcome` | `tests/welcome.test.js` |
+| `open-welcome-note` | Open Start here note | `openWelcomeNote` | `tests/welcome.test.js` |
+| `open-whats-new` | Show what's new | `openWhatsNew` | `tests/whats-new.test.js` |
 | `focus-start` | Focus: start a 25-minute session | `startFocusSession` | `tests/focus.test.js` |
 | `tag-timer-stop-all` | Tag Timer: stop all running timers | `stopAllTagTimers` | `tests/tag-timer.test.js` |
 | `focus-log` | Focus: log study time | `openFocusLog` | `tests/focus.test.js`, `tests/ui-layout.test.js` |
@@ -458,10 +464,10 @@ the table and fails if a group, export count, command or citing test drifts.
 | `export-results-csv` | Export practice results to CSV | `exportResultsCsv` | `tests/results-export.test.js` |
 | `export-practice-sheet` | Export an answer-free practice sheet | `exportPracticeSheet` | `tests/practice-sheet.test.js` |
 | `export-review-sheet` | Export an error-log review sheet | `exportReviewSheet` | `tests/practice-sheet.test.js`, `tests/views.test.js` |
-| `import-pdf` | Import questions from a file (PDF, PowerPoint, Word) | `openPdfImport` | `tests/empty-state.test.js`, `tests/modules.test.js`, `tests/plugin.test.js` |
+| `import-pdf` | Import questions from a file (PDF, PowerPoint, Word) | `openPdfImport` | `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/modules.test.js`, `tests/plugin.test.js` |
 | `import-service-export` | Import notes from an export (Airtable, Notion, Evernote, Keep, Bear, Roam) | `importActiveServiceExport` | `tests/service-import.test.js` |
 | `import-service-clipboard` | Import notes from a pasted export | `importServiceClipboard` | `tests/service-import.test.js` |
-| `quick-add` | Quick add questions from pasted text | `openQuickAdd` | `tests/note-quiz-clipboard.test.js`, `tests/plugin.test.js`, `tests/quick-add.test.js`, `tests/quiz-generator.test.js` |
+| `quick-add` | Quick add questions from pasted text | `openQuickAdd` | `tests/ai-import-help.test.js`, `tests/note-quiz-clipboard.test.js`, `tests/plugin.test.js`, `tests/quick-add.test.js`, `tests/quiz-generator.test.js` |
 | `import-quiz-clipboard` | Import a generated quiz from the clipboard | `openQuizClipboardImport` | `tests/note-quiz-clipboard.test.js` |
 | `export-study-bundle` | Export a study bundle (backup of questions and cards) | `exportStudyBundle` | `tests/study-bundle-import.test.js`, `tests/study-bundle.test.js` |
 | `import-study-bundle` | Import a study bundle (restore questions and cards) | `importStudyBundle` | `tests/study-bundle-import.test.js` |

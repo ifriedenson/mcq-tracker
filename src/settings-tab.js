@@ -20,7 +20,7 @@ const { normalizeExamReadyPasses } = require("./view-helpers");
 const { normalizeSpacedEverything } = require("./spaced-everything");
 const { formatCourseDays, parseCourseDays } = require("./study-status");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
-const { SETTINGS_CATEGORIES, SETTINGS_PAGE_BY_ID, categoryForPage, pageForModule } = require("./settings-categories");
+const { SETTINGS_PAGE_BY_ID, pageForModule, settingsCategoriesFor, settingsPageVisible } = require("./settings-categories");
 const { renderPdfPlusSettings } = require("./pdf-plus-settings");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const { ASSIGNMENTS_TABS, renderAssignmentsSettings } = require("./assignments-settings");
@@ -96,11 +96,18 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     const st = this.plugin.settings;
     rootEl.empty();
 
-    const page = this.currentPage();
+    const visibleCategories = settingsCategoriesFor(this.plugin);
+    let page = this.currentPage();
+    if (!visibleCategories.some((category) => category.pages.some((entry) => entry.id === page.id))) {
+      this.activePage = visibleCategories.some((category) => category.pages.some((entry) => entry.id === "global"))
+        ? "global"
+        : visibleCategories[0].pages[0].id;
+      page = this.currentPage();
+    }
     this.activeModule = page.module;
     if (page.tab) this.activeMcqTab = page.tab;
 
-    const containerEl = this.renderModuleNav(rootEl).body;
+    const containerEl = this.renderModuleNav(rootEl, visibleCategories).body;
 
     if (this.activeModule === "global") {
       renderGlobalSettings(
@@ -1584,10 +1591,46 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     return SETTINGS_PAGE_BY_ID[this.activePage] || SETTINGS_PAGE_BY_ID.global;
   }
 
-  openPage(id) {
+  openPage(id, options) {
     if (!SETTINGS_PAGE_BY_ID[id]) return;
+    if (!settingsPageVisible(this.plugin, id)) {
+      if (!options || options.reveal !== true) return;
+      // A deep link from an advanced surface (PDF++ Customize...) must still
+      // land on its page. Reveal the full tree rather than dropping the link.
+      this.plugin.settings.simpleSettings = false;
+      const saving = this.plugin.save();
+      if (saving && typeof saving.catch === "function") saving.catch(() => {});
+    }
     this.activePage = id;
     this.display();
+  }
+
+  async setSimpleSettings(value) {
+    this.plugin.settings.simpleSettings = value === true;
+    await this.plugin.save();
+    this.display();
+  }
+
+  /** The one switch between the beginner path and every specialist page. */
+  renderSettingsMode(layout) {
+    const simple = this.plugin.settings.simpleSettings === true;
+    const bar = layout.createDiv({ cls: "qt-settings-mode" });
+    const copy = bar.createDiv({ cls: "qt-settings-mode-copy" });
+    copy.createSpan({ cls: "qt-settings-mode-title", text: simple ? "Simple settings" : "All settings" });
+    copy.createSpan({
+      cls: "qt-settings-mode-description",
+      text: simple
+        ? "Practice, review and the main modules. Optional tools stay out of the way."
+        : "Every optional tool and advanced option is visible.",
+    });
+    const toggle = bar.createEl("button", { cls: "qt-settings-mode-toggle" });
+    toggle.setAttr("type", "button");
+    toggle.setAttr("role", "switch");
+    toggle.setAttr("aria-checked", simple ? "false" : "true");
+    toggle.setAttr("aria-label", simple ? "Show all settings" : "Use simple settings");
+    toggle.createSpan({ cls: "qt-settings-mode-label", text: simple ? "Show all settings" : "Use simple settings" });
+    toggle.createSpan({ cls: "qt-settings-mode-state", text: simple ? "Off" : "On" });
+    toggle.addEventListener("click", () => this.setSimpleSettings(!simple));
   }
 
   /**
@@ -1595,16 +1638,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
    * category beside the active page. A grouped picker replaces the page list
    * when the pane is too narrow for two columns, so every page stays reachable.
    */
-  renderModuleNav(rootEl) {
+  renderModuleNav(rootEl, settingsCategories) {
     const page = this.currentPage();
-    const category = categoryForPage(page.id);
+    const category = settingsCategories.find((entry) => entry.pages.some((item) => item.id === page.id)) || settingsCategories[0];
     const layout = rootEl.createDiv({ cls: "qt-settings-layout" });
     if (usesPhoneSettingsLayout()) layout.addClass("is-phone");
+    if (this.plugin.settings.simpleSettings === true) layout.addClass("is-simple");
+
+    this.renderSettingsMode(layout);
 
     const categories = layout.createDiv({ cls: "qt-settings-categories" });
     categories.setAttr("role", "tablist");
     categories.setAttr("aria-label", "Settings category");
-    for (const entry of SETTINGS_CATEGORIES) {
+    for (const entry of settingsCategories) {
       const active = entry.id === category.id;
       const button = categories.createEl("button", { cls: `qt-settings-category${active ? " is-active" : ""}` });
       button.setAttr("type", "button");
@@ -1618,14 +1664,14 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       cls: "qt-settings-module-picker qt-select",
       attr: { "aria-label": "Settings page" },
     });
-    for (const entry of SETTINGS_CATEGORIES) {
+    for (const entry of settingsCategories) {
       const group = picker.createEl("optgroup", { attr: { label: entry.label } });
       for (const entryPage of entry.pages) group.createEl("option", { value: entryPage.id, text: entryPage.label });
     }
     picker.value = page.id;
     picker.addEventListener("change", () => this.openPage(picker.value));
 
-    const grid = layout.createDiv({ cls: "qt-settings-grid" });
+    const grid = layout.createDiv({ cls: `qt-settings-grid${category.pages.length === 1 ? " is-single-page" : ""}` });
     const list = grid.createDiv({ cls: "qt-settings-pages" });
     list.setAttr("role", "tablist");
     list.setAttr("aria-label", `${category.label} settings`);

@@ -50,6 +50,7 @@ const MODES = [
 
 const DEFAULT_SETTINGS = {
   mcqEnabled: true, // the MCQ Tracker module (practice, weak spots, timed tests, import); turned off in Settings, Global
+  simpleSettings: true, // new installs show the essentials-only settings path; existing installs keep the full view
   showRibbonIcons: true, // show the plugin's ribbon buttons
   openPracticeOnStartUp: false, // open the practice view when the workspace is ready
   support: { ...DEFAULT_SUPPORT }, // optional feedback/donation links; never automatic, never gating
@@ -58,7 +59,7 @@ const DEFAULT_SETTINGS = {
   scheduler: "ladder", // "ladder" (default) | "fsrs"
   fsrsRetention: 0.9, // desired recall probability when FSRS is on (0.85-0.95)
   errorTypes: ["careless", "content gap", "misread", "ran out of time", "guessed", "setup error", "algebra/arithmetic slip", "unit error", "sign error", "wrong formula"],
-  confidenceLabels: ["Guessing", "Unsure", "Confident"],
+  confidenceLabels: ["Guessing", "Probably Right", "Confident"],
   knownDays: 14, // default snooze length for the Known button
   historyLimit: DEFAULT_HISTORY_LIMIT, // newest review rows kept per note (100-5000)
   knownDaysByCourse: {}, // optional course-specific snooze overrides

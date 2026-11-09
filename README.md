@@ -4,18 +4,37 @@ MCQ Tracker is the question-first study plugin for Obsidian. Turn notes and PDFs
 
 [Website](https://ifriedenson.github.io/mcq-tracker/) · [Source](https://github.com/ifriedenson/mcq-tracker) · [Give feedback](https://tally.so/r/PRDe1d)
 
-Obsidian is a note-taking app that keeps your notes in a folder called a **vault**. A **community plugin** is an add-on you install inside Obsidian.
+Obsidian is a note-taking app that keeps your notes in a folder called a **vault**. A **community plugin** is an add-on you install inside Obsidian. If you have never used Obsidian, the **MCQ Tracker Start here** note teaches the five things you need; no separate account is required.
 
 ## Quick start
 
-1. On first run, use the **Start here** screen. If it is not open, press `Ctrl/Cmd+P`, type **Open welcome guide**, and press Enter.
-2. Click **Try the example question**. MCQ Tracker writes one ordinary note under `Questions/` and opens Practice on that question.
+1. After you install and enable the plugin (see **Install** below), close the **Community plugins** window. On the first run, the **MCQ Tracker Start here** note opens in the main Obsidian window automatically. If it does not open, open that note in your vault or press `Ctrl/Cmd+P`, type **Open Start here note**, and press Enter.
+2. Follow the note's path for you. It has a five-minute Obsidian primer, an AP student path, a shortest route for Obsidian users, and power-user shortcuts. **Try the example question** writes one ordinary note under `Questions/` and opens Practice on that question.
 3. Choose an answer, pick how sure you are, and click **Submit**.
 4. Read the result. The note keeps your answer, the correct answer, the explanation and the next review date.
 5. Open **Today** to see what is due next, or **Open practice** to start another question.
 
-<img src="docs/images/welcome-start.png" alt="Start here screen with three setup steps and a photosynthesis example question." width="720">
+<img src="docs/images/welcome-start.png" alt="Interactive Start here guide with three setup steps and a photosynthesis example question." width="720">
 <img src="docs/images/answer-review.png" alt="Practice result showing an incorrect answer, the correct choice and the review controls." width="720">
+
+### Start where you are
+
+The auto-opened **MCQ Tracker Start here** note is the front door. It has four short paths:
+
+- **New to Obsidian:** a five-minute primer on vaults, notes, the sidebar, the command palette, settings and note properties.
+- **AP student:** choose the AP setup, add the exam date, import one small unit, practice, and review with **Today**. The AP resources, released FRQs and unofficial score calculator are explained there.
+- **Already use Obsidian:** the shortest route from import to practice, plus how question properties work.
+- **Power user:** command names, a Quick Practice link, Markdown blocks and optional integrations.
+
+Reopen it any time with **Open Start here note**. The interactive guide is still available as **Open welcome guide**. After an update, a short **What's new** note lists that version's changes once; reopen it with **Show what's new**.
+
+### What needs AI, and what does not
+
+AI is optional and off by default. Almost everything works without it: writing question notes, practice, timed tests, review and **Today**, cards, the calendar, assignments and grades, the reference tools and the AP resources.
+
+**One everyday workflow does need AI: turning a PDF or another document into question notes.** There is no offline converter. **Import questions from a file (PDF, PowerPoint, Word)** requires **AI features** plus a provider key (**Direct AI**) or the **OpenCode agent** on desktop, and sends the file's text to that provider. Without it, write the questions by hand or import ready-made flashcards (Quizlet, Kahoot, Moodle, QTI, GIFT, CSV or Markdown).
+
+AI also powers the Study agent and tutor chat, AI grading of free response, generating questions or cards from a document or photo, and the optional course-note summary.
 
 ### Install
 
@@ -26,26 +45,26 @@ Choose the path that matches you.
 
 1. **Download and open Obsidian.** Install it from [obsidian.md/download](https://obsidian.md/download). You should see Obsidian's vault picker.
 2. **Create a vault.** Choose a folder for your notes and open it. Obsidian should show an empty file list and a note area.
-_   **Open https://community.obsidian.md/plugins/mcq-tracker and add to Obsidian. If this does not work, continue to 7.**_
+3. **Try the website install, or skip to step 4.** Open https://community.obsidian.md/plugins/mcq-tracker and click **Add to Obsidian**. If Obsidian opens with the plugin, continue to step 7 to enable it and finish. If nothing opens, continue to 4.
 4. **Open Settings → Community plugins.** The gear is at the bottom-left. You should see **Restricted mode** turned on.
 5. **Turn off Restricted mode.** Click **Exit Restricted mode** and confirm. You should see **Browse** and **No plugins installed**.
 6. **Browse and search.** Click **Browse**, search for `MCQ Tracker`, and open the result. You should see the plugin page with an **Install** button.
-7. **Install and enable.** Click **Install**, then **Enable**. The plugin appears under your installed plugins, and its **Start here** screen may open.
+7. **Enable the plugin and close Community plugins.** Click **Install** if it is shown, then **Enable**. The plugin appears under your installed plugins. Close the **Community plugins** window (or press Escape) to return to the main Obsidian window. On the first run, the **MCQ Tracker Start here** note opens there automatically; if it does not, open that note in your vault or press `Ctrl/Cmd+P`, type **Open welcome guide**, and press Enter.
 
 <img src="docs/images/install-community-plugin.png" alt="Obsidian Community plugins search showing MCQ Tracker by Isaac Friedenson, version 1.294.0, with the Install button." width="760">
 
-**On a phone?** Install Obsidian from your app store, open the sidebar, then go to **Settings → Community plugins**. Turn off Restricted mode, tap **Browse**, search for `MCQ Tracker`, then Install and Enable. The same views and notes work on a phone.
+**On a phone?** Install Obsidian from your app store, open the sidebar, then go to **Settings → Community plugins**. Turn off Restricted mode, tap **Browse**, search for `MCQ Tracker`, then Install and Enable. Close **Settings** to return to the main Obsidian window; on the first run, the **MCQ Tracker Start here** note opens there automatically. If it does not, open that note in your vault or open the command palette and choose **Open welcome guide**. The same views and notes work on a phone.
 
 </details>
 
 <details>
 <summary><strong>Already use Obsidian?</strong> Go straight to the plugin.</summary>
 
-Open **Settings → Community plugins**, turn off Restricted mode if needed, then choose **Browse → `MCQ Tracker` → Install → Enable**. The plugin's **Start here** screen may open.
+Open **Settings → Community plugins**, turn off Restricted mode if needed, then choose **Browse → `MCQ Tracker` → Install → Enable**. Close the **Community plugins** window; on the first run, the **MCQ Tracker Start here** note opens in the main Obsidian window automatically. If it does not, open that note in your vault or press `Ctrl/Cmd+P`, type **Open welcome guide**, and press Enter.
 
-**On a phone,** start from the sidebar and use the same **Settings → Community plugins → Browse** path.
+**On a phone,** start from the sidebar and use the same **Settings → Community plugins → Browse** path. After enabling, close **Settings**; on the first run, the **MCQ Tracker Start here** note opens in the main Obsidian window automatically. If it does not, open that note in your vault or open the command palette and choose **Open welcome guide**.
 
-**Manual install or offline:** download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://github.com/ifriedenson/mcq-tracker/releases/latest), put them in `<your vault>/.obsidian/plugins/mcq-tracker/`, then enable **MCQ Tracker** under Community plugins.
+**Manual install or offline:** download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://github.com/ifriedenson/mcq-tracker/releases/latest), put them in `<your vault>/.obsidian/plugins/mcq-tracker/`, then enable **MCQ Tracker** under Community plugins. Close the **Community plugins** window; on the first run, the **MCQ Tracker Start here** note opens in the main Obsidian window automatically. If it does not, open that note in your vault or press `Ctrl/Cmd+P`, type **Open welcome guide**, and press Enter.
 
 To update later, use **Check for updates** on the Community plugins page.
 

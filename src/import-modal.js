@@ -1,7 +1,8 @@
 "use strict";
 const { Modal, Notice, Platform, Setting, TFile, normalizePath } = require("obsidian");
+const { importAiState } = require("./ai-import-modal");
 const { FolderSuggest } = require("./modals");
-const { ensureFolder, localDate, sleep, str } = require("./util");
+const { ensureFolder, localDate, sleep, str, uniquePath } = require("./util");
 const { chunkPages, readPdfPages, slugId } = require("./pdf");
 const { DOCUMENT_EXTENSIONS, documentBaseName, documentKind, documentLabel, extensionOf, readDocumentPages } = require("./documents");
 const { AGENT_SYSTEM, agentPrompt, aiFlags, answerKeyText, buildReportMarkdown, carryPassages, ensureProviders, extractNotesChunk, finalizeNote, groupIssues, mergeNotes, modelFromMessages, noteIssues, parseNote } = require("./importer");
@@ -21,6 +22,8 @@ class PdfImportModal extends Modal {
     this.items = [];
     this.warnings = [];
     this.folderTouched = false;
+    this.confirming = false;
+    this.beforeImages = new Set();
     const st = plugin.settings;
     this.meta = Object.assign(
       { test: "", course: "", section: "", domain: "", skill: "", unit: "", difficulty: "", prefix: "", start: "1", pages: "" },
@@ -58,6 +61,26 @@ class PdfImportModal extends Modal {
 
   autoFolder(name) {
     return normalizePath(`${this.parent}/${name}`);
+  }
+
+  /** True when the target is an existing folder that already holds files or subfolders. */
+  folderHasFiles(path) {
+    const vault = this.app.vault;
+    const existing = typeof vault.getFolderByPath === "function"
+      ? vault.getFolderByPath(path)
+      : vault.getAbstractFileByPath(path);
+    return !!(existing && Array.isArray(existing.children) && existing.children.length);
+  }
+
+  /** Ask before adding to an occupied folder. Nothing is written unless the user agrees. */
+  confirmExistingFolder(path) {
+    if (typeof this.plugin.askConfirm !== "function") return Promise.resolve(false);
+    return this.plugin.askConfirm(
+      "Add to this existing folder?",
+      `"${path}" already has files in it. Add the imported questions to it?\n\n` +
+        "Existing notes stay as they are. New note names, the copied original file and any pictures are given a free name, and the agent is told not to overwrite existing notes.",
+      "Add to this folder"
+    );
   }
 
   showSetup() {
@@ -100,8 +123,8 @@ class PdfImportModal extends Modal {
     }
 
     new Setting(el)
-      .setName("Create the notes in a new folder")
-      .setDesc("It must not exist yet, or be empty. It's created for you.")
+      .setName("Folder for the notes")
+      .setDesc("It's created if it doesn't exist. If it already has files, you'll be asked before the questions are added to it.")
       .addText((t) => {
         this.folderText = t;
         new FolderSuggest(this.app, t.inputEl);
@@ -148,13 +171,22 @@ class PdfImportModal extends Modal {
       ["difficulty", "Difficulty", "easy, medium or hard"],
       ["skill", "Skill (optional)", "Blank lets the file's own labels through"],
     ];
-    el.createEl("h4", { text: "Properties added to every note (all optional)" });
-    el.createEl("p", {
+    // Property overrides are optional. Keep them out of the way unless the user
+    // has saved one, and say plainly who fills them in by default.
+    const hasPropertyOverrides = fields.some(([key]) => str(this.meta[key]).trim());
+    const propertyDetails = el.createEl("details", {
+      cls: "qt-import-properties",
+      attr: hasPropertyOverrides ? { open: "" } : {},
+    });
+    const propertySummary = propertyDetails.createEl("summary", { cls: "qt-import-properties-summary" });
+    propertySummary.createSpan({ cls: "qt-import-properties-title", text: "Properties added to every note (optional)" });
+    propertySummary.createSpan({ cls: "qt-import-properties-state", text: "AI fills these automatically; open to override" });
+    propertyDetails.createEl("p", {
       cls: "qt-hint",
-      text: "Leave a box blank and the AI reads that property from the file wherever it is shown, for each question (for example the Test, Domain, Skill and Difficulty in a question's table, and its Question ID). Whatever you type here is used for every note instead of what the file says.",
+      text: "You do not need to fill these in. By default, the AI reads each property from the file for every question and adds it automatically. To override that, type a value here: it is used for every note even when the file says something different. Leave a box blank to keep the AI's value.",
     });
     for (const [key, label, ph] of fields) {
-      new Setting(el).setName(label).addText((t) => t.setPlaceholder(ph).setValue(this.meta[key]).onChange((v) => (this.meta[key] = v.trim())));
+      new Setting(propertyDetails).setName(label).addText((t) => t.setPlaceholder(ph).setValue(this.meta[key]).onChange((v) => (this.meta[key] = v.trim())));
     }
     new Setting(el)
       .setName("Question id prefix")
@@ -193,8 +225,10 @@ class PdfImportModal extends Modal {
 
   async start() {
     const p = this.plugin;
-    if (!p.settings.ai.enabled) {
-      new Notice("Turn on AI features in the plugin settings first.");
+    const aiState = importAiState(p);
+    if (aiState !== "ready") {
+      this.close();
+      p.openAiImportHelp(aiState);
       return;
     }
     if (!this.file && !this.vaultDoc) {
@@ -206,10 +240,16 @@ class PdfImportModal extends Modal {
       new Notice("Type a name for the new folder.");
       return;
     }
-    const existing = this.app.vault.getFolderByPath(folderPath);
-    if (existing && existing.children.length) {
-      new Notice("That folder already has files in it. Choose a new folder name.");
-      return;
+    if (this.folderHasFiles(folderPath)) {
+      if (this.confirming) return;
+      this.confirming = true;
+      let useExisting = false;
+      try {
+        useExisting = await this.confirmExistingFolder(folderPath);
+      } finally {
+        this.confirming = false;
+      }
+      if (!useExisting) return;
     }
     this.target = folderPath;
     p.settings.importFolder = folderPath.includes("/") ? folderPath.slice(0, folderPath.lastIndexOf("/")) : "";
@@ -239,11 +279,21 @@ class PdfImportModal extends Modal {
       const vault = this.app.vault;
       const folder = await ensureFolder(this.app, this.target);
       const prefix = slugId(this.meta.prefix || src.name);
+      const imagesDir = `${folder}/images`;
+      // Pictures that were already in an existing folder must survive this import.
+      this.beforeImages = new Set();
+      if (vault.adapter && typeof vault.adapter.list === "function") {
+        try {
+          const listing = await vault.adapter.list(imagesDir);
+          for (const path of (listing && listing.files) || []) this.beforeImages.add(path);
+        } catch (e) {
+          /* there is no images folder yet */
+        }
+      }
       // keep a copy of the original file with the notes
       this.status("Copying the file into the folder...");
-      const sourcePath = normalizePath(`${folder}/${src.name.replace(/[\\/:*?"<>|]/g, "-")}.${src.ext}`);
+      const sourcePath = uniquePath(vault, folder, src.name, src.ext, "Source");
       await vault.createBinary(sourcePath, src.buf);
-      const imagesDir = `${folder}/images`;
       if (this.opts.capture && src.kind !== "pdf") {
         this.warnings.push("Pictures are only captured from PDFs, so this import uses the text of the file.");
       }
@@ -254,7 +304,11 @@ class PdfImportModal extends Modal {
             pages: this.opts.pagePics,
             save: async (name, data) => {
               await ensureFolder(this.app, imagesDir);
-              const path = normalizePath(`${imagesDir}/${name}`);
+              const clean = str(name).replace(/^.*\//, "");
+              const dot = clean.lastIndexOf(".");
+              const base = dot > 0 ? clean.slice(0, dot) : clean;
+              const ext = dot > 0 ? clean.slice(dot + 1) : "png";
+              const path = uniquePath(vault, imagesDir, base, ext, "figure");
               await vault.createBinary(path, data);
               return path;
             },
@@ -288,7 +342,8 @@ class PdfImportModal extends Modal {
     const p = this.plugin;
     const vault = this.app.vault;
     const { folder, prefix, sourcePath, imagesDir, sourceName, kind } = this.ctx;
-    const textPath = `${folder}/_import-text.txt`;
+    const before = new Set(await this.listNotes(folder));
+    const textPath = uniquePath(vault, folder, "_import-text", "txt", "import-text");
     await vault.create(textPath, pages.map((pg) => `--- Page ${pg.n} ---\n${pg.text.trim()}`).join("\n\n"));
 
     this.status("Starting OpenCode...");
@@ -330,14 +385,14 @@ class PdfImportModal extends Modal {
       date: localDate(),
       sourcePath,
       sourceKind: kind,
-    });
+    }, before);
     try {
       await this.app.vault.adapter.remove(textPath);
     } catch (e) {
       /* leave it */
     }
     await this.pruneImages(folder, result);
-    result.issues = await this.auditNotes(folder);
+    result.issues = await this.auditNotes(folder, result.paths);
     if (!this.closed) this.showAgentDone(result, folder);
   }
 
@@ -356,6 +411,7 @@ class PdfImportModal extends Modal {
     for (const n of await this.listNotes(folder)) all += await adapter.read(n);
     let kept = 0;
     for (const f of files) {
+      if (this.beforeImages && this.beforeImages.has(f)) continue;
       const base = f.replace(/^.*\//, "");
       const isPage = /-p\d+\.png$/i.test(base);
       if ((isPage && this.opts.pagePics) || all.includes(base)) {
@@ -389,10 +445,11 @@ class PdfImportModal extends Modal {
     }
   }
 
-  async finishAgentNotes(folder, source, stamp) {
-    const files = await this.listNotes(folder);
+  async finishAgentNotes(folder, source, stamp, before) {
+    const skip = before instanceof Set ? before : new Set();
+    const files = (await this.listNotes(folder)).filter((path) => !skip.has(path));
     const meta = Object.assign({}, this.meta, { source });
-    const result = { made: 0, ai: 0, noAnswer: 0, skipped: [], images: 0, ids: [], dupes: [], issues: [] };
+    const result = { made: 0, ai: 0, noAnswer: 0, skipped: [], images: 0, ids: [], dupes: [], issues: [], paths: [] };
     for (const path of files) {
       const text = await this.app.vault.adapter.read(path);
       const parsed = parseNote(text);
@@ -423,6 +480,7 @@ class PdfImportModal extends Modal {
       if (fl.aiAnswer || fl.aiExp) result.ai++;
       if (!fl.hasAnswer) result.noAnswer++;
       result.made++;
+      result.paths.push(path);
       const oid = officialIdOf(fin.fm);
       if (oid) result.ids.push({ path, id: oid });
     }
@@ -432,7 +490,7 @@ class PdfImportModal extends Modal {
   }
 
   /** What looks wrong in the notes of this import: no answer, no choices, a missing figure. */
-  async auditNotes(folder) {
+  async auditNotes(folder, paths) {
     const adapter = this.app.vault.adapter;
     const exists = async (link) => {
       if (this.app.metadataCache.getFirstLinkpathDest(link, `${folder}/x.md`)) return true;
@@ -443,7 +501,8 @@ class PdfImportModal extends Modal {
       }
     };
     const issues = [];
-    for (const path of await this.listNotes(folder)) {
+    const list = Array.isArray(paths) ? paths : await this.listNotes(folder);
+    for (const path of list) {
       let text;
       try {
         text = await adapter.read(path);
@@ -475,6 +534,10 @@ class PdfImportModal extends Modal {
       el.createEl("p", {
         cls: "qt-hint",
         text: "If the agent was waiting to be allowed to create files, allow file edits for this vault in your OpenCode permissions and try again.",
+      });
+      el.createEl("button", { text: "Open AI settings" }).addEventListener("click", () => {
+        this.close();
+        this.plugin.openSettings("mcq-ai");
       });
     }
     this.doneButtons(el, folder, r.made);
@@ -698,7 +761,7 @@ class PdfImportModal extends Modal {
       const stimIds = new Map();
       const meta = Object.assign({}, this.meta, { source: this.source });
       const stamp = { model: this.modelLabel(), date: localDate(), sourcePath, sourceKind: kind };
-      const result = { made: 0, ai: 0, noAnswer: 0, skipped: [], images: 0, ids: [], dupes: [], issues: [] };
+      const result = { made: 0, ai: 0, noAnswer: 0, skipped: [], images: 0, ids: [], dupes: [], issues: [], paths: [] };
       const existingIds = indexOfficialIds(this.plugin.getQuestions(), folder);
       const seenIds = new Map();
       for (let i = 0; i < chosen.length; i++) {
@@ -726,6 +789,7 @@ class PdfImportModal extends Modal {
         for (let k = 2; this.app.vault.getAbstractFileByPath(path); k++) path = normalizePath(`${folder}/${qid}-${k}.md`);
         const out = finalizeNote(q.text, meta, qid, { ...stamp, stimId, verification: q.verification });
         await this.app.vault.create(path, out);
+        result.paths.push(path);
         if (oid) seenIds.set(oid, path);
         const fin = parseNote(out);
         const fl = aiFlags(fin.fm, fin.sec);
@@ -735,7 +799,7 @@ class PdfImportModal extends Modal {
         this.status(`Created ${result.made} of ${chosen.length}...`);
       }
       await this.pruneImages(folder, result);
-      result.issues = await this.auditNotes(folder);
+      result.issues = await this.auditNotes(folder, result.paths);
       this.showAgentDone(result, folder);
     } catch (e) {
       this.showError(`Some notes may have been created before this stopped. ${e && e.message ? e.message : e}`);

@@ -15,7 +15,9 @@ const source = (name) => fs.readFileSync(path.join(__dirname, "..", "src", name)
 
 async function setup(saved) {
   const plugin = new QT(makeApp([]));
-  if (saved) plugin.saved = saved;
+  // These navigation tests exercise the full tree; the new-install default is
+  // covered in tests/settings-simple-mode.test.js.
+  plugin.saved = saved === undefined ? { simpleSettings: false } : saved;
   await plugin.onload();
   obsidian.settingNames.length = 0;
   return plugin;

@@ -696,6 +696,16 @@ class PracticeView extends ItemView {
       });
     }
 
+    // The two shortcuts people reach for before choosing a preset or filter.
+    const shortcuts = root.createDiv({ cls: "qt-row qt-small-row" });
+    shortcuts.createEl("button", { text: "Import questions" }).addEventListener("click", () => this.startImport());
+    if (st.ai.enabled) {
+      shortcuts.createEl("button", { text: "AI assistant" }).addEventListener("click", () => {
+        this.state = "chat";
+        this.render();
+      });
+    }
+
     // presets
     const prow = root.createDiv({ cls: "qt-row" });
     const psel = prow.createEl("select", { cls: "qt-select qt-grow", attr: { "aria-label": "Filter preset" } });
@@ -866,16 +876,6 @@ class PracticeView extends ItemView {
     tools.createEl("button", { text: "Timed test" }).addEventListener("click", () => p.activateTest());
     tools.createEl("button", { text: "Weak spots & errors" }).addEventListener("click", () => p.activateInsights("weak"));
 
-    if (st.ai.enabled) {
-      const ib = root.createEl("button", { text: "Import questions from a file" });
-      ib.addEventListener("click", () => p.openPdfImport());
-      const ab = root.createEl("button", { text: "AI assistant" });
-      ab.addEventListener("click", () => {
-        this.state = "chat";
-        this.render();
-      });
-    }
-
     if (this.tally.n) {
       root.createDiv({ cls: "qt-hint", text: `This session: ${this.tally.correct}/${this.tally.n} correct` });
     }
@@ -903,7 +903,9 @@ class PracticeView extends ItemView {
     card.createEl("h3", { text: "No questions yet" });
     card.createDiv({ cls: "qt-onboard-text", text: "Extract multiple-choice questions from your PDFs, PowerPoints, Word files and more. Each one becomes a note you can practice." });
     card.createEl("button", { text: "Import files", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.startImport());
+    card.createEl("button", { text: "Open Start here note" }).addEventListener("click", () => this.plugin.openWelcomeNote().catch(() => this.plugin.openWelcome()));
     card.createEl("a", { text: "Quick-start guide", cls: "qt-onboard-link external-link", href: QUICK_START_URL, attr: { target: "_blank", rel: "noopener" } });
+    card.createDiv({ cls: "qt-onboard-text", text: "New to Obsidian? The Start here note teaches the basics and has a step-by-step AP path." });
     if (empty.broken.length) this.renderBroken(card, empty.broken);
   }
 
@@ -1514,27 +1516,51 @@ class PracticeView extends ItemView {
     let fr = null;
     if (!mobile) {
       ctl = root.createDiv({ cls: "qt-ctl" });
-      const fl = ctl.createDiv({ cls: "qt-foot-left" });
-      const skip = fl.createEl("button", { text: "Skip (don't log)" });
-      skip.addEventListener("click", doSkip);
-      const dontKnow = fl.createEl("button", { text: "Don't know", cls: "qt-status-btn" });
-      dontKnow.setAttr("title", "Log that you don't know this; it is not a wrong answer, but the next review comes sooner.");
-      dontKnow.addEventListener("click", doDontKnow);
-      const known = fl.createEl("button", { text: `Known ${p.knownDaysForFile(q.file)}d`, cls: "qt-status-btn" });
-      known.setAttr("title", "Hide this question for a while, then return it as due.");
-      known.addEventListener("click", doKnown);
-      const bury = fl.createEl("button", { text: "Bury", cls: "qt-status-btn" });
-      bury.setAttr("title", "Hide this question until tomorrow.");
-      bury.addEventListener("click", doBury);
-      const suspend = fl.createEl("button", { text: "Suspend", cls: "qt-status-btn" });
-      suspend.setAttr("title", "Hide this question until you restore it.");
-      suspend.addEventListener("click", doSuspend);
-      const exclude = fl.createEl("button", { text: "Exclude", cls: "qt-status-btn qt-status-exclude" });
-      exclude.setAttr("title", "Keep the note but skip it in every practice queue.");
-      exclude.addEventListener("click", doExclude);
-      const end = fl.createEl("button", { text: "End" });
-      end.addEventListener("click", doEnd);
       const foot = ctl.createDiv({ cls: "qt-exam-foot" });
+      const fl = foot.createDiv({ cls: "qt-foot-left" });
+      const moreActions = fl.createEl("button", {
+        cls: "qt-foot-more",
+        text: "More actions",
+        attr: { "aria-haspopup": "menu", "aria-expanded": "false" },
+      });
+      const footMenu = ctl.createDiv({ cls: "qt-foot-menu", attr: { role: "menu", "aria-label": "More question actions" } });
+      const closeFootMenu = () => {
+        footMenu.removeClass("is-open");
+        moreActions.setAttr("aria-expanded", "false");
+      };
+      moreActions.addEventListener("click", () => {
+        const open = !footMenu.hasClass("is-open");
+        footMenu.toggleClass("is-open", open);
+        moreActions.setAttr("aria-expanded", String(open));
+      });
+      footMenu.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        closeFootMenu();
+        moreActions.focus();
+      });
+      const menuSection = (label) => footMenu.createDiv({ cls: "qt-foot-menu-heading", text: label });
+      const menuItem = (label, hint, fn, cls) => {
+        const item = footMenu.createEl("button", {
+          cls: `qt-foot-menu-item${cls ? ` ${cls}` : ""}`,
+          attr: { role: "menuitem", "aria-label": label },
+        });
+        item.createSpan({ cls: "qt-foot-menu-label", text: label });
+        item.createSpan({ cls: "qt-foot-menu-hint", text: hint });
+        item.addEventListener("click", async () => {
+          closeFootMenu();
+          await fn();
+        });
+      };
+      menuSection("Skip or log");
+      menuItem("Skip without logging", "Move on; nothing is recorded.", doSkip);
+      menuItem("Don't know", "Log a skip without marking it wrong.", doDontKnow);
+      menuSection("Set aside");
+      menuItem(`Known for ${p.knownDaysForFile(q.file)} days`, "Hide it, then bring it back.", doKnown);
+      menuItem("Bury", "Hide it until tomorrow.", doBury);
+      menuItem("Suspend", "Hide it until you restore it.", doSuspend);
+      menuItem("Exclude", "Keep the note, but leave it out of practice.", doExclude, "qt-status-exclude");
+      menuSection("Session");
+      menuItem("End session", "Leave practice and return to the picker.", doEnd);
       fc = foot.createDiv({ cls: "qt-foot-center" });
       fr = foot.createDiv({ cls: "qt-foot-right" });
       const pill = fc.createEl("button", {
@@ -1566,12 +1592,16 @@ class PracticeView extends ItemView {
         });
       };
       sheet.createDiv({ cls: "qt-m-sheet-title", text: "Question actions" });
+      const sheetSection = (label) => sheet.createDiv({ cls: "qt-m-sheet-section", text: label });
+      sheetSection("Skip or log");
       add("Skip", doSkip);
       add("Don't know", doDontKnow);
+      sheetSection("Set aside");
       add(`Known ${p.knownDaysForFile(q.file)}d`, doKnown);
       add("Bury", doBury);
       add("Suspend", doSuspend);
       add("Exclude", doExclude, "qt-status-exclude");
+      sheetSection("Session");
       add("Question menu", () => this.runTool("navigator"));
       add("Testing tools", () => this.toggleToolsOpen());
       if (!closedBook) add("Open question note", () => this.app.workspace.getLeaf("tab").openFile(q.file));
@@ -3233,7 +3263,7 @@ class PracticeView extends ItemView {
     root.createDiv({ cls: "qt-label", text: "Notes" });
     const ta = root.createEl("textarea", {
       cls: "qt-notes qt-notes-big",
-      attr: { rows: "9", placeholder: "Why you missed it, the rule to remember, anything to review later..." },
+      attr: { rows: "9", placeholder: "Saved to your individual question's file. Write why you missed it, the rule to remember, anything to review later..." },
     });
     ta.value = this.notesText;
     ta.addEventListener("input", () => {

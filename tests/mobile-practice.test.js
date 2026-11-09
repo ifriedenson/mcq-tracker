@@ -155,6 +155,7 @@ test("mobile 3: secondary actions live only in the More sheet, with short labels
   }
   const sheet = byClass(dom, "qt-m-sheet")[0];
   assert.ok(sheet, "a More sheet exists");
+  assert.ok(byClass(dom, "qt-m-sheet-section").length >= 3, "the sheet groups skip, set-aside and session actions");
   for (const label of ["Skip", "Don't know", "Bury", "Suspend", "Exclude", "End session"]) {
     const el = dom.all.find((e) => e.meta && e.meta.text === label);
     assert.ok(el, `${label} exists`);
@@ -340,7 +341,8 @@ test("desktop practice keeps its split, footer controls and long labels", async 
   const { dom } = await setup(false);
   assert.equal(byClass(dom, "qt-mobile").length, 0);
   assert.equal(byClass(dom, "qt-qhead").length, 1, "the question-number row is unchanged");
-  assert.ok(dom.texts().includes("Skip (don't log)"));
+  assert.ok(dom.texts().includes("More actions"));
+  assert.ok(dom.texts().includes("Skip without logging"));
   assert.equal(byClass(dom, "qt-m-answerbar").length, 0);
   assert.equal(dom.texts().includes("How sure are you?"), true);
 });
@@ -352,7 +354,7 @@ test("turning mobile view off gives an iPad and a phone the computer practice la
   const ipad = await setup(true, false, false);
   assert.equal(byClass(ipad.dom, "qt-mobile").length, 0, "the iPad gets the computer question screen");
   assert.equal(byClass(ipad.dom, "qt-qhead").length, 1, "the desktop question header is used");
-  assert.ok(ipad.dom.texts().includes("Skip (don't log)"), "desktop labels return");
+  assert.ok(ipad.dom.texts().includes("More actions"), "desktop labels return");
   assert.equal(byClass(ipad.dom, "qt-m-answerbar").length, 0, "no phone answer bar");
 
   const ipadResult = await setupResult({ mobile: true, phone: false, mobileView: false });

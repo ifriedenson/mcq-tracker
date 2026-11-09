@@ -164,6 +164,7 @@ function agentPrompt(o) {
     "",
     `Create the notes in this folder, which already exists: ${o.folder}`,
     `Use one file per question, named ${o.prefix}-Q01.md, ${o.prefix}-Q02.md and so on. If the file's own question numbers are all unique, use them (padded to two digits) instead. Use the prefix "${o.prefix}" for question_id and stimulus_id values too, and make question_id match the file name.`,
+    `The folder may already contain notes. Never overwrite, change or delete an existing note. If a file name is already taken, use the next free name (for example ${o.prefix}-Q03-2.md).`,
     meta ? `\nAdd these properties to every note exactly as written:\n${meta}\nFor every other property (including official_question_id), take the value the document shows for that question.` : "\nThe user did not fill in any properties, so take every property (test, section, domain, skill, difficulty, official_question_id and so on) from what the document shows for each question.",
     "",
     "Use exactly this format for every note:",

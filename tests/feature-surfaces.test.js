@@ -77,6 +77,7 @@ const MODALS = [
   ["TranscriptPracticeModal", (app, plugin) => [app, plugin, {}, () => {}], true],
   ["WeakSpotModal", (app, plugin) => [app, plugin, () => {}]],
   ["WelcomeModal", (app, plugin) => [app, plugin]],
+  ["WhatsNewModal", (app, plugin) => [app, plugin, T.whatsNew.latestRelease()]],
 ];
 
 test("every dialog and settings renderer the README advertises is exported", () => {
@@ -97,6 +98,7 @@ test("every dialog and settings renderer the README advertises is exported", () 
     T.TranscriptPracticeModal,
     T.WeakSpotModal,
     T.WelcomeModal,
+    T.WhatsNewModal,
   ];
   for (const dialog of dialogs) assert.equal(typeof dialog, "function", "a modal class is exported");
   assert.equal(dialogs.length, MODALS.length, "the driven table covers every advertised dialog");
@@ -146,10 +148,11 @@ test("the settings tab draws every section heading", async () => {
     (layout.children || []).some((child) => child.classes && child.classes.has("qt-settings-categories")),
     "the category row is drawn"
   );
-  for (const heading of ["Core modules", "Study tools", "Global options"]) {
+  for (const heading of ["Main modules"]) {
     assert.ok(obsidian.settingNames.includes(heading), `the ${heading} heading is drawn`);
   }
-  assert.ok(obsidian.settingNames.length > 10, "the page names more than the three top headings");
+  assert.ok(!obsidian.settingNames.includes("Study tools"), "optional study tools stay collapsed out of the beginner page");
+  assert.ok(obsidian.settingNames.length > 6, "the page names more than the top heading");
 });
 
 test("the settings section renderers draw their own controls", async () => {

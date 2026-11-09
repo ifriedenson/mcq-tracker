@@ -120,9 +120,20 @@ test("global settings: the study tools are an index, not duplicate toggles", asy
   ]) {
     assert.ok(!obsidian.settingNames.includes(removed), `${removed} is not on Global`);
   }
-  for (const core of ["MCQ Tracker", "Cards and vocabulary", "Calendar", "Assignments", "Reference", "AI features"]) {
+  for (const core of ["MCQ Tracker", "Cards and vocabulary", "Calendar", "Assignments", "Reference"]) {
     assert.ok(obsidian.settingNames.includes(core), `${core} stays on Global`);
   }
+  assert.ok(!obsidian.settingNames.includes("AI features"), "AI has one home on its own page, not a duplicate Global switch");
+
+  const details = all(host).filter((el) => el.tag === "details");
+  assert.equal(details.length, 2, "study tools and advanced options are disclosures");
+  for (const disclosure of details) {
+    assert.equal(disclosure.attrs.open, undefined, "advanced groups start collapsed");
+  }
+  assert.ok(
+    all(host).some((el) => String(el.cls).includes("qt-settings-disclosure-title") && el.text === "Study tools"),
+    "the study-tool index is behind its own summary"
+  );
 });
 
 test("global settings: an already-disabled tool stays disabled and keeps its state", async () => {

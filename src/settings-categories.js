@@ -122,6 +122,45 @@ const CATEGORIES = [
 
 const SETTINGS_PAGES = CATEGORIES.flatMap((category) => category.pages.map((page) => Object.assign({}, page, { category: category.id })));
 
+/*
+ * Simple settings is the beginner path: the pages needed to practise, review,
+ * ask the assistant and switch the main modules on. Optional tools and the
+ * specialist pages stay in the full tree. A main module that is already on
+ * keeps its own page visible, so turning on Cards does not hide its settings.
+ */
+const SIMPLE_PAGE_IDS = new Set(["mcq-practice", "mcq-review", "mcq-ai", "global"]);
+const SIMPLE_MODULE_PAGES = [
+  ["cards", "cards", "cardsEnabled"],
+  ["calendar", "calendar", "calendarEnabled"],
+  ["assignments", "assignments", "assignmentsEnabled"],
+];
+
+function simpleSettingsEnabled(plugin) {
+  return !!(plugin && plugin.settings && plugin.settings.simpleSettings === true);
+}
+
+/** The category/page tree for the current settings mode. */
+function settingsCategoriesFor(plugin) {
+  if (!simpleSettingsEnabled(plugin)) return CATEGORIES;
+  const pageIds = new Set(SIMPLE_PAGE_IDS);
+  for (const [moduleId, pageId, getter] of SIMPLE_MODULE_PAGES) {
+    let enabled = false;
+    try {
+      enabled = typeof plugin[getter] === "function" && !!plugin[getter]();
+    } catch (e) {
+      enabled = false;
+    }
+    if (enabled) pageIds.add(pageId);
+  }
+  return CATEGORIES.map((category) =>
+    Object.assign({}, category, { pages: category.pages.filter((page) => pageIds.has(page.id)) })
+  ).filter((category) => category.pages.length > 0);
+}
+
+function settingsPageVisible(plugin, pageId) {
+  return settingsCategoriesFor(plugin).some((category) => category.pages.some((page) => page.id === pageId));
+}
+
 const SETTINGS_PAGE_BY_ID = Object.fromEntries(SETTINGS_PAGES.map((page) => [page.id, page]));
 
 /** The first page that renders a module, used when a caller only knows the module id. */
@@ -143,6 +182,10 @@ module.exports = {
   SETTINGS_CATEGORIES: CATEGORIES,
   SETTINGS_PAGES,
   SETTINGS_PAGE_BY_ID,
+  SIMPLE_PAGE_IDS,
   categoryForPage,
   pageForModule,
+  settingsCategoriesFor,
+  settingsPageVisible,
+  simpleSettingsEnabled,
 };

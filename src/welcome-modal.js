@@ -55,7 +55,7 @@ class WelcomeModal extends Modal {
     card.createEl("h2", { text: "Welcome to MCQ Tracker" });
     card.createEl("p", {
       cls: "qt-welcome-lead",
-      text: "Turn a question note into practice, and let the plugin schedule the next review. No setup is needed to try it.",
+      text: "Turn a question note into practice, and let the plugin schedule the next review. No setup is needed to try it. The Start here note has a five-minute Obsidian primer and separate AP, regular and power-user paths.",
     });
 
     const setup = card.createDiv({ cls: "qt-welcome-setup" });
@@ -192,6 +192,12 @@ class WelcomeModal extends Modal {
         .createEl("button", { text: "Support the plugin", cls: "qt-link" })
         .addEventListener("click", () => openExternal(links.donation));
     }
+    support
+      .createEl("button", { text: "Open Start here note", cls: "qt-link" })
+      .addEventListener("click", () => {
+        this.finish();
+        this.plugin.openWelcomeNote().catch(() => this.plugin.openWelcome());
+      });
     support
       .createEl("button", { text: "Read the quick start guide", cls: "qt-link" })
       .addEventListener("click", () => openExternal(QUICK_START_URL));

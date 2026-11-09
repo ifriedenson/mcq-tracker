@@ -162,9 +162,12 @@ const { PdfEditorModal } = require("./pdf-editor-modal");
 const { editedPathFor } = require("./pdf-editor");
 const { annotationLink, annotationSummary, annotationsMarkdown, normalizeTags, parseAnnotationFile, sidecarPathFor, upsertAnnotation, removeAnnotation } = require("./pdf-annotations");
 const { WelcomeModal } = require("./welcome-modal");
+const { WhatsNewModal } = require("./whats-new-modal");
+const { releaseFor, whatsNewShouldShow } = require("./whats-new");
+const { AiImportHelpModal, importAiState } = require("./ai-import-modal");
 const { FocusLogModal } = require("./focus-modal");
 const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normalizeStudyLog, pauseFocus, resumeFocus, startFocus, studySummary } = require("./focus");
-const { WELCOME_EXAMPLE, WELCOME_PRESETS, welcomeShouldShow } = require("./welcome");
+const { WELCOME_EXAMPLE, WELCOME_NOTE_PATH, WELCOME_PRESETS, markWelcomeSeen, welcomeNoteMarkdown, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, applySkip, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setAttemptError, setLastErrorType } = require("./notes");
 const { parseChoiceSet } = require("./answer-types");
 const { addVerificationBanner, buildBlindVerificationPrompt, normalizeVerificationMode, parseBlindVerification, parseBlindVerificationNumber, parseBlindVerificationSet, verificationFields } = require("./answer-verification");
@@ -372,7 +375,18 @@ class QuestionTrackerPlugin extends Plugin {
       this.startPdfPlus().catch(() => {});
       this.startDeferredStartup();
       this.loadKnowledgeRecord().catch(() => {});
-      if (welcomeShouldShow(this.app)) activeWindow.setTimeout(() => this.openWelcome(), 1200);
+      const version = this.manifest && this.manifest.version;
+      if (welcomeShouldShow(this.app)) {
+        activeWindow.setTimeout(() => {
+          if (!welcomeShouldShow(this.app)) return;
+          return this.openWelcomeNote().catch(() => this.openWelcome());
+        }, 1200);
+      } else if (whatsNewShouldShow(this.app, version)) {
+        activeWindow.setTimeout(() => {
+          if (!whatsNewShouldShow(this.app, version)) return;
+          this.openWhatsNew({ automatic: true });
+        }, 1600);
+      }
       const ai = this.settings.ai;
       if (Platform.isDesktopApp && ai.enabled && ai.managed && ai.preStart && this.backend() === "opencode") {
         this.manager.ensure(() => {}).catch(() => {}); // quiet: errors show when you actually use the chat
@@ -458,6 +472,8 @@ class QuestionTrackerPlugin extends Plugin {
 
     this.addCommand({ id: "open-practice-view", name: "Open practice view", callback: () => this.activateView() });
     this.addCommand({ id: "open-welcome", name: "Open welcome guide", callback: () => this.openWelcome() });
+    this.addCommand({ id: "open-welcome-note", name: "Open Start here note", callback: () => this.openWelcomeNote().catch(() => this.openWelcome()) });
+    this.addCommand({ id: "open-whats-new", name: "Show what's new", callback: () => this.openWhatsNew() });
     this.addCommand({ id: "focus-start", name: "Focus: start a 25-minute session", callback: () => this.startFocusSession(25, this.settings.studyLog.lastCourse) });
     this.addCommand({ id: "tag-timer-stop-all", name: "Tag Timer: stop all running timers", callback: () => this.stopAllTagTimers() });
     this.addCommand({ id: "focus-log", name: "Focus: log study time", callback: () => this.openFocusLog() });
@@ -1299,6 +1315,10 @@ class QuestionTrackerPlugin extends Plugin {
   async loadSettings() {
     const saved = (await this.loadData()) || {};
     this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
+    // Simple settings is the new-install default. A data file written before
+    // this flag existed keeps the full settings tree the user already knows.
+    if (saved.simpleSettings === undefined) this.settings.simpleSettings = Object.keys(saved).length === 0;
+    this.settings.simpleSettings = this.settings.simpleSettings === true;
     delete this.settings.session; // older versions stored the timer here; it is per-device now
     this.settings.filters = cloneFilters(saved.filters);
     this.settings.moreSets = Array.isArray(saved.moreSets) ? saved.moreSets.map(cloneFilters) : [];
@@ -1425,13 +1445,20 @@ class QuestionTrackerPlugin extends Plugin {
     for (const k of ["intervals", "errorTypes", "confidenceLabels"]) {
       if (!Array.isArray(this.settings[k]) || !this.settings[k].length) this.settings[k] = DEFAULT_SETTINGS[k].slice();
     }
+    // The old built-in middle label read as another "I don't know" bucket. Only the
+    // untouched old default is migrated; a user's own labels are left alone.
+    let migratedConfidence = false;
+    if (Array.isArray(this.settings.confidenceLabels) && this.settings.confidenceLabels.map(String).join("|") === "Guessing|Unsure|Confident") {
+      this.settings.confidenceLabels = DEFAULT_SETTINGS.confidenceLabels.slice();
+      migratedConfidence = true;
+    }
     // Move legacy plain-text keys into Secret Storage where Obsidian provides it.
     // This runs before the settings page is drawn, so a migrated key is never
     // written back to data.json.
     let migratedSecrets = secretKeys.migrateApiKeys(this.app, this.settings.ai.api);
     migratedSecrets += secretKeys.migratePasswordSecret(this.app, this.settings.ai, secretKeys.OPENCODE_PASSWORD_SECRET);
     migratedSecrets += secretKeys.migratePasswordSecret(this.app, this.settings.cards.couchdb, COUCHDB_PASSWORD_SECRET);
-    if (migratedSecrets || migratedSupport) await this.save();
+    if (migratedSecrets || migratedSupport || migratedConfidence) await this.save();
   }
 
   save() {
@@ -2082,11 +2109,16 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   /** Opens this plugin's page in Obsidian's settings (the settings window has no public API, so this is best effort). */
-  openSettings() {
+  openSettings(page) {
     const setting = this.app.setting;
     if (setting && setting.open) {
       setting.open();
-      if (setting.openTabById) setting.openTabById(this.manifest.id);
+      if (setting.openTabById) {
+        setting.openTabById(this.manifest.id);
+        if (page && this.settingsTab && typeof this.settingsTab.openPage === "function") {
+          this.settingsTab.openPage(page, { reveal: true });
+        }
+      }
     } else {
       new Notice("Open Settings, then MCQ Tracker, to continue.");
     }
@@ -2094,6 +2126,31 @@ class QuestionTrackerPlugin extends Plugin {
 
   openWelcome() {
     new WelcomeModal(this.app, this).open();
+  }
+
+  /** The local release note for this version, also reachable from the palette. */
+  openWhatsNew(options) {
+    const version = this.manifest && this.manifest.version;
+    const release = releaseFor(version);
+    if (!release) {
+      new Notice("No what's new notes are bundled for this version.", 6000);
+      return null;
+    }
+    const modal = new WhatsNewModal(this.app, this, release, options);
+    modal.open();
+    return modal;
+  }
+
+  /** The persistent first-run guide. The modal remains available and is the fallback if the vault cannot open a note. */
+  async openWelcomeNote() {
+    let file = this.app.vault.getAbstractFileByPath(WELCOME_NOTE_PATH);
+    const created = !file;
+    if (!file) file = await this.app.vault.create(WELCOME_NOTE_PATH, welcomeNoteMarkdown());
+    const leaf = this.app.workspace.getLeaf("tab");
+    if (!leaf || typeof leaf.openFile !== "function") throw new Error("This workspace cannot open notes.");
+    await leaf.openFile(file);
+    markWelcomeSeen(this.app, this.manifest && this.manifest.version);
+    return { path: WELCOME_NOTE_PATH, file, created };
   }
 
   /** Write the welcome example as a normal question note, then open it in Practice. */
@@ -2221,11 +2278,17 @@ class QuestionTrackerPlugin extends Plugin {
 
   openPdfImport(options) {
     if (this.moduleOff("mcq")) return;
-    if (!this.settings.ai.enabled) {
-      new Notice("Turn on AI features in the plugin settings to import from a file.");
+    const state = importAiState(this);
+    if (state !== "ready") {
+      this.openAiImportHelp(state);
       return;
     }
     new PdfImportModal(this.app, this, options).open();
+  }
+
+  /** Explain the one AI-only import path with a setup or manual-question action. */
+  openAiImportHelp(state) {
+    new AiImportHelpModal(this.app, this, state).open();
   }
 
   openCourseNotesImport(onDone, options) {
@@ -3388,7 +3451,9 @@ class QuestionTrackerPlugin extends Plugin {
     if (!this.ribbonButtons) this.ribbonButtons = {};
     if (this.ribbonAdded[id] || !this.settings.showRibbonIcons) return;
     this.ribbonAdded[id] = true;
-    this.ribbonButtons[id] = this.addRibbonIcon(icon, title, onClick) || null;
+    const button = this.addRibbonIcon(icon, title, onClick) || null;
+    if (button && typeof button.setAttr === "function") button.setAttr("aria-label", title);
+    this.ribbonButtons[id] = button;
   }
 
   removeModuleRibbon(id) {
@@ -3507,7 +3572,9 @@ class QuestionTrackerPlugin extends Plugin {
     const pluginId = (this.manifest && this.manifest.id) || "mcq-tracker";
     if (setting && typeof setting.openTabById === "function") setting.openTabById(pluginId);
     if (this.settingsTab && typeof this.settingsTab.openPage === "function") {
-      this.settingsTab.openPage("pdf-plus");
+      // PDF++ is an advanced page; a deep link from its own UI reveals it even
+      // while the rest of the settings stay in Simple mode.
+      this.settingsTab.openPage("pdf-plus", { reveal: true });
       return true;
     }
     new Notice("Open Settings → App & documents → PDF++.");

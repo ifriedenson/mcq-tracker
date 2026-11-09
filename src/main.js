@@ -204,6 +204,7 @@ const { StudyStatusModal } = require("./study-status-modal");
 const { renderSettingsTabs } = require("./settings-ui");
 const { FindQuestionModal, FolderFilterSuggest, QuestionFolderModal } = require("./modals");
 const { PdfImportModal } = require("./import-modal");
+const { AiImportHelpModal, importAiState } = require("./ai-import-modal");
 const courseNotes = require("./course-notes");
 const paperScanner = require("./paper-scanner");
 const documentClassify = require("./document-classify");
@@ -238,6 +239,8 @@ const analyticsEmbed = require("./analytics-embed");
 const progress = require("./progress");
 const { FocusLogModal } = require("./focus-modal");
 const { WelcomeModal } = require("./welcome-modal");
+const whatsNew = require("./whats-new");
+const { WhatsNewModal } = require("./whats-new-modal");
 const referenceElements = require("./reference-elements");
 const referenceGraph = require("./reference-graph");
 const { ReferenceView } = require("./reference-view");
@@ -545,7 +548,9 @@ QuestionTrackerPlugin.__test = {
   PdfAnnotationModal,
   PdfInkModal,
   welcome,
+  whatsNew,
   WelcomeModal,
+  WhatsNewModal,
   focus,
   studyPlan,
   analytics,
@@ -645,6 +650,8 @@ QuestionTrackerPlugin.__test = {
   QuestionFolderModal,
   FindQuestionModal,
   PdfImportModal,
+  AiImportHelpModal,
+  importAiState,
   courseNotes,
   paperScanner,
   documentClassify,

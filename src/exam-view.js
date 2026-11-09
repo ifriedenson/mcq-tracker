@@ -735,7 +735,7 @@ class TestView extends ItemView {
     confRow.createDiv({ cls: "qt-label", text: "How sure are you?" });
     const confChips = confRow.createDiv({ cls: "qt-chips" });
     const confBtns = [];
-    const confLabels = (p.settings.confidenceLabels || ["Guessing", "Unsure", "Confident"]).slice(0, 3);
+    const confLabels = (p.settings.confidenceLabels || ["Guessing", "Probably Right", "Confident"]).slice(0, 3);
     confLabels.forEach((label, index) => {
       const value = index + 1;
       const btn = confChips.createEl("button", { text: label, cls: "qt-chip" });
@@ -794,7 +794,7 @@ class TestView extends ItemView {
     this.phase = "saving";
     this.render();
     const now = new Date();
-    const confLabels = (p.settings.confidenceLabels || ["Guessing", "Unsure", "Confident"]).slice(0, 3);
+    const confLabels = (p.settings.confidenceLabels || ["Guessing", "Probably Right", "Confident"]).slice(0, 3);
     const confidenceLevels = confLabels.map((label, index) => ({ value: index + 1, label, total: 0, correct: 0 }));
     let rated = 0;
     let correct = 0;

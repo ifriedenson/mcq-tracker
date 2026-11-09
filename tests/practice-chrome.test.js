@@ -154,6 +154,37 @@ test("practice chrome: the footer carries the question pill and Back", async () 
   assert.equal(view.backPath(), "", "there is nothing behind the first question");
 });
 
+test("practice chrome: the footer keeps one More actions menu, not seven status buttons", async () => {
+  const { dom, view } = await setup();
+  const left = byClass(dom, "qt-foot-left")[0];
+  const menu = byClass(dom, "qt-foot-menu")[0];
+  const more = byClass(dom, "qt-foot-more")[0];
+  assert.ok(left && menu && more, "the footer and its menu render");
+  assert.equal(left.children.filter((child) => child.meta && child.meta.tag === "button").length, 1, "the footer has one secondary trigger");
+  assert.equal(menu.classes.has("is-open"), false, "the menu starts closed");
+  assert.equal(byClass(dom, "qt-status-btn").length, 0, "status buttons are not inline");
+  assert.ok(dom.texts().includes("How sure are you?"), "confidence stays primary");
+  assert.ok(dom.texts().includes("Submit"), "Submit stays primary");
+  const labels = byClass(dom, "qt-foot-menu-label").map((el) => el.meta.text);
+  for (const label of ["Skip without logging", "Don't know", "Bury", "Suspend", "Exclude", "End session"]) {
+    assert.ok(labels.includes(label), `${label} is in the menu`);
+  }
+  assert.ok(labels.some((label) => /^Known for [0-9]+ days$/.test(label)), "Known names the day count");
+
+  await clickEl(more);
+  assert.equal(menu.classes.has("is-open"), true, "More actions opens the menu");
+  assert.equal(more.meta.attrs["aria-expanded"], "true");
+  let advanced = 0;
+  view.next = async () => {
+    advanced++;
+  };
+  const skip = dom.all.find((el) => el.classes.has("qt-foot-menu-item") && (el.children || []).some((child) => child.meta.text === "Skip without logging"));
+  await clickEl(skip);
+  assert.equal(advanced, 1, "Skip still advances");
+  assert.equal(menu.classes.has("is-open"), false, "the menu closes after an action");
+  assert.equal(more.meta.attrs["aria-expanded"], "false");
+});
+
 test("practice chrome: the position helpers follow the session", async () => {
   const { view } = await setup();
   view.visited = [{ path: "a.md" }, { path: "b.md" }];

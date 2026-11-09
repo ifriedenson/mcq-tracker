@@ -7,7 +7,23 @@ every setting still writes the same `data.json` key through the same normalizer.
 The model is `src/settings-categories.js`; the renderer is
 `QuestionTrackerSettingTab.renderModuleNav()` in `src/settings-tab.js`.
 
+## Simple settings
+
+A new install starts in **Simple settings**. It shows only Practice (session and
+review), Study agent, and App & documents, plus Cards, Calendar or Assignments
+when that main module is already on. Optional study tools and the specialist
+pages stay out of the navigation and the Global page.
+
+One switch at the top of settings, **Show all settings**, reveals the full tree;
+**Use simple settings** returns to the short path without changing any saved
+module or tool value. The choice is stored as `settings.simpleSettings`.
+Existing data files written before the flag existed open the full tree, so an
+upgrade never hides pages someone already uses. A PDF++ **Customize...** deep
+link reveals the full tree because it has to land on its advanced page.
+
 ## Categories
+
+These are the full categories, shown when **Show all settings** is on.
 
 | Category | What it holds |
 | --- | --- |
@@ -24,8 +40,10 @@ duplicated, or if an MCQ Tracker tab disappears.
 
 ## Three levels in practice
 
-1. Pick a category in the row of six.
-2. Pick a page in the left list of that category.
+1. Pick a category in the row (six in All settings, three to five in Simple
+   settings).
+2. Pick a page in the left list of that category. A category with one page uses
+   the full width instead of a one-item list.
 3. Set the controls on the page. Page renderers keep their own internal grouping
    (for example AI is split into Study agent, Commands and skills, Session
    pacing, Context and privacy, Knowledge record and AI backend cards).

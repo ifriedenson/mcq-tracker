@@ -9,6 +9,7 @@ const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { normalizeSupport, supportLinks } = require("./support");
 const { SURVEY_ROLES, copySurveySummary } = require("./survey");
 const { STUDY_TOOL_SETTINGS_BY_ID, STUDY_TOOL_SETTINGS_MODULES } = require("./study-tool-settings");
+const { simpleSettingsEnabled } = require("./settings-categories");
 
 const GLOBAL_TABS = [
   { id: "modules", label: "Modules", icon: "toggle-left" },
@@ -34,6 +35,21 @@ function renderGlobalSettings(containerEl, plugin, redisplay, activeTab, setTab,
 
 const CORE_MODULE_IDS = ["mcq", "cards", "calendar", "assignments"];
 
+/** A native disclosure keeps advanced rows reachable without showing them all. */
+function renderDisclosure(containerEl, options) {
+  const details = containerEl.createEl("details", { cls: "qt-settings-disclosure" });
+  const summary = details.createEl("summary", { cls: "qt-settings-disclosure-summary" });
+  const copy = summary.createDiv({ cls: "qt-settings-disclosure-copy" });
+  copy.createSpan({ cls: "qt-settings-disclosure-title", text: options.title });
+  if (options.description) {
+    copy.createSpan({ cls: "qt-settings-disclosure-description", text: options.description });
+  }
+  if (options.status) {
+    summary.createSpan({ cls: "qt-settings-disclosure-status", text: options.status });
+  }
+  return details.createDiv({ cls: "qt-settings-disclosure-body" });
+}
+
 /** The Global page's compact index: one row per study tool and its saved state. */
 function studyToolOverview(plugin) {
   return STUDY_TOOL_SETTINGS_MODULES.map((module) => {
@@ -49,9 +65,9 @@ function studyToolOverview(plugin) {
 }
 
 /** Renders the index as buttons that open each tool's own settings page. */
-function renderStudyToolIndex(containerEl, plugin, openModule) {
+function renderStudyToolIndex(containerEl, plugin, openModule, rows) {
   const index = containerEl.createDiv({ cls: "qt-module-index" });
-  for (const row of studyToolOverview(plugin)) {
+  for (const row of rows || studyToolOverview(plugin)) {
     const button = index.createEl("button", { cls: `qt-module-link${row.enabled ? "" : " is-off"}` });
     button.setAttr("type", "button");
     button.setAttr("aria-label", `${row.label}: ${row.enabled ? "on" : "off"}. Open settings.`);
@@ -63,20 +79,43 @@ function renderStudyToolIndex(containerEl, plugin, openModule) {
 }
 
 function renderModules(containerEl, plugin, redisplay, openModule) {
-  const st = plugin.settings;
+  const simple = simpleSettingsEnabled(plugin);
+  const mainModules = [
+    { label: "MCQ Tracker", enabled: plugin.mcqEnabled() },
+    { label: "Cards and vocabulary", enabled: plugin.cardsEnabled() },
+    { label: "Calendar", enabled: plugin.calendarEnabled() },
+    { label: "Assignments", enabled: plugin.assignmentsEnabled() },
+  ];
+  if (!simple) mainModules.push({ label: "Reference", enabled: plugin.referenceEnabled() });
+
+  const overview = containerEl.createDiv({ cls: "qt-settings-overview" });
+  const overviewCopy = overview.createDiv({ cls: "qt-settings-overview-copy" });
+  overviewCopy.createEl("h3", { text: "Start with the essentials" });
+  overviewCopy.createEl("p", {
+    cls: "setting-item-description",
+    text: simple
+      ? "Practice and review work as soon as MCQ Tracker is on. Optional study tools and advanced options stay hidden until you need them."
+      : "Practice and review work as soon as MCQ Tracker is on. Optional tools are grouped below so they stay out of the way.",
+  });
+  const overviewStatus = overview.createDiv({ cls: "qt-settings-overview-status" });
+  overviewStatus.createSpan({
+    cls: "qt-settings-overview-count",
+    text: `${mainModules.filter((module) => module.enabled).length} of ${mainModules.length}`,
+  });
+  overviewStatus.createSpan({ cls: "qt-settings-overview-caption", text: "main modules on" });
+
+  new Setting(containerEl).setName("Main modules").setHeading();
   containerEl.createEl("p", {
     cls: "setting-item-description",
-    text: "Turn off the parts of the plugin you don't use. A module that is off keeps its settings and your notes; it just stops showing its views, ribbon button and commands.",
+    text: "Turn off only what you don't use. A module that is off keeps its settings and your notes; it just stops showing its views, ribbon button and commands.",
   });
-
-  new Setting(containerEl).setName("Core modules").setHeading();
 
   new Setting(containerEl)
     .setName("MCQ Tracker")
-    .setDesc("Practice questions from your notes: filters and presets, weak spots, the error log, timed tests and document import. Off hides the practice view and its other views.")
+    .setDesc("Practice questions, review and the error log. On by default.")
     .addToggle((t) =>
       t.setValue(plugin.mcqEnabled()).onChange(async (v) => {
-        st.mcqEnabled = v;
+        plugin.settings.mcqEnabled = v;
         await plugin.save();
         await plugin.onMcqToggled();
         redisplay();
@@ -85,10 +124,10 @@ function renderModules(containerEl, plugin, redisplay, openModule) {
 
   new Setting(containerEl)
     .setName("Cards and vocabulary")
-    .setDesc("Flashcards and vocabulary notes with decks, course tags and the same spaced review as your questions. Off by default; its own settings are under Cards.")
+    .setDesc("Flashcards, vocabulary and spaced review. Off by default.")
     .addToggle((t) =>
       t.setValue(plugin.cardsEnabled()).onChange(async (v) => {
-        st.cards.enabled = v;
+        plugin.settings.cards.enabled = v;
         await plugin.save();
         await plugin.onCardsToggled();
         redisplay();
@@ -97,10 +136,10 @@ function renderModules(containerEl, plugin, redisplay, openModule) {
 
   new Setting(containerEl)
     .setName("Calendar")
-    .setDesc("A class and exam calendar from .ics schedules, with countdowns, one-click class notes and study time from free periods. Off by default; its own settings are under Calendar.")
+    .setDesc("Class and exam schedules, with study time from free periods. Off by default.")
     .addToggle((t) =>
       t.setValue(plugin.calendarEnabled()).onChange(async (v) => {
-        st.calendar.enabled = v;
+        plugin.settings.calendar.enabled = v;
         await plugin.save();
         await plugin.onCalendarToggled();
         redisplay();
@@ -109,86 +148,87 @@ function renderModules(containerEl, plugin, redisplay, openModule) {
 
   new Setting(containerEl)
     .setName("Assignments")
-    .setDesc("A gradebook and task list built from assignment notes: weighted course grades, what you need on the final, a credit-weighted GPA and Tasks-compatible due dates. Its settings are under Assignments.")
+    .setDesc("Grades, due dates and the final-score calculator. On by default.")
     .addToggle((t) =>
       t.setValue(plugin.assignmentsEnabled()).onChange(async (v) => {
-        st.assignments.enabled = v;
+        plugin.settings.assignments.enabled = v;
         await plugin.save();
         await plugin.onAssignmentsToggled();
         redisplay();
       })
     );
 
+  if (!simple) {
+    new Setting(containerEl)
+      .setName("Reference")
+      .setDesc("Formula sheet, constants and unit converter. Off by default.")
+      .addToggle((t) =>
+        t.setValue(plugin.referenceEnabled()).onChange(async (v) => {
+          plugin.settings.reference.enabled = v;
+          await plugin.save();
+          await plugin.onReferenceToggled();
+          redisplay();
+        })
+      );
 
-  new Setting(containerEl)
-    .setName("Reference")
-    .setDesc("A local formula sheet, constants list and unit converter in its own view. Off by default; its settings are under Reference.")
-    .addToggle((t) =>
-      t.setValue(plugin.referenceEnabled()).onChange(async (v) => {
-        st.reference.enabled = v;
-        await plugin.save();
-        await plugin.onReferenceToggled();
-        redisplay();
-      })
-    );
+    const tools = studyToolOverview(plugin);
+    const toolsBody = renderDisclosure(containerEl, {
+      title: "Study tools",
+      description: "Optional tools with their own settings. Open one to turn it on or configure it.",
+      status: `${tools.filter((tool) => tool.enabled).length} of ${tools.length} on`,
+    });
+    renderStudyToolIndex(toolsBody, plugin, openModule, tools);
 
-  new Setting(containerEl).setName("Study tools").setHeading();
-  containerEl.createEl("p", {
-    cls: "setting-item-description",
-    text: "Every study tool has its own settings page. This index shows whether it is on and opens that page; the tool's own page is the single place it is enabled and configured.",
-  });
-  renderStudyToolIndex(containerEl, plugin, openModule);
-
-  new Setting(containerEl).setName("Global options").setHeading();
-
-  new Setting(containerEl)
-    .setName("Embedded PDF++ tools")
-    .setDesc("Run the full MIT-licensed PDF++ 0.40.31 native PDF viewer integration and set it up on its own settings page, beside every other MCQ Tracker option.")
-    .addButton((b) =>
-      b.setButtonText("Open PDF++ settings").onClick(() => (typeof openModule === "function" ? openModule("pdf-plus") : redisplay()))
-    );
-
-  new Setting(containerEl)
-    .setName("AI features")
-    .setDesc("Ask AI on the result screen, the AI assistant, and document import. Off by default: nothing is sent anywhere until this is on. Choose the provider under MCQ Tracker, AI.")
-    .addToggle((t) =>
-      t.setValue(!!st.ai.enabled).onChange(async (v) => {
-        st.ai.enabled = v;
-        await plugin.save();
-        plugin.refreshViews();
-        redisplay();
-      })
-    );
-
-  containerEl.createEl("p", {
-    cls: "setting-item-description",
-    text: "Core settings stay on their own pages: MCQ Tracker, Cards, Calendar, Assignments and Reference. Each study tool is configured only on its own page above.",
-  });
+    const advanced = renderDisclosure(containerEl, {
+      title: "Advanced",
+      description: "Embedded document tools and specialist options.",
+      status: "Optional",
+    });
+    new Setting(advanced)
+      .setName("Embedded PDF++ tools")
+      .setDesc("Run the full MIT-licensed PDF++ 0.40.31 native PDF viewer integration and set it up on its own settings page.")
+      .addButton((b) =>
+        b.setButtonText("Open PDF++ settings").onClick(() => (typeof openModule === "function" ? openModule("pdf-plus") : redisplay()))
+      );
+  } else {
+    containerEl.createEl("p", {
+      cls: "setting-item-description qt-settings-footnote",
+      text: "Optional study tools and advanced options are hidden in Simple settings. Turn on Show all settings above to see them.",
+    });
+  }
 }
 
 function renderGlobalAbout(containerEl, plugin, redisplay) {
   new Setting(containerEl).setName("Getting started").setHeading();
   containerEl.createEl("p", {
     cls: "setting-item-description",
-    text: "The welcome guide explains the main workflows, lets you choose a starting set of modules, and can be reopened at any time.",
+    text: "The Start here note teaches Obsidian basics, AP setup, and the main workflows. The interactive guide offers a quick tour and module presets. Both can be reopened at any time.",
   });
   new Setting(containerEl)
+    .setName("Start here note")
+    .setDesc("Open the persistent guide with a five-minute Obsidian primer, an AP student path and power-user shortcuts. It is safe to edit.")
+    .addButton((b) => b.setButtonText("Open Start here note").onClick(() => plugin.openWelcomeNote().catch(() => plugin.openWelcome())));
+  new Setting(containerEl)
     .setName("Welcome guide")
-    .setDesc("Open the guided setup and how-to again. It never blocks startup and stores its progress only on this device.")
+    .setDesc("Open the interactive tour again. It never blocks startup and stores its progress only on this device.")
     .addButton((b) => b.setButtonText("Open welcome guide").onClick(() => plugin.openWelcome()));
+  new Setting(containerEl)
+    .setName("What's new")
+    .setDesc("Review the changes in this version. After an update, the same note opens once on its own.")
+    .addButton((b) => b.setButtonText("Open What's new").onClick(() => plugin.openWhatsNew()));
   new Setting(containerEl)
     .setName("Quick start and documentation")
     .setDesc("The README covers question-note formats, imports, cards, the calendar and reference tools.")
     .addButton((b) => b.setButtonText("Open README").onClick(() => openExternal("https://github.com/ifriedenson/mcq-tracker#readme")));
 
-  new Setting(containerEl).setName("Feedback and support").setHeading();
-  containerEl.createEl("p", {
-    cls: "setting-item-description",
-    text: "Optional external links. Nothing opens or is submitted automatically, and the plugin never counts clicks. Leave a field blank to hide that link.",
+  const feedback = renderDisclosure(containerEl, {
+    title: "Feedback and support",
+    description: "Optional links and a local feedback form. Nothing opens or is submitted automatically.",
+    status: "Optional",
   });
   const st = plugin.settings;
   const support = normalizeSupport(st.support);
-  new Setting(containerEl)
+  new Setting(feedback)
     .setName("Show feedback and donation links")
     .setDesc("Show optional links in the welcome guide. The plugin stays MIT and fully usable either way.")
     .addToggle((t) =>
@@ -198,7 +238,7 @@ function renderGlobalAbout(containerEl, plugin, redisplay) {
         if (redisplay) redisplay();
       })
     );
-  new Setting(containerEl)
+  new Setting(feedback)
     .setName("Feedback link")
     .setDesc("Opens when the user chooses Send feedback. Defaults to the MCQ Tracker feedback form.")
     .addText((t) =>
@@ -210,7 +250,7 @@ function renderGlobalAbout(containerEl, plugin, redisplay) {
           await plugin.save();
         })
     );
-  new Setting(containerEl)
+  new Setting(feedback)
     .setName("Donation link")
     .setDesc("Optional funding page, for example GitHub Sponsors or Ko-fi. Blank hides the donation button.")
     .addText((t) =>
@@ -224,41 +264,41 @@ function renderGlobalAbout(containerEl, plugin, redisplay) {
     );
   const links = supportLinks(st.support);
   if (links.feedback || links.donation) {
-    const row = new Setting(containerEl).setName("Preview links");
+    const row = new Setting(feedback).setName("Preview links");
     if (links.feedback) row.addButton((b) => b.setButtonText("Open feedback").onClick(() => openExternal(links.feedback)));
     if (links.donation) row.addButton((b) => b.setButtonText("Open donation page").onClick(() => openExternal(links.donation)));
   }
-  new Setting(containerEl).setName("Feedback survey").setHeading();
-  containerEl.createEl("p", {
+  new Setting(feedback).setName("Feedback survey").setHeading();
+  feedback.createEl("p", {
     cls: "setting-item-description",
     text: "Optional and local-only. Answers stay in this form until you copy them; nothing is sent, saved or counted automatically.",
   });
   const survey = { rating: 5, role: SURVEY_ROLES[0], likes: "", improve: "", quote: false };
-  new Setting(containerEl)
+  new Setting(feedback)
     .setName("How is MCQ Tracker working for you?")
     .addDropdown((d) => {
       for (const n of [1, 2, 3, 4, 5]) d.addOption(String(n), `${n} / 5`);
       d.setValue("5").onChange((v) => (survey.rating = Number(v)));
     });
-  new Setting(containerEl)
+  new Setting(feedback)
     .setName("What do you use it for?")
     .addDropdown((d) => {
       for (const role of SURVEY_ROLES) d.addOption(role, role);
       d.setValue(SURVEY_ROLES[0]).onChange((v) => (survey.role = v));
     });
-  new Setting(containerEl)
+  new Setting(feedback)
     .setName("What works well?")
     .setDesc("Optional. A sentence or two is plenty.")
     .addTextArea((t) => t.setPlaceholder("Optional").onChange((v) => (survey.likes = v)));
-  new Setting(containerEl)
+  new Setting(feedback)
     .setName("What should improve?")
     .setDesc("Optional. Specific workflows or missing formats are the most useful.")
     .addTextArea((t) => t.setPlaceholder("Optional").onChange((v) => (survey.improve = v)));
-  new Setting(containerEl)
+  new Setting(feedback)
     .setName("May I quote this feedback?")
     .setDesc("Leave off to keep the feedback anonymous.")
     .addToggle((t) => t.setValue(false).onChange((v) => (survey.quote = v)));
-  new Setting(containerEl)
+  new Setting(feedback)
     .setName("Copy the feedback")
     .setDesc("Copies a Markdown summary. Paste it into the feedback link above or any message you choose.")
     .addButton((b) =>
@@ -279,7 +319,7 @@ function renderGlobalAbout(containerEl, plugin, redisplay) {
 function renderGeneral(containerEl, plugin, redisplay) {
   const st = plugin.settings;
 
-  new Setting(containerEl).setName("Interface").setHeading();
+  new Setting(containerEl).setName("Everyday").setHeading();
 
   new Setting(containerEl)
     .setName("Show ribbon icons")
@@ -292,6 +332,18 @@ function renderGeneral(containerEl, plugin, redisplay) {
         redisplay();
       })
     );
+
+  new Setting(containerEl)
+    .setName("Open the practice view when Obsidian starts")
+    .setDesc("Open practice as soon as the workspace is ready, so you can start with one tap. Needs the MCQ Tracker module.")
+    .addToggle((t) =>
+      t.setValue(st.openPracticeOnStartUp === true).onChange(async (v) => {
+        st.openPracticeOnStartUp = v;
+        await plugin.save();
+      })
+    );
+
+  new Setting(containerEl).setName("Study plan").setHeading();
 
   new Setting(containerEl)
     .setName("Daily study goal")
@@ -323,10 +375,12 @@ function renderGeneral(containerEl, plugin, redisplay) {
       });
     });
 
+  new Setting(containerEl).setName("Reminders").setHeading();
+
   const reminder = st.reminder || { enabled: false, hour: 9 };
   new Setting(containerEl)
     .setName("Daily study reminder")
-    .setDesc("A quiet in-app nudge on Today and in the status bar, at most once a day. It sends nothing, and is off by default. Operating-system delivery is a separate opt-in below.")
+    .setDesc("A quiet in-app nudge on Today and in the status bar, at most once a day. It sends nothing and is off by default.")
     .addToggle((t) =>
       t.setValue(reminder.enabled === true).onChange(async (v) => {
         st.reminder = { ...reminder, enabled: v };
@@ -334,7 +388,16 @@ function renderGeneral(containerEl, plugin, redisplay) {
         plugin.refreshReminder();
         redisplay();
       })
-    )
+    );
+
+  const details = renderDisclosure(containerEl, {
+    title: "Reminder details",
+    description: "Time, desktop delivery and today's dismissal.",
+    status: reminder.enabled === true ? "On" : "Off",
+  });
+  new Setting(details)
+    .setName("Reminder hour")
+    .setDesc("The local hour for the in-app nudge, from 0 to 23. Default 9.")
     .addText((t) => {
       t.inputEl.type = "number";
       t.inputEl.min = "0";
@@ -348,12 +411,16 @@ function renderGeneral(containerEl, plugin, redisplay) {
           plugin.refreshReminder();
         }
       });
-    })
+    });
+
+  new Setting(details)
+    .setName("Today's reminder")
+    .setDesc("Hide today's nudge without changing the schedule.")
     .addButton((b) => b.setButtonText("Dismiss today").onClick(() => plugin.dismissTodayReminder()));
 
-  new Setting(containerEl)
+  new Setting(details)
     .setName("Operating-system notifications")
-    .setDesc("Ask the operating system to show the daily reminder as a desktop notification, at most once a day. Off by default; the in-app nudge stays on either way, nothing is sent over the network, and the permission prompt appears only when you turn this on or press the button.")
+    .setDesc("Show the daily reminder as a desktop notification, at most once a day. Off by default; nothing is sent over the network, and the permission prompt appears only when you turn this on or press the button.")
     .addToggle((t) =>
       t.setValue(reminder.osNotifications === true).onChange(async (v) => {
         st.reminder = { ...reminder, osNotifications: v };
@@ -365,16 +432,6 @@ function renderGeneral(containerEl, plugin, redisplay) {
     )
     .addButton((b) => b.setButtonText("Request permission").onClick(() => plugin.requestOsNotifications()));
 
-  new Setting(containerEl)
-    .setName("Open the practice view when Obsidian starts")
-    .setDesc("Opens the practice view as soon as the workspace is ready, so you can start with one tap. Needs the MCQ Tracker module.")
-    .addToggle((t) =>
-      t.setValue(st.openPracticeOnStartUp === true).onChange(async (v) => {
-        st.openPracticeOnStartUp = v;
-        await plugin.save();
-      })
-    );
-
   const version = (plugin.manifest && plugin.manifest.version) || "";
   new Setting(containerEl)
     .setName("Version")
@@ -385,6 +442,7 @@ function renderGeneral(containerEl, plugin, redisplay) {
 module.exports = {
   CORE_MODULE_IDS,
   GLOBAL_TABS,
+  renderDisclosure,
   renderStudyToolIndex,
   studyToolOverview,
   renderGeneral,

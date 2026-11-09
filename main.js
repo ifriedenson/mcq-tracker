@@ -2996,6 +2996,120 @@ module.exports = {
 };
 };
 
+/* ---- src/ai-import-modal.js ---- */
+__defs["ai-import-modal"] = function (module, exports, require) {
+const { Modal } = require("obsidian");
+const { API_PRESETS } = require("./api-client");
+const { resolveApiKey } = require("./secret-keys");
+
+/**
+ * How ready the current settings are for the one AI-only import path.
+ * "off": AI features are disabled. "no-key": Direct AI has no usable key.
+ * "ready": the import can open (OpenCode supplies its own provider).
+ */
+function importAiState(plugin) {
+  const ai = (plugin.settings && plugin.settings.ai) || {};
+  if (ai.enabled !== true) return "off";
+  if (typeof plugin.backend === "function" && plugin.backend() === "opencode") return "ready";
+  const api = ai.api || {};
+  const preset = API_PRESETS[api.provider] || API_PRESETS.custom;
+  if (preset && preset.noKey) return "ready";
+  let key = "";
+  try {
+    key = resolveApiKey(plugin.app, api);
+  } catch (e) {
+    key = "";
+  }
+  return key ? "ready" : "no-key";
+}
+
+/**
+ * The document-to-question import is the one everyday workflow that needs AI.
+ * This replaces the old one-line notice with the same split the Start here
+ * note, README and website use, plus a direct setup or manual-question action.
+ */
+class AiImportHelpModal extends Modal {
+  constructor(app, plugin, state) {
+    super(app);
+    this.plugin = plugin;
+    this.state = state || importAiState(plugin);
+  }
+
+  onOpen() {
+    this.render();
+  }
+
+  render() {
+    const el = this.contentEl;
+    el.empty();
+    if (typeof el.addClass === "function") el.addClass("qt-ai-import-help");
+
+    el.createEl("h3", {
+      text: this.state === "no-key" ? "Add a provider key to import a file" : "Turning a file into questions needs AI",
+    });
+    el.createEl("p", {
+      cls: "qt-hint",
+      text:
+        "Turning a PDF, PowerPoint or Word file into question notes is the one everyday step that needs AI. " +
+        "Writing question notes by hand, practice, timed tests, review and Today, cards, the calendar, assignments, " +
+        "and the reference and AP tools all work without it.",
+    });
+
+    el.createEl("h4", { text: "How the import gets AI" });
+    const options = el.createEl("ul", { cls: "qt-ai-import-options" });
+    options.createEl("li", {
+      text:
+        "Direct AI: turn on AI features and add a provider key. The file's text is sent to that provider, " +
+        "which may charge for long files.",
+    });
+    options.createEl("li", {
+      text:
+        "OpenCode agent (desktop): install OpenCode and configure a provider there. The agent writes the notes " +
+        "in your vault; the file's text still goes to that provider.",
+    });
+
+    el.createEl("p", {
+      cls: "qt-hint",
+      text:
+        "There is no offline PDF-to-question converter. If you would rather not enable AI, write the question note " +
+        "yourself, or import ready-made flashcards (Quizlet, Kahoot, Moodle, QTI, GIFT, CSV or Markdown). Both stay local.",
+    });
+
+    const row = el.createDiv({ cls: "qt-row qt-ai-import-actions" });
+    if (this.state === "off") {
+      const enable = row.createEl("button", { text: "Enable AI features and open settings", cls: "mod-cta" });
+      enable.addEventListener("click", async () => {
+        if (!this.plugin.settings.ai) this.plugin.settings.ai = {};
+        this.plugin.settings.ai.enabled = true;
+        await this.plugin.save();
+        if (typeof this.plugin.refreshViews === "function") this.plugin.refreshViews();
+        this.close();
+        this.plugin.openSettings();
+      });
+    } else if (this.state === "no-key") {
+      row
+        .createEl("button", { text: "Add a provider key in settings", cls: "mod-cta" })
+        .addEventListener("click", () => {
+          this.close();
+          this.plugin.openSettings();
+        });
+    }
+    row
+      .createEl("button", { text: "Write a question note instead" })
+      .addEventListener("click", () => {
+        this.close();
+        this.plugin.openQuickAdd();
+      });
+    row.createEl("button", { text: "Close" }).addEventListener("click", () => this.close());
+  }
+}
+
+module.exports = {
+  AiImportHelpModal,
+  importAiState,
+};
+};
+
 /* ---- src/ai-service.js ---- */
 __defs["ai-service"] = function (module, exports, require) {
 /*
@@ -3801,7 +3915,7 @@ function courseMatches(value, course) {
   return !!a && !!b && (a === b || a.includes(b) || b.includes(a));
 }
 
-const DEFAULT_CONFIDENCE_LABELS = ["Guessing", "Unsure", "Confident"];
+const DEFAULT_CONFIDENCE_LABELS = ["Guessing", "Probably Right", "Confident"];
 const BREAKDOWN_FIELDS = ["skill", "domain", "difficulty"];
 const FIELD_LABELS = { skill: "Weak spots", domain: "Domain breakdown", difficulty: "Difficulty breakdown" };
 
@@ -31194,6 +31308,7 @@ const MODES = [
 
 const DEFAULT_SETTINGS = {
   mcqEnabled: true, // the MCQ Tracker module (practice, weak spots, timed tests, import); turned off in Settings, Global
+  simpleSettings: true, // new installs show the essentials-only settings path; existing installs keep the full view
   showRibbonIcons: true, // show the plugin's ribbon buttons
   openPracticeOnStartUp: false, // open the practice view when the workspace is ready
   support: { ...DEFAULT_SUPPORT }, // optional feedback/donation links; never automatic, never gating
@@ -31202,7 +31317,7 @@ const DEFAULT_SETTINGS = {
   scheduler: "ladder", // "ladder" (default) | "fsrs"
   fsrsRetention: 0.9, // desired recall probability when FSRS is on (0.85-0.95)
   errorTypes: ["careless", "content gap", "misread", "ran out of time", "guessed", "setup error", "algebra/arithmetic slip", "unit error", "sign error", "wrong formula"],
-  confidenceLabels: ["Guessing", "Unsure", "Confident"],
+  confidenceLabels: ["Guessing", "Probably Right", "Confident"],
   knownDays: 14, // default snooze length for the Known button
   historyLimit: DEFAULT_HISTORY_LIMIT, // newest review rows kept per note (100-5000)
   knownDaysByCourse: {}, // optional course-specific snooze overrides
@@ -37512,7 +37627,7 @@ class TestView extends ItemView {
     confRow.createDiv({ cls: "qt-label", text: "How sure are you?" });
     const confChips = confRow.createDiv({ cls: "qt-chips" });
     const confBtns = [];
-    const confLabels = (p.settings.confidenceLabels || ["Guessing", "Unsure", "Confident"]).slice(0, 3);
+    const confLabels = (p.settings.confidenceLabels || ["Guessing", "Probably Right", "Confident"]).slice(0, 3);
     confLabels.forEach((label, index) => {
       const value = index + 1;
       const btn = confChips.createEl("button", { text: label, cls: "qt-chip" });
@@ -37571,7 +37686,7 @@ class TestView extends ItemView {
     this.phase = "saving";
     this.render();
     const now = new Date();
-    const confLabels = (p.settings.confidenceLabels || ["Guessing", "Unsure", "Confident"]).slice(0, 3);
+    const confLabels = (p.settings.confidenceLabels || ["Guessing", "Probably Right", "Confident"]).slice(0, 3);
     const confidenceLevels = confLabels.map((label, index) => ({ value: index + 1, label, total: 0, correct: 0 }));
     let rated = 0;
     let correct = 0;
@@ -47667,8 +47782,9 @@ module.exports = { ImageOcclusionModal };
 /* ---- src/import-modal.js ---- */
 __defs["import-modal"] = function (module, exports, require) {
 const { Modal, Notice, Platform, Setting, TFile, normalizePath } = require("obsidian");
+const { importAiState } = require("./ai-import-modal");
 const { FolderSuggest } = require("./modals");
-const { ensureFolder, localDate, sleep, str } = require("./util");
+const { ensureFolder, localDate, sleep, str, uniquePath } = require("./util");
 const { chunkPages, readPdfPages, slugId } = require("./pdf");
 const { DOCUMENT_EXTENSIONS, documentBaseName, documentKind, documentLabel, extensionOf, readDocumentPages } = require("./documents");
 const { AGENT_SYSTEM, agentPrompt, aiFlags, answerKeyText, buildReportMarkdown, carryPassages, ensureProviders, extractNotesChunk, finalizeNote, groupIssues, mergeNotes, modelFromMessages, noteIssues, parseNote } = require("./importer");
@@ -47688,6 +47804,8 @@ class PdfImportModal extends Modal {
     this.items = [];
     this.warnings = [];
     this.folderTouched = false;
+    this.confirming = false;
+    this.beforeImages = new Set();
     const st = plugin.settings;
     this.meta = Object.assign(
       { test: "", course: "", section: "", domain: "", skill: "", unit: "", difficulty: "", prefix: "", start: "1", pages: "" },
@@ -47725,6 +47843,26 @@ class PdfImportModal extends Modal {
 
   autoFolder(name) {
     return normalizePath(`${this.parent}/${name}`);
+  }
+
+  /** True when the target is an existing folder that already holds files or subfolders. */
+  folderHasFiles(path) {
+    const vault = this.app.vault;
+    const existing = typeof vault.getFolderByPath === "function"
+      ? vault.getFolderByPath(path)
+      : vault.getAbstractFileByPath(path);
+    return !!(existing && Array.isArray(existing.children) && existing.children.length);
+  }
+
+  /** Ask before adding to an occupied folder. Nothing is written unless the user agrees. */
+  confirmExistingFolder(path) {
+    if (typeof this.plugin.askConfirm !== "function") return Promise.resolve(false);
+    return this.plugin.askConfirm(
+      "Add to this existing folder?",
+      `"${path}" already has files in it. Add the imported questions to it?\n\n` +
+        "Existing notes stay as they are. New note names, the copied original file and any pictures are given a free name, and the agent is told not to overwrite existing notes.",
+      "Add to this folder"
+    );
   }
 
   showSetup() {
@@ -47767,8 +47905,8 @@ class PdfImportModal extends Modal {
     }
 
     new Setting(el)
-      .setName("Create the notes in a new folder")
-      .setDesc("It must not exist yet, or be empty. It's created for you.")
+      .setName("Folder for the notes")
+      .setDesc("It's created if it doesn't exist. If it already has files, you'll be asked before the questions are added to it.")
       .addText((t) => {
         this.folderText = t;
         new FolderSuggest(this.app, t.inputEl);
@@ -47815,13 +47953,22 @@ class PdfImportModal extends Modal {
       ["difficulty", "Difficulty", "easy, medium or hard"],
       ["skill", "Skill (optional)", "Blank lets the file's own labels through"],
     ];
-    el.createEl("h4", { text: "Properties added to every note (all optional)" });
-    el.createEl("p", {
+    // Property overrides are optional. Keep them out of the way unless the user
+    // has saved one, and say plainly who fills them in by default.
+    const hasPropertyOverrides = fields.some(([key]) => str(this.meta[key]).trim());
+    const propertyDetails = el.createEl("details", {
+      cls: "qt-import-properties",
+      attr: hasPropertyOverrides ? { open: "" } : {},
+    });
+    const propertySummary = propertyDetails.createEl("summary", { cls: "qt-import-properties-summary" });
+    propertySummary.createSpan({ cls: "qt-import-properties-title", text: "Properties added to every note (optional)" });
+    propertySummary.createSpan({ cls: "qt-import-properties-state", text: "AI fills these automatically; open to override" });
+    propertyDetails.createEl("p", {
       cls: "qt-hint",
-      text: "Leave a box blank and the AI reads that property from the file wherever it is shown, for each question (for example the Test, Domain, Skill and Difficulty in a question's table, and its Question ID). Whatever you type here is used for every note instead of what the file says.",
+      text: "You do not need to fill these in. By default, the AI reads each property from the file for every question and adds it automatically. To override that, type a value here: it is used for every note even when the file says something different. Leave a box blank to keep the AI's value.",
     });
     for (const [key, label, ph] of fields) {
-      new Setting(el).setName(label).addText((t) => t.setPlaceholder(ph).setValue(this.meta[key]).onChange((v) => (this.meta[key] = v.trim())));
+      new Setting(propertyDetails).setName(label).addText((t) => t.setPlaceholder(ph).setValue(this.meta[key]).onChange((v) => (this.meta[key] = v.trim())));
     }
     new Setting(el)
       .setName("Question id prefix")
@@ -47860,8 +48007,10 @@ class PdfImportModal extends Modal {
 
   async start() {
     const p = this.plugin;
-    if (!p.settings.ai.enabled) {
-      new Notice("Turn on AI features in the plugin settings first.");
+    const aiState = importAiState(p);
+    if (aiState !== "ready") {
+      this.close();
+      p.openAiImportHelp(aiState);
       return;
     }
     if (!this.file && !this.vaultDoc) {
@@ -47873,10 +48022,16 @@ class PdfImportModal extends Modal {
       new Notice("Type a name for the new folder.");
       return;
     }
-    const existing = this.app.vault.getFolderByPath(folderPath);
-    if (existing && existing.children.length) {
-      new Notice("That folder already has files in it. Choose a new folder name.");
-      return;
+    if (this.folderHasFiles(folderPath)) {
+      if (this.confirming) return;
+      this.confirming = true;
+      let useExisting = false;
+      try {
+        useExisting = await this.confirmExistingFolder(folderPath);
+      } finally {
+        this.confirming = false;
+      }
+      if (!useExisting) return;
     }
     this.target = folderPath;
     p.settings.importFolder = folderPath.includes("/") ? folderPath.slice(0, folderPath.lastIndexOf("/")) : "";
@@ -47906,11 +48061,21 @@ class PdfImportModal extends Modal {
       const vault = this.app.vault;
       const folder = await ensureFolder(this.app, this.target);
       const prefix = slugId(this.meta.prefix || src.name);
+      const imagesDir = `${folder}/images`;
+      // Pictures that were already in an existing folder must survive this import.
+      this.beforeImages = new Set();
+      if (vault.adapter && typeof vault.adapter.list === "function") {
+        try {
+          const listing = await vault.adapter.list(imagesDir);
+          for (const path of (listing && listing.files) || []) this.beforeImages.add(path);
+        } catch (e) {
+          /* there is no images folder yet */
+        }
+      }
       // keep a copy of the original file with the notes
       this.status("Copying the file into the folder...");
-      const sourcePath = normalizePath(`${folder}/${src.name.replace(/[\\/:*?"<>|]/g, "-")}.${src.ext}`);
+      const sourcePath = uniquePath(vault, folder, src.name, src.ext, "Source");
       await vault.createBinary(sourcePath, src.buf);
-      const imagesDir = `${folder}/images`;
       if (this.opts.capture && src.kind !== "pdf") {
         this.warnings.push("Pictures are only captured from PDFs, so this import uses the text of the file.");
       }
@@ -47921,7 +48086,11 @@ class PdfImportModal extends Modal {
             pages: this.opts.pagePics,
             save: async (name, data) => {
               await ensureFolder(this.app, imagesDir);
-              const path = normalizePath(`${imagesDir}/${name}`);
+              const clean = str(name).replace(/^.*\//, "");
+              const dot = clean.lastIndexOf(".");
+              const base = dot > 0 ? clean.slice(0, dot) : clean;
+              const ext = dot > 0 ? clean.slice(dot + 1) : "png";
+              const path = uniquePath(vault, imagesDir, base, ext, "figure");
               await vault.createBinary(path, data);
               return path;
             },
@@ -47955,7 +48124,8 @@ class PdfImportModal extends Modal {
     const p = this.plugin;
     const vault = this.app.vault;
     const { folder, prefix, sourcePath, imagesDir, sourceName, kind } = this.ctx;
-    const textPath = `${folder}/_import-text.txt`;
+    const before = new Set(await this.listNotes(folder));
+    const textPath = uniquePath(vault, folder, "_import-text", "txt", "import-text");
     await vault.create(textPath, pages.map((pg) => `--- Page ${pg.n} ---\n${pg.text.trim()}`).join("\n\n"));
 
     this.status("Starting OpenCode...");
@@ -47997,14 +48167,14 @@ class PdfImportModal extends Modal {
       date: localDate(),
       sourcePath,
       sourceKind: kind,
-    });
+    }, before);
     try {
       await this.app.vault.adapter.remove(textPath);
     } catch (e) {
       /* leave it */
     }
     await this.pruneImages(folder, result);
-    result.issues = await this.auditNotes(folder);
+    result.issues = await this.auditNotes(folder, result.paths);
     if (!this.closed) this.showAgentDone(result, folder);
   }
 
@@ -48023,6 +48193,7 @@ class PdfImportModal extends Modal {
     for (const n of await this.listNotes(folder)) all += await adapter.read(n);
     let kept = 0;
     for (const f of files) {
+      if (this.beforeImages && this.beforeImages.has(f)) continue;
       const base = f.replace(/^.*\//, "");
       const isPage = /-p\d+\.png$/i.test(base);
       if ((isPage && this.opts.pagePics) || all.includes(base)) {
@@ -48056,10 +48227,11 @@ class PdfImportModal extends Modal {
     }
   }
 
-  async finishAgentNotes(folder, source, stamp) {
-    const files = await this.listNotes(folder);
+  async finishAgentNotes(folder, source, stamp, before) {
+    const skip = before instanceof Set ? before : new Set();
+    const files = (await this.listNotes(folder)).filter((path) => !skip.has(path));
     const meta = Object.assign({}, this.meta, { source });
-    const result = { made: 0, ai: 0, noAnswer: 0, skipped: [], images: 0, ids: [], dupes: [], issues: [] };
+    const result = { made: 0, ai: 0, noAnswer: 0, skipped: [], images: 0, ids: [], dupes: [], issues: [], paths: [] };
     for (const path of files) {
       const text = await this.app.vault.adapter.read(path);
       const parsed = parseNote(text);
@@ -48090,6 +48262,7 @@ class PdfImportModal extends Modal {
       if (fl.aiAnswer || fl.aiExp) result.ai++;
       if (!fl.hasAnswer) result.noAnswer++;
       result.made++;
+      result.paths.push(path);
       const oid = officialIdOf(fin.fm);
       if (oid) result.ids.push({ path, id: oid });
     }
@@ -48099,7 +48272,7 @@ class PdfImportModal extends Modal {
   }
 
   /** What looks wrong in the notes of this import: no answer, no choices, a missing figure. */
-  async auditNotes(folder) {
+  async auditNotes(folder, paths) {
     const adapter = this.app.vault.adapter;
     const exists = async (link) => {
       if (this.app.metadataCache.getFirstLinkpathDest(link, `${folder}/x.md`)) return true;
@@ -48110,7 +48283,8 @@ class PdfImportModal extends Modal {
       }
     };
     const issues = [];
-    for (const path of await this.listNotes(folder)) {
+    const list = Array.isArray(paths) ? paths : await this.listNotes(folder);
+    for (const path of list) {
       let text;
       try {
         text = await adapter.read(path);
@@ -48142,6 +48316,10 @@ class PdfImportModal extends Modal {
       el.createEl("p", {
         cls: "qt-hint",
         text: "If the agent was waiting to be allowed to create files, allow file edits for this vault in your OpenCode permissions and try again.",
+      });
+      el.createEl("button", { text: "Open AI settings" }).addEventListener("click", () => {
+        this.close();
+        this.plugin.openSettings("mcq-ai");
       });
     }
     this.doneButtons(el, folder, r.made);
@@ -48365,7 +48543,7 @@ class PdfImportModal extends Modal {
       const stimIds = new Map();
       const meta = Object.assign({}, this.meta, { source: this.source });
       const stamp = { model: this.modelLabel(), date: localDate(), sourcePath, sourceKind: kind };
-      const result = { made: 0, ai: 0, noAnswer: 0, skipped: [], images: 0, ids: [], dupes: [], issues: [] };
+      const result = { made: 0, ai: 0, noAnswer: 0, skipped: [], images: 0, ids: [], dupes: [], issues: [], paths: [] };
       const existingIds = indexOfficialIds(this.plugin.getQuestions(), folder);
       const seenIds = new Map();
       for (let i = 0; i < chosen.length; i++) {
@@ -48393,6 +48571,7 @@ class PdfImportModal extends Modal {
         for (let k = 2; this.app.vault.getAbstractFileByPath(path); k++) path = normalizePath(`${folder}/${qid}-${k}.md`);
         const out = finalizeNote(q.text, meta, qid, { ...stamp, stimId, verification: q.verification });
         await this.app.vault.create(path, out);
+        result.paths.push(path);
         if (oid) seenIds.set(oid, path);
         const fin = parseNote(out);
         const fl = aiFlags(fin.fm, fin.sec);
@@ -48402,7 +48581,7 @@ class PdfImportModal extends Modal {
         this.status(`Created ${result.made} of ${chosen.length}...`);
       }
       await this.pruneImages(folder, result);
-      result.issues = await this.auditNotes(folder);
+      result.issues = await this.auditNotes(folder, result.paths);
       this.showAgentDone(result, folder);
     } catch (e) {
       this.showError(`Some notes may have been created before this stopped. ${e && e.message ? e.message : e}`);
@@ -48601,6 +48780,7 @@ function agentPrompt(o) {
     "",
     `Create the notes in this folder, which already exists: ${o.folder}`,
     `Use one file per question, named ${o.prefix}-Q01.md, ${o.prefix}-Q02.md and so on. If the file's own question numbers are all unique, use them (padded to two digits) instead. Use the prefix "${o.prefix}" for question_id and stimulus_id values too, and make question_id match the file name.`,
+    `The folder may already contain notes. Never overwrite, change or delete an existing note. If a file name is already taken, use the next free name (for example ${o.prefix}-Q03-2.md).`,
     meta ? `\nAdd these properties to every note exactly as written:\n${meta}\nFor every other property (including official_question_id), take the value the document shows for that question.` : "\nThe user did not fill in any properties, so take every property (test, section, domain, skill, difficulty, official_question_id and so on) from what the document shows for each question.",
     "",
     "Use exactly this format for every note:",
@@ -68225,9 +68405,12 @@ const { PdfEditorModal } = require("./pdf-editor-modal");
 const { editedPathFor } = require("./pdf-editor");
 const { annotationLink, annotationSummary, annotationsMarkdown, normalizeTags, parseAnnotationFile, sidecarPathFor, upsertAnnotation, removeAnnotation } = require("./pdf-annotations");
 const { WelcomeModal } = require("./welcome-modal");
+const { WhatsNewModal } = require("./whats-new-modal");
+const { releaseFor, whatsNewShouldShow } = require("./whats-new");
+const { AiImportHelpModal, importAiState } = require("./ai-import-modal");
 const { FocusLogModal } = require("./focus-modal");
 const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normalizeStudyLog, pauseFocus, resumeFocus, startFocus, studySummary } = require("./focus");
-const { WELCOME_EXAMPLE, WELCOME_PRESETS, welcomeShouldShow } = require("./welcome");
+const { WELCOME_EXAMPLE, WELCOME_NOTE_PATH, WELCOME_PRESETS, markWelcomeSeen, welcomeNoteMarkdown, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, applySkip, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setAttemptError, setLastErrorType } = require("./notes");
 const { parseChoiceSet } = require("./answer-types");
 const { addVerificationBanner, buildBlindVerificationPrompt, normalizeVerificationMode, parseBlindVerification, parseBlindVerificationNumber, parseBlindVerificationSet, verificationFields } = require("./answer-verification");
@@ -68435,7 +68618,18 @@ class QuestionTrackerPlugin extends Plugin {
       this.startPdfPlus().catch(() => {});
       this.startDeferredStartup();
       this.loadKnowledgeRecord().catch(() => {});
-      if (welcomeShouldShow(this.app)) activeWindow.setTimeout(() => this.openWelcome(), 1200);
+      const version = this.manifest && this.manifest.version;
+      if (welcomeShouldShow(this.app)) {
+        activeWindow.setTimeout(() => {
+          if (!welcomeShouldShow(this.app)) return;
+          return this.openWelcomeNote().catch(() => this.openWelcome());
+        }, 1200);
+      } else if (whatsNewShouldShow(this.app, version)) {
+        activeWindow.setTimeout(() => {
+          if (!whatsNewShouldShow(this.app, version)) return;
+          this.openWhatsNew({ automatic: true });
+        }, 1600);
+      }
       const ai = this.settings.ai;
       if (Platform.isDesktopApp && ai.enabled && ai.managed && ai.preStart && this.backend() === "opencode") {
         this.manager.ensure(() => {}).catch(() => {}); // quiet: errors show when you actually use the chat
@@ -68521,6 +68715,8 @@ class QuestionTrackerPlugin extends Plugin {
 
     this.addCommand({ id: "open-practice-view", name: "Open practice view", callback: () => this.activateView() });
     this.addCommand({ id: "open-welcome", name: "Open welcome guide", callback: () => this.openWelcome() });
+    this.addCommand({ id: "open-welcome-note", name: "Open Start here note", callback: () => this.openWelcomeNote().catch(() => this.openWelcome()) });
+    this.addCommand({ id: "open-whats-new", name: "Show what's new", callback: () => this.openWhatsNew() });
     this.addCommand({ id: "focus-start", name: "Focus: start a 25-minute session", callback: () => this.startFocusSession(25, this.settings.studyLog.lastCourse) });
     this.addCommand({ id: "tag-timer-stop-all", name: "Tag Timer: stop all running timers", callback: () => this.stopAllTagTimers() });
     this.addCommand({ id: "focus-log", name: "Focus: log study time", callback: () => this.openFocusLog() });
@@ -69362,6 +69558,10 @@ class QuestionTrackerPlugin extends Plugin {
   async loadSettings() {
     const saved = (await this.loadData()) || {};
     this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
+    // Simple settings is the new-install default. A data file written before
+    // this flag existed keeps the full settings tree the user already knows.
+    if (saved.simpleSettings === undefined) this.settings.simpleSettings = Object.keys(saved).length === 0;
+    this.settings.simpleSettings = this.settings.simpleSettings === true;
     delete this.settings.session; // older versions stored the timer here; it is per-device now
     this.settings.filters = cloneFilters(saved.filters);
     this.settings.moreSets = Array.isArray(saved.moreSets) ? saved.moreSets.map(cloneFilters) : [];
@@ -69488,13 +69688,20 @@ class QuestionTrackerPlugin extends Plugin {
     for (const k of ["intervals", "errorTypes", "confidenceLabels"]) {
       if (!Array.isArray(this.settings[k]) || !this.settings[k].length) this.settings[k] = DEFAULT_SETTINGS[k].slice();
     }
+    // The old built-in middle label read as another "I don't know" bucket. Only the
+    // untouched old default is migrated; a user's own labels are left alone.
+    let migratedConfidence = false;
+    if (Array.isArray(this.settings.confidenceLabels) && this.settings.confidenceLabels.map(String).join("|") === "Guessing|Unsure|Confident") {
+      this.settings.confidenceLabels = DEFAULT_SETTINGS.confidenceLabels.slice();
+      migratedConfidence = true;
+    }
     // Move legacy plain-text keys into Secret Storage where Obsidian provides it.
     // This runs before the settings page is drawn, so a migrated key is never
     // written back to data.json.
     let migratedSecrets = secretKeys.migrateApiKeys(this.app, this.settings.ai.api);
     migratedSecrets += secretKeys.migratePasswordSecret(this.app, this.settings.ai, secretKeys.OPENCODE_PASSWORD_SECRET);
     migratedSecrets += secretKeys.migratePasswordSecret(this.app, this.settings.cards.couchdb, COUCHDB_PASSWORD_SECRET);
-    if (migratedSecrets || migratedSupport) await this.save();
+    if (migratedSecrets || migratedSupport || migratedConfidence) await this.save();
   }
 
   save() {
@@ -70145,11 +70352,16 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   /** Opens this plugin's page in Obsidian's settings (the settings window has no public API, so this is best effort). */
-  openSettings() {
+  openSettings(page) {
     const setting = this.app.setting;
     if (setting && setting.open) {
       setting.open();
-      if (setting.openTabById) setting.openTabById(this.manifest.id);
+      if (setting.openTabById) {
+        setting.openTabById(this.manifest.id);
+        if (page && this.settingsTab && typeof this.settingsTab.openPage === "function") {
+          this.settingsTab.openPage(page, { reveal: true });
+        }
+      }
     } else {
       new Notice("Open Settings, then MCQ Tracker, to continue.");
     }
@@ -70157,6 +70369,31 @@ class QuestionTrackerPlugin extends Plugin {
 
   openWelcome() {
     new WelcomeModal(this.app, this).open();
+  }
+
+  /** The local release note for this version, also reachable from the palette. */
+  openWhatsNew(options) {
+    const version = this.manifest && this.manifest.version;
+    const release = releaseFor(version);
+    if (!release) {
+      new Notice("No what's new notes are bundled for this version.", 6000);
+      return null;
+    }
+    const modal = new WhatsNewModal(this.app, this, release, options);
+    modal.open();
+    return modal;
+  }
+
+  /** The persistent first-run guide. The modal remains available and is the fallback if the vault cannot open a note. */
+  async openWelcomeNote() {
+    let file = this.app.vault.getAbstractFileByPath(WELCOME_NOTE_PATH);
+    const created = !file;
+    if (!file) file = await this.app.vault.create(WELCOME_NOTE_PATH, welcomeNoteMarkdown());
+    const leaf = this.app.workspace.getLeaf("tab");
+    if (!leaf || typeof leaf.openFile !== "function") throw new Error("This workspace cannot open notes.");
+    await leaf.openFile(file);
+    markWelcomeSeen(this.app, this.manifest && this.manifest.version);
+    return { path: WELCOME_NOTE_PATH, file, created };
   }
 
   /** Write the welcome example as a normal question note, then open it in Practice. */
@@ -70284,11 +70521,17 @@ class QuestionTrackerPlugin extends Plugin {
 
   openPdfImport(options) {
     if (this.moduleOff("mcq")) return;
-    if (!this.settings.ai.enabled) {
-      new Notice("Turn on AI features in the plugin settings to import from a file.");
+    const state = importAiState(this);
+    if (state !== "ready") {
+      this.openAiImportHelp(state);
       return;
     }
     new PdfImportModal(this.app, this, options).open();
+  }
+
+  /** Explain the one AI-only import path with a setup or manual-question action. */
+  openAiImportHelp(state) {
+    new AiImportHelpModal(this.app, this, state).open();
   }
 
   openCourseNotesImport(onDone, options) {
@@ -71451,7 +71694,9 @@ class QuestionTrackerPlugin extends Plugin {
     if (!this.ribbonButtons) this.ribbonButtons = {};
     if (this.ribbonAdded[id] || !this.settings.showRibbonIcons) return;
     this.ribbonAdded[id] = true;
-    this.ribbonButtons[id] = this.addRibbonIcon(icon, title, onClick) || null;
+    const button = this.addRibbonIcon(icon, title, onClick) || null;
+    if (button && typeof button.setAttr === "function") button.setAttr("aria-label", title);
+    this.ribbonButtons[id] = button;
   }
 
   removeModuleRibbon(id) {
@@ -71570,7 +71815,9 @@ class QuestionTrackerPlugin extends Plugin {
     const pluginId = (this.manifest && this.manifest.id) || "mcq-tracker";
     if (setting && typeof setting.openTabById === "function") setting.openTabById(pluginId);
     if (this.settingsTab && typeof this.settingsTab.openPage === "function") {
-      this.settingsTab.openPage("pdf-plus");
+      // PDF++ is an advanced page; a deep link from its own UI reveals it even
+      // while the rest of the settings stay in Simple mode.
+      this.settingsTab.openPage("pdf-plus", { reveal: true });
       return true;
     }
     new Notice("Open Settings → App & documents → PDF++.");
@@ -84124,6 +84371,16 @@ class PracticeView extends ItemView {
       });
     }
 
+    // The two shortcuts people reach for before choosing a preset or filter.
+    const shortcuts = root.createDiv({ cls: "qt-row qt-small-row" });
+    shortcuts.createEl("button", { text: "Import questions" }).addEventListener("click", () => this.startImport());
+    if (st.ai.enabled) {
+      shortcuts.createEl("button", { text: "AI assistant" }).addEventListener("click", () => {
+        this.state = "chat";
+        this.render();
+      });
+    }
+
     // presets
     const prow = root.createDiv({ cls: "qt-row" });
     const psel = prow.createEl("select", { cls: "qt-select qt-grow", attr: { "aria-label": "Filter preset" } });
@@ -84294,16 +84551,6 @@ class PracticeView extends ItemView {
     tools.createEl("button", { text: "Timed test" }).addEventListener("click", () => p.activateTest());
     tools.createEl("button", { text: "Weak spots & errors" }).addEventListener("click", () => p.activateInsights("weak"));
 
-    if (st.ai.enabled) {
-      const ib = root.createEl("button", { text: "Import questions from a file" });
-      ib.addEventListener("click", () => p.openPdfImport());
-      const ab = root.createEl("button", { text: "AI assistant" });
-      ab.addEventListener("click", () => {
-        this.state = "chat";
-        this.render();
-      });
-    }
-
     if (this.tally.n) {
       root.createDiv({ cls: "qt-hint", text: `This session: ${this.tally.correct}/${this.tally.n} correct` });
     }
@@ -84331,7 +84578,9 @@ class PracticeView extends ItemView {
     card.createEl("h3", { text: "No questions yet" });
     card.createDiv({ cls: "qt-onboard-text", text: "Extract multiple-choice questions from your PDFs, PowerPoints, Word files and more. Each one becomes a note you can practice." });
     card.createEl("button", { text: "Import files", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.startImport());
+    card.createEl("button", { text: "Open Start here note" }).addEventListener("click", () => this.plugin.openWelcomeNote().catch(() => this.plugin.openWelcome()));
     card.createEl("a", { text: "Quick-start guide", cls: "qt-onboard-link external-link", href: QUICK_START_URL, attr: { target: "_blank", rel: "noopener" } });
+    card.createDiv({ cls: "qt-onboard-text", text: "New to Obsidian? The Start here note teaches the basics and has a step-by-step AP path." });
     if (empty.broken.length) this.renderBroken(card, empty.broken);
   }
 
@@ -84942,27 +85191,51 @@ class PracticeView extends ItemView {
     let fr = null;
     if (!mobile) {
       ctl = root.createDiv({ cls: "qt-ctl" });
-      const fl = ctl.createDiv({ cls: "qt-foot-left" });
-      const skip = fl.createEl("button", { text: "Skip (don't log)" });
-      skip.addEventListener("click", doSkip);
-      const dontKnow = fl.createEl("button", { text: "Don't know", cls: "qt-status-btn" });
-      dontKnow.setAttr("title", "Log that you don't know this; it is not a wrong answer, but the next review comes sooner.");
-      dontKnow.addEventListener("click", doDontKnow);
-      const known = fl.createEl("button", { text: `Known ${p.knownDaysForFile(q.file)}d`, cls: "qt-status-btn" });
-      known.setAttr("title", "Hide this question for a while, then return it as due.");
-      known.addEventListener("click", doKnown);
-      const bury = fl.createEl("button", { text: "Bury", cls: "qt-status-btn" });
-      bury.setAttr("title", "Hide this question until tomorrow.");
-      bury.addEventListener("click", doBury);
-      const suspend = fl.createEl("button", { text: "Suspend", cls: "qt-status-btn" });
-      suspend.setAttr("title", "Hide this question until you restore it.");
-      suspend.addEventListener("click", doSuspend);
-      const exclude = fl.createEl("button", { text: "Exclude", cls: "qt-status-btn qt-status-exclude" });
-      exclude.setAttr("title", "Keep the note but skip it in every practice queue.");
-      exclude.addEventListener("click", doExclude);
-      const end = fl.createEl("button", { text: "End" });
-      end.addEventListener("click", doEnd);
       const foot = ctl.createDiv({ cls: "qt-exam-foot" });
+      const fl = foot.createDiv({ cls: "qt-foot-left" });
+      const moreActions = fl.createEl("button", {
+        cls: "qt-foot-more",
+        text: "More actions",
+        attr: { "aria-haspopup": "menu", "aria-expanded": "false" },
+      });
+      const footMenu = ctl.createDiv({ cls: "qt-foot-menu", attr: { role: "menu", "aria-label": "More question actions" } });
+      const closeFootMenu = () => {
+        footMenu.removeClass("is-open");
+        moreActions.setAttr("aria-expanded", "false");
+      };
+      moreActions.addEventListener("click", () => {
+        const open = !footMenu.hasClass("is-open");
+        footMenu.toggleClass("is-open", open);
+        moreActions.setAttr("aria-expanded", String(open));
+      });
+      footMenu.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        closeFootMenu();
+        moreActions.focus();
+      });
+      const menuSection = (label) => footMenu.createDiv({ cls: "qt-foot-menu-heading", text: label });
+      const menuItem = (label, hint, fn, cls) => {
+        const item = footMenu.createEl("button", {
+          cls: `qt-foot-menu-item${cls ? ` ${cls}` : ""}`,
+          attr: { role: "menuitem", "aria-label": label },
+        });
+        item.createSpan({ cls: "qt-foot-menu-label", text: label });
+        item.createSpan({ cls: "qt-foot-menu-hint", text: hint });
+        item.addEventListener("click", async () => {
+          closeFootMenu();
+          await fn();
+        });
+      };
+      menuSection("Skip or log");
+      menuItem("Skip without logging", "Move on; nothing is recorded.", doSkip);
+      menuItem("Don't know", "Log a skip without marking it wrong.", doDontKnow);
+      menuSection("Set aside");
+      menuItem(`Known for ${p.knownDaysForFile(q.file)} days`, "Hide it, then bring it back.", doKnown);
+      menuItem("Bury", "Hide it until tomorrow.", doBury);
+      menuItem("Suspend", "Hide it until you restore it.", doSuspend);
+      menuItem("Exclude", "Keep the note, but leave it out of practice.", doExclude, "qt-status-exclude");
+      menuSection("Session");
+      menuItem("End session", "Leave practice and return to the picker.", doEnd);
       fc = foot.createDiv({ cls: "qt-foot-center" });
       fr = foot.createDiv({ cls: "qt-foot-right" });
       const pill = fc.createEl("button", {
@@ -84994,12 +85267,16 @@ class PracticeView extends ItemView {
         });
       };
       sheet.createDiv({ cls: "qt-m-sheet-title", text: "Question actions" });
+      const sheetSection = (label) => sheet.createDiv({ cls: "qt-m-sheet-section", text: label });
+      sheetSection("Skip or log");
       add("Skip", doSkip);
       add("Don't know", doDontKnow);
+      sheetSection("Set aside");
       add(`Known ${p.knownDaysForFile(q.file)}d`, doKnown);
       add("Bury", doBury);
       add("Suspend", doSuspend);
       add("Exclude", doExclude, "qt-status-exclude");
+      sheetSection("Session");
       add("Question menu", () => this.runTool("navigator"));
       add("Testing tools", () => this.toggleToolsOpen());
       if (!closedBook) add("Open question note", () => this.app.workspace.getLeaf("tab").openFile(q.file));
@@ -86661,7 +86938,7 @@ class PracticeView extends ItemView {
     root.createDiv({ cls: "qt-label", text: "Notes" });
     const ta = root.createEl("textarea", {
       cls: "qt-notes qt-notes-big",
-      attr: { rows: "9", placeholder: "Why you missed it, the rule to remember, anything to review later..." },
+      attr: { rows: "9", placeholder: "Saved to your individual question's file. Write why you missed it, the rule to remember, anything to review later..." },
     });
     ta.value = this.notesText;
     ta.addEventListener("input", () => {
@@ -102799,6 +103076,45 @@ const CATEGORIES = [
 
 const SETTINGS_PAGES = CATEGORIES.flatMap((category) => category.pages.map((page) => Object.assign({}, page, { category: category.id })));
 
+/*
+ * Simple settings is the beginner path: the pages needed to practise, review,
+ * ask the assistant and switch the main modules on. Optional tools and the
+ * specialist pages stay in the full tree. A main module that is already on
+ * keeps its own page visible, so turning on Cards does not hide its settings.
+ */
+const SIMPLE_PAGE_IDS = new Set(["mcq-practice", "mcq-review", "mcq-ai", "global"]);
+const SIMPLE_MODULE_PAGES = [
+  ["cards", "cards", "cardsEnabled"],
+  ["calendar", "calendar", "calendarEnabled"],
+  ["assignments", "assignments", "assignmentsEnabled"],
+];
+
+function simpleSettingsEnabled(plugin) {
+  return !!(plugin && plugin.settings && plugin.settings.simpleSettings === true);
+}
+
+/** The category/page tree for the current settings mode. */
+function settingsCategoriesFor(plugin) {
+  if (!simpleSettingsEnabled(plugin)) return CATEGORIES;
+  const pageIds = new Set(SIMPLE_PAGE_IDS);
+  for (const [moduleId, pageId, getter] of SIMPLE_MODULE_PAGES) {
+    let enabled = false;
+    try {
+      enabled = typeof plugin[getter] === "function" && !!plugin[getter]();
+    } catch (e) {
+      enabled = false;
+    }
+    if (enabled) pageIds.add(pageId);
+  }
+  return CATEGORIES.map((category) =>
+    Object.assign({}, category, { pages: category.pages.filter((page) => pageIds.has(page.id)) })
+  ).filter((category) => category.pages.length > 0);
+}
+
+function settingsPageVisible(plugin, pageId) {
+  return settingsCategoriesFor(plugin).some((category) => category.pages.some((page) => page.id === pageId));
+}
+
 const SETTINGS_PAGE_BY_ID = Object.fromEntries(SETTINGS_PAGES.map((page) => [page.id, page]));
 
 /** The first page that renders a module, used when a caller only knows the module id. */
@@ -102820,8 +103136,12 @@ module.exports = {
   SETTINGS_CATEGORIES: CATEGORIES,
   SETTINGS_PAGES,
   SETTINGS_PAGE_BY_ID,
+  SIMPLE_PAGE_IDS,
   categoryForPage,
   pageForModule,
+  settingsCategoriesFor,
+  settingsPageVisible,
+  simpleSettingsEnabled,
 };
 };
 
@@ -102837,6 +103157,7 @@ const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { normalizeSupport, supportLinks } = require("./support");
 const { SURVEY_ROLES, copySurveySummary } = require("./survey");
 const { STUDY_TOOL_SETTINGS_BY_ID, STUDY_TOOL_SETTINGS_MODULES } = require("./study-tool-settings");
+const { simpleSettingsEnabled } = require("./settings-categories");
 
 const GLOBAL_TABS = [
   { id: "modules", label: "Modules", icon: "toggle-left" },
@@ -102862,6 +103183,21 @@ function renderGlobalSettings(containerEl, plugin, redisplay, activeTab, setTab,
 
 const CORE_MODULE_IDS = ["mcq", "cards", "calendar", "assignments"];
 
+/** A native disclosure keeps advanced rows reachable without showing them all. */
+function renderDisclosure(containerEl, options) {
+  const details = containerEl.createEl("details", { cls: "qt-settings-disclosure" });
+  const summary = details.createEl("summary", { cls: "qt-settings-disclosure-summary" });
+  const copy = summary.createDiv({ cls: "qt-settings-disclosure-copy" });
+  copy.createSpan({ cls: "qt-settings-disclosure-title", text: options.title });
+  if (options.description) {
+    copy.createSpan({ cls: "qt-settings-disclosure-description", text: options.description });
+  }
+  if (options.status) {
+    summary.createSpan({ cls: "qt-settings-disclosure-status", text: options.status });
+  }
+  return details.createDiv({ cls: "qt-settings-disclosure-body" });
+}
+
 /** The Global page's compact index: one row per study tool and its saved state. */
 function studyToolOverview(plugin) {
   return STUDY_TOOL_SETTINGS_MODULES.map((module) => {
@@ -102877,9 +103213,9 @@ function studyToolOverview(plugin) {
 }
 
 /** Renders the index as buttons that open each tool's own settings page. */
-function renderStudyToolIndex(containerEl, plugin, openModule) {
+function renderStudyToolIndex(containerEl, plugin, openModule, rows) {
   const index = containerEl.createDiv({ cls: "qt-module-index" });
-  for (const row of studyToolOverview(plugin)) {
+  for (const row of rows || studyToolOverview(plugin)) {
     const button = index.createEl("button", { cls: `qt-module-link${row.enabled ? "" : " is-off"}` });
     button.setAttr("type", "button");
     button.setAttr("aria-label", `${row.label}: ${row.enabled ? "on" : "off"}. Open settings.`);
@@ -102891,20 +103227,43 @@ function renderStudyToolIndex(containerEl, plugin, openModule) {
 }
 
 function renderModules(containerEl, plugin, redisplay, openModule) {
-  const st = plugin.settings;
+  const simple = simpleSettingsEnabled(plugin);
+  const mainModules = [
+    { label: "MCQ Tracker", enabled: plugin.mcqEnabled() },
+    { label: "Cards and vocabulary", enabled: plugin.cardsEnabled() },
+    { label: "Calendar", enabled: plugin.calendarEnabled() },
+    { label: "Assignments", enabled: plugin.assignmentsEnabled() },
+  ];
+  if (!simple) mainModules.push({ label: "Reference", enabled: plugin.referenceEnabled() });
+
+  const overview = containerEl.createDiv({ cls: "qt-settings-overview" });
+  const overviewCopy = overview.createDiv({ cls: "qt-settings-overview-copy" });
+  overviewCopy.createEl("h3", { text: "Start with the essentials" });
+  overviewCopy.createEl("p", {
+    cls: "setting-item-description",
+    text: simple
+      ? "Practice and review work as soon as MCQ Tracker is on. Optional study tools and advanced options stay hidden until you need them."
+      : "Practice and review work as soon as MCQ Tracker is on. Optional tools are grouped below so they stay out of the way.",
+  });
+  const overviewStatus = overview.createDiv({ cls: "qt-settings-overview-status" });
+  overviewStatus.createSpan({
+    cls: "qt-settings-overview-count",
+    text: `${mainModules.filter((module) => module.enabled).length} of ${mainModules.length}`,
+  });
+  overviewStatus.createSpan({ cls: "qt-settings-overview-caption", text: "main modules on" });
+
+  new Setting(containerEl).setName("Main modules").setHeading();
   containerEl.createEl("p", {
     cls: "setting-item-description",
-    text: "Turn off the parts of the plugin you don't use. A module that is off keeps its settings and your notes; it just stops showing its views, ribbon button and commands.",
+    text: "Turn off only what you don't use. A module that is off keeps its settings and your notes; it just stops showing its views, ribbon button and commands.",
   });
-
-  new Setting(containerEl).setName("Core modules").setHeading();
 
   new Setting(containerEl)
     .setName("MCQ Tracker")
-    .setDesc("Practice questions from your notes: filters and presets, weak spots, the error log, timed tests and document import. Off hides the practice view and its other views.")
+    .setDesc("Practice questions, review and the error log. On by default.")
     .addToggle((t) =>
       t.setValue(plugin.mcqEnabled()).onChange(async (v) => {
-        st.mcqEnabled = v;
+        plugin.settings.mcqEnabled = v;
         await plugin.save();
         await plugin.onMcqToggled();
         redisplay();
@@ -102913,10 +103272,10 @@ function renderModules(containerEl, plugin, redisplay, openModule) {
 
   new Setting(containerEl)
     .setName("Cards and vocabulary")
-    .setDesc("Flashcards and vocabulary notes with decks, course tags and the same spaced review as your questions. Off by default; its own settings are under Cards.")
+    .setDesc("Flashcards, vocabulary and spaced review. Off by default.")
     .addToggle((t) =>
       t.setValue(plugin.cardsEnabled()).onChange(async (v) => {
-        st.cards.enabled = v;
+        plugin.settings.cards.enabled = v;
         await plugin.save();
         await plugin.onCardsToggled();
         redisplay();
@@ -102925,10 +103284,10 @@ function renderModules(containerEl, plugin, redisplay, openModule) {
 
   new Setting(containerEl)
     .setName("Calendar")
-    .setDesc("A class and exam calendar from .ics schedules, with countdowns, one-click class notes and study time from free periods. Off by default; its own settings are under Calendar.")
+    .setDesc("Class and exam schedules, with study time from free periods. Off by default.")
     .addToggle((t) =>
       t.setValue(plugin.calendarEnabled()).onChange(async (v) => {
-        st.calendar.enabled = v;
+        plugin.settings.calendar.enabled = v;
         await plugin.save();
         await plugin.onCalendarToggled();
         redisplay();
@@ -102937,86 +103296,87 @@ function renderModules(containerEl, plugin, redisplay, openModule) {
 
   new Setting(containerEl)
     .setName("Assignments")
-    .setDesc("A gradebook and task list built from assignment notes: weighted course grades, what you need on the final, a credit-weighted GPA and Tasks-compatible due dates. Its settings are under Assignments.")
+    .setDesc("Grades, due dates and the final-score calculator. On by default.")
     .addToggle((t) =>
       t.setValue(plugin.assignmentsEnabled()).onChange(async (v) => {
-        st.assignments.enabled = v;
+        plugin.settings.assignments.enabled = v;
         await plugin.save();
         await plugin.onAssignmentsToggled();
         redisplay();
       })
     );
 
+  if (!simple) {
+    new Setting(containerEl)
+      .setName("Reference")
+      .setDesc("Formula sheet, constants and unit converter. Off by default.")
+      .addToggle((t) =>
+        t.setValue(plugin.referenceEnabled()).onChange(async (v) => {
+          plugin.settings.reference.enabled = v;
+          await plugin.save();
+          await plugin.onReferenceToggled();
+          redisplay();
+        })
+      );
 
-  new Setting(containerEl)
-    .setName("Reference")
-    .setDesc("A local formula sheet, constants list and unit converter in its own view. Off by default; its settings are under Reference.")
-    .addToggle((t) =>
-      t.setValue(plugin.referenceEnabled()).onChange(async (v) => {
-        st.reference.enabled = v;
-        await plugin.save();
-        await plugin.onReferenceToggled();
-        redisplay();
-      })
-    );
+    const tools = studyToolOverview(plugin);
+    const toolsBody = renderDisclosure(containerEl, {
+      title: "Study tools",
+      description: "Optional tools with their own settings. Open one to turn it on or configure it.",
+      status: `${tools.filter((tool) => tool.enabled).length} of ${tools.length} on`,
+    });
+    renderStudyToolIndex(toolsBody, plugin, openModule, tools);
 
-  new Setting(containerEl).setName("Study tools").setHeading();
-  containerEl.createEl("p", {
-    cls: "setting-item-description",
-    text: "Every study tool has its own settings page. This index shows whether it is on and opens that page; the tool's own page is the single place it is enabled and configured.",
-  });
-  renderStudyToolIndex(containerEl, plugin, openModule);
-
-  new Setting(containerEl).setName("Global options").setHeading();
-
-  new Setting(containerEl)
-    .setName("Embedded PDF++ tools")
-    .setDesc("Run the full MIT-licensed PDF++ 0.40.31 native PDF viewer integration and set it up on its own settings page, beside every other MCQ Tracker option.")
-    .addButton((b) =>
-      b.setButtonText("Open PDF++ settings").onClick(() => (typeof openModule === "function" ? openModule("pdf-plus") : redisplay()))
-    );
-
-  new Setting(containerEl)
-    .setName("AI features")
-    .setDesc("Ask AI on the result screen, the AI assistant, and document import. Off by default: nothing is sent anywhere until this is on. Choose the provider under MCQ Tracker, AI.")
-    .addToggle((t) =>
-      t.setValue(!!st.ai.enabled).onChange(async (v) => {
-        st.ai.enabled = v;
-        await plugin.save();
-        plugin.refreshViews();
-        redisplay();
-      })
-    );
-
-  containerEl.createEl("p", {
-    cls: "setting-item-description",
-    text: "Core settings stay on their own pages: MCQ Tracker, Cards, Calendar, Assignments and Reference. Each study tool is configured only on its own page above.",
-  });
+    const advanced = renderDisclosure(containerEl, {
+      title: "Advanced",
+      description: "Embedded document tools and specialist options.",
+      status: "Optional",
+    });
+    new Setting(advanced)
+      .setName("Embedded PDF++ tools")
+      .setDesc("Run the full MIT-licensed PDF++ 0.40.31 native PDF viewer integration and set it up on its own settings page.")
+      .addButton((b) =>
+        b.setButtonText("Open PDF++ settings").onClick(() => (typeof openModule === "function" ? openModule("pdf-plus") : redisplay()))
+      );
+  } else {
+    containerEl.createEl("p", {
+      cls: "setting-item-description qt-settings-footnote",
+      text: "Optional study tools and advanced options are hidden in Simple settings. Turn on Show all settings above to see them.",
+    });
+  }
 }
 
 function renderGlobalAbout(containerEl, plugin, redisplay) {
   new Setting(containerEl).setName("Getting started").setHeading();
   containerEl.createEl("p", {
     cls: "setting-item-description",
-    text: "The welcome guide explains the main workflows, lets you choose a starting set of modules, and can be reopened at any time.",
+    text: "The Start here note teaches Obsidian basics, AP setup, and the main workflows. The interactive guide offers a quick tour and module presets. Both can be reopened at any time.",
   });
   new Setting(containerEl)
+    .setName("Start here note")
+    .setDesc("Open the persistent guide with a five-minute Obsidian primer, an AP student path and power-user shortcuts. It is safe to edit.")
+    .addButton((b) => b.setButtonText("Open Start here note").onClick(() => plugin.openWelcomeNote().catch(() => plugin.openWelcome())));
+  new Setting(containerEl)
     .setName("Welcome guide")
-    .setDesc("Open the guided setup and how-to again. It never blocks startup and stores its progress only on this device.")
+    .setDesc("Open the interactive tour again. It never blocks startup and stores its progress only on this device.")
     .addButton((b) => b.setButtonText("Open welcome guide").onClick(() => plugin.openWelcome()));
+  new Setting(containerEl)
+    .setName("What's new")
+    .setDesc("Review the changes in this version. After an update, the same note opens once on its own.")
+    .addButton((b) => b.setButtonText("Open What's new").onClick(() => plugin.openWhatsNew()));
   new Setting(containerEl)
     .setName("Quick start and documentation")
     .setDesc("The README covers question-note formats, imports, cards, the calendar and reference tools.")
     .addButton((b) => b.setButtonText("Open README").onClick(() => openExternal("https://github.com/ifriedenson/mcq-tracker#readme")));
 
-  new Setting(containerEl).setName("Feedback and support").setHeading();
-  containerEl.createEl("p", {
-    cls: "setting-item-description",
-    text: "Optional external links. Nothing opens or is submitted automatically, and the plugin never counts clicks. Leave a field blank to hide that link.",
+  const feedback = renderDisclosure(containerEl, {
+    title: "Feedback and support",
+    description: "Optional links and a local feedback form. Nothing opens or is submitted automatically.",
+    status: "Optional",
   });
   const st = plugin.settings;
   const support = normalizeSupport(st.support);
-  new Setting(containerEl)
+  new Setting(feedback)
     .setName("Show feedback and donation links")
     .setDesc("Show optional links in the welcome guide. The plugin stays MIT and fully usable either way.")
     .addToggle((t) =>
@@ -103026,7 +103386,7 @@ function renderGlobalAbout(containerEl, plugin, redisplay) {
         if (redisplay) redisplay();
       })
     );
-  new Setting(containerEl)
+  new Setting(feedback)
     .setName("Feedback link")
     .setDesc("Opens when the user chooses Send feedback. Defaults to the MCQ Tracker feedback form.")
     .addText((t) =>
@@ -103038,7 +103398,7 @@ function renderGlobalAbout(containerEl, plugin, redisplay) {
           await plugin.save();
         })
     );
-  new Setting(containerEl)
+  new Setting(feedback)
     .setName("Donation link")
     .setDesc("Optional funding page, for example GitHub Sponsors or Ko-fi. Blank hides the donation button.")
     .addText((t) =>
@@ -103052,41 +103412,41 @@ function renderGlobalAbout(containerEl, plugin, redisplay) {
     );
   const links = supportLinks(st.support);
   if (links.feedback || links.donation) {
-    const row = new Setting(containerEl).setName("Preview links");
+    const row = new Setting(feedback).setName("Preview links");
     if (links.feedback) row.addButton((b) => b.setButtonText("Open feedback").onClick(() => openExternal(links.feedback)));
     if (links.donation) row.addButton((b) => b.setButtonText("Open donation page").onClick(() => openExternal(links.donation)));
   }
-  new Setting(containerEl).setName("Feedback survey").setHeading();
-  containerEl.createEl("p", {
+  new Setting(feedback).setName("Feedback survey").setHeading();
+  feedback.createEl("p", {
     cls: "setting-item-description",
     text: "Optional and local-only. Answers stay in this form until you copy them; nothing is sent, saved or counted automatically.",
   });
   const survey = { rating: 5, role: SURVEY_ROLES[0], likes: "", improve: "", quote: false };
-  new Setting(containerEl)
+  new Setting(feedback)
     .setName("How is MCQ Tracker working for you?")
     .addDropdown((d) => {
       for (const n of [1, 2, 3, 4, 5]) d.addOption(String(n), `${n} / 5`);
       d.setValue("5").onChange((v) => (survey.rating = Number(v)));
     });
-  new Setting(containerEl)
+  new Setting(feedback)
     .setName("What do you use it for?")
     .addDropdown((d) => {
       for (const role of SURVEY_ROLES) d.addOption(role, role);
       d.setValue(SURVEY_ROLES[0]).onChange((v) => (survey.role = v));
     });
-  new Setting(containerEl)
+  new Setting(feedback)
     .setName("What works well?")
     .setDesc("Optional. A sentence or two is plenty.")
     .addTextArea((t) => t.setPlaceholder("Optional").onChange((v) => (survey.likes = v)));
-  new Setting(containerEl)
+  new Setting(feedback)
     .setName("What should improve?")
     .setDesc("Optional. Specific workflows or missing formats are the most useful.")
     .addTextArea((t) => t.setPlaceholder("Optional").onChange((v) => (survey.improve = v)));
-  new Setting(containerEl)
+  new Setting(feedback)
     .setName("May I quote this feedback?")
     .setDesc("Leave off to keep the feedback anonymous.")
     .addToggle((t) => t.setValue(false).onChange((v) => (survey.quote = v)));
-  new Setting(containerEl)
+  new Setting(feedback)
     .setName("Copy the feedback")
     .setDesc("Copies a Markdown summary. Paste it into the feedback link above or any message you choose.")
     .addButton((b) =>
@@ -103107,7 +103467,7 @@ function renderGlobalAbout(containerEl, plugin, redisplay) {
 function renderGeneral(containerEl, plugin, redisplay) {
   const st = plugin.settings;
 
-  new Setting(containerEl).setName("Interface").setHeading();
+  new Setting(containerEl).setName("Everyday").setHeading();
 
   new Setting(containerEl)
     .setName("Show ribbon icons")
@@ -103120,6 +103480,18 @@ function renderGeneral(containerEl, plugin, redisplay) {
         redisplay();
       })
     );
+
+  new Setting(containerEl)
+    .setName("Open the practice view when Obsidian starts")
+    .setDesc("Open practice as soon as the workspace is ready, so you can start with one tap. Needs the MCQ Tracker module.")
+    .addToggle((t) =>
+      t.setValue(st.openPracticeOnStartUp === true).onChange(async (v) => {
+        st.openPracticeOnStartUp = v;
+        await plugin.save();
+      })
+    );
+
+  new Setting(containerEl).setName("Study plan").setHeading();
 
   new Setting(containerEl)
     .setName("Daily study goal")
@@ -103151,10 +103523,12 @@ function renderGeneral(containerEl, plugin, redisplay) {
       });
     });
 
+  new Setting(containerEl).setName("Reminders").setHeading();
+
   const reminder = st.reminder || { enabled: false, hour: 9 };
   new Setting(containerEl)
     .setName("Daily study reminder")
-    .setDesc("A quiet in-app nudge on Today and in the status bar, at most once a day. It sends nothing, and is off by default. Operating-system delivery is a separate opt-in below.")
+    .setDesc("A quiet in-app nudge on Today and in the status bar, at most once a day. It sends nothing and is off by default.")
     .addToggle((t) =>
       t.setValue(reminder.enabled === true).onChange(async (v) => {
         st.reminder = { ...reminder, enabled: v };
@@ -103162,7 +103536,16 @@ function renderGeneral(containerEl, plugin, redisplay) {
         plugin.refreshReminder();
         redisplay();
       })
-    )
+    );
+
+  const details = renderDisclosure(containerEl, {
+    title: "Reminder details",
+    description: "Time, desktop delivery and today's dismissal.",
+    status: reminder.enabled === true ? "On" : "Off",
+  });
+  new Setting(details)
+    .setName("Reminder hour")
+    .setDesc("The local hour for the in-app nudge, from 0 to 23. Default 9.")
     .addText((t) => {
       t.inputEl.type = "number";
       t.inputEl.min = "0";
@@ -103176,12 +103559,16 @@ function renderGeneral(containerEl, plugin, redisplay) {
           plugin.refreshReminder();
         }
       });
-    })
+    });
+
+  new Setting(details)
+    .setName("Today's reminder")
+    .setDesc("Hide today's nudge without changing the schedule.")
     .addButton((b) => b.setButtonText("Dismiss today").onClick(() => plugin.dismissTodayReminder()));
 
-  new Setting(containerEl)
+  new Setting(details)
     .setName("Operating-system notifications")
-    .setDesc("Ask the operating system to show the daily reminder as a desktop notification, at most once a day. Off by default; the in-app nudge stays on either way, nothing is sent over the network, and the permission prompt appears only when you turn this on or press the button.")
+    .setDesc("Show the daily reminder as a desktop notification, at most once a day. Off by default; nothing is sent over the network, and the permission prompt appears only when you turn this on or press the button.")
     .addToggle((t) =>
       t.setValue(reminder.osNotifications === true).onChange(async (v) => {
         st.reminder = { ...reminder, osNotifications: v };
@@ -103193,16 +103580,6 @@ function renderGeneral(containerEl, plugin, redisplay) {
     )
     .addButton((b) => b.setButtonText("Request permission").onClick(() => plugin.requestOsNotifications()));
 
-  new Setting(containerEl)
-    .setName("Open the practice view when Obsidian starts")
-    .setDesc("Opens the practice view as soon as the workspace is ready, so you can start with one tap. Needs the MCQ Tracker module.")
-    .addToggle((t) =>
-      t.setValue(st.openPracticeOnStartUp === true).onChange(async (v) => {
-        st.openPracticeOnStartUp = v;
-        await plugin.save();
-      })
-    );
-
   const version = (plugin.manifest && plugin.manifest.version) || "";
   new Setting(containerEl)
     .setName("Version")
@@ -103213,6 +103590,7 @@ function renderGeneral(containerEl, plugin, redisplay) {
 module.exports = {
   CORE_MODULE_IDS,
   GLOBAL_TABS,
+  renderDisclosure,
   renderStudyToolIndex,
   studyToolOverview,
   renderGeneral,
@@ -103244,7 +103622,7 @@ const { normalizeExamReadyPasses } = require("./view-helpers");
 const { normalizeSpacedEverything } = require("./spaced-everything");
 const { formatCourseDays, parseCourseDays } = require("./study-status");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
-const { SETTINGS_CATEGORIES, SETTINGS_PAGE_BY_ID, categoryForPage, pageForModule } = require("./settings-categories");
+const { SETTINGS_PAGE_BY_ID, pageForModule, settingsCategoriesFor, settingsPageVisible } = require("./settings-categories");
 const { renderPdfPlusSettings } = require("./pdf-plus-settings");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const { ASSIGNMENTS_TABS, renderAssignmentsSettings } = require("./assignments-settings");
@@ -103320,11 +103698,18 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     const st = this.plugin.settings;
     rootEl.empty();
 
-    const page = this.currentPage();
+    const visibleCategories = settingsCategoriesFor(this.plugin);
+    let page = this.currentPage();
+    if (!visibleCategories.some((category) => category.pages.some((entry) => entry.id === page.id))) {
+      this.activePage = visibleCategories.some((category) => category.pages.some((entry) => entry.id === "global"))
+        ? "global"
+        : visibleCategories[0].pages[0].id;
+      page = this.currentPage();
+    }
     this.activeModule = page.module;
     if (page.tab) this.activeMcqTab = page.tab;
 
-    const containerEl = this.renderModuleNav(rootEl).body;
+    const containerEl = this.renderModuleNav(rootEl, visibleCategories).body;
 
     if (this.activeModule === "global") {
       renderGlobalSettings(
@@ -104808,10 +105193,46 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     return SETTINGS_PAGE_BY_ID[this.activePage] || SETTINGS_PAGE_BY_ID.global;
   }
 
-  openPage(id) {
+  openPage(id, options) {
     if (!SETTINGS_PAGE_BY_ID[id]) return;
+    if (!settingsPageVisible(this.plugin, id)) {
+      if (!options || options.reveal !== true) return;
+      // A deep link from an advanced surface (PDF++ Customize...) must still
+      // land on its page. Reveal the full tree rather than dropping the link.
+      this.plugin.settings.simpleSettings = false;
+      const saving = this.plugin.save();
+      if (saving && typeof saving.catch === "function") saving.catch(() => {});
+    }
     this.activePage = id;
     this.display();
+  }
+
+  async setSimpleSettings(value) {
+    this.plugin.settings.simpleSettings = value === true;
+    await this.plugin.save();
+    this.display();
+  }
+
+  /** The one switch between the beginner path and every specialist page. */
+  renderSettingsMode(layout) {
+    const simple = this.plugin.settings.simpleSettings === true;
+    const bar = layout.createDiv({ cls: "qt-settings-mode" });
+    const copy = bar.createDiv({ cls: "qt-settings-mode-copy" });
+    copy.createSpan({ cls: "qt-settings-mode-title", text: simple ? "Simple settings" : "All settings" });
+    copy.createSpan({
+      cls: "qt-settings-mode-description",
+      text: simple
+        ? "Practice, review and the main modules. Optional tools stay out of the way."
+        : "Every optional tool and advanced option is visible.",
+    });
+    const toggle = bar.createEl("button", { cls: "qt-settings-mode-toggle" });
+    toggle.setAttr("type", "button");
+    toggle.setAttr("role", "switch");
+    toggle.setAttr("aria-checked", simple ? "false" : "true");
+    toggle.setAttr("aria-label", simple ? "Show all settings" : "Use simple settings");
+    toggle.createSpan({ cls: "qt-settings-mode-label", text: simple ? "Show all settings" : "Use simple settings" });
+    toggle.createSpan({ cls: "qt-settings-mode-state", text: simple ? "Off" : "On" });
+    toggle.addEventListener("click", () => this.setSimpleSettings(!simple));
   }
 
   /**
@@ -104819,16 +105240,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
    * category beside the active page. A grouped picker replaces the page list
    * when the pane is too narrow for two columns, so every page stays reachable.
    */
-  renderModuleNav(rootEl) {
+  renderModuleNav(rootEl, settingsCategories) {
     const page = this.currentPage();
-    const category = categoryForPage(page.id);
+    const category = settingsCategories.find((entry) => entry.pages.some((item) => item.id === page.id)) || settingsCategories[0];
     const layout = rootEl.createDiv({ cls: "qt-settings-layout" });
     if (usesPhoneSettingsLayout()) layout.addClass("is-phone");
+    if (this.plugin.settings.simpleSettings === true) layout.addClass("is-simple");
+
+    this.renderSettingsMode(layout);
 
     const categories = layout.createDiv({ cls: "qt-settings-categories" });
     categories.setAttr("role", "tablist");
     categories.setAttr("aria-label", "Settings category");
-    for (const entry of SETTINGS_CATEGORIES) {
+    for (const entry of settingsCategories) {
       const active = entry.id === category.id;
       const button = categories.createEl("button", { cls: `qt-settings-category${active ? " is-active" : ""}` });
       button.setAttr("type", "button");
@@ -104842,14 +105266,14 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       cls: "qt-settings-module-picker qt-select",
       attr: { "aria-label": "Settings page" },
     });
-    for (const entry of SETTINGS_CATEGORIES) {
+    for (const entry of settingsCategories) {
       const group = picker.createEl("optgroup", { attr: { label: entry.label } });
       for (const entryPage of entry.pages) group.createEl("option", { value: entryPage.id, text: entryPage.label });
     }
     picker.value = page.id;
     picker.addEventListener("change", () => this.openPage(picker.value));
 
-    const grid = layout.createDiv({ cls: "qt-settings-grid" });
+    const grid = layout.createDiv({ cls: `qt-settings-grid${category.pages.length === 1 ? " is-single-page" : ""}` });
     const list = grid.createDiv({ cls: "qt-settings-pages" });
     list.setAttr("role", "tablist");
     list.setAttr("aria-label", `${category.label} settings`);
@@ -129815,20 +130239,29 @@ __defs["welcome"] = function (module, exports, require) {
 /* First-run guide data and per-device onboarding state. Nothing here touches a vault note. */
 
 const WELCOME_STORAGE_KEY = "mcqTrackerWelcome";
+const WELCOME_NOTE_PATH = "MCQ Tracker Start here.md";
 
 const WELCOME_MODULE_INFO = [
   { id: "mcq", label: "MCQ Tracker", description: "Practice questions from your notes, weak spots, timed tests and file import." },
   { id: "cards", label: "Cards", description: "Flashcards, vocabulary, cloze and image-occlusion cards with spaced review." },
   { id: "calendar", label: "Calendar", description: "Classes and exams from an .ics schedule, countdowns and class notes." },
   { id: "assignments", label: "Assignments", description: "A local gradebook and task list: weighted course grades, final-score planning and a credit-weighted GPA." },
-  { id: "ai", label: "AI features", description: "Optional tutor chat, AI grading and document import. Nothing is sent until you turn it on and add a key." },
-  { id: "reference", label: "Reference", description: "A local formula sheet, constants, unit converter, graph plotter and periodic table." },
+  { id: "ai", label: "AI features", description: "Optional tutor chat, AI grading and document import. Importing a PDF or document into questions needs AI; practice, cards and review do not. Nothing is sent until you turn it on and add a key." },
+  { id: "reference", label: "Reference", description: "A local formula sheet, constants, unit converter, graph plotter, periodic table, AP resources and an unofficial AP score estimator." },
 ];
 
 const WELCOME_PRESETS = [
   {
+    id: "ap",
+    label: "AP courses",
+    description: "Questions, cards, the exam calendar, assignments and AP resources/score tools. AI stays off.",
+    adaptive: true,
+    adaptiveFrequency: true,
+    modules: { mcq: true, cards: true, calendar: true, assignments: true, ai: false, reference: true },
+  },
+  {
     id: "sat",
-    label: "SAT / AP-style prep",
+    label: "SAT prep",
     description: "Practice questions and adaptive review. Cards, calendar and AI stay off until you want them.",
     adaptive: true,
     modules: { mcq: true, cards: false, calendar: false, assignments: true, ai: false, reference: false },
@@ -129900,6 +130333,10 @@ const WELCOME_STEPS = [
   { id: "settings", title: "Find settings later", body: "Settings has Global, MCQ Tracker, Cards, Calendar, Assignments and Reference groups, each with its own tabs.", button: "Open settings", action: "settings" },
 ];
 
+function welcomeNoteMarkdown() {
+  return "---\nmcq_tracker_welcome: true\n---\n\n# Start here with MCQ Tracker\n\nThis note is created once, on your first run. It is a normal Obsidian note: read it, edit it, or delete it when it has done its job. MCQ Tracker does not need this note to work.\n\n> [!tip] The one-minute version\n> Press **Ctrl/Cmd+P**, type **Open welcome guide**, and press Enter. Choose **Try the example question**. It writes one ordinary note to **Questions/** and opens Practice. Answer it, submit, and open **Today** tomorrow to see it come back.\n\n## Pick your path\n\n| If this sounds like you | Read |\n| --- | --- |\n| I have never used Obsidian. | [[#New to Obsidian in five minutes]] |\n| I am taking an AP course. | [[#AP student path]] |\n| I use Obsidian, but not this plugin. | [[#Obsidian user path]] |\n| I want the shortcuts and file formats. | [[#Power-user shortcuts]] |\n\nYou can read all four; they are short. Nothing here locks you in.\n\n## What needs AI, and what does not\n\nMost of this plugin works with AI turned off. One everyday step does need it: turning a PDF or another document into question notes.\n\n> [!important] Turning a PDF into questions needs AI\n> There is no offline PDF-to-question converter. **Import questions from a file (PDF, PowerPoint, Word)** needs **AI features** turned on, plus either a provider key (**Direct AI**) or the **OpenCode agent** on desktop. The file's text is sent to that provider, which may charge for long files. Without AI set up, the import stops and asks you to turn it on.\n\n| Works with AI off | Needs AI turned on and a provider or the OpenCode agent |\n| --- | --- |\n| Writing question notes by hand, the example question, practice, timed tests, review and **Today** | Turning a PDF, PowerPoint, Word or other document into question notes |\n| Making cards by hand, card review, cram, `.apkg` import/export and AnkiConnect | Tutor chat and the Study agent; AI grading of free response and the optional AI second opinion on typed answers |\n| Calendar, classes, exams, assignments, grades and GPA | Generating questions, quizzes or cards from a document, photo or handwritten page |\n| Reference tools, AP resources and the unofficial AP score calculator | Summarising a course note, and turning PDF pages into a LaTeX note |\n\n**If you do not have AI:** write one question note by hand, or import ready-made flashcards (Quizlet, Kahoot, Moodle, QTI, GIFT, CSV or Markdown). Practice, review, cards, the calendar and the reference tools all keep working.\n\n## New to Obsidian in five minutes\n\nObsidian is a note-taking app. It is not a website and it does not need an account.\n\n- **A vault is a folder.** Everything you see is a file in that folder. Back it up the same way you back up school files.\n- **The left sidebar is your file list.** If you close this note, it is still there. Click **MCQ Tracker Start here** to return.\n- **The command palette is the action search.** Press **Ctrl/Cmd+P**, type the name of something you want to do, and press Enter. This is how you reach most of MCQ Tracker. On a phone, the same command names are available from the app menu.\n- **Settings is the gear at the bottom-left.** The plugin switches live under **Settings → Global → Modules**.\n- **The top block between the two --- lines is note properties.** Question notes use it to store the answer and your review history. Leave it alone until you are comfortable; editing it can change how a question is graded.\n- **Reading and editing are separate.** Use the book/pencil control at the top-right, or run **Toggle reading view** from the command palette. You do not need to edit this note.\n- **Links are two opening square brackets.** Type two square brackets in any note, start typing a note name, and press Enter. You do not need links to start.\n\n> [!note] If you get lost\n> Press **Ctrl/Cmd+P** and type **Open Start here note**. That brings this note back. If that does not work, open **Settings → Global → About** and choose **Open Start here note**.\n\n## AP student path\n\nThe short version: use the AP setup, add your exam date, bring in one small unit of practice, then let **Today** tell you what to do.\n\n1. **Choose the AP starting setup.** Press **Ctrl/Cmd+P**, type **Open welcome guide**, and choose **Choose modules**. Pick **AP courses**. This turns on questions, cards, the calendar, assignments, and Reference (where AP resources and the AP score calculator live). AI stays off.\n2. **Put the exam on your calendar.** Run **Open AP resources**, choose your course, and open **AP exam calendar** for the official date. Then run **Exams: add an exam** and add that date. Class times are optional; add them later if you want them.\n3. **Bring in one small batch of practice.** Start with one unit, not the whole course.\n   **This step needs AI.** Turning a file into questions has no offline version: turn on AI features and add a provider key (**Direct AI**), or use the **OpenCode agent** on desktop. Without that, write one question note by hand or import ready-made flashcards, then continue at step 4.\n   - For multiple-choice, run **Import questions from a file (PDF, PowerPoint, Word)**. A unit review, teacher handout, or your own notes are enough. The plugin previews what it found before writing anything.\n   - For free response, run **AP: import free-response questions from a PDF**, or **AP: create a free-response note**. Put the PDF in your vault first. If you have a released FRQ and scoring guidelines from AP Central, download them yourself and import the PDF. The plugin reads the text layer, and you approve the questions before they are saved.\n   - AP Classroom is account-gated. The plugin never signs in, scrapes, or stores College Board content; use your own AP Classroom access in a browser.\n4. **Practice for a short session.** Run **Open practice view**. Filter to your course or one skill, or run **Quick Practice** for 2, 5, or 10 minutes. For written answers, run **AP: open free-response practice and grader**. The rubric grade is a study aid, not an official AP score.\n5. **Review the next day.** Run **Open Today**. It brings back due questions, FRQs, cards, deadlines, and the next exam. If you want an estimate after a full practice exam, run **Open AP score calculator**. It is an unofficial estimate, not a prediction.\n6. **Use the official pages when you need them.** Run **Open AP resources** for the course page, exam format, released FRQs and scoring guidelines, AP Students dates, AP Classroom, and the exam calendar.\n\nSupported AP resource packs: AP Biology, Calculus AB, Calculus BC, Chemistry, English Language and Composition, Statistics, U.S. History, and World History: Modern.\n\n> [!warning] Keep it honest\n> AP is a trademark of the College Board. This plugin is not affiliated with or endorsed by the College Board. The score estimator and FRQ grader are practice aids.\n\n## Obsidian user path\n\nYou already know the app, so here is the shortest route:\n\n1. Run **Open welcome guide** and choose **Try the example question** for a working question and a review date.\n2. Run **Import questions from a file (PDF, PowerPoint, Word)** for a real unit, or write a question note in **Questions/**.\n3. Run **Open practice view** for filters and sessions, **Open Today** for the due queue, and **Open welcome guide → Choose modules** to match the plugin to your course load.\n4. Question notes are ordinary Markdown. **question_id**, **course**, **skill**, **answer**, and **question_type** live in properties; attempts and review dates are written back to the same note.\n5. The README has the full command, format, import, cards, calendar, and AI reference.\n\n## Power-user shortcuts\n\n- **Quick Practice from anywhere:** obsidian://mcq-tracker-quick?minutes=10&course=AP%20Biology. Use **minutes** 2, 5 or 10, or **count** 5, 10 or 20, not both. The course name must match the note's **course** property.\n- **Useful commands:** **Open practice view**, **Open Today**, **Quick Practice**, **Import questions from a file (PDF, PowerPoint, Word)**, **Open AP resources**, **Open AP score calculator**, **AP: import free-response questions from a PDF**, **AP: open free-response practice and grader**.\n- **Notes are the database:** default question notes are under **Questions/**; review state stays in their properties. Importers write ordinary notes, not a locked database.\n- **Optional integrations:** AnkiConnect, .apkg import/export, CouchDB sync, .ics calendars, Full Calendar notes, and AI through your own provider key. All are opt-in. Document-to-question import needs AI; the Quizlet, Kahoot, Moodle, QTI, GIFT, CSV, Markdown and .apkg importers are local.\n- **Markdown blocks:** mcq-quiz, quiz-maker, quizport, study-map, and mcq-dashboard are available if you prefer writing study material directly in notes. The README has the formats.\n- **Settings map:** **Global** has modules and about; **MCQ Tracker**, **Cards**, **Calendar**, **Assignments**, and **Reference** own their pages.\n\n## If something does not work\n\n- **The note did not open automatically:** open **MCQ Tracker Start here** in the left sidebar, or run **Open Start here note**.\n- **A command is missing:** the module may be off. Open **Settings → Global → Modules** and turn it on. Turning a module off hides its views; it does not delete notes.\n- **An import looks wrong:** the plugin previews imports. Cancel the preview and nothing is written.\n- **An import says to turn on AI:** that step is AI-only. PDF and document imports have no offline converter. Everything else here still works without AI.\n- **You need more detail:** open the [README](https://github.com/ifriedenson/mcq-tracker#readme) or the [website](https://ifriedenson.github.io/mcq-tracker/).\n\n## Make this guide better\n\nThis note is intentionally plain Markdown. If a step was unclear, edit it with what you needed to know, or send feedback. Clearer first-run instructions help the next student.\n\n- [Read the full README](https://github.com/ifriedenson/mcq-tracker#readme)\n- [Open the website](https://ifriedenson.github.io/mcq-tracker/)\n- [Send feedback](https://tally.so/r/PRDe1d)\n\nIt is safe to delete this note when you are done; **Open Start here note** will create it again if you want it back.\n";
+}
+
 function emptyWelcomeState() {
   return { seenVersion: "", dismissed: false, completed: [] };
 }
@@ -129956,6 +130393,7 @@ function moduleSummary(modules) {
 
 module.exports = {
   WELCOME_MODULE_INFO,
+  WELCOME_NOTE_PATH,
   WELCOME_PRESETS,
   WELCOME_SETUP_STEPS,
   WELCOME_EXAMPLE,
@@ -129968,6 +130406,7 @@ module.exports = {
   moduleSummary,
   normalizeWelcomeState,
   saveWelcomeState,
+  welcomeNoteMarkdown,
   welcomeShouldShow,
 };
 };
@@ -130030,7 +130469,7 @@ class WelcomeModal extends Modal {
     card.createEl("h2", { text: "Welcome to MCQ Tracker" });
     card.createEl("p", {
       cls: "qt-welcome-lead",
-      text: "Turn a question note into practice, and let the plugin schedule the next review. No setup is needed to try it.",
+      text: "Turn a question note into practice, and let the plugin schedule the next review. No setup is needed to try it. The Start here note has a five-minute Obsidian primer and separate AP, regular and power-user paths.",
     });
 
     const setup = card.createDiv({ cls: "qt-welcome-setup" });
@@ -130168,6 +130607,12 @@ class WelcomeModal extends Modal {
         .addEventListener("click", () => openExternal(links.donation));
     }
     support
+      .createEl("button", { text: "Open Start here note", cls: "qt-link" })
+      .addEventListener("click", () => {
+        this.finish();
+        this.plugin.openWelcomeNote().catch(() => this.plugin.openWelcome());
+      });
+    support
       .createEl("button", { text: "Read the quick start guide", cls: "qt-link" })
       .addEventListener("click", () => openExternal(QUICK_START_URL));
   }
@@ -130259,6 +130704,195 @@ class WelcomeModal extends Modal {
 module.exports = {
   WelcomeModal,
 };
+};
+
+/* ---- src/whats-new.js ---- */
+__defs["whats-new"] = function (module, exports, require) {
+/* Bundled release notes and per-device "already seen" state. No network, no vault notes. */
+const { loadWelcomeState } = require("./welcome");
+
+const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
+
+const RELEASES = [
+  {
+    version: "1.296.0",
+    date: "November 9, 2026",
+    title: "A simpler start",
+    summary:
+      "The everyday path is shorter: fewer settings to scan, Import at the top of Practice, and the less-used practice actions out of the way until you need them.",
+    highlights: [
+      {
+        title: "Simple settings",
+        body: "New installs start with Practice, review, the Study agent and app settings. Show all settings reveals every specialist page and remembers the choice.",
+      },
+      {
+        title: "Import is at the top",
+        body: "Import questions now sits above the practice filters. If AI is not set up, it goes straight to the setup screen instead of hiding the button.",
+      },
+      {
+        title: "Everyday actions stay clear",
+        body: "Skip, mark known, bury, suspend and exclude moved under More actions. Confidence and Submit remain the obvious next step.",
+      },
+      {
+        title: "Import details on request",
+        body: "Course, unit, skill and other note properties wait behind Add details. Importing into an existing folder now adds questions instead of stopping.",
+      },
+      {
+        title: "Clearer confidence labels",
+        body: "The default middle choice is now Probably Right, so Guessing, Probably Right and Confident read as one scale. Custom labels are unchanged.",
+      },
+    ],
+  },
+];
+
+function cleanVersion(value) {
+  const text = String(value || "")
+    .trim()
+    .replace(/^v/i, "");
+  return /^\d+\.\d+\.\d+$/.test(text) ? text : "";
+}
+
+function normalizeWhatsNewState(value) {
+  let src = value;
+  if (typeof src === "string") {
+    try {
+      src = JSON.parse(src);
+    } catch (e) {
+      src = null;
+    }
+  }
+  if (!src || typeof src !== "object") return { seenVersion: "", seenAt: "" };
+  return {
+    seenVersion: cleanVersion(src.seenVersion),
+    seenAt: typeof src.seenAt === "string" ? src.seenAt : "",
+  };
+}
+
+function releaseFor(version) {
+  const wanted = cleanVersion(version);
+  if (!wanted) return null;
+  return RELEASES.find((release) => release.version === wanted) || null;
+}
+
+function latestRelease() {
+  return RELEASES[0] || null;
+}
+
+function loadWhatsNewState(app) {
+  try {
+    const raw = app && app.loadLocalStorage ? app.loadLocalStorage(WHATS_NEW_STORAGE_KEY) : null;
+    return normalizeWhatsNewState(raw);
+  } catch (e) {
+    return normalizeWhatsNewState(null);
+  }
+}
+
+function saveWhatsNewState(app, state) {
+  if (!app || !app.saveLocalStorage) return;
+  try {
+    app.saveLocalStorage(WHATS_NEW_STORAGE_KEY, normalizeWhatsNewState(state));
+  } catch (e) {
+    // Storage can be unavailable in a restricted workspace; the popup still works for this run.
+  }
+}
+
+/**
+ * An update shows once. A first install does not: the Start here note owns onboarding.
+ * Existing installs already carry a welcome version, which acts as the first baseline.
+ */
+function whatsNewShouldShow(app, version) {
+  const current = cleanVersion(version);
+  if (!releaseFor(current)) return false;
+  const seen = loadWhatsNewState(app).seenVersion || cleanVersion(loadWelcomeState(app).seenVersion);
+  return !!seen && seen !== current;
+}
+
+function markWhatsNewSeen(app, version) {
+  const current = cleanVersion(version);
+  if (!current) return loadWhatsNewState(app);
+  const state = { seenVersion: current, seenAt: new Date().toISOString() };
+  saveWhatsNewState(app, state);
+  return state;
+}
+
+module.exports = {
+  RELEASES,
+  WHATS_NEW_STORAGE_KEY,
+  cleanVersion,
+  latestRelease,
+  loadWhatsNewState,
+  markWhatsNewSeen,
+  normalizeWhatsNewState,
+  releaseFor,
+  saveWhatsNewState,
+  whatsNewShouldShow,
+};
+};
+
+/* ---- src/whats-new-modal.js ---- */
+__defs["whats-new-modal"] = function (module, exports, require) {
+const { Modal } = require("obsidian");
+const { markWhatsNewSeen } = require("./whats-new");
+
+class WhatsNewModal extends Modal {
+  constructor(app, plugin, release, options) {
+    super(app);
+    this.plugin = plugin;
+    this.release = release;
+    this.automatic = !!(options && options.automatic);
+  }
+
+  onOpen() {
+    this.modalEl.addClass("qt-whats-new-modal");
+    this.render();
+  }
+
+  onClose() {
+    markWhatsNewSeen(this.app, this.release && this.release.version);
+    this.contentEl.empty();
+  }
+
+  render() {
+    const el = this.contentEl;
+    el.empty();
+    const release = this.release;
+    const card = el.createDiv({ cls: "qt-whats-new" });
+    card.createDiv({
+      cls: "qt-whats-new-kicker",
+      text: this.automatic ? `Updated to ${release.version}` : "What's new",
+    });
+    card.createEl("h2", { text: release.title });
+    card.createDiv({ cls: "qt-whats-new-meta", text: `Version ${release.version} · ${release.date}` });
+    card.createEl("p", { cls: "qt-whats-new-lead", text: release.summary });
+
+    const list = card.createDiv({ cls: "qt-whats-new-list" });
+    for (let index = 0; index < release.highlights.length; index++) {
+      const item = release.highlights[index];
+      const row = list.createDiv({ cls: "qt-whats-new-item" });
+      row.createSpan({ cls: "qt-whats-new-number", text: String(index + 1).padStart(2, "0") });
+      const copy = row.createDiv({ cls: "qt-whats-new-copy" });
+      copy.createEl("h3", { text: item.title });
+      copy.createEl("p", { text: item.body });
+    }
+
+    const actions = card.createDiv({ cls: "qt-whats-new-actions" });
+    const done = actions.createEl("button", { text: "Got it", cls: "mod-cta" });
+    done.addEventListener("click", () => this.close());
+    if (!this.plugin.mcqEnabled || this.plugin.mcqEnabled()) {
+      const practice = actions.createEl("button", { text: "Open practice" });
+      practice.addEventListener("click", () => {
+        this.close();
+        Promise.resolve(this.plugin.activateView()).catch(() => {});
+      });
+    }
+    card.createDiv({
+      cls: "qt-whats-new-foot",
+      text: "Reopen this from the command palette with Show what's new.",
+    });
+  }
+}
+
+module.exports = { WhatsNewModal };
 };
 
 /* ---- src/wordnet.js ---- */
@@ -131132,6 +131766,7 @@ const { StudyStatusModal } = require("./study-status-modal");
 const { renderSettingsTabs } = require("./settings-ui");
 const { FindQuestionModal, FolderFilterSuggest, QuestionFolderModal } = require("./modals");
 const { PdfImportModal } = require("./import-modal");
+const { AiImportHelpModal, importAiState } = require("./ai-import-modal");
 const courseNotes = require("./course-notes");
 const paperScanner = require("./paper-scanner");
 const documentClassify = require("./document-classify");
@@ -131166,6 +131801,8 @@ const analyticsEmbed = require("./analytics-embed");
 const progress = require("./progress");
 const { FocusLogModal } = require("./focus-modal");
 const { WelcomeModal } = require("./welcome-modal");
+const whatsNew = require("./whats-new");
+const { WhatsNewModal } = require("./whats-new-modal");
 const referenceElements = require("./reference-elements");
 const referenceGraph = require("./reference-graph");
 const { ReferenceView } = require("./reference-view");
@@ -131473,7 +132110,9 @@ QuestionTrackerPlugin.__test = {
   PdfAnnotationModal,
   PdfInkModal,
   welcome,
+  whatsNew,
   WelcomeModal,
+  WhatsNewModal,
   focus,
   studyPlan,
   analytics,
@@ -131573,6 +132212,8 @@ QuestionTrackerPlugin.__test = {
   QuestionFolderModal,
   FindQuestionModal,
   PdfImportModal,
+  AiImportHelpModal,
+  importAiState,
   courseNotes,
   paperScanner,
   documentClassify,

@@ -26,7 +26,7 @@ function courseMatches(value, course) {
   return !!a && !!b && (a === b || a.includes(b) || b.includes(a));
 }
 
-const DEFAULT_CONFIDENCE_LABELS = ["Guessing", "Unsure", "Confident"];
+const DEFAULT_CONFIDENCE_LABELS = ["Guessing", "Probably Right", "Confident"];
 const BREAKDOWN_FIELDS = ["skill", "domain", "difficulty"];
 const FIELD_LABELS = { skill: "Weak spots", domain: "Domain breakdown", difficulty: "Difficulty breakdown" };
 
