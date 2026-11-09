@@ -1,6 +1,6 @@
 # MCQ Tracker
 
-MCQ Tracker is the question-first study plugin for Obsidian. Practise exam-style questions, review whole notes and flashcards with spaced repetition, sit timed tests, and see what is actually weak. It is free, local-first, and works on desktop and mobile. No account is required; AI is optional and uses your own provider key.
+MCQ Tracker is the question-first study plugin for Obsidian. Turn notes and PDFs into exam-style practice across seven question formats, review notes and cards with spaced repetition, sit timed tests, and keep every attempt on the note it came from. It is free, local-first, and works on desktop and mobile. No account is required; AI is optional and uses your own provider key.
 
 [Website](https://ifriedenson.github.io/mcq-tracker/) · [Source](https://github.com/ifriedenson/mcq-tracker) · [Give feedback](https://tally.so/r/PRDe1d)
 

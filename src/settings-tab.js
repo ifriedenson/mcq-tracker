@@ -1656,7 +1656,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     card.createEl("h3", { text: "MCQ Tracker" });
     card.createEl("p", {
       cls: "setting-item-description",
-      text: "Serve practice questions from your notes, grade answers, and track time, confidence and spaced review in note properties.",
+      text: "Turn notes and PDFs into exam-style practice across seven question formats, with spaced review, timed tests and every attempt saved on its note.",
     });
     new Setting(containerEl)
       .setName("Practice view")
