@@ -1,0 +1,46 @@
+name: Pages
+
+# Publishes the static landing page in docs/ to GitHub Pages.
+#
+# GitHub Pages must be enabled once for the repository:
+#   Settings -> Pages -> Build and deployment -> Source: GitHub Actions
+# A workflow token cannot create the Pages site (GitHub requires an admin
+# token for that API), so this workflow only builds and deploys.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
