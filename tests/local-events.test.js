@@ -61,6 +61,14 @@ test("local event CRUD keeps categories, colour and recurrence independent", () 
   assert.equal(removed.settings.events.length, 0);
 });
 
+test("local events keep a trimmed location", () => {
+  const event = E.normalizeEvent({ title: "Lab", date: "2026-11-01", location: "  Room 204  " }, new Date(2026, 10, 1));
+  assert.equal(event.location, "Room 204");
+  assert.equal(E.normalizeEvent({ title: "Online", date: "2026-11-01" }, new Date(2026, 10, 1)).location, "");
+  const settings = E.upsertLocalEvent(E.normalizeLocalEventsSettings(undefined), { ...event, location: "Library" }, new Date(2026, 10, 1));
+  assert.equal(settings.settings.events[0].location, "Library");
+});
+
 test("month grid has whole weeks and marks today", () => {
   const cells = E.monthCells(2026, 10, "monday", new Date(2026, 10, 1));
   assert.equal(cells.length % 7, 0);

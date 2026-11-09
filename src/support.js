@@ -6,7 +6,7 @@
  */
 const { str } = require("./util");
 
-const DEFAULT_FEEDBACK_URL = "https://github.com/ifriedenson/mcq-tracker/issues/new";
+const DEFAULT_FEEDBACK_URL = "https://tally.so/r/PRDe1d";
 const DEFAULT_DONATION_URL = ""; // intentionally blank until the owner chooses a funding page
 
 const DEFAULT_SUPPORT = {

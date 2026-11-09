@@ -3,7 +3,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { load, obsidian, TFile, TFolder } = require("./helpers/load");
 const { makeApp } = require("./helpers/fake");
-const { Plugin: QT } = load();
+const { T, Plugin: QT } = load();
 
 const NOTES = [
   { path: "Questions/sat/Q1.md", fm: { skill: "grammar", difficulty: "hard", source_question_id: "aaa111" } },
@@ -215,4 +215,27 @@ test("an OpenCode that is already on the computer is used instead of downloading
   await mgr.autoSetup(() => {});
   assert.equal(downloaded, false);
   assert.equal(mgr.foundPath, "/usr/local/bin/opencode");
+});
+
+
+test("the AnkiWeb finder opens the shared-deck search without a network request", async () => {
+  const { plugin } = await start();
+  const calls = [];
+  const previous = globalThis.window;
+  globalThis.window = { open: (...args) => calls.push(args) };
+  try {
+    assert.equal(plugin.openAnkiWebSearch(), true);
+  } finally {
+    if (previous === undefined) delete globalThis.window;
+    else globalThis.window = previous;
+  }
+  assert.deepEqual(calls, [["https://ankiweb.net/shared/decks", "_blank", "noopener,noreferrer"]]);
+});
+
+test("the Study agent offers the objective coach role", () => {
+  const role = T.tutorPresets.tutorRole("objective");
+  assert.equal(role.id, "objective");
+  assert.equal(role.label, "Objective coach");
+  assert.match(role.prompt, /learning objectives/i);
+  assert.equal(T.tutorPresets.normalizeTutorRole("objective"), "objective");
 });

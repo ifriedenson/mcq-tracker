@@ -6,9 +6,10 @@ const { load } = require("./helpers/load");
 const { T } = load();
 const tutor = T.tutorPresets;
 
-test("tutor roles: three stable presets and an unknown value falls back to private", () => {
-  assert.deepEqual(tutor.TUTOR_ROLES.map((role) => role.id), ["private", "socratic", "language"]);
+test("tutor roles: four stable presets and an unknown value falls back to private", () => {
+  assert.deepEqual(tutor.TUTOR_ROLES.map((role) => role.id), ["private", "socratic", "objective", "language"]);
   assert.equal(tutor.normalizeTutorRole("SOCRATIC"), "socratic");
+  assert.equal(tutor.normalizeTutorRole("objective"), "objective");
   assert.equal(tutor.normalizeTutorRole(" language "), "language");
   assert.equal(tutor.normalizeTutorRole("wizard"), "private");
   assert.equal(tutor.tutorRole("missing").id, "private");

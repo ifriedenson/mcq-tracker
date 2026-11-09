@@ -6,7 +6,7 @@ const { load } = require("./helpers/load");
 const { T } = load();
 const support = T.support;
 
-test("support: feedback defaults to GitHub issues and donation stays hidden until configured", () => {
+test("support: feedback defaults to the Tally form and donation stays hidden until configured", () => {
   assert.equal(support.DEFAULT_SUPPORT.showLinks, true);
   assert.equal(support.DEFAULT_SUPPORT.feedbackUrl, support.DEFAULT_FEEDBACK_URL);
   assert.equal(support.DEFAULT_SUPPORT.donationUrl, "");

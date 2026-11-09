@@ -298,6 +298,10 @@ function renderDecks(containerEl, plugin, redisplay) {
     text: "Optional two-way sync with a running Anki desktop and the AnkiConnect add-on. New cards are pushed, linked cards pull Anki edits, and cards changed on both sides are reported instead of overwritten. Nothing is sent until this is on. AnkiConnect listens on your computer only; this does not use AnkiWeb.",
   });
   new Setting(containerEl)
+    .setName("Find a deck on AnkiWeb")
+    .setDesc("Opens AnkiWeb's shared-deck search in your browser. Download the .apkg there, then import it with Cards: import an Anki deck. Nothing is sent until you open the page.")
+    .addButton((b) => b.setButtonText("Open AnkiWeb").onClick(() => plugin.openAnkiWebSearch()));
+  new Setting(containerEl)
     .setName("Enable AnkiConnect sync")
     .setDesc("Adds Sync and Push to Anki commands and buttons. Your notes stay in the vault either way.")
     .addToggle((t) =>

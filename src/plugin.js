@@ -577,6 +577,7 @@ class QuestionTrackerPlugin extends Plugin {
     });
     this.addCommand({ id: "calendar-export", name: "Calendar: export the visible schedule to .ics", callback: () => this.exportCalendarIcs() });
     this.addCommand({ id: "open-cards", name: "Open cards", callback: () => this.activateCards() });
+    this.addCommand({ id: "ankiweb-find-deck", name: "Cards: find a deck on AnkiWeb", callback: () => this.openAnkiWebSearch() });
     this.addCommand({ id: "open-assignments", name: "Open assignments and grades", callback: () => this.activateAssignments() });
     this.addCommand({ id: "open-study-tools", name: "Open Study Tools", callback: () => this.activateStudyTools() });
     this.addCommand({ id: "new-cornell-note", name: "Cornell notes: create a note", callback: () => this.activateStudyTools("cornell") });
@@ -4616,6 +4617,21 @@ class QuestionTrackerPlugin extends Plugin {
     });
     modal.open();
     return modal;
+  }
+
+  /** Open AnkiWeb's shared-deck search in the user's browser. No request leaves Obsidian. */
+  openAnkiWebSearch() {
+    const url = "https://ankiweb.net/shared/decks";
+    try {
+      if (typeof window !== "undefined" && typeof window.open === "function") {
+        window.open(url, "_blank", "noopener,noreferrer");
+        return true;
+      }
+      new Notice(`Open ${url} in your browser to find shared decks.`);
+    } catch (e) {
+      new Notice(`Could not open AnkiWeb. Open ${url} in your browser.`);
+    }
+    return false;
   }
 
   /** Open the study agent in the right sidebar; every file write stays behind the existing review guards. */

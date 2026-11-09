@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 431 groups, 3010 exports. **Commands:** 228. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 431 groups, 3010 exports. **Commands:** 229. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -424,7 +424,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `transcript` | 10 | `tests/adaptive-parity.test.js`, `tests/ai-write-guard.test.js`, `tests/transcript.test.js` |
 | `trendBy` | 0 | `tests/stats.test.js` |
 | `trendDelta` | 0 | `tests/stats.test.js` |
-| `tutorPresets` | 7 | `tests/tutor-presets.test.js` |
+| `tutorPresets` | 7 | `tests/plugin.test.js`, `tests/tutor-presets.test.js` |
 | `unpackQuickSession` | 0 | `tests/uncited-groups.test.js` |
 | `unpackTestSession` | 0 | `tests/parameterized.test.js`, `tests/stats.test.js` |
 | `urlSafety` | 5 | `tests/security-hardening.test.js`, `tests/security-inventory.test.js` |
@@ -518,6 +518,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `calendar-note-next-class` | Calendar: create or open the note for the next class | `openNextClassNote` | `tests/command-effects.test.js` |
 | `calendar-export` | Calendar: export the visible schedule to .ics | `exportCalendarIcs` | `tests/calendar.test.js`, `tests/term-calendar.test.js` |
 | `open-cards` | Open cards | `activateCards` | `tests/cards.test.js`, `tests/plugin.test.js` |
+| `ankiweb-find-deck` | Cards: find a deck on AnkiWeb | `openAnkiWebSearch` | `tests/plugin.test.js` |
 | `open-assignments` | Open assignments and grades | `activateAssignments` | `tests/core-values.test.js`, `tests/plugin.test.js`, `tests/today.test.js` |
 | `open-study-tools` | Open Study Tools | `activateStudyTools` | `tests/plugin.test.js` |
 | `new-cornell-note` | Cornell notes: create a note | `activateStudyTools` | `tests/plugin.test.js` |

@@ -10,6 +10,14 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const WEEK_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+function eventMeta(event) {
+  const time = event.startTime ? `${event.startTime}${event.endTime ? `–${event.endTime}` : ""} · ` : "";
+  const location = event.location ? ` · ${event.location}` : "";
+  const repeat = event.repeat !== "none" ? ` · repeats ${event.repeat}` : "";
+  const until = event.repeatUntil ? ` until ${event.repeatUntil}` : "";
+  return `${time}${event.category}${location}${repeat}${until}`;
+}
+
 function dayLabel(key) {
   const date = new Date(`${key}T12:00:00`);
   if (isNaN(date.getTime())) return key;
@@ -50,6 +58,7 @@ class LocalEventModal extends Modal {
     const date = field("Date", "date", current.date || todayKey(new Date()));
     const start = field("Start time", "time", current.startTime);
     const end = field("End time", "time", current.endTime);
+    const location = field("Location", "text", current.location, "Library room 2");
     const categoryRow = form.createDiv({ cls: "qt-study-field" });
     categoryRow.createEl("label", { text: "Category" });
     const category = categoryRow.createEl("select", { cls: "dropdown", attr: { "aria-label": "Category" } });
@@ -72,8 +81,8 @@ class LocalEventModal extends Modal {
     every.max = "365";
     const until = field("Repeat until", "date", current.repeatUntil);
     const notesRow = form.createDiv({ cls: "qt-study-field qt-study-field-wide" });
-    notesRow.createEl("label", { text: "Notes" });
-    const notes = notesRow.createEl("textarea", { cls: "qt-study-bulk", attr: { "aria-label": "Notes" } });
+    notesRow.createEl("label", { text: "Description" });
+    const notes = notesRow.createEl("textarea", { cls: "qt-study-bulk", attr: { "aria-label": "Description" } });
     notes.rows = 3;
     notes.value = current.notes || "";
     const actions = el.createDiv({ cls: "qt-row qt-study-actions" });
@@ -85,6 +94,7 @@ class LocalEventModal extends Modal {
         date: date.value,
         startTime: start.value,
         endTime: end.value,
+        location: location.value,
         category: category.value,
         color: color.value,
         repeat: repeat.value,
@@ -248,10 +258,7 @@ class LocalEventsView extends ItemView {
       const main = row.createDiv({ cls: "qt-study-row-main" });
       const title = main.createDiv({ cls: "qt-study-row-title", text: event.title });
       if (title.style) title.style.color = event.color;
-      main.createDiv({
-        cls: "qt-study-row-meta",
-        text: `${event.startTime ? `${event.startTime}${event.endTime ? `–${event.endTime}` : ""} · ` : ""}${event.category}${event.repeat !== "none" ? ` · repeats ${event.repeat}` : ""}${event.repeatUntil ? ` until ${event.repeatUntil}` : ""}`,
-      });
+      main.createDiv({ cls: "qt-study-row-meta", text: eventMeta(event) });
       if (event.notes) main.createDiv({ cls: "qt-study-row-meta", text: event.notes });
       const buttons = row.createDiv({ cls: "qt-study-row-actions" });
       buttons.createEl("button", { text: "Edit" }).addEventListener("click", () => this.openEdit(event.id));
@@ -313,10 +320,7 @@ class LocalEventsView extends ItemView {
       const main = row.createDiv({ cls: "qt-study-row-main" });
       const eventTitle = main.createDiv({ cls: "qt-study-row-title", text: event.title });
       if (eventTitle.style) eventTitle.style.color = event.color;
-      main.createDiv({
-        cls: "qt-study-row-meta",
-        text: `${event.category}${event.repeat !== "none" ? ` · repeats ${event.repeat}` : ""}${event.repeatUntil ? ` until ${event.repeatUntil}` : ""}`,
-      });
+      main.createDiv({ cls: "qt-study-row-meta", text: eventMeta(event) });
       if (event.notes) main.createDiv({ cls: "qt-study-row-meta", text: event.notes });
       const buttons = row.createDiv({ cls: "qt-study-row-actions" });
       buttons.createEl("button", { text: "Edit" }).addEventListener("click", () => this.openEdit(event.id));

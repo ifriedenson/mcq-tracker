@@ -35,7 +35,7 @@ test("the swept views keep the accessible names the review added", () => {
     ["exam-view.js", [/aria-label": `Questions in section \$\{i \+ 1\}`/, /aria-label": `Minutes in section \$\{i \+ 1\}`/, /aria-label": "Pick questions"/, /aria-label": "Saved blueprint"/]],
     ["insights-view.js", [/aria-label": "Show mastery for"/]],
     ["today-view.js", [/aria-label": "Show mastery for"/]],
-    ["local-events-view.js", [/aria-label": label/, /aria-label": "Category"/, /aria-label": "Colour"/, /aria-label": "Repeat"/, /aria-label": "Notes"/]],
+    ["local-events-view.js", [/aria-label": label/, /aria-label": "Category"/, /aria-label": "Colour"/, /aria-label": "Repeat"/, /aria-label": "Description"/]],
     ["practice-view.js", [/aria-label": "Filter preset"/, /aria-label": "Pick questions"/, /aria-label": "Connection method"/, /aria-label": "Provider"/, /aria-label": "Session length"/, /aria-label": "Session length value"/]],
     ["reference-view.js", [/qt-ref-punnett-field[\s\S]{0,200}"aria-label": label/, /aria-label": "AP course"/, /aria-label": "Exam"/, /aria-label": "Target AP score"/]],
     ["study-workspace-view.js", [/aria-label": label/, /aria-label": SCORE_LABELS\[dimension\]/, /label: `Read sentence \$\{index \+ 1\} aloud`/]],

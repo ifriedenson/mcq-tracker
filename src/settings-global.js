@@ -200,7 +200,7 @@ function renderGlobalAbout(containerEl, plugin, redisplay) {
     );
   new Setting(containerEl)
     .setName("Feedback link")
-    .setDesc("Opens when the user chooses Send feedback. Defaults to the plugin's GitHub issue page.")
+    .setDesc("Opens when the user chooses Send feedback. Defaults to the MCQ Tracker feedback form.")
     .addText((t) =>
       t
         .setPlaceholder("https://…")

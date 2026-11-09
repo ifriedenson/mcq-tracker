@@ -22031,6 +22031,10 @@ function renderDecks(containerEl, plugin, redisplay) {
     text: "Optional two-way sync with a running Anki desktop and the AnkiConnect add-on. New cards are pushed, linked cards pull Anki edits, and cards changed on both sides are reported instead of overwritten. Nothing is sent until this is on. AnkiConnect listens on your computer only; this does not use AnkiWeb.",
   });
   new Setting(containerEl)
+    .setName("Find a deck on AnkiWeb")
+    .setDesc("Opens AnkiWeb's shared-deck search in your browser. Download the .apkg there, then import it with Cards: import an Anki deck. Nothing is sent until you open the page.")
+    .addButton((b) => b.setButtonText("Open AnkiWeb").onClick(() => plugin.openAnkiWebSearch()));
+  new Setting(containerEl)
     .setName("Enable AnkiConnect sync")
     .setDesc("Adds Sync and Push to Anki commands and buttons. Your notes stay in the vault either way.")
     .addToggle((t) =>
@@ -51761,6 +51765,7 @@ function normalizeEvent(input, now, defaults) {
     endDate: parseDateKey(src.endDate) && str(src.endDate).trim() >= date ? str(src.endDate).trim() : "",
     startTime: normalizeTime(src.startTime),
     endTime: normalizeTime(src.endTime),
+    location: str(src.location).trim().slice(0, 300),
     category,
     color: normalizeColor(src.color, category),
     notes: str(src.notes).slice(0, 2000),
@@ -51906,6 +51911,14 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const WEEK_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+function eventMeta(event) {
+  const time = event.startTime ? `${event.startTime}${event.endTime ? `–${event.endTime}` : ""} · ` : "";
+  const location = event.location ? ` · ${event.location}` : "";
+  const repeat = event.repeat !== "none" ? ` · repeats ${event.repeat}` : "";
+  const until = event.repeatUntil ? ` until ${event.repeatUntil}` : "";
+  return `${time}${event.category}${location}${repeat}${until}`;
+}
+
 function dayLabel(key) {
   const date = new Date(`${key}T12:00:00`);
   if (isNaN(date.getTime())) return key;
@@ -51946,6 +51959,7 @@ class LocalEventModal extends Modal {
     const date = field("Date", "date", current.date || todayKey(new Date()));
     const start = field("Start time", "time", current.startTime);
     const end = field("End time", "time", current.endTime);
+    const location = field("Location", "text", current.location, "Library room 2");
     const categoryRow = form.createDiv({ cls: "qt-study-field" });
     categoryRow.createEl("label", { text: "Category" });
     const category = categoryRow.createEl("select", { cls: "dropdown", attr: { "aria-label": "Category" } });
@@ -51968,8 +51982,8 @@ class LocalEventModal extends Modal {
     every.max = "365";
     const until = field("Repeat until", "date", current.repeatUntil);
     const notesRow = form.createDiv({ cls: "qt-study-field qt-study-field-wide" });
-    notesRow.createEl("label", { text: "Notes" });
-    const notes = notesRow.createEl("textarea", { cls: "qt-study-bulk", attr: { "aria-label": "Notes" } });
+    notesRow.createEl("label", { text: "Description" });
+    const notes = notesRow.createEl("textarea", { cls: "qt-study-bulk", attr: { "aria-label": "Description" } });
     notes.rows = 3;
     notes.value = current.notes || "";
     const actions = el.createDiv({ cls: "qt-row qt-study-actions" });
@@ -51981,6 +51995,7 @@ class LocalEventModal extends Modal {
         date: date.value,
         startTime: start.value,
         endTime: end.value,
+        location: location.value,
         category: category.value,
         color: color.value,
         repeat: repeat.value,
@@ -52144,10 +52159,7 @@ class LocalEventsView extends ItemView {
       const main = row.createDiv({ cls: "qt-study-row-main" });
       const title = main.createDiv({ cls: "qt-study-row-title", text: event.title });
       if (title.style) title.style.color = event.color;
-      main.createDiv({
-        cls: "qt-study-row-meta",
-        text: `${event.startTime ? `${event.startTime}${event.endTime ? `–${event.endTime}` : ""} · ` : ""}${event.category}${event.repeat !== "none" ? ` · repeats ${event.repeat}` : ""}${event.repeatUntil ? ` until ${event.repeatUntil}` : ""}`,
-      });
+      main.createDiv({ cls: "qt-study-row-meta", text: eventMeta(event) });
       if (event.notes) main.createDiv({ cls: "qt-study-row-meta", text: event.notes });
       const buttons = row.createDiv({ cls: "qt-study-row-actions" });
       buttons.createEl("button", { text: "Edit" }).addEventListener("click", () => this.openEdit(event.id));
@@ -52209,10 +52221,7 @@ class LocalEventsView extends ItemView {
       const main = row.createDiv({ cls: "qt-study-row-main" });
       const eventTitle = main.createDiv({ cls: "qt-study-row-title", text: event.title });
       if (eventTitle.style) eventTitle.style.color = event.color;
-      main.createDiv({
-        cls: "qt-study-row-meta",
-        text: `${event.category}${event.repeat !== "none" ? ` · repeats ${event.repeat}` : ""}${event.repeatUntil ? ` until ${event.repeatUntil}` : ""}`,
-      });
+      main.createDiv({ cls: "qt-study-row-meta", text: eventMeta(event) });
       if (event.notes) main.createDiv({ cls: "qt-study-row-meta", text: event.notes });
       const buttons = row.createDiv({ cls: "qt-study-row-actions" });
       buttons.createEl("button", { text: "Edit" }).addEventListener("click", () => this.openEdit(event.id));
@@ -68631,6 +68640,7 @@ class QuestionTrackerPlugin extends Plugin {
     });
     this.addCommand({ id: "calendar-export", name: "Calendar: export the visible schedule to .ics", callback: () => this.exportCalendarIcs() });
     this.addCommand({ id: "open-cards", name: "Open cards", callback: () => this.activateCards() });
+    this.addCommand({ id: "ankiweb-find-deck", name: "Cards: find a deck on AnkiWeb", callback: () => this.openAnkiWebSearch() });
     this.addCommand({ id: "open-assignments", name: "Open assignments and grades", callback: () => this.activateAssignments() });
     this.addCommand({ id: "open-study-tools", name: "Open Study Tools", callback: () => this.activateStudyTools() });
     this.addCommand({ id: "new-cornell-note", name: "Cornell notes: create a note", callback: () => this.activateStudyTools("cornell") });
@@ -72670,6 +72680,21 @@ class QuestionTrackerPlugin extends Plugin {
     });
     modal.open();
     return modal;
+  }
+
+  /** Open AnkiWeb's shared-deck search in the user's browser. No request leaves Obsidian. */
+  openAnkiWebSearch() {
+    const url = "https://ankiweb.net/shared/decks";
+    try {
+      if (typeof window !== "undefined" && typeof window.open === "function") {
+        window.open(url, "_blank", "noopener,noreferrer");
+        return true;
+      }
+      new Notice(`Open ${url} in your browser to find shared decks.`);
+    } catch (e) {
+      new Notice(`Could not open AnkiWeb. Open ${url} in your browser.`);
+    }
+    return false;
   }
 
   /** Open the study agent in the right sidebar; every file write stays behind the existing review guards. */
@@ -103002,7 +103027,7 @@ function renderGlobalAbout(containerEl, plugin, redisplay) {
     );
   new Setting(containerEl)
     .setName("Feedback link")
-    .setDesc("Opens when the user chooses Send feedback. Defaults to the plugin's GitHub issue page.")
+    .setDesc("Opens when the user chooses Send feedback. Defaults to the MCQ Tracker feedback form.")
     .addText((t) =>
       t
         .setPlaceholder("https://…")
@@ -119211,7 +119236,7 @@ __defs["support"] = function (module, exports, require) {
  */
 const { str } = require("./util");
 
-const DEFAULT_FEEDBACK_URL = "https://github.com/ifriedenson/mcq-tracker/issues/new";
+const DEFAULT_FEEDBACK_URL = "https://tally.so/r/PRDe1d";
 const DEFAULT_DONATION_URL = ""; // intentionally blank until the owner chooses a funding page
 
 const DEFAULT_SUPPORT = {
@@ -127063,6 +127088,18 @@ const TUTOR_ROLES = [
     prompt:
       "You are a Socratic tutor. Do not give the answer immediately. Ask one focused question at a time, respond to the student's reasoning, " +
       "and give a hint only when they are stuck. Lead them to explain the answer in their own words.",
+  },
+  {
+    id: "objective",
+    label: "Objective coach",
+    description: "Charts a note into objectives and teaches one at a time.",
+    prompt:
+      "You are an adaptive study tutor. Chart the note into a short list of atomic learning objectives before teaching. " +
+      "Teach one objective at a time through explain, recall and apply, and ask the student to answer in their own words. " +
+      "Diagnose a mistake as a recall failure, confusion or an overlooked detail and adjust what comes next. Track understanding, " +
+      "recall and transfer separately; treat recall as durable only after a correct recall on two different days. Keep each " +
+      "objective's discussion separate, resume at the objective that needs the most work, and say plainly when the note does " +
+      "not support a claim. When asked, finish with a short report that can be saved as study notes and cards.",
   },
   {
     id: "language",

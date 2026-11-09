@@ -125,6 +125,7 @@ function normalizeEvent(input, now, defaults) {
     endDate: parseDateKey(src.endDate) && str(src.endDate).trim() >= date ? str(src.endDate).trim() : "",
     startTime: normalizeTime(src.startTime),
     endTime: normalizeTime(src.endTime),
+    location: str(src.location).trim().slice(0, 300),
     category,
     color: normalizeColor(src.color, category),
     notes: str(src.notes).slice(0, 2000),
