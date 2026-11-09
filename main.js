@@ -68361,7 +68361,7 @@ const { buildStudyBundle, bundleFileName } = require("./study-bundle");
 const { parseStudyBundle, planStudyBundleRestore } = require("./study-bundle-import");
 const { buildWeakSpotPrompt, pickWeakSpot, weakSpotRows } = require("./weak-spot");
 const { buildAttemptsCsv, buildPracticeSheet, buildResultsCsv, buildReviewSheet, practiceSheetFileName, resultFileNames, reviewSheetFileName } = require("./results-export");
-const { normalizeSupport } = require("./support");
+const { LEGACY_FEEDBACK_URL, migrateSupport } = require("./support");
 const secretKeys = require("./secret-keys");
 const { calendarText, safeCalendarFeedUrl } = require("./url-safety");
 const { safeSvg } = require("./svg-safety");
@@ -69479,7 +69479,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.mcqEnabled = this.settings.mcqEnabled !== false;
     this.settings.showRibbonIcons = this.settings.showRibbonIcons !== false;
     this.settings.openPracticeOnStartUp = this.settings.openPracticeOnStartUp === true;
-    this.settings.support = normalizeSupport(saved.support);
+    const migratedSupport = !!saved.support && saved.support.feedbackUrl === LEGACY_FEEDBACK_URL;
+    this.settings.support = migrateSupport(saved.support);
     if (!["auto", "buttons", "search"].includes(this.settings.folderFilterStyle)) this.settings.folderFilterStyle = "auto";
     if (!["ladder", "fsrs"].includes(this.settings.scheduler)) this.settings.scheduler = "ladder";
     const retention = Number(this.settings.fsrsRetention);
@@ -69493,7 +69494,7 @@ class QuestionTrackerPlugin extends Plugin {
     let migratedSecrets = secretKeys.migrateApiKeys(this.app, this.settings.ai.api);
     migratedSecrets += secretKeys.migratePasswordSecret(this.app, this.settings.ai, secretKeys.OPENCODE_PASSWORD_SECRET);
     migratedSecrets += secretKeys.migratePasswordSecret(this.app, this.settings.cards.couchdb, COUCHDB_PASSWORD_SECRET);
-    if (migratedSecrets) await this.save();
+    if (migratedSecrets || migratedSupport) await this.save();
   }
 
   save() {
@@ -119237,6 +119238,7 @@ __defs["support"] = function (module, exports, require) {
 const { str } = require("./util");
 
 const DEFAULT_FEEDBACK_URL = "https://tally.so/r/PRDe1d";
+const LEGACY_FEEDBACK_URL = "https://github.com/ifriedenson/mcq-tracker/issues/new";
 const DEFAULT_DONATION_URL = ""; // intentionally blank until the owner chooses a funding page
 
 const DEFAULT_SUPPORT = {
@@ -119259,6 +119261,16 @@ function normalizeSupport(value) {
   };
 }
 
+/**
+ * Upgrade the feedback URL saved before the Tally form existed. A URL the user
+ * chose themselves is left alone; only the old built-in default is replaced.
+ */
+function migrateSupport(value) {
+  const support = normalizeSupport(value);
+  if (support.feedbackUrl === LEGACY_FEEDBACK_URL) support.feedbackUrl = DEFAULT_FEEDBACK_URL;
+  return support;
+}
+
 /** The links to show, or empty strings when the user has hidden them or left them blank. */
 function supportLinks(settings) {
   const support = normalizeSupport(settings);
@@ -119271,9 +119283,11 @@ function supportLinks(settings) {
 
 module.exports = {
   DEFAULT_FEEDBACK_URL,
+  LEGACY_FEEDBACK_URL,
   DEFAULT_DONATION_URL,
   DEFAULT_SUPPORT,
   cleanUrl,
+  migrateSupport,
   normalizeSupport,
   supportLinks,
 };

@@ -13,9 +13,9 @@ surfaces, so unfinished ideas are not disguised as checked work.
 §3.9.6 is the gate table, §3.10 is the licence allow-list, and
 [docs/plan-decisions.md](docs/plan-decisions.md) is the owner decision sheet.
 
-**Verified at this commit:** `node --test` → 2,512 tests pass, 0 fail;
+**Verified at this commit:** `node --test` → 2,513 tests pass, 0 fail;
 `npm run check` clean (no dynamic code across 347 source files, vendor guard,
-bundle up to date); `main.js` generated from 350 modules at 6,997,345 bytes.
+bundle up to date); `main.js` generated from 350 modules at 6,997,963 bytes.
 Re-run both before quoting these numbers.
 
 **Shipped in 1.282.0 (Nov 7, 2026):** Quick Ask, saved study

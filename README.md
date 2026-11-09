@@ -2,6 +2,8 @@
 
 MCQ Tracker is the question-first study plugin for Obsidian. Practise exam-style questions, review whole notes and flashcards with spaced repetition, sit timed tests, and see what is actually weak. It is free, local-first, and works on desktop and mobile. No account is required; AI is optional and uses your own provider key.
 
+[Website](https://ifriedenson.github.io/mcq-tracker/) · [Source](https://github.com/ifriedenson/mcq-tracker) · [Give feedback](https://tally.so/r/PRDe1d)
+
 Obsidian is a note-taking app that keeps your notes in a folder called a **vault**. A **community plugin** is an add-on you install inside Obsidian.
 
 <img src="docs/images/hero-practice.png" alt="MCQ Tracker Practice view showing a multiple-choice question, answer choices, a timer and Submit." width="900">
@@ -270,6 +272,7 @@ The Study agent at a 296 px sidebar width. A physical-phone screenshot is not in
 
 [MIT](LICENSE). The plugin sends no telemetry. Third-party notices are in [NOTICES.md](NOTICES.md).
 
+- [Landing page](https://ifriedenson.github.io/mcq-tracker/)
 - [Source, releases and changelog](https://github.com/ifriedenson/mcq-tracker)
 - [Give feedback](https://tally.so/r/PRDe1d)
 - [Report a problem](https://github.com/ifriedenson/mcq-tracker/issues)

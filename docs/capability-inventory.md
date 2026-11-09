@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 431 groups, 3010 exports. **Commands:** 229. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 431 groups, 3012 exports. **Commands:** 229. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -407,7 +407,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `studyTools` | 19 | `tests/core-values.test.js`, `tests/study-modules-2.test.js`, `tests/study-tools.test.js` |
 | `studyWorkspace` | 79 | `tests/core-values.test.js`, `tests/quiz-attempts.test.js`, `tests/settings-consolidation.test.js`, `tests/study-workspace-health.test.js`, `tests/study-workspace.test.js`, `tests/subject-projects.test.js`, `tests/vocab-stats.test.js` |
 | `suggestMinutes` | 0 | `tests/stats.test.js` |
-| `support` | 6 | `tests/support.test.js` |
+| `support` | 8 | `tests/support.test.js` |
 | `survey` | 4 | `tests/survey.test.js` |
 | `svgSafety` | 1 | `tests/security-hardening.test.js`, `tests/security-inventory.test.js` |
 | `tableControls` | 2 | `tests/table-commands.test.js` |

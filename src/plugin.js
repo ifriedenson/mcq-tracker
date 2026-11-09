@@ -298,7 +298,7 @@ const { buildStudyBundle, bundleFileName } = require("./study-bundle");
 const { parseStudyBundle, planStudyBundleRestore } = require("./study-bundle-import");
 const { buildWeakSpotPrompt, pickWeakSpot, weakSpotRows } = require("./weak-spot");
 const { buildAttemptsCsv, buildPracticeSheet, buildResultsCsv, buildReviewSheet, practiceSheetFileName, resultFileNames, reviewSheetFileName } = require("./results-export");
-const { normalizeSupport } = require("./support");
+const { LEGACY_FEEDBACK_URL, migrateSupport } = require("./support");
 const secretKeys = require("./secret-keys");
 const { calendarText, safeCalendarFeedUrl } = require("./url-safety");
 const { safeSvg } = require("./svg-safety");
@@ -1416,7 +1416,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.mcqEnabled = this.settings.mcqEnabled !== false;
     this.settings.showRibbonIcons = this.settings.showRibbonIcons !== false;
     this.settings.openPracticeOnStartUp = this.settings.openPracticeOnStartUp === true;
-    this.settings.support = normalizeSupport(saved.support);
+    const migratedSupport = !!saved.support && saved.support.feedbackUrl === LEGACY_FEEDBACK_URL;
+    this.settings.support = migrateSupport(saved.support);
     if (!["auto", "buttons", "search"].includes(this.settings.folderFilterStyle)) this.settings.folderFilterStyle = "auto";
     if (!["ladder", "fsrs"].includes(this.settings.scheduler)) this.settings.scheduler = "ladder";
     const retention = Number(this.settings.fsrsRetention);
@@ -1430,7 +1431,7 @@ class QuestionTrackerPlugin extends Plugin {
     let migratedSecrets = secretKeys.migrateApiKeys(this.app, this.settings.ai.api);
     migratedSecrets += secretKeys.migratePasswordSecret(this.app, this.settings.ai, secretKeys.OPENCODE_PASSWORD_SECRET);
     migratedSecrets += secretKeys.migratePasswordSecret(this.app, this.settings.cards.couchdb, COUCHDB_PASSWORD_SECRET);
-    if (migratedSecrets) await this.save();
+    if (migratedSecrets || migratedSupport) await this.save();
   }
 
   save() {

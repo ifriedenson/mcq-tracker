@@ -7,6 +7,7 @@
 const { str } = require("./util");
 
 const DEFAULT_FEEDBACK_URL = "https://tally.so/r/PRDe1d";
+const LEGACY_FEEDBACK_URL = "https://github.com/ifriedenson/mcq-tracker/issues/new";
 const DEFAULT_DONATION_URL = ""; // intentionally blank until the owner chooses a funding page
 
 const DEFAULT_SUPPORT = {
@@ -29,6 +30,16 @@ function normalizeSupport(value) {
   };
 }
 
+/**
+ * Upgrade the feedback URL saved before the Tally form existed. A URL the user
+ * chose themselves is left alone; only the old built-in default is replaced.
+ */
+function migrateSupport(value) {
+  const support = normalizeSupport(value);
+  if (support.feedbackUrl === LEGACY_FEEDBACK_URL) support.feedbackUrl = DEFAULT_FEEDBACK_URL;
+  return support;
+}
+
 /** The links to show, or empty strings when the user has hidden them or left them blank. */
 function supportLinks(settings) {
   const support = normalizeSupport(settings);
@@ -41,9 +52,11 @@ function supportLinks(settings) {
 
 module.exports = {
   DEFAULT_FEEDBACK_URL,
+  LEGACY_FEEDBACK_URL,
   DEFAULT_DONATION_URL,
   DEFAULT_SUPPORT,
   cleanUrl,
+  migrateSupport,
   normalizeSupport,
   supportLinks,
 };

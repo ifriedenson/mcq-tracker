@@ -3,17 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MCQ Tracker — question-first study for Obsidian</title>
-<meta name="description" content="Turn your Obsidian notes into exam practice: questions, spaced review, cards and timed tests. Free, local-first and open source, with optional AI on your own key.">
+<title>MCQ Tracker — Exam practice inside Obsidian</title>
+<meta name="description" content="MCQ Tracker turns Obsidian notes into exam practice: questions, spaced review, cards, timed tests and optional AI. Free, local-first and open source.">
 <link rel="canonical" href="https://ifriedenson.github.io/mcq-tracker/">
 <meta property="og:type" content="website">
-<meta property="og:title" content="MCQ Tracker — question-first study for Obsidian">
-<meta property="og:description" content="Practice exam-style questions, review with spaced repetition and see what is actually weak — inside your vault.">
+<meta property="og:title" content="MCQ Tracker — Exam practice inside Obsidian">
+<meta property="og:description" content="Questions, spaced review, cards and timed tests inside your vault. Free, local-first and open source.">
 <meta property="og:url" content="https://ifriedenson.github.io/mcq-tracker/">
 <meta property="og:image" content="https://ifriedenson.github.io/mcq-tracker/images/hero-practice.png">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="theme-color" content="#f8f5ee" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#121613" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f7f7f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0d0f" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="landing.css">
 <script async src="https://tally.so/widgets/embed.js"></script>
@@ -22,209 +23,348 @@
 <a class="skip-link" href="#main">Skip to content</a>
 
 <header class="site-header">
-  <div class="wrap header-inner">
+  <div class="shell header-inner">
     <a class="brand" href="./" aria-label="MCQ Tracker home">
-      <span class="brand-mark" aria-hidden="true">✓</span>
-      MCQ Tracker
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 9.2 16.7 19 7"/></svg>
+      </span>
+      <span class="brand-text">MCQ Tracker<span class="brand-sub">for Obsidian</span></span>
     </a>
-    <nav class="site-nav" aria-label="Main">
+
+    <nav class="desktop-nav" aria-label="Primary">
       <a href="#features">Features</a>
-      <a href="#screens">Screenshots</a>
+      <a href="#screens">Screens</a>
       <a href="#install">Install</a>
-      <a class="nav-feedback" href="https://tally.so/r/PRDe1d" data-tally-open="PRDe1d" data-tally-emoji-text="👋" data-tally-emoji-animation="wave">Feedback</a>
+      <a href="https://tally.so/r/PRDe1d" data-tally-open="PRDe1d">Feedback</a>
     </nav>
+
+    <div class="header-actions">
+      <span class="version" aria-label="Version 1.294.0">v1.294.0</span>
+      <a class="icon-link" href="https://github.com/ifriedenson/mcq-tracker" aria-label="MCQ Tracker on GitHub">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+        <span>GitHub</span>
+      </a>
+      <a class="button button-primary button-sm" href="#install">Install</a>
+
+      <details class="mobile-menu">
+        <summary>Menu</summary>
+        <nav aria-label="Mobile">
+          <a href="#features">Features</a>
+          <a href="#screens">Screens</a>
+          <a href="#install">Install</a>
+          <a href="https://tally.so/r/PRDe1d" data-tally-open="PRDe1d">Feedback</a>
+          <a href="https://github.com/ifriedenson/mcq-tracker">GitHub</a>
+        </nav>
+      </details>
+    </div>
   </div>
 </header>
 
 <main id="main">
   <section class="hero">
-    <div class="wrap hero-grid">
+    <div class="shell hero-top">
       <div class="hero-copy">
-        <p class="eyebrow">Obsidian community plugin</p>
-        <h1>Study the questions you will actually be asked.</h1>
-        <p class="lede">MCQ Tracker turns your notes into exam practice. Write or import questions, answer them, and let spaced review follow what you miss — all inside your vault.</p>
-        <div class="actions">
-          <a class="button primary" href="obsidian://show-plugin?id=mcq-tracker">Install in Obsidian</a>
-          <a class="button ghost" href="#screens">See it in action</a>
-        </div>
-        <p class="fineprint">Free and open source (MIT) · desktop and mobile · no account needed</p>
+        <p class="kicker"><span class="kicker-dot" aria-hidden="true"></span>Obsidian community plugin</p>
+        <h1>Turn notes into exam practice.</h1>
       </div>
-      <figure class="shot hero-shot">
-        <img src="images/hero-practice.png" width="1440" height="1000" alt="MCQ Tracker Practice view in Obsidian showing a multiple-choice question, answer choices, a confidence selector and a Submit button.">
-        <figcaption>Practice: one question note, with confidence, timing and an explanation on submit.</figcaption>
+      <div class="hero-aside">
+        <p class="lede">Write or import questions, review whole notes and cards on one schedule, and see exactly what is weak — all inside your vault.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="obsidian://show-plugin?id=mcq-tracker">Install in Obsidian</a>
+          <a class="button button-secondary" href="#screens">See the screens</a>
+        </div>
+        <p class="meta-line"><span>Free &amp; MIT</span><span>Desktop &amp; mobile</span><span>No account</span></p>
+      </div>
+    </div>
+
+    <div class="shell hero-frame">
+      <figure class="hero-shot">
+        <div class="shot-frame">
+          <picture>
+            <source media="(prefers-color-scheme: dark)" srcset="images/hero-practice-dark.png" type="image/png">
+            <img src="images/hero-practice.png" width="1440" height="1000" fetchpriority="high" alt="MCQ Tracker Practice view in Obsidian: a metabolism question, four answer choices, a timer, Mark for Review, confidence buttons and Submit.">
+          </picture>
+        </div>
+        <figcaption><span class="caption-label">Practice</span>One question at a time, with confidence, timing and an explanation on submit.</figcaption>
       </figure>
     </div>
+
+    <div class="shell stats" aria-label="MCQ Tracker at a glance">
+      <div class="stat"><span class="stat-value">7</span><span class="stat-label">question types</span></div>
+      <div class="stat"><span class="stat-value">3</span><span class="stat-label">review schedulers</span></div>
+      <div class="stat"><span class="stat-value">21</span><span class="stat-label">study modules</span></div>
+      <div class="stat"><span class="stat-value">0</span><span class="stat-label">telemetry</span></div>
+    </div>
   </section>
 
-  <section class="section" id="features">
-    <div class="wrap">
-      <div class="section-head">
-        <p class="eyebrow">What it does</p>
-        <h2>Everything for the week before the exam.</h2>
-        <p class="section-lede">Not a deck to maintain. Not another cloud account. A practice loop that keeps the evidence on the note it belongs to.</p>
+  <section class="section" id="features" aria-labelledby="features-title">
+    <div class="shell split">
+      <div class="split-intro">
+        <p class="kicker">The loop</p>
+        <h2 id="features-title">Question first. Notes always.</h2>
+        <p>MCQ Tracker is not a deck you maintain in another app. It is a practice loop that keeps the attempt, the explanation and the next review date on the note they belong to.</p>
+        <a class="text-link" href="https://github.com/ifriedenson/mcq-tracker#readme">Read the documentation <span aria-hidden="true">→</span></a>
       </div>
-      <div class="feature-grid">
-        <article class="feature">
-          <span class="feature-index" aria-hidden="true">01</span>
-          <h3>Question-first practice</h3>
-          <p>MCQ, student-produced response, matching, true/false, select-all and free response. Add confidence, mistake tags and an explanation; the next review date is written back to the note.</p>
+
+      <div class="feature-list">
+        <article class="feature-row">
+          <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
+          <div>
+            <h3>Practice the formats your exam uses</h3>
+            <p>Multiple choice, student-produced response, matching, true/false, select-all and free response. Add confidence, timing, mistake tags and an explanation.</p>
+          </div>
         </article>
-        <article class="feature">
-          <span class="feature-index" aria-hidden="true">02</span>
-          <h3>Review that follows the miss</h3>
-          <p>Whole-note review, a due sidebar and a review calendar share one schedule: FSRS, SM-2 or a simple interval ladder. A failed note returns later in the same session.</p>
+
+        <article class="feature-row">
+          <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/></svg></span>
+          <div>
+            <h3>Review that follows the miss</h3>
+            <p>Whole-note review, cards and questions share one schedule: FSRS, SM-2 or a simple interval ladder. A failed note returns later in the same session.</p>
+          </div>
         </article>
-        <article class="feature">
-          <span class="feature-index" aria-hidden="true">03</span>
-          <h3>Cards and Anki</h3>
-          <p>Flip, cloze, reversed, typed and image-occlusion cards. Import and export <code>.apkg</code>, find shared decks on AnkiWeb, or sync with a local Anki desktop through AnkiConnect.</p>
+
+        <article class="feature-row">
+          <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 10 5-10 5L2 7l10-5Z"/><path d="m2 12 10 5 10-5"/><path d="m2 17 10 5 10-5"/></svg></span>
+          <div>
+            <h3>Cards without a second app</h3>
+            <p>Flip, cloze, reversed, typed and image-occlusion cards. Import and export <code>.apkg</code>, find shared decks on AnkiWeb, or sync with Anki desktop through AnkiConnect.</p>
+          </div>
         </article>
-        <article class="feature">
-          <span class="feature-index" aria-hidden="true">04</span>
-          <h3>Built for exam week</h3>
-          <p>Timed multi-section tests with resume, a question navigator and Bluebook-style tools. AP-style free-response practice with rubric grading, plus a gradebook, calendar and study plan.</p>
+
+        <article class="feature-row">
+          <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></svg></span>
+          <div>
+            <h3>Built for exam week</h3>
+            <p>Timed multi-section tests with resume, a question navigator and Bluebook-style tools. AP-style free response, a gradebook, a calendar and a study plan.</p>
+          </div>
         </article>
-        <article class="feature">
-          <span class="feature-index" aria-hidden="true">05</span>
-          <h3>A study agent you control</h3>
-          <p>Optional note-grounded chat with tutor roles, cited vault search, PDF page ranges and plan-then-act. It proposes writes; you approve them before anything changes.</p>
+
+        <article class="feature-row">
+          <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M5 8l7-5 7 5M5 16l7 5 7-5"/><path d="M8 12h.01M16 12h.01"/></svg></span>
+          <div>
+            <h3>An agent that cites your notes</h3>
+            <p>Optional chat with tutor roles, local vault search, PDF context and plan-then-act. It proposes writes; you approve them before anything changes.</p>
+          </div>
         </article>
-        <article class="feature">
-          <span class="feature-index" aria-hidden="true">06</span>
-          <h3>Notes stay the database</h3>
-          <p>Review state lives in each note’s properties. Progress travels with the vault, survives a plugin reinstall and stays readable in a text editor or Dataview.</p>
+
+        <article class="feature-row">
+          <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h6"/></svg></span>
+          <div>
+            <h3>The vault stays the database</h3>
+            <p>Review state lives in each note’s properties, so progress travels with the vault, survives a plugin reinstall and stays readable in a text editor or Dataview.</p>
+          </div>
         </article>
       </div>
     </div>
   </section>
 
-  <section class="section" id="screens">
-    <div class="wrap">
+  <section class="section" id="screens" aria-labelledby="screens-title">
+    <div class="shell">
       <div class="section-head">
-        <p class="eyebrow">Screenshots</p>
-        <h2>A study tool that looks like a study tool.</h2>
-        <p class="section-lede">Real screens from the current build, in Obsidian’s own theme.</p>
+        <p class="kicker">Screens</p>
+        <h2 id="screens-title">Real views, not mockups.</h2>
+        <p>Every screenshot below is from the shipping 1.294.0 build, in Obsidian’s own theme.</p>
       </div>
+
       <div class="screen-grid">
-        <figure class="shot">
-          <img src="images/cards-review.png" width="1440" height="1000" loading="lazy" decoding="async" alt="Cards view with two flashcards ready to review, deck filters and a Start review button.">
-          <figcaption>Cards: decks, due counts and a flip review.</figcaption>
+        <figure class="screen">
+          <picture>
+            <source media="(prefers-color-scheme: dark)" srcset="images/cards-review-dark.png" type="image/png">
+            <img src="images/cards-review.png" width="1440" height="1000" loading="lazy" decoding="async" alt="Cards view with two flashcards ready to review, deck filters and a Start review button.">
+          </picture>
+          <figcaption><span class="screen-label">Cards</span>Decks, due counts and a flip review.</figcaption>
         </figure>
-        <figure class="shot">
-          <img src="images/insights-overview.png" width="1440" height="1000" loading="lazy" decoding="async" alt="Insights Overview with attempts, accuracy, due counts, course health and study activity.">
-          <figcaption>Insights: attempts, accuracy, course health and study activity.</figcaption>
+        <figure class="screen">
+          <picture>
+            <source media="(prefers-color-scheme: dark)" srcset="images/insights-overview-dark.png" type="image/png">
+            <img src="images/insights-overview.png" width="1440" height="1000" loading="lazy" decoding="async" alt="Insights Overview with attempts, accuracy, due counts, course health and study activity.">
+          </picture>
+          <figcaption><span class="screen-label">Insights</span>Attempts, accuracy, course health and study activity.</figcaption>
         </figure>
-        <figure class="shot">
-          <img src="images/answer-review.png" width="1440" height="1000" loading="lazy" decoding="async" alt="Practice result showing an incorrect answer, the correct choice and the review controls.">
-          <figcaption>The result keeps the explanation, confidence and next review date on the note.</figcaption>
+        <figure class="screen">
+          <picture>
+            <source media="(prefers-color-scheme: dark)" srcset="images/answer-review-dark.png" type="image/png">
+            <img src="images/answer-review.png" width="1440" height="1000" loading="lazy" decoding="async" alt="Practice result showing an incorrect answer, the correct choice and the review controls.">
+          </picture>
+          <figcaption><span class="screen-label">Review</span>The explanation, confidence and next date stay on the note.</figcaption>
         </figure>
-        <figure class="shot">
-          <img src="images/welcome-start.png" width="1440" height="1000" loading="lazy" decoding="async" alt="Start here screen with three setup steps and a photosynthesis example question.">
-          <figcaption>Start here: three setup steps and a real example question.</figcaption>
+        <figure class="screen">
+          <picture>
+            <source media="(prefers-color-scheme: dark)" srcset="images/welcome-start-dark.png" type="image/png">
+            <img src="images/welcome-start.png" width="1440" height="1000" loading="lazy" decoding="async" alt="Start here screen with three setup steps and a photosynthesis example question.">
+          </picture>
+          <figcaption><span class="screen-label">Start here</span>Three setup steps and a real example question.</figcaption>
         </figure>
       </div>
     </div>
   </section>
 
-  <section class="section install" id="install">
-    <div class="wrap install-grid">
+  <section class="section palette-section" aria-labelledby="palette-title">
+    <div class="shell palette-grid">
       <div>
-        <p class="eyebrow">Install</p>
-        <h2>Three steps, then a real question.</h2>
+        <p class="kicker">Command palette</p>
+        <h2 id="palette-title">Every surface is one keystroke away.</h2>
+        <p class="palette-copy">Practice, review, cards, tests and the study agent are all registered commands. Open the palette and type what you want to do.</p>
+        <p class="keyline"><kbd>⌘</kbd><kbd>P</kbd> on macOS<span aria-hidden="true">·</span><kbd>Ctrl</kbd><kbd>P</kbd> on Windows and Linux</p>
+      </div>
+
+      <div class="palette" role="group" aria-label="Example Obsidian command palette with MCQ Tracker commands">
+        <div class="palette-search">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <span>mcq</span>
+          <kbd>esc</kbd>
+        </div>
+        <ul class="palette-list">
+          <li class="palette-item is-active"><span class="palette-name">Open practice</span><span>MCQ Tracker</span></li>
+          <li class="palette-item"><span class="palette-name">Start a timed test</span><span>MCQ Tracker</span></li>
+          <li class="palette-item"><span class="palette-name">Review current note</span><span>Review</span></li>
+          <li class="palette-item"><span class="palette-name">Open study statistics</span><span>Insights</span></li>
+          <li class="palette-item"><span class="palette-name">Find a deck on AnkiWeb</span><span>Cards</span></li>
+          <li class="palette-item"><span class="palette-name">Open the study agent</span><span>Study agent</span></li>
+        </ul>
+        <div class="palette-foot"><span>6 commands</span><span>↑↓ to navigate</span><span>↵ to run</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="install" aria-labelledby="install-title">
+    <div class="shell">
+      <div class="section-head">
+        <p class="kicker">Install</p>
+        <h2 id="install-title">Three steps, then a real question.</h2>
+        <p>MCQ Tracker is a community plugin. Install it from inside Obsidian; no separate download or account is required.</p>
+      </div>
+
+      <div class="install-grid">
         <ol class="steps">
-          <li>
-            <span class="step-num" aria-hidden="true">1</span>
+          <li class="step">
+            <span class="step-num" aria-hidden="true">01</span>
             <div>
-              <strong>Open Obsidian settings</strong>
-              <p>Go to Settings → Community plugins and turn off Restricted mode if it is on.</p>
+              <h3>Open Community plugins</h3>
+              <p>In Obsidian, go to <strong>Settings → Community plugins</strong> and turn off Restricted mode if it is on.</p>
             </div>
           </li>
-          <li>
-            <span class="step-num" aria-hidden="true">2</span>
+          <li class="step">
+            <span class="step-num" aria-hidden="true">02</span>
             <div>
-              <strong>Find MCQ Tracker</strong>
-              <p>Choose Browse, search for <code>MCQ Tracker</code> and open the result by Isaac Friedenson.</p>
+              <h3>Find MCQ Tracker</h3>
+              <p>Choose <strong>Browse</strong>, search for <code>MCQ Tracker</code> and open the result by Isaac Friedenson.</p>
             </div>
           </li>
-          <li>
-            <span class="step-num" aria-hidden="true">3</span>
+          <li class="step">
+            <span class="step-num" aria-hidden="true">03</span>
             <div>
-              <strong>Install and enable</strong>
-              <p>Click Install, then Enable. The Start here screen offers a one-question example you can skip.</p>
+              <h3>Install and enable</h3>
+              <p>Click <strong>Install</strong>, then <strong>Enable</strong>. The Start here screen offers one example question you can skip.</p>
             </div>
           </li>
         </ol>
+
+        <aside class="spec-card" aria-label="Plugin details">
+          <dl>
+            <div class="spec-row"><dt>Version</dt><dd>1.294.0</dd></div>
+            <div class="spec-row"><dt>Requires</dt><dd>Obsidian 1.8.7+</dd></div>
+            <div class="spec-row"><dt>Platforms</dt><dd>Desktop &amp; mobile</dd></div>
+            <div class="spec-row"><dt>License</dt><dd>MIT</dd></div>
+            <div class="spec-row"><dt>Data</dt><dd>Your vault</dd></div>
+          </dl>
+          <a class="button button-primary" href="obsidian://show-plugin?id=mcq-tracker">Open in Obsidian</a>
+          <a class="text-link centered" href="https://github.com/ifriedenson/mcq-tracker/releases/latest">Manual install from the latest release <span aria-hidden="true">→</span></a>
+          <p class="spec-note">Free. No account. AI stays off until you configure a provider.</p>
+        </aside>
       </div>
-      <aside class="install-card">
-        <h3>Start here</h3>
-        <p>Obsidian 1.8.7 or newer. The same plugin works on desktop and mobile.</p>
-        <a class="button primary" href="obsidian://show-plugin?id=mcq-tracker">Open in Obsidian</a>
-        <a class="text-link" href="https://github.com/ifriedenson/mcq-tracker/releases/latest">Manual install from the latest release</a>
-        <hr>
-        <p class="small">Want to see the note format first? Read the <a href="https://github.com/ifriedenson/mcq-tracker#quick-start">quick start</a> or browse the <a href="https://github.com/ifriedenson/mcq-tracker/tree/main/samples">sample vault</a>.</p>
-      </aside>
     </div>
   </section>
 
-  <section class="band" id="privacy">
-    <div class="wrap">
-      <p class="eyebrow">Privacy</p>
-      <h2>Local-first is the default.</h2>
-      <div class="band-grid">
-        <div>
-          <h3>No telemetry</h3>
-          <p>No analytics, crash reporting, ads or self-updater. The plugin does not phone home.</p>
+  <section class="section" id="privacy" aria-labelledby="privacy-title">
+    <div class="shell">
+      <div class="privacy-panel">
+        <div class="privacy-top">
+          <div>
+            <p class="kicker">Local-first</p>
+            <h2 id="privacy-title">Your vault is the database.</h2>
+            <p>No analytics, no ads, no self-updater. Review state is ordinary note frontmatter, and AI stays off until you choose a provider.</p>
+          </div>
+          <a class="text-link" href="https://github.com/ifriedenson/mcq-tracker#data-privacy-and-network-use">Privacy details <span aria-hidden="true">→</span></a>
         </div>
-        <div>
-          <h3>AI only if you ask</h3>
-          <p>AI features stay off until you configure a provider and key. Only the text a request needs is sent, to the provider you chose.</p>
-        </div>
-        <div>
-          <h3>The vault is the database</h3>
-          <p>Review state lives in each note’s properties, so progress travels with the vault and survives a plugin reinstall.</p>
+        <div class="privacy-grid">
+          <div class="privacy-item">
+            <h3>No telemetry</h3>
+            <p>The plugin does not phone home. There is no crash reporting, analytics or usage counter.</p>
+          </div>
+          <div class="privacy-item">
+            <h3>AI only on request</h3>
+            <p>Only the text a request needs goes to the provider you chose. Everything else runs locally.</p>
+          </div>
+          <div class="privacy-item">
+            <h3>Portable by default</h3>
+            <p>Progress travels with the vault. Reinstall the plugin and your review history is still there.</p>
+          </div>
         </div>
       </div>
-      <a class="band-link" href="https://github.com/ifriedenson/mcq-tracker#data-privacy-and-network-use">Read the privacy details →</a>
     </div>
   </section>
 
-  <section class="section feedback" id="feedback">
-    <div class="wrap feedback-grid">
-      <div>
-        <p class="eyebrow">Feedback</p>
-        <h2>Help shape the next release.</h2>
-        <p class="section-lede">Two minutes, no account. Tell us what you study, what is missing, and what got in the way.</p>
+  <section class="section cta-section" id="feedback" aria-labelledby="feedback-title">
+    <div class="shell">
+      <div class="cta">
+        <div>
+          <p class="kicker">Feedback</p>
+          <h2 id="feedback-title">Help shape the next release.</h2>
+          <p>Two minutes, no account. Tell us what you study, what is missing, and what got in the way.</p>
+        </div>
+        <div class="cta-actions">
+          <a class="button button-primary" href="https://tally.so/r/PRDe1d" data-tally-open="PRDe1d">Send feedback</a>
+          <a class="button button-secondary" href="https://github.com/ifriedenson/mcq-tracker/issues">Open an issue</a>
+        </div>
       </div>
-      <div class="feedback-card">
-        <p>Your answers go to the plugin author through Tally. Nothing is attached to your vault, and the form only opens when you click.</p>
-        <a class="button primary" href="https://tally.so/r/PRDe1d" data-tally-open="PRDe1d" data-tally-emoji-text="👋" data-tally-emoji-animation="wave">Give feedback</a>
-        <p class="small">Prefer GitHub? <a href="https://github.com/ifriedenson/mcq-tracker/issues">Open an issue</a>.</p>
-      </div>
+      <p class="cta-note">Your answers go to the plugin author through Tally. Nothing is attached to your vault, and the form only opens when you click.</p>
     </div>
   </section>
 </main>
 
 <footer class="site-footer">
-  <div class="wrap footer-grid">
-    <div>
+  <div class="shell footer-top">
+    <div class="footer-brand">
       <a class="brand" href="./" aria-label="MCQ Tracker home">
-        <span class="brand-mark" aria-hidden="true">✓</span>
-        MCQ Tracker
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 9.2 16.7 19 7"/></svg>
+        </span>
+        <span class="brand-text">MCQ Tracker</span>
       </a>
-      <p class="small">Question-first study for Obsidian. Free, local-first and open source.</p>
+      <p>Question-first study for Obsidian. Free, local-first and open source.</p>
     </div>
-    <nav aria-label="Footer">
-      <a href="https://github.com/ifriedenson/mcq-tracker">GitHub</a>
+    <nav class="footer-links" aria-label="Footer">
       <a href="https://github.com/ifriedenson/mcq-tracker#readme">Documentation</a>
       <a href="https://github.com/ifriedenson/mcq-tracker/releases">Releases</a>
+      <a href="https://github.com/ifriedenson/mcq-tracker">GitHub</a>
+      <a href="https://tally.so/r/PRDe1d" data-tally-open="PRDe1d">Feedback</a>
       <a href="https://github.com/ifriedenson/mcq-tracker/issues">Report a problem</a>
-      <a href="https://tally.so/r/PRDe1d" data-tally-open="PRDe1d" data-tally-emoji-text="👋" data-tally-emoji-animation="wave">Feedback</a>
     </nav>
   </div>
-  <div class="wrap footer-note">
-    <p>MIT licensed. Screenshots from the 1.294.0 build. Not affiliated with Obsidian.</p>
-    <p>Feedback form by Tally.</p>
+  <div class="shell footer-bottom">
+    <span>MIT licensed</span>
+    <span>Screenshots from build 1.294.0</span>
+    <span>Not affiliated with Obsidian</span>
   </div>
 </footer>
+
+<script>
+  (() => {
+    const menu = document.querySelector(".mobile-menu");
+    if (!menu) return;
+    const close = () => { menu.open = false; };
+    menu.querySelectorAll("a").forEach((link) => link.addEventListener("click", close));
+    document.addEventListener("click", (event) => {
+      if (menu.open && !menu.contains(event.target)) close();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && menu.open) {
+        close();
+        menu.querySelector("summary").focus();
+      }
+    });
+  })();
+</script>
 </body>
 </html>
