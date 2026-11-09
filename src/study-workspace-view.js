@@ -336,7 +336,7 @@ class StudyWorkspaceView extends ItemView {
   renderField(form, label, type, placeholder, value) {
     const field = form.createDiv({ cls: "qt-study-field" });
     field.createEl("label", { text: label });
-    const input = field.createEl("input", { cls: "qt-input" });
+    const input = field.createEl("input", { cls: "qt-input", attr: { "aria-label": label } });
     input.type = type || "text";
     if (placeholder) input.placeholder = placeholder;
     if (value) input.value = value;
@@ -346,7 +346,7 @@ class StudyWorkspaceView extends ItemView {
   renderTextarea(form, label, placeholder, value, rows) {
     const field = form.createDiv({ cls: "qt-study-field qt-study-field-wide" });
     field.createEl("label", { text: label });
-    const textarea = field.createEl("textarea", { cls: "qt-study-bulk" });
+    const textarea = field.createEl("textarea", { cls: "qt-study-bulk", attr: { "aria-label": label } });
     textarea.placeholder = placeholder || "";
     textarea.rows = rows || 4;
     if (value) textarea.value = value;
@@ -456,7 +456,7 @@ class StudyWorkspaceView extends ItemView {
     const key = feynmanStepKey(step);
     card.createDiv({ cls: "qt-workspace-step-label", text: `Step ${step + 1}: ${FEYNMAN_STEPS[step]}` });
     card.createDiv({ cls: "qt-hint", text: feynmanPrompt(step) });
-    const textarea = card.createEl("textarea", { cls: "qt-study-bulk qt-workspace-answer" });
+    const textarea = card.createEl("textarea", { cls: "qt-study-bulk qt-workspace-answer", attr: { "aria-label": "Feynman explanation" } });
     textarea.rows = 7;
     textarea.value = session.answers[key] || "";
     textarea.placeholder = "Write your explanation in your own words.";
@@ -1208,7 +1208,7 @@ class StudyWorkspaceView extends ItemView {
     }
     const search = root.createDiv({ cls: "qt-study-card" });
     search.createEl("h3", { text: "Annotation index" });
-    const filter = search.createEl("input", { cls: "qt-input", type: "search" });
+    const filter = search.createEl("input", { cls: "qt-input", type: "search", attr: { "aria-label": "Search annotations" } });
     filter.placeholder = "Search quotes, questions and sources";
     filter.value = this.annotationFilter;
     filter.addEventListener("input", () => {
@@ -1310,7 +1310,7 @@ class StudyWorkspaceView extends ItemView {
     const current = SOCRATIC_STEPS[step];
     card.createDiv({ cls: "qt-workspace-step-label", text: `Step ${step + 1}: ${current.title}` });
     card.createDiv({ cls: "qt-hint", text: current.prompt });
-    const textarea = card.createEl("textarea", { cls: "qt-study-bulk qt-workspace-answer" });
+    const textarea = card.createEl("textarea", { cls: "qt-study-bulk qt-workspace-answer", attr: { "aria-label": "Deep Notes answer" } });
     textarea.rows = 7;
     textarea.value = session.answers[current.key] || "";
     textarea.placeholder = "Write your answer in your own words.";
@@ -1503,7 +1503,7 @@ class StudyWorkspaceView extends ItemView {
     stat(summary.accuracy ? `${summary.accuracy}%` : "—", "accuracy");
     const listCard = root.createDiv({ cls: "qt-study-card" });
     listCard.createEl("h3", { text: "Dictionary" });
-    const filter = listCard.createEl("input", { cls: "qt-input", type: "search" });
+    const filter = listCard.createEl("input", { cls: "qt-input", type: "search", attr: { "aria-label": "Search vocabulary" } });
     filter.placeholder = "Search terms, definitions and examples";
     filter.value = this.vocabFilter;
     filter.addEventListener("input", () => {
@@ -1711,7 +1711,7 @@ class StudyWorkspaceView extends ItemView {
     }
     const search = root.createDiv({ cls: "qt-study-card" });
     search.createEl("h3", { text: "Subjects" });
-    const filter = search.createEl("input", { cls: "qt-input", type: "search" });
+    const filter = search.createEl("input", { cls: "qt-input", type: "search", attr: { "aria-label": "Search subjects" } });
     filter.placeholder = "Search subjects";
     filter.value = this.subjectFilter;
     filter.addEventListener("input", () => {
@@ -2180,7 +2180,7 @@ class StudyWorkspaceView extends ItemView {
     });
     let blocks = timeBlocks.blocksForDate(data.blocks, this.timeBlockDate);
     const filterRow = root.createDiv({ cls: "qt-row qt-time-block-tag-filter" });
-    const filter = filterRow.createEl("input", { cls: "qt-input", type: "text", attr: { placeholder: "Filter by tag" } });
+    const filter = filterRow.createEl("input", { cls: "qt-input", type: "text", attr: { placeholder: "Filter by tag", "aria-label": "Filter blocks by tag" } });
     filter.value = this.timeBlockTagFilter || "";
     filter.addEventListener("change", () => {
       this.timeBlockTagFilter = str(filter.value).trim();
@@ -2357,7 +2357,7 @@ class StudyWorkspaceView extends ItemView {
       });
     }
     const addTask = card.createDiv({ cls: "qt-row qt-time-block-task-add" });
-    const input = addTask.createEl("input", { cls: "qt-input", type: "text", attr: { placeholder: "Add a task inside this block" } });
+    const input = addTask.createEl("input", { cls: "qt-input", type: "text", attr: { placeholder: "Add a task inside this block", "aria-label": "New task inside this block" } });
     addTask.createEl("button", { text: "Add task" }).addEventListener("click", async () => {
       if (!str(input.value).trim()) {
         this.saveMessage("Name the task first.");
@@ -2763,7 +2763,7 @@ class StudyWorkspaceView extends ItemView {
       return;
     }
     const filters = card.createDiv({ cls: "qt-study-form" });
-    const search = filters.createEl("input", { cls: "qt-input", type: "search", placeholder: "Search quotes, notes and tags" });
+    const search = filters.createEl("input", { cls: "qt-input", type: "search", placeholder: "Search quotes, notes and tags", attr: { "aria-label": "Search PDF annotations" } });
     search.value = this.pdfAnnotationFilter || "";
     search.addEventListener("input", () => {
       this.pdfAnnotationFilter = search.value;

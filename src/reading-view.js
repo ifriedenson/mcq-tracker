@@ -93,7 +93,7 @@ async function renderReadingPlanBlock(plugin, source, el, ctx) {
 
     if (plan.status !== "complete") {
       const log = box.createDiv({ cls: "qt-reading-log" });
-      const input = log.createEl("input", { cls: "qt-reading-pages" });
+      const input = log.createEl("input", { cls: "qt-reading-pages", attr: { "aria-label": "Pages read" } });
       input.type = "number";
       input.min = "1";
       input.max = String(parsed.pages);

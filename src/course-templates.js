@@ -171,7 +171,7 @@ class CourseTemplateModal {
   field(parent, label, type, placeholder, key) {
     const wrap = parent.createDiv({ cls: "qt-field" });
     wrap.createEl("label", { text: label });
-    const input = wrap.createEl("input", { cls: "qt-input" });
+    const input = wrap.createEl("input", { cls: "qt-input", attr: { "aria-label": label } });
     input.type = type || "text";
     if (placeholder) input.placeholder = placeholder;
     input.value = this.values[key] || "";
@@ -189,7 +189,7 @@ class CourseTemplateModal {
     this.field(el, "Date", "date", "", "date");
     const wrap = el.createDiv({ cls: "qt-field" });
     wrap.createEl("label", { text: "Note type" });
-    const select = wrap.createEl("select", { cls: "dropdown" });
+    const select = wrap.createEl("select", { cls: "dropdown", attr: { "aria-label": "Note type" } });
     for (const choice of templateChoices(this.plugin.settings.courseTemplates)) {
       const option = select.createEl("option", { text: choice.label, value: choice.value });
       if (choice.value === this.values.template) option.selected = true;

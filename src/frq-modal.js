@@ -579,13 +579,13 @@ class NewFrqNoteModal extends Modal {
     fillKinds();
 
     root.createEl("label", { text: "Title" });
-    const title = root.createEl("input", { type: "text", cls: "qt-modal-input", attr: { placeholder: "For example: Unit 4 DBQ practice" } });
+    const title = root.createEl("input", { type: "text", cls: "qt-modal-input", attr: { placeholder: "For example: Unit 4 DBQ practice", "aria-label": "Title" } });
 
     root.createEl("label", { text: "Prompt" });
-    const prompt = root.createEl("textarea", { cls: "qt-frq-answer", attr: { rows: "6", placeholder: "Paste the free-response question." } });
+    const prompt = root.createEl("textarea", { cls: "qt-frq-answer", attr: { rows: "6", placeholder: "Paste the free-response question.", "aria-label": "Prompt" } });
 
     root.createEl("label", { text: "Stimulus or documents (optional)" });
-    const stimulus = root.createEl("textarea", { cls: "qt-frq-answer", attr: { rows: "4", placeholder: "Paste any shared passage, data or document set." } });
+    const stimulus = root.createEl("textarea", { cls: "qt-frq-answer", attr: { rows: "4", placeholder: "Paste any shared passage, data or document set.", "aria-label": "Stimulus or documents" } });
 
     root.createEl("label", { text: "Rubric" });
     const rubric = root.createEl("textarea", { cls: "qt-frq-answer", attr: { rows: "8" } });
@@ -605,7 +605,7 @@ class NewFrqNoteModal extends Modal {
     });
 
     root.createEl("label", { text: "Sample answer (optional)" });
-    const sample = root.createEl("textarea", { cls: "qt-frq-answer", attr: { rows: "4", placeholder: "Your own model answer, or leave blank." } });
+    const sample = root.createEl("textarea", { cls: "qt-frq-answer", attr: { rows: "4", placeholder: "Your own model answer, or leave blank.", "aria-label": "Sample answer" } });
 
     const refreshPreset = () => {
       rubric.value = presetText(this.courseId, this.kind);

@@ -36,6 +36,13 @@ test("the manifest description passes the community listing rule", () => {
   assert.ok(manifest.description.length > 40, "the description still explains the plugin");
 });
 
+test("the README describes the current build", () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
+  const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
+  assert.ok(readme.includes(manifest.version), `README must name the current ${manifest.version} build`);
+  assert.equal(readme.includes("1.294.0 build"), false, "README must not describe an older build");
+});
+
 test("styles avoid duplicate height declarations and !important", () => {
   const css = fs.readFileSync(path.join(root, "styles.css"), "utf8");
   assert.equal(css.includes("!important"), false);

@@ -46,13 +46,13 @@ class QuizGeneratorModal extends Modal {
 
     const folders = el.createDiv({ cls: "qt-field" });
     folders.createEl("label", { text: "Source folders (comma-separated; blank means the whole vault)" });
-    const folderInput = folders.createEl("input", { type: "text", attr: { placeholder: "Lectures, Notes/Bio" } });
+    const folderInput = folders.createEl("input", { type: "text", attr: { placeholder: "Lectures, Notes/Bio", "aria-label": "Source folders" } });
     folderInput.value = this.folderText;
     folderInput.addEventListener("input", () => (this.folderText = folderInput.value));
 
     const focus = el.createDiv({ cls: "qt-field" });
     focus.createEl("label", { text: "Focus topic (optional)" });
-    const focusInput = focus.createEl("input", { type: "text", attr: { placeholder: "e.g. oxidative phosphorylation" } });
+    const focusInput = focus.createEl("input", { type: "text", attr: { placeholder: "e.g. oxidative phosphorylation", "aria-label": "Focus topic" } });
     focusInput.value = this.focus;
     focusInput.addEventListener("input", () => (this.focus = focusInput.value));
 

@@ -22,7 +22,7 @@ class ExamModal extends Modal {
     const field = (label, placeholder, type) => {
       const wrap = contentEl.createDiv({ cls: "qt-field" });
       wrap.createEl("label", { text: label });
-      return wrap.createEl("input", { type: type || "text", attr: { placeholder: placeholder || "" } });
+      return wrap.createEl("input", { type: type || "text", attr: { placeholder: placeholder || "", "aria-label": label } });
     };
     const title = field("Exam title", "e.g. Biology final", "text");
     title.value = str(this.options.title || "");
@@ -34,7 +34,7 @@ class ExamModal extends Modal {
     const weight = field("Weight inside exams (optional)", "e.g. 25", "number");
     const topicsWrap = contentEl.createDiv({ cls: "qt-field" });
     topicsWrap.createEl("label", { text: "Topics (comma or newline separated)" });
-    const topics = topicsWrap.createEl("textarea", { attr: { rows: "3", placeholder: "Cells, Genetics, Respiration" } });
+    const topics = topicsWrap.createEl("textarea", { attr: { rows: "3", placeholder: "Cells, Genetics, Respiration", "aria-label": "Topics" } });
 
     const row = contentEl.createDiv({ cls: "qt-row" });
     row.createEl("button", { text: "Cancel", cls: "qt-grow" }).addEventListener("click", () => this.close());

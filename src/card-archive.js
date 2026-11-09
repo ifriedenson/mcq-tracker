@@ -133,13 +133,13 @@ class CardArchiveImportModal {
       cls: "qt-hint",
       text: "Paste the JSON written by Cards: export a portable archive. Existing notes are skipped unless you choose overwrite. Nothing is deleted.",
     });
-    const box = el.createEl("textarea", { cls: "qt-input" });
+    const box = el.createEl("textarea", { cls: "qt-input", attr: { "aria-label": "Card archive JSON" } });
     box.rows = 12;
     box.placeholder = '{ "schema": 1, "cards": [ { "path": "Cards/…md", "text": "…" } ] }';
     box.value = this.text;
     box.addEventListener("input", () => (this.text = box.value));
     const row = el.createDiv({ cls: "qt-row" });
-    const select = row.createEl("select", { cls: "dropdown" });
+    const select = row.createEl("select", { cls: "dropdown", attr: { "aria-label": "Existing note handling" } });
     for (const [value, label] of [["skip", "Skip existing notes"], ["overwrite", "Overwrite existing notes"]]) {
       const option = select.createEl("option", { text: label, value });
       if (value === this.mode) option.selected = true;

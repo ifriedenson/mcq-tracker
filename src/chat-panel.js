@@ -347,6 +347,7 @@ class ChatPanel {
         rows: "2",
         placeholder: "Type a question · @ mentions · / commands",
         title: "Enter to send · Shift+Enter for a new line",
+        "aria-label": "Message the Study agent",
       },
     });
     this.input.addEventListener("keydown", (e) => {

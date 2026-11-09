@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.299.3",
+    date: "November 9, 2026",
+    title: "Every control has a name",
+    summary:
+      "Screen readers now announce what each field is for across the shared Study Workspace forms, the primary modals and the Study agent.",
+    highlights: [
+      {
+        title: "Named fields",
+        body: "Shared form helpers pass their visible label to the control, so the Study Workspace and study tools no longer expose unnamed boxes.",
+      },
+      {
+        title: "Filters you can hear",
+        body: "The annotation, vocabulary, subject, time-block tag and PDF annotation filters each have their own name instead of relying on a placeholder.",
+      },
+      {
+        title: "Answer boxes are labelled",
+        body: "The Feynman and Deep Notes steps, typed card answers, FRQ prompts, card archive and OCR text name themselves to assistive technology.",
+      },
+      {
+        title: "Nothing else changed",
+        body: "No note format, review schedule, setting, data path or network request changed. The labels are additive.",
+      },
+    ],
+  },
+  {
     version: "1.299.2",
     date: "November 9, 2026",
     title: "A shortcut check you can trust",

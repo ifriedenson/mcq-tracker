@@ -123,13 +123,13 @@ class TranscriptPracticeModal extends Modal {
     if (this.mode === "cards" || this.mode === "local") {
       const deckWrap = el.createDiv({ cls: "qt-field" });
       deckWrap.createEl("label", { text: "Deck" });
-      const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Biology" } });
+      const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Biology", "aria-label": "Deck" } });
       deck.value = this.deck;
       deck.addEventListener("input", () => (this.deck = deck.value));
     } else {
       const folderWrap = el.createDiv({ cls: "qt-field" });
       folderWrap.createEl("label", { text: "Question folder" });
-      const folder = folderWrap.createEl("input", { type: "text", attr: { placeholder: "Questions" } });
+      const folder = folderWrap.createEl("input", { type: "text", attr: { placeholder: "Questions", "aria-label": "Question folder" } });
       folder.value = this.folder;
       folder.addEventListener("input", () => (this.folder = folder.value));
     }

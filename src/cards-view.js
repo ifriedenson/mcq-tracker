@@ -1115,7 +1115,7 @@ class CardView extends ItemView {
       typedWrap.createEl("label", { text: "Your answer (type or dictate)" });
       const typed = typedWrap.createEl("textarea", {
         cls: "qt-cards-typed",
-        attr: { rows: "3", placeholder: "Type your answer, or use the microphone to dictate it…" },
+        attr: { rows: "3", placeholder: "Type your answer, or use the microphone to dictate it…", "aria-label": "Your answer" },
       });
       typed.value = this.typedAnswer || "";
       typed.addEventListener("input", () => (this.typedAnswer = typed.value));

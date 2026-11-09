@@ -131,7 +131,7 @@ class QuickAskModal extends Modal {
 
     this.input = root.createEl("textarea", {
       cls: "qt-chat-input qt-quick-input",
-      attr: { rows: "3", placeholder: "Ask a question, or choose an action above..." },
+      attr: { rows: "3", placeholder: "Ask a question, or choose an action above...", "aria-label": "Quick Ask question" },
     });
     this.input.value = this.question || this.promptForAction();
     this.input.addEventListener("keydown", (event) => {

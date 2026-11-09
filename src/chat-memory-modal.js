@@ -45,7 +45,7 @@ class ChatMemoryModal extends Modal {
     const addRow = contentEl.createDiv({ cls: "qt-row" });
     const addInput = addRow.createEl("input", {
       type: "text",
-      attr: { placeholder: "Add a short fact, for example: my exams start in May" },
+      attr: { placeholder: "Add a short fact, for example: my exams start in May", "aria-label": "New saved fact" },
     });
     const add = addRow.createEl("button", { text: "Add" });
     add.addEventListener("click", () => {

@@ -151,11 +151,11 @@ class DocumentCardsModal extends Modal {
     });
     const pathRow = this.contentEl.createDiv({ cls: "qt-field" });
     pathRow.createEl("label", { text: "Vault file (PDF or .md)" });
-    this.pathInput = pathRow.createEl("input", { type: "text", attr: { placeholder: "e.g. Lecture 4.pdf" } });
+    this.pathInput = pathRow.createEl("input", { type: "text", attr: { placeholder: "e.g. Lecture 4.pdf", "aria-label": "Vault file" } });
     this.pathInput.value = this.path;
     const deckRow = this.contentEl.createDiv({ cls: "qt-field" });
     deckRow.createEl("label", { text: "Deck" });
-    this.deckInput = deckRow.createEl("input", { type: "text", attr: { placeholder: "Imported" } });
+    this.deckInput = deckRow.createEl("input", { type: "text", attr: { placeholder: "Imported", "aria-label": "Deck" } });
     this.deckInput.value = str(this.options.deck).trim() || str(this.plugin.settings.cards.defaultDeck).trim() || "Imported";
     const aiLabel = this.contentEl.createEl("label", { cls: "qt-row" });
     this.aiInput = aiLabel.createEl("input", { type: "checkbox" });

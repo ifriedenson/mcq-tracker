@@ -28,7 +28,7 @@ class SpacedEverythingCaptureModal extends Modal {
     });
     this.box = el.createEl("textarea", {
       cls: "qt-spaced-capture-text",
-      attr: { rows: "9", placeholder: "Write the thought you want to develop…" },
+      attr: { rows: "9", placeholder: "Write the thought you want to develop…", "aria-label": "Thought" },
     });
     this.box.value = this.text;
     this.box.addEventListener("input", () => (this.text = this.box.value));

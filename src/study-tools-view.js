@@ -189,7 +189,7 @@ class StudyToolsView extends ItemView {
   renderField(form, label, type, placeholder, value) {
     const field = form.createDiv({ cls: "qt-study-field" });
     field.createEl("label", { text: label });
-    const input = field.createEl("input", { cls: "qt-input" });
+    const input = field.createEl("input", { cls: "qt-input", attr: { "aria-label": label } });
     input.type = type || "text";
     if (placeholder) input.placeholder = placeholder;
     if (value) input.value = value;

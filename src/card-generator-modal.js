@@ -91,7 +91,7 @@ class CardGeneratorModal extends Modal {
 
     const promptWrap = el.createDiv({ cls: "qt-field" });
     promptWrap.createEl("label", { text: "Extra instruction (optional)" });
-    const prompt = promptWrap.createEl("textarea", { cls: "qt-prompt", attr: { placeholder: "Focus on definitions and examples; write one-line answers." } });
+    const prompt = promptWrap.createEl("textarea", { cls: "qt-prompt", attr: { placeholder: "Focus on definitions and examples; write one-line answers.", "aria-label": "Extra instruction" } });
     prompt.value = this.config.customPrompt;
     prompt.addEventListener("input", () => (this.config.customPrompt = prompt.value));
 
@@ -110,7 +110,7 @@ class CardGeneratorModal extends Modal {
 
       const sepWrap = el.createDiv({ cls: "qt-field" });
       sepWrap.createEl("label", { text: "Separator" });
-      const separator = sepWrap.createEl("input", { type: "text", attr: { placeholder: "::" } });
+      const separator = sepWrap.createEl("input", { type: "text", attr: { placeholder: "::", "aria-label": "Separator" } });
       separator.value = this.config.separator;
       separator.addEventListener("input", () => (this.config.separator = separator.value));
 
@@ -125,7 +125,7 @@ class CardGeneratorModal extends Modal {
     if (this.config.output === "notes" || this.config.output === "spaced") {
       const deckWrap = el.createDiv({ cls: "qt-field" });
       deckWrap.createEl("label", { text: "Deck for the new cards" });
-      const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: "General" } });
+      const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: "General", "aria-label": "Deck for the new cards" } });
       deck.value = this.deck;
       deck.addEventListener("input", () => (this.deck = deck.value));
     }

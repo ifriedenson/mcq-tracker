@@ -134,7 +134,7 @@ class AgentView extends ItemView {
     summary.createSpan({ cls: "qt-agent-search-hint", text: "Local only" });
     const body = details.createDiv({ cls: "qt-agent-search-body" });
     const searchRow = body.createDiv({ cls: "qt-agent-search-row" });
-    this.searchInput = searchRow.createEl("input", { type: "text", attr: { placeholder: "Search your vault..." } });
+    this.searchInput = searchRow.createEl("input", { type: "text", attr: { placeholder: "Search your vault...", "aria-label": "Search your vault" } });
     this.searchInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") this.search();
     });

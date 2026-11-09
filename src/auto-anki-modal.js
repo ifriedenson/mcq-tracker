@@ -78,7 +78,7 @@ class AutoAnkiModal extends Modal {
 
     const deckWrap = el.createDiv({ cls: "qt-field" });
     deckWrap.createEl("label", { text: "Deck for new cards" });
-    const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: this.plugin.settings.cards.defaultDeck || "General" } });
+    const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: this.plugin.settings.cards.defaultDeck || "General", "aria-label": "Deck for new cards" } });
     deck.value = this.deck;
     deck.addEventListener("input", () => (this.deck = deck.value));
 

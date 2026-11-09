@@ -51,7 +51,7 @@ Choose the path that matches you.
 6. **Browse and search.** Click **Browse**, search for `MCQ Tracker`, and open the result. You should see the plugin page with an **Install** button.
 7. **Enable the plugin and close Community plugins.** Click **Install** if it is shown, then **Enable**. The plugin appears under your installed plugins. Close the **Community plugins** window (or press Escape) to return to the main Obsidian window. On the first run, the **MCQ Tracker Start here** note opens there automatically; if it does not, open that note in your vault or press `Ctrl/Cmd+P`, type **Open welcome guide**, and press Enter.
 
-<img src="docs/images/install-community-plugin.png" alt="Obsidian Community plugins search showing MCQ Tracker by Isaac Friedenson, version 1.294.0, with the Install button." width="760">
+<img src="docs/images/install-community-plugin.png" alt="Obsidian Community plugins search showing MCQ Tracker by Isaac Friedenson with the Install button." width="760">
 
 **On a phone?** Install Obsidian from your app store, open the sidebar, then go to **Settings → Community plugins**. Turn off Restricted mode, tap **Browse**, search for `MCQ Tracker`, then Install and Enable. Close **Settings** to return to the main Obsidian window; on the first run, the **MCQ Tracker Start here** note opens there automatically. If it does not, open that note in your vault or open the command palette and choose **Open welcome guide**. The same views and notes work on a phone.
 
@@ -150,7 +150,7 @@ Bring material in as notes, not as a locked database. Import from PDF, `.pptx`/`
 
 ## How it compares with Spaceforge
 
-Spaceforge is a strong spaced-repetition and study suite. This comparison is based on its public README (reference `dralkh/spaceforge` at `1.2.92`) and on this 1.294.0 build. The point is to show the trade-offs, not to claim that one plugin wins every row.
+Spaceforge is a strong spaced-repetition and study suite. This comparison is based on its public README (reference `dralkh/spaceforge` at `1.2.92`) and on this 1.299.3 build. The point is to show the trade-offs, not to claim that one plugin wins every row.
 
 | Capability | MCQ Tracker | Spaceforge | The practical difference |
 | --- | --- | --- | --- |

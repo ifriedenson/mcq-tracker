@@ -1606,7 +1606,7 @@ class AgentView extends ItemView {
     summary.createSpan({ cls: "qt-agent-search-hint", text: "Local only" });
     const body = details.createDiv({ cls: "qt-agent-search-body" });
     const searchRow = body.createDiv({ cls: "qt-agent-search-row" });
-    this.searchInput = searchRow.createEl("input", { type: "text", attr: { placeholder: "Search your vault..." } });
+    this.searchInput = searchRow.createEl("input", { type: "text", attr: { placeholder: "Search your vault...", "aria-label": "Search your vault" } });
     this.searchInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") this.search();
     });
@@ -10674,7 +10674,7 @@ class AutoAnkiModal extends Modal {
 
     const deckWrap = el.createDiv({ cls: "qt-field" });
     deckWrap.createEl("label", { text: "Deck for new cards" });
-    const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: this.plugin.settings.cards.defaultDeck || "General" } });
+    const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: this.plugin.settings.cards.defaultDeck || "General", "aria-label": "Deck for new cards" } });
     deck.value = this.deck;
     deck.addEventListener("input", () => (this.deck = deck.value));
 
@@ -17117,13 +17117,13 @@ class CardArchiveImportModal {
       cls: "qt-hint",
       text: "Paste the JSON written by Cards: export a portable archive. Existing notes are skipped unless you choose overwrite. Nothing is deleted.",
     });
-    const box = el.createEl("textarea", { cls: "qt-input" });
+    const box = el.createEl("textarea", { cls: "qt-input", attr: { "aria-label": "Card archive JSON" } });
     box.rows = 12;
     box.placeholder = '{ "schema": 1, "cards": [ { "path": "Cards/…md", "text": "…" } ] }';
     box.value = this.text;
     box.addEventListener("input", () => (this.text = box.value));
     const row = el.createDiv({ cls: "qt-row" });
-    const select = row.createEl("select", { cls: "dropdown" });
+    const select = row.createEl("select", { cls: "dropdown", attr: { "aria-label": "Existing note handling" } });
     for (const [value, label] of [["skip", "Skip existing notes"], ["overwrite", "Overwrite existing notes"]]) {
       const option = select.createEl("option", { text: label, value });
       if (value === this.mode) option.selected = true;
@@ -17410,7 +17410,7 @@ class CardGeneratorModal extends Modal {
 
     const promptWrap = el.createDiv({ cls: "qt-field" });
     promptWrap.createEl("label", { text: "Extra instruction (optional)" });
-    const prompt = promptWrap.createEl("textarea", { cls: "qt-prompt", attr: { placeholder: "Focus on definitions and examples; write one-line answers." } });
+    const prompt = promptWrap.createEl("textarea", { cls: "qt-prompt", attr: { placeholder: "Focus on definitions and examples; write one-line answers.", "aria-label": "Extra instruction" } });
     prompt.value = this.config.customPrompt;
     prompt.addEventListener("input", () => (this.config.customPrompt = prompt.value));
 
@@ -17429,7 +17429,7 @@ class CardGeneratorModal extends Modal {
 
       const sepWrap = el.createDiv({ cls: "qt-field" });
       sepWrap.createEl("label", { text: "Separator" });
-      const separator = sepWrap.createEl("input", { type: "text", attr: { placeholder: "::" } });
+      const separator = sepWrap.createEl("input", { type: "text", attr: { placeholder: "::", "aria-label": "Separator" } });
       separator.value = this.config.separator;
       separator.addEventListener("input", () => (this.config.separator = separator.value));
 
@@ -17444,7 +17444,7 @@ class CardGeneratorModal extends Modal {
     if (this.config.output === "notes" || this.config.output === "spaced") {
       const deckWrap = el.createDiv({ cls: "qt-field" });
       deckWrap.createEl("label", { text: "Deck for the new cards" });
-      const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: "General" } });
+      const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: "General", "aria-label": "Deck for the new cards" } });
       deck.value = this.deck;
       deck.addEventListener("input", () => (this.deck = deck.value));
     }
@@ -24687,7 +24687,7 @@ class CardView extends ItemView {
       typedWrap.createEl("label", { text: "Your answer (type or dictate)" });
       const typed = typedWrap.createEl("textarea", {
         cls: "qt-cards-typed",
-        attr: { rows: "3", placeholder: "Type your answer, or use the microphone to dictate it…" },
+        attr: { rows: "3", placeholder: "Type your answer, or use the microphone to dictate it…", "aria-label": "Your answer" },
       });
       typed.value = this.typedAnswer || "";
       typed.addEventListener("input", () => (this.typedAnswer = typed.value));
@@ -26130,7 +26130,7 @@ class ChatMemoryModal extends Modal {
     const addRow = contentEl.createDiv({ cls: "qt-row" });
     const addInput = addRow.createEl("input", {
       type: "text",
-      attr: { placeholder: "Add a short fact, for example: my exams start in May" },
+      attr: { placeholder: "Add a short fact, for example: my exams start in May", "aria-label": "New saved fact" },
     });
     const add = addRow.createEl("button", { text: "Add" });
     add.addEventListener("click", () => {
@@ -26984,6 +26984,7 @@ class ChatPanel {
         rows: "2",
         placeholder: "Type a question · @ mentions · / commands",
         title: "Enter to send · Shift+Enter for a new line",
+        "aria-label": "Message the Study agent",
       },
     });
     this.input.addEventListener("keydown", (e) => {
@@ -34335,7 +34336,7 @@ class CourseTemplateModal {
   field(parent, label, type, placeholder, key) {
     const wrap = parent.createDiv({ cls: "qt-field" });
     wrap.createEl("label", { text: label });
-    const input = wrap.createEl("input", { cls: "qt-input" });
+    const input = wrap.createEl("input", { cls: "qt-input", attr: { "aria-label": label } });
     input.type = type || "text";
     if (placeholder) input.placeholder = placeholder;
     input.value = this.values[key] || "";
@@ -34353,7 +34354,7 @@ class CourseTemplateModal {
     this.field(el, "Date", "date", "", "date");
     const wrap = el.createDiv({ cls: "qt-field" });
     wrap.createEl("label", { text: "Note type" });
-    const select = wrap.createEl("select", { cls: "dropdown" });
+    const select = wrap.createEl("select", { cls: "dropdown", attr: { "aria-label": "Note type" } });
     for (const choice of templateChoices(this.plugin.settings.courseTemplates)) {
       const option = select.createEl("option", { text: choice.label, value: choice.value });
       if (choice.value === this.values.template) option.selected = true;
@@ -35532,11 +35533,11 @@ class DocumentCardsModal extends Modal {
     });
     const pathRow = this.contentEl.createDiv({ cls: "qt-field" });
     pathRow.createEl("label", { text: "Vault file (PDF or .md)" });
-    this.pathInput = pathRow.createEl("input", { type: "text", attr: { placeholder: "e.g. Lecture 4.pdf" } });
+    this.pathInput = pathRow.createEl("input", { type: "text", attr: { placeholder: "e.g. Lecture 4.pdf", "aria-label": "Vault file" } });
     this.pathInput.value = this.path;
     const deckRow = this.contentEl.createDiv({ cls: "qt-field" });
     deckRow.createEl("label", { text: "Deck" });
-    this.deckInput = deckRow.createEl("input", { type: "text", attr: { placeholder: "Imported" } });
+    this.deckInput = deckRow.createEl("input", { type: "text", attr: { placeholder: "Imported", "aria-label": "Deck" } });
     this.deckInput.value = str(this.options.deck).trim() || str(this.plugin.settings.cards.defaultDeck).trim() || "Imported";
     const aiLabel = this.contentEl.createEl("label", { cls: "qt-row" });
     this.aiInput = aiLabel.createEl("input", { type: "checkbox" });
@@ -37487,7 +37488,7 @@ class ExamModal extends Modal {
     const field = (label, placeholder, type) => {
       const wrap = contentEl.createDiv({ cls: "qt-field" });
       wrap.createEl("label", { text: label });
-      return wrap.createEl("input", { type: type || "text", attr: { placeholder: placeholder || "" } });
+      return wrap.createEl("input", { type: type || "text", attr: { placeholder: placeholder || "", "aria-label": label } });
     };
     const title = field("Exam title", "e.g. Biology final", "text");
     title.value = str(this.options.title || "");
@@ -37499,7 +37500,7 @@ class ExamModal extends Modal {
     const weight = field("Weight inside exams (optional)", "e.g. 25", "number");
     const topicsWrap = contentEl.createDiv({ cls: "qt-field" });
     topicsWrap.createEl("label", { text: "Topics (comma or newline separated)" });
-    const topics = topicsWrap.createEl("textarea", { attr: { rows: "3", placeholder: "Cells, Genetics, Respiration" } });
+    const topics = topicsWrap.createEl("textarea", { attr: { rows: "3", placeholder: "Cells, Genetics, Respiration", "aria-label": "Topics" } });
 
     const row = contentEl.createDiv({ cls: "qt-row" });
     row.createEl("button", { text: "Cancel", cls: "qt-grow" }).addEventListener("click", () => this.close());
@@ -41835,13 +41836,13 @@ class NewFrqNoteModal extends Modal {
     fillKinds();
 
     root.createEl("label", { text: "Title" });
-    const title = root.createEl("input", { type: "text", cls: "qt-modal-input", attr: { placeholder: "For example: Unit 4 DBQ practice" } });
+    const title = root.createEl("input", { type: "text", cls: "qt-modal-input", attr: { placeholder: "For example: Unit 4 DBQ practice", "aria-label": "Title" } });
 
     root.createEl("label", { text: "Prompt" });
-    const prompt = root.createEl("textarea", { cls: "qt-frq-answer", attr: { rows: "6", placeholder: "Paste the free-response question." } });
+    const prompt = root.createEl("textarea", { cls: "qt-frq-answer", attr: { rows: "6", placeholder: "Paste the free-response question.", "aria-label": "Prompt" } });
 
     root.createEl("label", { text: "Stimulus or documents (optional)" });
-    const stimulus = root.createEl("textarea", { cls: "qt-frq-answer", attr: { rows: "4", placeholder: "Paste any shared passage, data or document set." } });
+    const stimulus = root.createEl("textarea", { cls: "qt-frq-answer", attr: { rows: "4", placeholder: "Paste any shared passage, data or document set.", "aria-label": "Stimulus or documents" } });
 
     root.createEl("label", { text: "Rubric" });
     const rubric = root.createEl("textarea", { cls: "qt-frq-answer", attr: { rows: "8" } });
@@ -41861,7 +41862,7 @@ class NewFrqNoteModal extends Modal {
     });
 
     root.createEl("label", { text: "Sample answer (optional)" });
-    const sample = root.createEl("textarea", { cls: "qt-frq-answer", attr: { rows: "4", placeholder: "Your own model answer, or leave blank." } });
+    const sample = root.createEl("textarea", { cls: "qt-frq-answer", attr: { rows: "4", placeholder: "Your own model answer, or leave blank.", "aria-label": "Sample answer" } });
 
     const refreshPreset = () => {
       rubric.value = presetText(this.courseId, this.kind);
@@ -58151,7 +58152,7 @@ class OcrModal extends Modal {
     });
     this.results.forEach((page, index) => {
       el.createEl("h4", { text: `Page ${page.n}` });
-      const area = el.createEl("textarea", { cls: "qt-ocr-text" });
+      const area = el.createEl("textarea", { cls: "qt-ocr-text", attr: { "aria-label": "OCR text" } });
       area.setAttribute("aria-label", `Page ${page.n} text`);
       area.value = page.text;
       area.rows = Math.max(6, Math.min(18, page.text.split("\n").length + 2));
@@ -89596,7 +89597,7 @@ class QuickAskModal extends Modal {
 
     this.input = root.createEl("textarea", {
       cls: "qt-chat-input qt-quick-input",
-      attr: { rows: "3", placeholder: "Ask a question, or choose an action above..." },
+      attr: { rows: "3", placeholder: "Ask a question, or choose an action above...", "aria-label": "Quick Ask question" },
     });
     this.input.value = this.question || this.promptForAction();
     this.input.addEventListener("keydown", (event) => {
@@ -91179,13 +91180,13 @@ class QuizGeneratorModal extends Modal {
 
     const folders = el.createDiv({ cls: "qt-field" });
     folders.createEl("label", { text: "Source folders (comma-separated; blank means the whole vault)" });
-    const folderInput = folders.createEl("input", { type: "text", attr: { placeholder: "Lectures, Notes/Bio" } });
+    const folderInput = folders.createEl("input", { type: "text", attr: { placeholder: "Lectures, Notes/Bio", "aria-label": "Source folders" } });
     folderInput.value = this.folderText;
     folderInput.addEventListener("input", () => (this.folderText = folderInput.value));
 
     const focus = el.createDiv({ cls: "qt-field" });
     focus.createEl("label", { text: "Focus topic (optional)" });
-    const focusInput = focus.createEl("input", { type: "text", attr: { placeholder: "e.g. oxidative phosphorylation" } });
+    const focusInput = focus.createEl("input", { type: "text", attr: { placeholder: "e.g. oxidative phosphorylation", "aria-label": "Focus topic" } });
     focusInput.value = this.focus;
     focusInput.addEventListener("input", () => (this.focus = focusInput.value));
 
@@ -93207,7 +93208,7 @@ async function renderReadingPlanBlock(plugin, source, el, ctx) {
 
     if (plan.status !== "complete") {
       const log = box.createDiv({ cls: "qt-reading-log" });
-      const input = log.createEl("input", { cls: "qt-reading-pages" });
+      const input = log.createEl("input", { cls: "qt-reading-pages", attr: { "aria-label": "Pages read" } });
       input.type = "number";
       input.min = "1";
       input.max = String(parsed.pages);
@@ -109102,7 +109103,7 @@ class SpacedEverythingCaptureModal extends Modal {
     });
     this.box = el.createEl("textarea", {
       cls: "qt-spaced-capture-text",
-      attr: { rows: "9", placeholder: "Write the thought you want to develop…" },
+      attr: { rows: "9", placeholder: "Write the thought you want to develop…", "aria-label": "Thought" },
     });
     this.box.value = this.text;
     this.box.addEventListener("input", () => (this.text = this.box.value));
@@ -115675,7 +115676,7 @@ class StudyToolsView extends ItemView {
   renderField(form, label, type, placeholder, value) {
     const field = form.createDiv({ cls: "qt-study-field" });
     field.createEl("label", { text: label });
-    const input = field.createEl("input", { cls: "qt-input" });
+    const input = field.createEl("input", { cls: "qt-input", attr: { "aria-label": label } });
     input.type = type || "text";
     if (placeholder) input.placeholder = placeholder;
     if (value) input.value = value;
@@ -117625,7 +117626,7 @@ class StudyWorkspaceView extends ItemView {
   renderField(form, label, type, placeholder, value) {
     const field = form.createDiv({ cls: "qt-study-field" });
     field.createEl("label", { text: label });
-    const input = field.createEl("input", { cls: "qt-input" });
+    const input = field.createEl("input", { cls: "qt-input", attr: { "aria-label": label } });
     input.type = type || "text";
     if (placeholder) input.placeholder = placeholder;
     if (value) input.value = value;
@@ -117635,7 +117636,7 @@ class StudyWorkspaceView extends ItemView {
   renderTextarea(form, label, placeholder, value, rows) {
     const field = form.createDiv({ cls: "qt-study-field qt-study-field-wide" });
     field.createEl("label", { text: label });
-    const textarea = field.createEl("textarea", { cls: "qt-study-bulk" });
+    const textarea = field.createEl("textarea", { cls: "qt-study-bulk", attr: { "aria-label": label } });
     textarea.placeholder = placeholder || "";
     textarea.rows = rows || 4;
     if (value) textarea.value = value;
@@ -117745,7 +117746,7 @@ class StudyWorkspaceView extends ItemView {
     const key = feynmanStepKey(step);
     card.createDiv({ cls: "qt-workspace-step-label", text: `Step ${step + 1}: ${FEYNMAN_STEPS[step]}` });
     card.createDiv({ cls: "qt-hint", text: feynmanPrompt(step) });
-    const textarea = card.createEl("textarea", { cls: "qt-study-bulk qt-workspace-answer" });
+    const textarea = card.createEl("textarea", { cls: "qt-study-bulk qt-workspace-answer", attr: { "aria-label": "Feynman explanation" } });
     textarea.rows = 7;
     textarea.value = session.answers[key] || "";
     textarea.placeholder = "Write your explanation in your own words.";
@@ -118497,7 +118498,7 @@ class StudyWorkspaceView extends ItemView {
     }
     const search = root.createDiv({ cls: "qt-study-card" });
     search.createEl("h3", { text: "Annotation index" });
-    const filter = search.createEl("input", { cls: "qt-input", type: "search" });
+    const filter = search.createEl("input", { cls: "qt-input", type: "search", attr: { "aria-label": "Search annotations" } });
     filter.placeholder = "Search quotes, questions and sources";
     filter.value = this.annotationFilter;
     filter.addEventListener("input", () => {
@@ -118599,7 +118600,7 @@ class StudyWorkspaceView extends ItemView {
     const current = SOCRATIC_STEPS[step];
     card.createDiv({ cls: "qt-workspace-step-label", text: `Step ${step + 1}: ${current.title}` });
     card.createDiv({ cls: "qt-hint", text: current.prompt });
-    const textarea = card.createEl("textarea", { cls: "qt-study-bulk qt-workspace-answer" });
+    const textarea = card.createEl("textarea", { cls: "qt-study-bulk qt-workspace-answer", attr: { "aria-label": "Deep Notes answer" } });
     textarea.rows = 7;
     textarea.value = session.answers[current.key] || "";
     textarea.placeholder = "Write your answer in your own words.";
@@ -118792,7 +118793,7 @@ class StudyWorkspaceView extends ItemView {
     stat(summary.accuracy ? `${summary.accuracy}%` : "—", "accuracy");
     const listCard = root.createDiv({ cls: "qt-study-card" });
     listCard.createEl("h3", { text: "Dictionary" });
-    const filter = listCard.createEl("input", { cls: "qt-input", type: "search" });
+    const filter = listCard.createEl("input", { cls: "qt-input", type: "search", attr: { "aria-label": "Search vocabulary" } });
     filter.placeholder = "Search terms, definitions and examples";
     filter.value = this.vocabFilter;
     filter.addEventListener("input", () => {
@@ -119000,7 +119001,7 @@ class StudyWorkspaceView extends ItemView {
     }
     const search = root.createDiv({ cls: "qt-study-card" });
     search.createEl("h3", { text: "Subjects" });
-    const filter = search.createEl("input", { cls: "qt-input", type: "search" });
+    const filter = search.createEl("input", { cls: "qt-input", type: "search", attr: { "aria-label": "Search subjects" } });
     filter.placeholder = "Search subjects";
     filter.value = this.subjectFilter;
     filter.addEventListener("input", () => {
@@ -119469,7 +119470,7 @@ class StudyWorkspaceView extends ItemView {
     });
     let blocks = timeBlocks.blocksForDate(data.blocks, this.timeBlockDate);
     const filterRow = root.createDiv({ cls: "qt-row qt-time-block-tag-filter" });
-    const filter = filterRow.createEl("input", { cls: "qt-input", type: "text", attr: { placeholder: "Filter by tag" } });
+    const filter = filterRow.createEl("input", { cls: "qt-input", type: "text", attr: { placeholder: "Filter by tag", "aria-label": "Filter blocks by tag" } });
     filter.value = this.timeBlockTagFilter || "";
     filter.addEventListener("change", () => {
       this.timeBlockTagFilter = str(filter.value).trim();
@@ -119646,7 +119647,7 @@ class StudyWorkspaceView extends ItemView {
       });
     }
     const addTask = card.createDiv({ cls: "qt-row qt-time-block-task-add" });
-    const input = addTask.createEl("input", { cls: "qt-input", type: "text", attr: { placeholder: "Add a task inside this block" } });
+    const input = addTask.createEl("input", { cls: "qt-input", type: "text", attr: { placeholder: "Add a task inside this block", "aria-label": "New task inside this block" } });
     addTask.createEl("button", { text: "Add task" }).addEventListener("click", async () => {
       if (!str(input.value).trim()) {
         this.saveMessage("Name the task first.");
@@ -120052,7 +120053,7 @@ class StudyWorkspaceView extends ItemView {
       return;
     }
     const filters = card.createDiv({ cls: "qt-study-form" });
-    const search = filters.createEl("input", { cls: "qt-input", type: "search", placeholder: "Search quotes, notes and tags" });
+    const search = filters.createEl("input", { cls: "qt-input", type: "search", placeholder: "Search quotes, notes and tags", attr: { "aria-label": "Search PDF annotations" } });
     search.value = this.pdfAnnotationFilter || "";
     search.addEventListener("input", () => {
       this.pdfAnnotationFilter = search.value;
@@ -128531,13 +128532,13 @@ class TranscriptPracticeModal extends Modal {
     if (this.mode === "cards" || this.mode === "local") {
       const deckWrap = el.createDiv({ cls: "qt-field" });
       deckWrap.createEl("label", { text: "Deck" });
-      const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Biology" } });
+      const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Biology", "aria-label": "Deck" } });
       deck.value = this.deck;
       deck.addEventListener("input", () => (this.deck = deck.value));
     } else {
       const folderWrap = el.createDiv({ cls: "qt-field" });
       folderWrap.createEl("label", { text: "Question folder" });
-      const folder = folderWrap.createEl("input", { type: "text", attr: { placeholder: "Questions" } });
+      const folder = folderWrap.createEl("input", { type: "text", attr: { placeholder: "Questions", "aria-label": "Question folder" } });
       folder.value = this.folder;
       folder.addEventListener("input", () => (this.folder = folder.value));
     }
@@ -131864,6 +131865,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.299.3",
+    date: "November 9, 2026",
+    title: "Every control has a name",
+    summary:
+      "Screen readers now announce what each field is for across the shared Study Workspace forms, the primary modals and the Study agent.",
+    highlights: [
+      {
+        title: "Named fields",
+        body: "Shared form helpers pass their visible label to the control, so the Study Workspace and study tools no longer expose unnamed boxes.",
+      },
+      {
+        title: "Filters you can hear",
+        body: "The annotation, vocabulary, subject, time-block tag and PDF annotation filters each have their own name instead of relying on a placeholder.",
+      },
+      {
+        title: "Answer boxes are labelled",
+        body: "The Feynman and Deep Notes steps, typed card answers, FRQ prompts, card archive and OCR text name themselves to assistive technology.",
+      },
+      {
+        title: "Nothing else changed",
+        body: "No note format, review schedule, setting, data path or network request changed. The labels are additive.",
+      },
+    ],
+  },
   {
     version: "1.299.2",
     date: "November 9, 2026",
