@@ -6,7 +6,18 @@ MCQ Tracker is the question-first study plugin for Obsidian. Turn notes and PDFs
 
 Obsidian is a note-taking app that keeps your notes in a folder called a **vault**. A **community plugin** is an add-on you install inside Obsidian.
 
-## Install
+## Quick start
+
+1. On first run, use the **Start here** screen. If it is not open, press `Ctrl/Cmd+P`, type **Open welcome guide**, and press Enter.
+2. Click **Try the example question**. MCQ Tracker writes one ordinary note under `Questions/` and opens Practice on that question.
+3. Choose an answer, pick how sure you are, and click **Submit**.
+4. Read the result. The note keeps your answer, the correct answer, the explanation and the next review date.
+5. Open **Today** to see what is due next, or **Open practice** to start another question.
+
+<img src="docs/images/welcome-start.png" alt="Start here screen with three setup steps and a photosynthesis example question." width="720">
+<img src="docs/images/answer-review.png" alt="Practice result showing an incorrect answer, the correct choice and the review controls." width="720">
+
+### Install
 
 Choose the path that matches you.
 
@@ -65,17 +76,6 @@ To update later, use **Check for updates** on the Community plugins page.
 | **Focus** | Pomodoro timer with work/short-break/long-break phases, a completion sound, a daily goal and a study log. |
 
 <img src="docs/images/cards-review.png" alt="Cards view with two flashcards ready to review, deck filters and a Start review button." width="440"> <img src="docs/images/insights-overview.png" alt="Insights Overview with attempts, accuracy, due counts, course health and study activity." width="440">
-
-## Quick start
-
-1. On first run, use the **Start here** screen. If it is not open, press `Ctrl/Cmd+P`, type **Open welcome guide**, and press Enter.
-2. Click **Try the example question**. MCQ Tracker writes one ordinary note under `Questions/` and opens Practice on that question.
-3. Choose an answer, pick how sure you are, and click **Submit**.
-4. Read the result. The note keeps your answer, the correct answer, the explanation and the next review date.
-5. Open **Today** to see what is due next, or **Open practice** to start another question.
-
-<img src="docs/images/welcome-start.png" alt="Start here screen with three setup steps and a photosynthesis example question." width="720">
-<img src="docs/images/answer-review.png" alt="Practice result showing an incorrect answer, the correct choice and the review controls." width="720">
 
 ## Practice, tests and feedback
 
