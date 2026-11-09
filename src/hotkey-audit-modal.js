@@ -1,7 +1,8 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal } = require("obsidian");
 
-class HotkeyAuditModal extends Modal {
+class HotkeyAuditModal extends QtModal {
   constructor(app, report) {
     super(app);
     this.report = report || { available: false, conflicts: [] };

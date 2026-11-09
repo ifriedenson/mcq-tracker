@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { renderMarkdownInto } = require("./view-helpers");
 const {
@@ -11,7 +12,7 @@ const { str } = require("./util");
 const MODE_LABELS = { all: "All questions", unmarked: "Unmarked", unknown: "Missed" };
 
 /** A small, note-local quiz. Marks are saved only when the answer summary is accepted. */
-class SimpleNoteQuizModal extends Modal {
+class SimpleNoteQuizModal extends QtModal {
   constructor(app, plugin, file, parsed, options) {
     super(app);
     this.app = app;

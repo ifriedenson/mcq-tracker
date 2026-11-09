@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 /*
  * The EPUB reader window.
  *
@@ -12,7 +13,11 @@ const epub = require("./epub");
 const epubAnnotations = require("./epub-annotations");
 const { str } = require("./util");
 
-class EpubReaderModal extends Modal {
+class EpubReaderModal extends QtModal {
+  qtDialogLabel() {
+    return "EPUB reader";
+  }
+
   constructor(app, plugin, options) {
     super(app);
     this.plugin = plugin;

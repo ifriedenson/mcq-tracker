@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 /*
  * Optional vision OCR for a scanned PDF. Pages are rendered to PNG locally and
  * sent only after the user ticks the disclosure and presses the action. The
@@ -23,7 +24,7 @@ function bytesToBase64(buf) {
   throw new Error("This device cannot encode page images for the vision model.");
 }
 
-class OcrModal extends Modal {
+class OcrModal extends QtModal {
   constructor(app, plugin, onDone) {
     super(app);
     this.plugin = plugin;

@@ -1,11 +1,12 @@
 "use strict";
+const { QtModal, QtFuzzySuggestModal } = require("./a11y");
 const { AbstractInputSuggest, FuzzySuggestModal, Modal } = require("obsidian");
 const { str } = require("./util");
 const { filterOptionCounts, folderLabel, officialIdOf } = require("./filters");
 
 /* ------------------------------------------------------------------ modal */
 
-class NameModal extends Modal {
+class NameModal extends QtModal {
   constructor(app, title, initial, onSubmit) {
     super(app);
     this.title = title;
@@ -36,7 +37,7 @@ class NameModal extends Modal {
   }
 }
 
-class ConfirmModal extends Modal {
+class ConfirmModal extends QtModal {
   constructor(app, title, body, okText, resolve) {
     super(app);
     this.title = title;
@@ -89,7 +90,11 @@ class FolderSuggest extends AbstractInputSuggest {
 }
 
 /** Choose a folder that holds questions ("Practice a folder"). */
-class QuestionFolderModal extends FuzzySuggestModal {
+class QuestionFolderModal extends QtFuzzySuggestModal {
+  qtDialogLabel() {
+    return "Choose a question folder";
+  }
+
   constructor(app, plugin, onPick) {
     super(app);
     this.plugin = plugin;
@@ -108,7 +113,11 @@ class QuestionFolderModal extends FuzzySuggestModal {
 }
 
 /** Jump to a question note by its official id (or the plugin's own id). */
-class FindQuestionModal extends FuzzySuggestModal {
+class FindQuestionModal extends QtFuzzySuggestModal {
+  qtDialogLabel() {
+    return "Find a question";
+  }
+
   constructor(app, plugin) {
     super(app);
     this.plugin = plugin;

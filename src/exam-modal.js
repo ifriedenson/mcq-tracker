@@ -1,9 +1,10 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { localDate, str } = require("./util");
 
 /* Manual exams are ordinary assignment notes with type: exam. */
-class ExamModal extends Modal {
+class ExamModal extends QtModal {
   constructor(app, plugin, options, onDone) {
     super(app);
     this.plugin = plugin;

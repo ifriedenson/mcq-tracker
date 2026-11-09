@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 /*
  * Calendar view, the `uni-schedule` embed and the "add schedule" dialog.
  *
@@ -857,7 +858,7 @@ class CalendarView extends ItemView {
 
 /* ----------------------------------------------------------- study slots */
 
-class StudySlotModal extends Modal {
+class StudySlotModal extends QtModal {
   constructor(app, plugin, slots) {
     super(app);
     this.plugin = plugin;
@@ -1023,7 +1024,7 @@ class StudySlotModal extends Modal {
 
 /* -------------------------------------------------------------- add dialog */
 
-class CalendarImportModal extends Modal {
+class CalendarImportModal extends QtModal {
   constructor(app, plugin, onDone) {
     super(app);
     this.plugin = plugin;

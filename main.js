@@ -776,6 +776,117 @@ function __require(name) {
   return name.startsWith("./") ? __load(name.slice(2).replace(/.js$/, "")) : require(name);
 }
 
+/* ---- src/a11y.js ---- */
+__defs["a11y"] = function (module, exports, require) {
+/*
+ * Dialog accessibility.
+ *
+ * Obsidian's Modal creates the dialog chrome but does not name it, so a screen
+ * reader announces an unnamed dialog even when the content starts with a
+ * visible heading. `describeDialog` points the container at that heading (or
+ * falls back to a written label) and `QtModal` applies it once the modal has
+ * rendered. The static audit in tests/helpers/a11y-audit.js fails when a modal
+ * class bypasses this layer.
+ */
+const { FuzzySuggestModal, Modal } = require("obsidian");
+
+let dialogTitleSeq = 0;
+
+function setAttr(el, name, value) {
+  if (!el) return;
+  if (typeof el.setAttribute === "function") el.setAttribute(name, value);
+  else el[name] = value;
+}
+
+function removeAttr(el, name) {
+  if (!el) return;
+  if (typeof el.removeAttribute === "function") el.removeAttribute(name);
+  else delete el[name];
+}
+
+function textOf(el) {
+  if (!el) return "";
+  return String(typeof el.textContent === "string" ? el.textContent : el.text || "").trim();
+}
+
+function setTitleId(heading) {
+  if (!heading) return "";
+  if (!heading.id) {
+    dialogTitleSeq += 1;
+    heading.id = `qt-dialog-title-${dialogTitleSeq}`;
+  }
+  return heading.id;
+}
+
+function explicitLabel(modal) {
+  const value = typeof modal.qtDialogLabel === "function" ? modal.qtDialogLabel() : modal.qtDialogLabel;
+  return String(value || "").trim();
+}
+
+/**
+ * Names an open dialog from its visible heading. Returns the name it applied,
+ * or "" when the modal has no container or no name is available.
+ */
+function describeDialog(modal, fallback) {
+  if (!modal) return "";
+  const container = modal.modalEl || modal.containerEl;
+  const content = modal.contentEl;
+  if (!container || !content) return "";
+  const heading =
+    typeof content.querySelector === "function"
+      ? content.querySelector("h1, h2, h3, h4, [data-qt-dialog-title]")
+      : null;
+  const titleEl = modal.titleEl;
+  const titleText = textOf(titleEl);
+  let name = textOf(heading) || titleText;
+
+  if (heading) {
+    setAttr(container, "aria-labelledby", setTitleId(heading));
+    removeAttr(container, "aria-label");
+  } else if (titleText && titleEl) {
+    setAttr(container, "aria-labelledby", setTitleId(titleEl));
+    removeAttr(container, "aria-label");
+  } else {
+    name = name || explicitLabel(modal) || String(fallback || "").trim();
+    if (!name && typeof content.getAttribute === "function") {
+      name = String(content.getAttribute("aria-label") || "").trim();
+    }
+    if (name) {
+      setAttr(container, "aria-label", name);
+      removeAttr(container, "aria-labelledby");
+    }
+  }
+
+  if (!name) return "";
+  setAttr(container, "role", "dialog");
+  setAttr(container, "aria-modal", "true");
+  return name;
+}
+
+/** A Modal whose container is named after it renders. */
+class QtModal extends Modal {
+  open() {
+    const result = super.open();
+    describeDialog(this);
+    return result;
+  }
+}
+
+/**
+ * Fuzzy pickers have no heading of their own; each subclass supplies a short
+ * purpose name through `qtDialogLabel()`.
+ */
+class QtFuzzySuggestModal extends FuzzySuggestModal {
+  open() {
+    const result = super.open();
+    describeDialog(this, "Choose an item");
+    return result;
+  }
+}
+
+module.exports = { QtFuzzySuggestModal, QtModal, describeDialog };
+};
+
 /* ---- src/adaptive-session.js ---- */
 __defs["adaptive-session"] = function (module, exports, require) {
 /*
@@ -1067,6 +1178,7 @@ module.exports = {
 
 /* ---- src/agent-edit-review-modal.js ---- */
 __defs["agent-edit-review-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { summarize } = require("./agent-edit-review");
 
@@ -1076,7 +1188,7 @@ const STATUS_LABELS = {
   deleted: "Deleted",
 };
 
-class AgentEditReviewModal extends Modal {
+class AgentEditReviewModal extends QtModal {
   constructor(app, plugin, changes, onDone) {
     super(app);
     this.plugin = plugin;
@@ -3811,6 +3923,7 @@ module.exports = {
 
 /* ---- src/ai-import-modal.js ---- */
 __defs["ai-import-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal } = require("obsidian");
 const { API_PRESETS } = require("./api-client");
 const { resolveApiKey } = require("./secret-keys");
@@ -3847,7 +3960,7 @@ function importAiState(plugin) {
  * the connection is tested before the importer opens. Paste questions stays
  * visible as the offline way forward.
  */
-class AiImportHelpModal extends Modal {
+class AiImportHelpModal extends QtModal {
   constructor(app, plugin, state) {
     super(app);
     this.plugin = plugin;
@@ -4214,6 +4327,7 @@ module.exports = {
 
 /* ---- src/ai-tool-review-modal.js ---- */
 __defs["ai-tool-review-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { proposalPreview } = require("./ai-tools");
 
@@ -4223,7 +4337,7 @@ const TOOL_LABELS = {
   update_section: "Section edit",
 };
 
-class AiToolReviewModal extends Modal {
+class AiToolReviewModal extends QtModal {
   constructor(app, plugin, proposals, options) {
     super(app);
     this.plugin = plugin;
@@ -5388,6 +5502,7 @@ module.exports = {
 
 /* ---- src/anki-connect.js ---- */
 __defs["anki-connect"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 /*
  * Optional AnkiConnect bridge. AnkiConnect is a local Anki add-on that exposes
  * a small JSON API on 127.0.0.1. This module only builds notes and calls that
@@ -6049,7 +6164,7 @@ class AnkiConnectClient {
   }
 }
 
-class AnkiConnectModal extends Modal {
+class AnkiConnectModal extends QtModal {
   constructor(app, plugin, options, onDone) {
     super(app);
     this.plugin = plugin;
@@ -9553,12 +9668,13 @@ module.exports = {
 
 /* ---- src/assignments-modal.js ---- */
 __defs["assignments-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { localDate, str } = require("./util");
 const { ASSIGNMENT_STATUSES, ASSIGNMENT_TYPES, normalizeDate } = require("./assignments");
 
 /** Create or edit one assignment note. */
-class AssignmentModal extends Modal {
+class AssignmentModal extends QtModal {
   constructor(app, plugin, options, onDone) {
     super(app);
     this.plugin = plugin;
@@ -10596,13 +10712,14 @@ module.exports = {
 
 /* ---- src/auto-anki-modal.js ---- */
 __defs["auto-anki-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 const { readActiveNoteContext } = require("./note-context");
 const { normalizeAutoAnki } = require("./auto-anki");
 
 /** Confirm the source and deck, then draft and send the cards in one action. */
-class AutoAnkiModal extends Modal {
+class AutoAnkiModal extends QtModal {
   constructor(app, plugin) {
     super(app);
     this.app = app;
@@ -10741,6 +10858,7 @@ module.exports = { AutoAnkiModal };
 
 /* ---- src/calculation-preview-modal.js ---- */
 __defs["calculation-preview-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 
 const STATUS_LABELS = {
@@ -10756,7 +10874,7 @@ function displayValue(value) {
   return String(value);
 }
 
-class CalculationPreviewModal extends Modal {
+class CalculationPreviewModal extends QtModal {
   constructor(app, plugin, preview) {
     super(app);
     this.plugin = plugin;
@@ -13846,6 +13964,7 @@ module.exports = { CALENDAR_TABS, renderCalendarSettings };
 
 /* ---- src/calendar-view.js ---- */
 __defs["calendar-view"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 /*
  * Calendar view, the `uni-schedule` embed and the "add schedule" dialog.
  *
@@ -14704,7 +14823,7 @@ class CalendarView extends ItemView {
 
 /* ----------------------------------------------------------- study slots */
 
-class StudySlotModal extends Modal {
+class StudySlotModal extends QtModal {
   constructor(app, plugin, slots) {
     super(app);
     this.plugin = plugin;
@@ -14870,7 +14989,7 @@ class StudySlotModal extends Modal {
 
 /* -------------------------------------------------------------- add dialog */
 
-class CalendarImportModal extends Modal {
+class CalendarImportModal extends QtModal {
   constructor(app, plugin, onDone) {
     super(app);
     this.plugin = plugin;
@@ -15314,13 +15433,14 @@ module.exports = {
 
 /* ---- src/canvas-auto-link-view.js ---- */
 __defs["canvas-auto-link-view"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 /*
  * The read-only auto-link report window. Matching and writing stay in
  * canvas-auto-link.js; this only draws the report it is given.
  */
 const { Modal } = require("obsidian");
 
-class LinkReportModal extends Modal {
+class LinkReportModal extends QtModal {
   constructor(app, report) {
     super(app);
     this.report = report || { proposals: [], skipped: { existing: [], self: [], ambiguous: [], unresolved: [] }, summary: "" };
@@ -15598,13 +15718,14 @@ module.exports = {
 
 /* ---- src/canvas-kanban-view.js ---- */
 __defs["canvas-kanban-view"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 /*
  * The read-only kanban structure window. Column derivation and the re-stack stay
  * in canvas-kanban.js; this only draws the report it is given.
  */
 const { Modal } = require("obsidian");
 
-class KanbanReportModal extends Modal {
+class KanbanReportModal extends QtModal {
   constructor(app, report) {
     super(app);
     this.report = report || { columns: [], unassigned: [], summary: "" };
@@ -16378,6 +16499,7 @@ module.exports = {
 
 /* ---- src/canvas-presentations-view.js ---- */
 __defs["canvas-presentations-view"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 /*
  * The presentation windows. Derivation and navigation stay in
  * canvas-presentations.js; these only draw the plan they are given and, for the
@@ -16386,7 +16508,7 @@ __defs["canvas-presentations-view"] = function (module, exports, require) {
 const { Modal } = require("obsidian");
 const presentations = require("./canvas-presentations");
 
-class PresentationPlanModal extends Modal {
+class PresentationPlanModal extends QtModal {
   constructor(app, report) {
     super(app);
     this.report = report || { slides: [], unplaced: [], summary: "" };
@@ -16439,7 +16561,7 @@ class PresentationPlanModal extends Modal {
   }
 }
 
-class PresentationModal extends Modal {
+class PresentationModal extends QtModal {
   constructor(app, plan, onMove) {
     super(app);
     this.plan = plan || { slides: [] };
@@ -16916,13 +17038,14 @@ module.exports = {
 
 /* ---- src/canvas-query-view.js ---- */
 __defs["canvas-query-view"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 /*
  * The read-only query-group report window. Parsing, matching and the fit stay in
  * canvas-query.js; this only draws the report it is given.
  */
 const { Modal } = require("obsidian");
 
-class QueryGroupsModal extends Modal {
+class QueryGroupsModal extends QtModal {
   constructor(app, report) {
     super(app);
     this.report = report || { groups: [], stats: {}, summary: "" };
@@ -17100,8 +17223,8 @@ class CardArchiveImportModal {
     this.mode = "skip";
     this.error = "";
     this.busy = false;
-    const { Modal } = require("obsidian");
-    this.modal = new Modal(app);
+    const { QtModal } = require("./a11y");
+    this.modal = new QtModal(app);
     this.modal.onOpen = () => this.draw();
     this.modal.onClose = () => this.modal.contentEl.empty();
   }
@@ -17319,6 +17442,7 @@ module.exports = {
 
 /* ---- src/card-generator-modal.js ---- */
 __defs["card-generator-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 const { readActiveNoteContext } = require("./note-context");
@@ -17326,7 +17450,7 @@ const { CARD_GENERATOR_OUTPUTS, CARD_GENERATOR_SOURCES, CARD_GENERATOR_STYLES, n
 const { spacedQuizNotice } = require("./spaced-quiz");
 
 /** Per-command settings and preview for custom-prompt flashcard generation. */
-class CardGeneratorModal extends Modal {
+class CardGeneratorModal extends QtModal {
   constructor(app, plugin, onDone, options) {
     super(app);
     this.plugin = plugin;
@@ -18206,12 +18330,13 @@ module.exports = {
 
 /* ---- src/card-modal.js ---- */
 __defs["card-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 const { CARD_TYPES } = require("./cards");
 
 /** Create a basic, reversed, cloze, or vocabulary note in a chosen deck. */
-class CardModal extends Modal {
+class CardModal extends QtModal {
   constructor(app, plugin, options, onDone) {
     super(app);
     this.plugin = plugin;
@@ -19687,11 +19812,12 @@ module.exports = {
 
 /* ---- src/cards-extract-modal.js ---- */
 __defs["cards-extract-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 
 /** Preview and write rule-based cards extracted from one Markdown note. */
-class CardExtractModal extends Modal {
+class CardExtractModal extends QtModal {
   constructor(app, plugin, options, onDone) {
     super(app);
     this.plugin = plugin;
@@ -19822,6 +19948,7 @@ module.exports = { CardExtractModal };
 
 /* ---- src/cards-import.js ---- */
 __defs["cards-import"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 /*
  * Importers for existing decks.
  *
@@ -22026,7 +22153,7 @@ function giftExportHint() {
   return "Moodle GIFT: save the course's GIFT text as a .txt or .gift file in this vault. Each question needs an answer block in braces, for example ::Capital::What is the capital of France?{=Paris ~Lyon ~Marseille}.";
 }
 
-class CardImportModal extends Modal {
+class CardImportModal extends QtModal {
   constructor(app, plugin, options, onDone) {
     super(app);
     this.plugin = plugin;
@@ -22522,7 +22649,7 @@ class CardImportModal extends Modal {
 }
 
 /** Export the current Cards filter to Quizlet or one of the question-set CSVs. */
-class CardExportModal extends Modal {
+class CardExportModal extends QtModal {
   constructor(app, plugin, options, onDone) {
     super(app);
     this.plugin = plugin;
@@ -26085,11 +26212,12 @@ module.exports = {
 
 /* ---- src/chat-memory-modal.js ---- */
 __defs["chat-memory-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal } = require("obsidian");
 const chatMemory = require("./chat-memory");
 
 /** Add, edit and remove the short facts kept on this device. No network, no files. */
-class ChatMemoryModal extends Modal {
+class ChatMemoryModal extends QtModal {
   constructor(app, plugin) {
     super(app);
     this.plugin = plugin;
@@ -29841,6 +29969,7 @@ module.exports = {
 
 /* ---- src/chat-pdf-modal.js ---- */
 __defs["chat-pdf-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal } = require("obsidian");
 const chatPdf = require("./chat-pdf");
 const { str } = require("./util");
@@ -29850,7 +29979,11 @@ const { str } = require("./util");
  * selection; the panel reads and bounds the text, so no extraction happens
  * inside a picker and a failed read leaves the conversation unchanged.
  */
-class PdfAttachModal extends Modal {
+class PdfAttachModal extends QtModal {
+  qtDialogLabel() {
+    return "Attach a PDF";
+  }
+
   constructor(app, pdfs, onSubmit) {
     super(app);
     this.pdfs = Array.isArray(pdfs) ? pdfs : [];
@@ -33467,6 +33600,7 @@ module.exports = {
 
 /* ---- src/course-notes.js ---- */
 __defs["course-notes"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 /*
  * Local course-note ingestion. The existing question importer asks an AI to
  * write question notes; this path is deliberately simpler and works offline:
@@ -33642,7 +33776,7 @@ function uniquePath(vault, folder, name, extension) {
   return path;
 }
 
-class CourseNotesModal extends Modal {
+class CourseNotesModal extends QtModal {
   constructor(app, plugin, onDone, options) {
     super(app);
     this.plugin = plugin;
@@ -34072,10 +34206,11 @@ module.exports = { courseOverview };
 
 /* ---- src/course-overview-modal.js ---- */
 __defs["course-overview-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 
-class CourseOverviewModal extends Modal {
+class CourseOverviewModal extends QtModal {
   constructor(app, plugin, courseId) {
     super(app);
     this.plugin = plugin;
@@ -34324,8 +34459,8 @@ class CourseTemplateModal {
     this.busy = false;
     const settings = normalizeCourseTemplates(plugin && plugin.settings && plugin.settings.courseTemplates);
     this.values = { course: "", title: "", date: localDate(), template: settings.templates[0].id };
-    const { Modal } = require("obsidian");
-    this.modal = new Modal(app);
+    const { QtModal } = require("./a11y");
+    this.modal = new QtModal(app);
     this.modal.onOpen = () => this.draw();
     this.modal.onClose = () => this.modal.contentEl.empty();
   }
@@ -35382,6 +35517,7 @@ module.exports = {
 
 /* ---- src/document-cards.js ---- */
 __defs["document-cards"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 /*
  * Extract flashcards from a PDF or Markdown document.
  *
@@ -35515,7 +35651,7 @@ async function previewDocumentCards(plugin, path, options) {
 }
 
 /** A compact review UI. Local extraction is the default; AI is an opt-in fallback. */
-class DocumentCardsModal extends Modal {
+class DocumentCardsModal extends QtModal {
   constructor(app, plugin, options, onDone) {
     super(app);
     this.plugin = plugin;
@@ -35766,6 +35902,7 @@ module.exports = {
 
 /* ---- src/document-review-modal.js ---- */
 __defs["document-review-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 /*
  * Classify a text document locally, show the evidence, and route the same file
  * into the existing course-notes or question importer after the user confirms.
@@ -35777,7 +35914,7 @@ const { readPdfPages } = require("./pdf");
 const { DOCUMENT_TYPE_LABELS, DOCUMENT_TYPES, classifyDocument } = require("./document-classify");
 const { str } = require("./util");
 
-class DocumentReviewModal extends Modal {
+class DocumentReviewModal extends QtModal {
   constructor(app, plugin, options) {
     super(app);
     this.plugin = plugin;
@@ -36340,6 +36477,7 @@ module.exports = {
 
 /* ---- src/due-queue.js ---- */
 __defs["due-queue"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 /*
  * One due list across questions, flashcards and vocabulary.
  *
@@ -36444,7 +36582,7 @@ function buildDueQueue(questions, cards, options) {
   };
 }
 
-class DueQueueModal extends Modal {
+class DueQueueModal extends QtModal {
   constructor(app, plugin, onDone) {
     super(app);
     this.plugin = plugin;
@@ -37185,6 +37323,7 @@ module.exports = {
 
 /* ---- src/epub-reader-modal.js ---- */
 __defs["epub-reader-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 /*
  * The EPUB reader window.
  *
@@ -37198,7 +37337,11 @@ const epub = require("./epub");
 const epubAnnotations = require("./epub-annotations");
 const { str } = require("./util");
 
-class EpubReaderModal extends Modal {
+class EpubReaderModal extends QtModal {
+  qtDialogLabel() {
+    return "EPUB reader";
+  }
+
   constructor(app, plugin, options) {
     super(app);
     this.plugin = plugin;
@@ -37466,11 +37609,12 @@ module.exports = { LETTERS, parseExamBlock };
 
 /* ---- src/exam-modal.js ---- */
 __defs["exam-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { localDate, str } = require("./util");
 
 /* Manual exams are ordinary assignment notes with type: exam. */
-class ExamModal extends Modal {
+class ExamModal extends QtModal {
   constructor(app, plugin, options, onDone) {
     super(app);
     this.plugin = plugin;
@@ -39757,10 +39901,11 @@ module.exports = {
 
 /* ---- src/focus-modal.js ---- */
 __defs["focus-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal, Notice, Setting } = require("obsidian");
 const { localDate } = require("./util");
 
-class FocusLogModal extends Modal {
+class FocusLogModal extends QtModal {
   constructor(app, plugin, options) {
     super(app);
     this.plugin = plugin;
@@ -41018,6 +41163,7 @@ module.exports = {
 
 /* ---- src/frq-import-modal.js ---- */
 __defs["frq-import-modal"] = function (module, exports, require) {
+const { QtModal, QtFuzzySuggestModal } = require("./a11y");
 const { FuzzySuggestModal, Modal, Notice } = require("obsidian");
 const { FRQ_COURSES, buildFrqNote, parseRubric, presetsForCourse } = require("./frq");
 const { str } = require("./util");
@@ -41036,7 +41182,7 @@ function itemTitle(item) {
  * The preview is the write boundary. Opening or redrawing this modal only
  * reads candidate state; createFrqNote() is called from confirm() alone.
  */
-class FrqImportPreviewModal extends Modal {
+class FrqImportPreviewModal extends QtModal {
   constructor(app, plugin, options) {
     super(app);
     this.plugin = plugin;
@@ -41228,7 +41374,11 @@ class FrqImportPreviewModal extends Modal {
   }
 }
 
-class FrqPdfPickerModal extends FuzzySuggestModal {
+class FrqPdfPickerModal extends QtFuzzySuggestModal {
+  qtDialogLabel() {
+    return "Choose a PDF";
+  }
+
   constructor(app, files, onChoose) {
     super(app);
     this.files = Array.isArray(files) ? files : [];
@@ -41257,6 +41407,7 @@ module.exports = {
 
 /* ---- src/frq-modal.js ---- */
 __defs["frq-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { renderMarkdownInto } = require("./view-helpers");
 const { FRQ_COURSES, courseById, compareFrqPasses, parseRubric, presetFor, presetsForCourse, rubricCategoryLabel, scoreAttempt } = require("./frq");
@@ -41279,7 +41430,7 @@ function noteLabel(note) {
  * and the AI button sends the answer only when it is pressed. Self-grading is
  * always available and needs no provider.
  */
-class FrqGraderModal extends Modal {
+class FrqGraderModal extends QtModal {
   constructor(app, plugin, options) {
     super(app);
     this.plugin = plugin;
@@ -41787,7 +41938,7 @@ class FrqGraderModal extends Modal {
 
 /* -------------------------------------------------------------- new note */
 
-class NewFrqNoteModal extends Modal {
+class NewFrqNoteModal extends QtModal {
   constructor(app, plugin, onDone) {
     super(app);
     this.plugin = plugin;
@@ -48730,9 +48881,10 @@ module.exports = {
 
 /* ---- src/hotkey-audit-modal.js ---- */
 __defs["hotkey-audit-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal } = require("obsidian");
 
-class HotkeyAuditModal extends Modal {
+class HotkeyAuditModal extends QtModal {
   constructor(app, report) {
     super(app);
     this.report = report || { available: false, conflicts: [] };
@@ -48881,12 +49033,13 @@ module.exports = { releaseCommandPaletteShortcut, stealsCommandPalette };
 
 /* ---- src/image-occlusion-modal.js ---- */
 __defs["image-occlusion-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 const { parseMaskRows } = require("./cards");
 
 /** Create one card per mask on an already-saved vault image. */
-class ImageOcclusionModal extends Modal {
+class ImageOcclusionModal extends QtModal {
   constructor(app, plugin, options, onDone) {
     super(app);
     this.plugin = plugin;
@@ -48986,6 +49139,7 @@ module.exports = { ImageOcclusionModal };
 
 /* ---- src/import-modal.js ---- */
 __defs["import-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal, Notice, Platform, Setting, TFile, normalizePath } = require("obsidian");
 const { importAiState } = require("./ai-import-modal");
 const { FolderSuggest } = require("./modals");
@@ -48997,7 +49151,7 @@ const { friendlyError, modelFromString, partsToTurns } = require("./opencode-cli
 const { findDuplicateIds, indexOfficialIds, officialIdOf } = require("./filters");
 const { friendlyApiError } = require("./api-client");
 
-class PdfImportModal extends Modal {
+class PdfImportModal extends QtModal {
   constructor(app, plugin, options) {
     super(app);
     this.plugin = plugin;
@@ -53285,6 +53439,7 @@ module.exports = {
 
 /* ---- src/local-events-view.js ---- */
 __defs["local-events-view"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 /* Local event calendar: CRUD, categories, colour tabs and recurrence. */
 const { ItemView, Modal, Notice, Platform } = require("obsidian");
 const { VIEW_TYPE_LOCAL_EVENTS } = require("./constants");
@@ -53317,7 +53472,7 @@ function startOfWeek(key, weekStartsOn) {
   return addDaysKey(key, -offset);
 }
 
-class LocalEventModal extends Modal {
+class LocalEventModal extends QtModal {
   constructor(app, plugin, event) {
     super(app);
     this.plugin = plugin;
@@ -55004,6 +55159,7 @@ module.exports = {
 
 /* ---- src/mixed-review.js ---- */
 __defs["mixed-review"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 /*
  * Interleaved mixed review across questions, flashcards and vocabulary.
  *
@@ -55089,7 +55245,7 @@ function typeLabel(type) {
   return type === "question" ? "Question" : type === "vocab" ? "Vocabulary" : "Flashcard";
 }
 
-class MixedReviewModal extends Modal {
+class MixedReviewModal extends QtModal {
   constructor(app, plugin, options, onDone) {
     super(app);
     this.app = app;
@@ -55447,13 +55603,14 @@ module.exports = {
 
 /* ---- src/modals.js ---- */
 __defs["modals"] = function (module, exports, require) {
+const { QtModal, QtFuzzySuggestModal } = require("./a11y");
 const { AbstractInputSuggest, FuzzySuggestModal, Modal } = require("obsidian");
 const { str } = require("./util");
 const { filterOptionCounts, folderLabel, officialIdOf } = require("./filters");
 
 /* ------------------------------------------------------------------ modal */
 
-class NameModal extends Modal {
+class NameModal extends QtModal {
   constructor(app, title, initial, onSubmit) {
     super(app);
     this.title = title;
@@ -55484,7 +55641,7 @@ class NameModal extends Modal {
   }
 }
 
-class ConfirmModal extends Modal {
+class ConfirmModal extends QtModal {
   constructor(app, title, body, okText, resolve) {
     super(app);
     this.title = title;
@@ -55537,7 +55694,11 @@ class FolderSuggest extends AbstractInputSuggest {
 }
 
 /** Choose a folder that holds questions ("Practice a folder"). */
-class QuestionFolderModal extends FuzzySuggestModal {
+class QuestionFolderModal extends QtFuzzySuggestModal {
+  qtDialogLabel() {
+    return "Choose a question folder";
+  }
+
   constructor(app, plugin, onPick) {
     super(app);
     this.plugin = plugin;
@@ -55556,7 +55717,11 @@ class QuestionFolderModal extends FuzzySuggestModal {
 }
 
 /** Jump to a question note by its official id (or the plugin's own id). */
-class FindQuestionModal extends FuzzySuggestModal {
+class FindQuestionModal extends QtFuzzySuggestModal {
+  qtDialogLabel() {
+    return "Find a question";
+  }
+
   constructor(app, plugin) {
     super(app);
     this.plugin = plugin;
@@ -56500,12 +56665,13 @@ module.exports = {
 
 /* ---- src/note-review-modal.js ---- */
 __defs["note-review-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { renderMarkdownInto } = require("./view-helpers");
 const { str } = require("./util");
 
 /** Review one whole note at a time, with the same four ratings as cards. */
-class NoteReviewModal extends Modal {
+class NoteReviewModal extends QtModal {
   constructor(app, plugin, options) {
     super(app);
     this.app = app;
@@ -57974,6 +58140,7 @@ module.exports = {
 
 /* ---- src/ocr-modal.js ---- */
 __defs["ocr-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 /*
  * Optional vision OCR for a scanned PDF. Pages are rendered to PNG locally and
  * sent only after the user ticks the disclosure and presses the action. The
@@ -57998,7 +58165,7 @@ function bytesToBase64(buf) {
   throw new Error("This device cannot encode page images for the vision model.");
 }
 
-class OcrModal extends Modal {
+class OcrModal extends QtModal {
   constructor(app, plugin, onDone) {
     super(app);
     this.plugin = plugin;
@@ -59424,6 +59591,7 @@ module.exports = {
 
 /* ---- src/paper-scanner.js ---- */
 __defs["paper-scanner"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 /*
  * Photo-to-PDF paper scanning. Images are normalized to JPEG locally, ordered
  * and cropped in the dialog, and written into one PDF with a small
@@ -59643,7 +59811,7 @@ async function fileToJpeg(file, maxSize, transform) {
   return { bytes: new Uint8Array(await blob.arrayBuffer()), width: canvas.width, height: canvas.height };
 }
 
-class PaperScannerModal extends Modal {
+class PaperScannerModal extends QtModal {
   constructor(app, plugin, onDone) {
     super(app);
     this.plugin = plugin;
@@ -60994,6 +61162,7 @@ module.exports = {
 
 /* ---- src/pdf-annotation-modal.js ---- */
 __defs["pdf-annotation-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal, Notice, Setting, TFile, normalizePath } = require("obsidian");
 const {
   ANNOTATION_COLORS,
@@ -61005,7 +61174,7 @@ const {
 } = require("./pdf-annotations");
 
 /* A first-slice annotator: it records annotations and notes beside a PDF, not a canvas overlay. */
-class PdfAnnotationModal extends Modal {
+class PdfAnnotationModal extends QtModal {
   constructor(app, plugin, options) {
     super(app);
     this.plugin = plugin;
@@ -65077,6 +65246,7 @@ module.exports = {
 
 /* ---- src/pdf-editor-modal.js ---- */
 __defs["pdf-editor-modal"] = function (module, exports, require) {
+const { QtModal, QtFuzzySuggestModal } = require("./a11y");
 /*
  * The PDF editor modal: page operations, form filling and an edited copy.
  *
@@ -65150,7 +65320,11 @@ const THUMBNAIL_SCALE = 0.45;
 const HISTORY_LIMIT_STEPS = HISTORY_LIMIT;
 
 /* Picks another vault PDF to take pages from. */
-class PdfSourcePickerModal extends FuzzySuggestModal {
+class PdfSourcePickerModal extends QtFuzzySuggestModal {
+  qtDialogLabel() {
+    return "Choose a PDF to add pages";
+  }
+
   constructor(app, options, onPick) {
     super(app);
     this.current = str(options && options.current);
@@ -65175,7 +65349,11 @@ class PdfSourcePickerModal extends FuzzySuggestModal {
 }
 
 /* Picks a vault image to place on a page. */
-class ImagePickerModal extends FuzzySuggestModal {
+class ImagePickerModal extends QtFuzzySuggestModal {
+  qtDialogLabel() {
+    return "Choose an image";
+  }
+
   constructor(app, options, onPick) {
     super(app);
     this.onPick = onPick || (() => {});
@@ -65198,7 +65376,7 @@ class ImagePickerModal extends FuzzySuggestModal {
   }
 }
 
-class PdfEditorModal extends Modal {
+class PdfEditorModal extends QtModal {
   constructor(app, plugin, options) {
     super(app);
     this.plugin = plugin;
@@ -67284,6 +67462,7 @@ module.exports = {
 
 /* ---- src/pdf-ink-modal.js ---- */
 __defs["pdf-ink-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { clamp } = require("./util");
 const { Modal, Notice, Setting, TFile } = require("obsidian");
 const { readPdfPageText, renderPdfPagesAsPng } = require("./pdf");
@@ -67369,7 +67548,7 @@ function emptyPageLayer() {
   };
 }
 
-class TextBoxPromptModal extends Modal {
+class TextBoxPromptModal extends QtModal {
   constructor(app, options, onDone) {
     super(app);
     this.options = options || {};
@@ -67469,7 +67648,7 @@ class TextBoxPromptModal extends Modal {
 }
 
 /* A canvas overlay on top of a rendered PDF page. */
-class PdfInkModal extends Modal {
+class PdfInkModal extends QtModal {
   constructor(app, plugin, options) {
     super(app);
     this.plugin = plugin;
@@ -69447,6 +69626,7 @@ module.exports = {
 
 /* ---- src/plugin.js ---- */
 __defs["plugin"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const { Modal, Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
@@ -69518,7 +69698,7 @@ const { TableControlsView } = require("./table-controls-view");
 const { TableCsvModal } = require("./table-csv-modal");
 const { VIEW_TYPE_TABLE_CONTROLS } = require("./constants");
 
-class TimeBlocksTourModal extends Modal {
+class TimeBlocksTourModal extends QtModal {
   constructor(app, steps, onOpenDay) {
     super(app);
     this.steps = steps;
@@ -89183,6 +89363,7 @@ module.exports = {
 
 /* ---- src/quick-add-modal.js ---- */
 __defs["quick-add-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { parseQuickAdd } = require("./quick-add");
 const { str } = require("./util");
@@ -89202,7 +89383,7 @@ Answer: 0.75`;
  * Paste several questions at once, review them, then write one normal note per
  * question. Pasting never writes on its own: the preview always comes first.
  */
-class QuickAddModal extends Modal {
+class QuickAddModal extends QtModal {
   constructor(app, plugin, onDone, options) {
     super(app);
     this.plugin = plugin;
@@ -89467,6 +89648,7 @@ module.exports = {
 
 /* ---- src/quick-ask-modal.js ---- */
 __defs["quick-ask-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 /*
  * A small inline Quick Ask panel, modelled on the interaction idea of Copilot's
  * Quick Ask without using its AGPL source, prompts or styles. It reuses the
@@ -89487,7 +89669,7 @@ const {
 const { normalizeStudyCommands, applyStudyCommand } = require("./study-commands");
 const { insertReplyIntoNote } = require("./agent-note");
 
-class QuickAskModal extends Modal {
+class QuickAskModal extends QtModal {
   constructor(app, plugin, options) {
     super(app);
     const opts = options && typeof options === "object" ? options : {};
@@ -89759,6 +89941,7 @@ module.exports = { QuickAskModal };
 
 /* ---- src/quick-chat-modal.js ---- */
 __defs["quick-chat-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 /*
  * A small Quick Chat surface. It deliberately does not call a provider itself:
  * submitting dispatches into the active Study agent ChatPanel, which already
@@ -89768,7 +89951,7 @@ __defs["quick-chat-modal"] = function (module, exports, require) {
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 
-class QuickChatModal extends Modal {
+class QuickChatModal extends QtModal {
   constructor(app, plugin, options) {
     super(app);
     const opts = options && typeof options === "object" ? options : {};
@@ -91135,6 +91318,7 @@ module.exports = {
 
 /* ---- src/quiz-generator-modal.js ---- */
 __defs["quiz-generator-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 const chatBudget = require("./chat-budget");
@@ -91142,7 +91326,7 @@ const chatPricing = require("./chat-pricing");
 const { QUIZ_LANGUAGES, QUIZ_TYPES, normalizeQuizGenerator } = require("./quiz-generator");
 
 /** Choose source folders, type, count and language, then review before writing. */
-class QuizGeneratorModal extends Modal {
+class QuizGeneratorModal extends QtModal {
   constructor(app, plugin, onDone) {
     super(app);
     this.plugin = plugin;
@@ -107524,6 +107708,7 @@ module.exports = {
 
 /* ---- src/simple-note-quiz-modal.js ---- */
 __defs["simple-note-quiz-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { renderMarkdownInto } = require("./view-helpers");
 const {
@@ -107536,7 +107721,7 @@ const { str } = require("./util");
 const MODE_LABELS = { all: "All questions", unmarked: "Unmarked", unknown: "Missed" };
 
 /** A small, note-local quiz. Marks are saved only when the answer summary is accepted. */
-class SimpleNoteQuizModal extends Modal {
+class SimpleNoteQuizModal extends QtModal {
   constructor(app, plugin, file, parsed, options) {
     super(app);
     this.app = app;
@@ -109076,11 +109261,12 @@ module.exports = {
 
 /* ---- src/spaced-everything-modal.js ---- */
 __defs["spaced-everything-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 
 /** Capture a thought into a new note that is already onboarded to Spaced Everything. */
-class SpacedEverythingCaptureModal extends Modal {
+class SpacedEverythingCaptureModal extends QtModal {
   constructor(app, plugin) {
     super(app);
     this.app = app;
@@ -112197,6 +112383,7 @@ module.exports = {
 
 /* ---- src/study-match-modal.js ---- */
 __defs["study-match-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 /*
  * Match mode for the optional study skin: pair question prompts with their
  * answers. A correct match records one ordinary review, so the same scheduler
@@ -112206,7 +112393,7 @@ const { Modal } = require("obsidian");
 const { str } = require("./util");
 const { shufflePairs } = require("./study-skin");
 
-class StudyMatchModal extends Modal {
+class StudyMatchModal extends QtModal {
   constructor(app, plugin, pairs, options) {
     super(app);
     this.app = app;
@@ -113941,10 +114128,11 @@ module.exports = {
 
 /* ---- src/study-status-modal.js ---- */
 __defs["study-status-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 
-class StudyStatusModal extends Modal {
+class StudyStatusModal extends QtModal {
   constructor(app, plugin) {
     super(app);
     this.plugin = plugin;
@@ -121087,6 +121275,7 @@ module.exports = { TABLE_CONTROL_GROUPS, TableControlsView };
 
 /* ---- src/table-csv-modal.js ---- */
 __defs["table-csv-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 /*
  * CSV export dialog for one table. It matches the upstream plugin's switch:
  * the header row can be left out of the copy. The text comes from the parsed
@@ -121096,7 +121285,7 @@ const { Modal, Notice } = require("obsidian");
 const tableEditor = require("./table-editor");
 const { str } = require("./util");
 
-class TableCsvModal extends Modal {
+class TableCsvModal extends QtModal {
   constructor(app, table, onCopy) {
     super(app);
     this.table = table;
@@ -128411,6 +128600,7 @@ module.exports = {
 
 /* ---- src/transcript-modal.js ---- */
 __defs["transcript-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 
@@ -128419,7 +128609,7 @@ const { str } = require("./util");
  * questions with the configured AI (or extracts cards from headings locally),
  * then writes only what the learner confirms.
  */
-class TranscriptPracticeModal extends Modal {
+class TranscriptPracticeModal extends QtModal {
   constructor(app, plugin, options, onDone) {
     super(app);
     this.plugin = plugin;
@@ -130498,11 +130688,12 @@ module.exports = {
 
 /* ---- src/weak-spot-modal.js ---- */
 __defs["weak-spot-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 
 /** Preview-then-write generation for the learner's weakest practised skill. */
-class WeakSpotModal extends Modal {
+class WeakSpotModal extends QtModal {
   constructor(app, plugin, onDone) {
     super(app);
     this.plugin = plugin;
@@ -131567,6 +131758,7 @@ module.exports = {
 
 /* ---- src/welcome-modal.js ---- */
 __defs["welcome-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal, Notice, Platform, Setting } = require("obsidian");
 const { QUICK_START_URL } = require("./empty-state");
 const { openExternal } = require("./settings-ui");
@@ -131582,7 +131774,7 @@ const {
   markWelcomeStep,
 } = require("./welcome");
 
-class WelcomeModal extends Modal {
+class WelcomeModal extends QtModal {
   constructor(app, plugin) {
     super(app);
     this.plugin = plugin;
@@ -131868,6 +132060,35 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.299.5",
+    date: "November 9, 2026",
+    title: "Dialogs announce themselves",
+    summary:
+      "Every modal and picker now names its dialog window from the title it already shows, so a screen reader announces the surface before the first field.",
+    highlights: [
+      {
+        title: "A name on every window",
+        body: "The card editor, imports, exam and quiz builders, PDF editor and readers, summaries, reports and pickers all carry a dialog name.",
+      },
+      {
+        title: "Named from what you see",
+        body: "The window points at its visible heading, so its name matches the title on screen. No visible copy moved.",
+      },
+      {
+        title: "Pickers state their purpose",
+        body: "PDF, image, folder and question pickers have written names because they have no heading of their own.",
+      },
+      {
+        title: "Enforced by tests",
+        body: "The source audit now fails on a modal that bypasses the shared base, a dialog with no heading or purpose name, and an unnamed custom dialog overlay.",
+      },
+      {
+        title: "Nothing else changed",
+        body: "No note format, review schedule, setting, data path or network request changed. Every association is additive.",
+      },
+    ],
+  },
   {
     version: "1.299.4",
     date: "November 9, 2026",
@@ -132172,10 +132393,11 @@ module.exports = {
 
 /* ---- src/whats-new-modal.js ---- */
 __defs["whats-new-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
 const { Modal } = require("obsidian");
 const { markWhatsNewSeen } = require("./whats-new");
 
-class WhatsNewModal extends Modal {
+class WhatsNewModal extends QtModal {
   constructor(app, plugin, release, options) {
     super(app);
     this.plugin = plugin;

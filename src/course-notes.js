@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 /*
  * Local course-note ingestion. The existing question importer asks an AI to
  * write question notes; this path is deliberately simpler and works offline:
@@ -174,7 +175,7 @@ function uniquePath(vault, folder, name, extension) {
   return path;
 }
 
-class CourseNotesModal extends Modal {
+class CourseNotesModal extends QtModal {
   constructor(app, plugin, onDone, options) {
     super(app);
     this.plugin = plugin;

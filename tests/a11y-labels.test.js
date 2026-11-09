@@ -46,11 +46,104 @@ test("workspace answer boxes and filters have accessible names", () => {
   }
 });
 
-test("every form control and text-less button in src has an accessible name", () => {
+test("every form control, text-less button and dialog in src has an accessible name", () => {
   const audit = auditSourceTree(root);
   assert.ok(audit.files >= 300, `expected to scan the plugin source, scanned ${audit.files} files`);
   assert.deepEqual(audit.controls, [], "form controls must not rely on a placeholder for their name");
   assert.deepEqual(audit.buttons, [], "buttons without visible text must carry an accessible name");
+  assert.ok(audit.dialogs >= 50, `expected to scan the modal classes, scanned ${audit.dialogs}`);
+  assert.ok(audit.managedDialogFiles >= 50, `expected managed dialog files, scanned ${audit.managedDialogFiles}`);
+  assert.deepEqual(audit.dialogGaps, [], "every dialog must use the shared naming base");
+  assert.deepEqual(audit.dialogContainers, [], "custom dialog containers must carry an accessible name");
+});
+
+test("a dialog is named from its visible heading and keeps that name", () => {
+  require("./helpers/load").load();
+  const { describeDialog } = require("../src/a11y");
+  const attrs = {};
+  const heading = { id: "", textContent: "Review answers" };
+  const container = {
+    setAttribute(name, value) {
+      attrs[name] = value;
+    },
+    removeAttribute(name) {
+      delete attrs[name];
+    },
+  };
+  const modal = { contentEl: { querySelector: () => heading }, modalEl: container };
+  assert.equal(describeDialog(modal), "Review answers");
+  assert.match(heading.id, /^qt-dialog-title-\d+$/);
+  assert.equal(attrs["aria-labelledby"], heading.id);
+  assert.equal(attrs.role, "dialog");
+  assert.equal(attrs["aria-modal"], "true");
+  const firstId = heading.id;
+  assert.equal(describeDialog(modal), "Review answers");
+  assert.equal(heading.id, firstId, "reopening must reuse the heading id");
+});
+
+test("a heading-less dialog keeps a written purpose name", () => {
+  require("./helpers/load").load();
+  const { describeDialog } = require("../src/a11y");
+  const attrs = {};
+  const container = {
+    setAttribute(name, value) {
+      attrs[name] = value;
+    },
+    removeAttribute(name) {
+      delete attrs[name];
+    },
+  };
+  const modal = {
+    contentEl: { querySelector: () => null },
+    modalEl: container,
+    qtDialogLabel() {
+      return "Attach a PDF";
+    },
+  };
+  assert.equal(describeDialog(modal), "Attach a PDF");
+  assert.equal(attrs["aria-label"], "Attach a PDF");
+  assert.equal(attrs["aria-labelledby"], undefined);
+  assert.equal(attrs.role, "dialog");
+});
+
+test("QtModal names its container when it opens", () => {
+  require("./helpers/load").load();
+  const { QtModal } = require("../src/a11y");
+  const attrs = {};
+  const heading = { id: "", textContent: "Import cards" };
+  class DemoModal extends QtModal {
+    onOpen() {}
+  }
+  const modal = new DemoModal({});
+  modal.contentEl = { querySelector: () => heading };
+  modal.modalEl = {
+    setAttribute(name, value) {
+      attrs[name] = value;
+    },
+    removeAttribute(name) {
+      delete attrs[name];
+    },
+  };
+  modal.open();
+  assert.equal(attrs["aria-labelledby"], heading.id);
+  assert.equal(attrs.role, "dialog");
+  assert.equal(attrs["aria-modal"], "true");
+});
+
+test("representative dialogs keep their own names", () => {
+  for (const file of ["src/card-modal.js", "src/frq-import-modal.js", "src/pdf-editor-modal.js", "src/chat-pdf-modal.js", "src/epub-reader-modal.js"]) {
+    const source = read(file);
+    assert.ok(/extends Qt(Modal|FuzzySuggestModal)/.test(source), `${file} must use the shared dialog base`);
+  }
+  assert.match(read("src/a11y.js"), /aria-labelledby/);
+  assert.match(read("src/a11y.js"), /aria-modal/);
+  assert.match(read("src/modals.js"), /return "Choose a question folder";/);
+  assert.match(read("src/pdf-editor-modal.js"), /return "Choose an image";/);
+  assert.match(read("src/chat-pdf-modal.js"), /return "Attach a PDF";/);
+  assert.match(read("src/epub-reader-modal.js"), /return "EPUB reader";/);
+  assert.ok(labelled(read("src/practice-view.js"), "Question actions"));
+  assert.ok(labelled(read("src/practice-view.js"), "Question menu"));
+  assert.ok(labelled(read("src/practice-view.js"), "Review actions"));
 });
 
 test("primary views and modals name their inputs", () => {

@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal, QtFuzzySuggestModal } = require("./a11y");
 /*
  * The PDF editor modal: page operations, form filling and an edited copy.
  *
@@ -72,7 +73,11 @@ const THUMBNAIL_SCALE = 0.45;
 const HISTORY_LIMIT_STEPS = HISTORY_LIMIT;
 
 /* Picks another vault PDF to take pages from. */
-class PdfSourcePickerModal extends FuzzySuggestModal {
+class PdfSourcePickerModal extends QtFuzzySuggestModal {
+  qtDialogLabel() {
+    return "Choose a PDF to add pages";
+  }
+
   constructor(app, options, onPick) {
     super(app);
     this.current = str(options && options.current);
@@ -97,7 +102,11 @@ class PdfSourcePickerModal extends FuzzySuggestModal {
 }
 
 /* Picks a vault image to place on a page. */
-class ImagePickerModal extends FuzzySuggestModal {
+class ImagePickerModal extends QtFuzzySuggestModal {
+  qtDialogLabel() {
+    return "Choose an image";
+  }
+
   constructor(app, options, onPick) {
     super(app);
     this.onPick = onPick || (() => {});
@@ -120,7 +129,7 @@ class ImagePickerModal extends FuzzySuggestModal {
   }
 }
 
-class PdfEditorModal extends Modal {
+class PdfEditorModal extends QtModal {
   constructor(app, plugin, options) {
     super(app);
     this.plugin = plugin;

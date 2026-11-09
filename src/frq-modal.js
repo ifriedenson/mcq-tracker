@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { renderMarkdownInto } = require("./view-helpers");
 const { FRQ_COURSES, courseById, compareFrqPasses, parseRubric, presetFor, presetsForCourse, rubricCategoryLabel, scoreAttempt } = require("./frq");
@@ -21,7 +22,7 @@ function noteLabel(note) {
  * and the AI button sends the answer only when it is pressed. Self-grading is
  * always available and needs no provider.
  */
-class FrqGraderModal extends Modal {
+class FrqGraderModal extends QtModal {
   constructor(app, plugin, options) {
     super(app);
     this.plugin = plugin;
@@ -529,7 +530,7 @@ class FrqGraderModal extends Modal {
 
 /* -------------------------------------------------------------- new note */
 
-class NewFrqNoteModal extends Modal {
+class NewFrqNoteModal extends QtModal {
   constructor(app, plugin, onDone) {
     super(app);
     this.plugin = plugin;

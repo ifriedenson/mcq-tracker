@@ -1,8 +1,9 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal, Notice, Setting } = require("obsidian");
 const { localDate } = require("./util");
 
-class FocusLogModal extends Modal {
+class FocusLogModal extends QtModal {
   constructor(app, plugin, options) {
     super(app);
     this.plugin = plugin;

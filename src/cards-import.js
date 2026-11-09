@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 /*
  * Importers for existing decks.
  *
@@ -2203,7 +2204,7 @@ function giftExportHint() {
   return "Moodle GIFT: save the course's GIFT text as a .txt or .gift file in this vault. Each question needs an answer block in braces, for example ::Capital::What is the capital of France?{=Paris ~Lyon ~Marseille}.";
 }
 
-class CardImportModal extends Modal {
+class CardImportModal extends QtModal {
   constructor(app, plugin, options, onDone) {
     super(app);
     this.plugin = plugin;
@@ -2699,7 +2700,7 @@ class CardImportModal extends Modal {
 }
 
 /** Export the current Cards filter to Quizlet or one of the question-set CSVs. */
-class CardExportModal extends Modal {
+class CardExportModal extends QtModal {
   constructor(app, plugin, options, onDone) {
     super(app);
     this.plugin = plugin;

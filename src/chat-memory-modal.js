@@ -1,9 +1,10 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal } = require("obsidian");
 const chatMemory = require("./chat-memory");
 
 /** Add, edit and remove the short facts kept on this device. No network, no files. */
-class ChatMemoryModal extends Modal {
+class ChatMemoryModal extends QtModal {
   constructor(app, plugin) {
     super(app);
     this.plugin = plugin;

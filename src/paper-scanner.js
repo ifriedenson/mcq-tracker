@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 /*
  * Photo-to-PDF paper scanning. Images are normalized to JPEG locally, ordered
  * and cropped in the dialog, and written into one PDF with a small
@@ -218,7 +219,7 @@ async function fileToJpeg(file, maxSize, transform) {
   return { bytes: new Uint8Array(await blob.arrayBuffer()), width: canvas.width, height: canvas.height };
 }
 
-class PaperScannerModal extends Modal {
+class PaperScannerModal extends QtModal {
   constructor(app, plugin, onDone) {
     super(app);
     this.plugin = plugin;

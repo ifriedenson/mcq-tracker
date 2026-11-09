@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 /*
  * Classify a text document locally, show the evidence, and route the same file
  * into the existing course-notes or question importer after the user confirms.
@@ -10,7 +11,7 @@ const { readPdfPages } = require("./pdf");
 const { DOCUMENT_TYPE_LABELS, DOCUMENT_TYPES, classifyDocument } = require("./document-classify");
 const { str } = require("./util");
 
-class DocumentReviewModal extends Modal {
+class DocumentReviewModal extends QtModal {
   constructor(app, plugin, options) {
     super(app);
     this.plugin = plugin;

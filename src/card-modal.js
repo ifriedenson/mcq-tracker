@@ -1,10 +1,11 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 const { CARD_TYPES } = require("./cards");
 
 /** Create a basic, reversed, cloze, or vocabulary note in a chosen deck. */
-class CardModal extends Modal {
+class CardModal extends QtModal {
   constructor(app, plugin, options, onDone) {
     super(app);
     this.plugin = plugin;

@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 const { readActiveNoteContext } = require("./note-context");
@@ -6,7 +7,7 @@ const { CARD_GENERATOR_OUTPUTS, CARD_GENERATOR_SOURCES, CARD_GENERATOR_STYLES, n
 const { spacedQuizNotice } = require("./spaced-quiz");
 
 /** Per-command settings and preview for custom-prompt flashcard generation. */
-class CardGeneratorModal extends Modal {
+class CardGeneratorModal extends QtModal {
   constructor(app, plugin, onDone, options) {
     super(app);
     this.plugin = plugin;

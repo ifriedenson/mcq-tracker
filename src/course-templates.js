@@ -158,8 +158,8 @@ class CourseTemplateModal {
     this.busy = false;
     const settings = normalizeCourseTemplates(plugin && plugin.settings && plugin.settings.courseTemplates);
     this.values = { course: "", title: "", date: localDate(), template: settings.templates[0].id };
-    const { Modal } = require("obsidian");
-    this.modal = new Modal(app);
+    const { QtModal } = require("./a11y");
+    this.modal = new QtModal(app);
     this.modal.onOpen = () => this.draw();
     this.modal.onClose = () => this.modal.contentEl.empty();
   }

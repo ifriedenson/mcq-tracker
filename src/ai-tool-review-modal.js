@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { proposalPreview } = require("./ai-tools");
 
@@ -8,7 +9,7 @@ const TOOL_LABELS = {
   update_section: "Section edit",
 };
 
-class AiToolReviewModal extends Modal {
+class AiToolReviewModal extends QtModal {
   constructor(app, plugin, proposals, options) {
     super(app);
     this.plugin = plugin;

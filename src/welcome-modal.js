@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal, Notice, Platform, Setting } = require("obsidian");
 const { QUICK_START_URL } = require("./empty-state");
 const { openExternal } = require("./settings-ui");
@@ -14,7 +15,7 @@ const {
   markWelcomeStep,
 } = require("./welcome");
 
-class WelcomeModal extends Modal {
+class WelcomeModal extends QtModal {
   constructor(app, plugin) {
     super(app);
     this.plugin = plugin;

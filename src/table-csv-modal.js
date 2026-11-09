@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 /*
  * CSV export dialog for one table. It matches the upstream plugin's switch:
  * the header row can be left out of the copy. The text comes from the parsed
@@ -8,7 +9,7 @@ const { Modal, Notice } = require("obsidian");
 const tableEditor = require("./table-editor");
 const { str } = require("./util");
 
-class TableCsvModal extends Modal {
+class TableCsvModal extends QtModal {
   constructor(app, table, onCopy) {
     super(app);
     this.table = table;

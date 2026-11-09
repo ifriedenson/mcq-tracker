@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { clamp } = require("./util");
 const { Modal, Notice, Setting, TFile } = require("obsidian");
 const { readPdfPageText, renderPdfPagesAsPng } = require("./pdf");
@@ -84,7 +85,7 @@ function emptyPageLayer() {
   };
 }
 
-class TextBoxPromptModal extends Modal {
+class TextBoxPromptModal extends QtModal {
   constructor(app, options, onDone) {
     super(app);
     this.options = options || {};
@@ -184,7 +185,7 @@ class TextBoxPromptModal extends Modal {
 }
 
 /* A canvas overlay on top of a rendered PDF page. */
-class PdfInkModal extends Modal {
+class PdfInkModal extends QtModal {
   constructor(app, plugin, options) {
     super(app);
     this.plugin = plugin;

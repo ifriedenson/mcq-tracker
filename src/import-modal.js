@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal, Notice, Platform, Setting, TFile, normalizePath } = require("obsidian");
 const { importAiState } = require("./ai-import-modal");
 const { FolderSuggest } = require("./modals");
@@ -10,7 +11,7 @@ const { friendlyError, modelFromString, partsToTurns } = require("./opencode-cli
 const { findDuplicateIds, indexOfficialIds, officialIdOf } = require("./filters");
 const { friendlyApiError } = require("./api-client");
 
-class PdfImportModal extends Modal {
+class PdfImportModal extends QtModal {
   constructor(app, plugin, options) {
     super(app);
     this.plugin = plugin;

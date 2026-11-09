@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal } = require("obsidian");
 const { API_PRESETS } = require("./api-client");
 const { resolveApiKey } = require("./secret-keys");
@@ -35,7 +36,7 @@ function importAiState(plugin) {
  * the connection is tested before the importer opens. Paste questions stays
  * visible as the offline way forward.
  */
-class AiImportHelpModal extends Modal {
+class AiImportHelpModal extends QtModal {
   constructor(app, plugin, state) {
     super(app);
     this.plugin = plugin;

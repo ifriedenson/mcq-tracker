@@ -1,8 +1,9 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal } = require("obsidian");
 const { markWhatsNewSeen } = require("./whats-new");
 
-class WhatsNewModal extends Modal {
+class WhatsNewModal extends QtModal {
   constructor(app, plugin, release, options) {
     super(app);
     this.plugin = plugin;

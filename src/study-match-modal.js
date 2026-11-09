@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 /*
  * Match mode for the optional study skin: pair question prompts with their
  * answers. A correct match records one ordinary review, so the same scheduler
@@ -8,7 +9,7 @@ const { Modal } = require("obsidian");
 const { str } = require("./util");
 const { shufflePairs } = require("./study-skin");
 
-class StudyMatchModal extends Modal {
+class StudyMatchModal extends QtModal {
   constructor(app, plugin, pairs, options) {
     super(app);
     this.app = app;

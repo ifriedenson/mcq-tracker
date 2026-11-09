@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 /*
  * The presentation windows. Derivation and navigation stay in
  * canvas-presentations.js; these only draw the plan they are given and, for the
@@ -7,7 +8,7 @@
 const { Modal } = require("obsidian");
 const presentations = require("./canvas-presentations");
 
-class PresentationPlanModal extends Modal {
+class PresentationPlanModal extends QtModal {
   constructor(app, report) {
     super(app);
     this.report = report || { slides: [], unplaced: [], summary: "" };
@@ -60,7 +61,7 @@ class PresentationPlanModal extends Modal {
   }
 }
 
-class PresentationModal extends Modal {
+class PresentationModal extends QtModal {
   constructor(app, plan, onMove) {
     super(app);
     this.plan = plan || { slides: [] };

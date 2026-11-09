@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const { Modal, Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
@@ -70,7 +71,7 @@ const { TableControlsView } = require("./table-controls-view");
 const { TableCsvModal } = require("./table-csv-modal");
 const { VIEW_TYPE_TABLE_CONTROLS } = require("./constants");
 
-class TimeBlocksTourModal extends Modal {
+class TimeBlocksTourModal extends QtModal {
   constructor(app, steps, onOpenDay) {
     super(app);
     this.steps = steps;

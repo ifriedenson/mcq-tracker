@@ -1,11 +1,12 @@
 "use strict";
+const { QtModal } = require("./a11y");
 /*
  * The read-only kanban structure window. Column derivation and the re-stack stay
  * in canvas-kanban.js; this only draws the report it is given.
  */
 const { Modal } = require("obsidian");
 
-class KanbanReportModal extends Modal {
+class KanbanReportModal extends QtModal {
   constructor(app, report) {
     super(app);
     this.report = report || { columns: [], unassigned: [], summary: "" };

@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 
@@ -7,7 +8,7 @@ const { str } = require("./util");
  * questions with the configured AI (or extracts cards from headings locally),
  * then writes only what the learner confirms.
  */
-class TranscriptPracticeModal extends Modal {
+class TranscriptPracticeModal extends QtModal {
   constructor(app, plugin, options, onDone) {
     super(app);
     this.plugin = plugin;

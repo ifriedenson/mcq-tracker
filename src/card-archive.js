@@ -115,8 +115,8 @@ class CardArchiveImportModal {
     this.mode = "skip";
     this.error = "";
     this.busy = false;
-    const { Modal } = require("obsidian");
-    this.modal = new Modal(app);
+    const { QtModal } = require("./a11y");
+    this.modal = new QtModal(app);
     this.modal.onOpen = () => this.draw();
     this.modal.onClose = () => this.modal.contentEl.empty();
   }

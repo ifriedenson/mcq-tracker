@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 /*
  * Interleaved mixed review across questions, flashcards and vocabulary.
  *
@@ -84,7 +85,7 @@ function typeLabel(type) {
   return type === "question" ? "Question" : type === "vocab" ? "Vocabulary" : "Flashcard";
 }
 
-class MixedReviewModal extends Modal {
+class MixedReviewModal extends QtModal {
   constructor(app, plugin, options, onDone) {
     super(app);
     this.app = app;

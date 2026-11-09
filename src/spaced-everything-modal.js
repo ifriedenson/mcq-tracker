@@ -1,9 +1,10 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 
 /** Capture a thought into a new note that is already onboarded to Spaced Everything. */
-class SpacedEverythingCaptureModal extends Modal {
+class SpacedEverythingCaptureModal extends QtModal {
   constructor(app, plugin) {
     super(app);
     this.app = app;

@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 /*
  * A small inline Quick Ask panel, modelled on the interaction idea of Copilot's
  * Quick Ask without using its AGPL source, prompts or styles. It reuses the
@@ -19,7 +20,7 @@ const {
 const { normalizeStudyCommands, applyStudyCommand } = require("./study-commands");
 const { insertReplyIntoNote } = require("./agent-note");
 
-class QuickAskModal extends Modal {
+class QuickAskModal extends QtModal {
   constructor(app, plugin, options) {
     super(app);
     const opts = options && typeof options === "object" ? options : {};

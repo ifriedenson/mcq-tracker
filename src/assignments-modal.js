@@ -1,10 +1,11 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { localDate, str } = require("./util");
 const { ASSIGNMENT_STATUSES, ASSIGNMENT_TYPES, normalizeDate } = require("./assignments");
 
 /** Create or edit one assignment note. */
-class AssignmentModal extends Modal {
+class AssignmentModal extends QtModal {
   constructor(app, plugin, options, onDone) {
     super(app);
     this.plugin = plugin;

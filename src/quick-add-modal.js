@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { parseQuickAdd } = require("./quick-add");
 const { str } = require("./util");
@@ -18,7 +19,7 @@ Answer: 0.75`;
  * Paste several questions at once, review them, then write one normal note per
  * question. Pasting never writes on its own: the preview always comes first.
  */
-class QuickAddModal extends Modal {
+class QuickAddModal extends QtModal {
   constructor(app, plugin, onDone, options) {
     super(app);
     this.plugin = plugin;

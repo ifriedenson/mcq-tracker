@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 /* Local event calendar: CRUD, categories, colour tabs and recurrence. */
 const { ItemView, Modal, Notice, Platform } = require("obsidian");
 const { VIEW_TYPE_LOCAL_EVENTS } = require("./constants");
@@ -31,7 +32,7 @@ function startOfWeek(key, weekStartsOn) {
   return addDaysKey(key, -offset);
 }
 
-class LocalEventModal extends Modal {
+class LocalEventModal extends QtModal {
   constructor(app, plugin, event) {
     super(app);
     this.plugin = plugin;

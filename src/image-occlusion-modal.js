@@ -1,10 +1,11 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 const { parseMaskRows } = require("./cards");
 
 /** Create one card per mask on an already-saved vault image. */
-class ImageOcclusionModal extends Modal {
+class ImageOcclusionModal extends QtModal {
   constructor(app, plugin, options, onDone) {
     super(app);
     this.plugin = plugin;

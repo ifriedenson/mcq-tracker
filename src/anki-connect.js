@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 /*
  * Optional AnkiConnect bridge. AnkiConnect is a local Anki add-on that exposes
  * a small JSON API on 127.0.0.1. This module only builds notes and calls that
@@ -660,7 +661,7 @@ class AnkiConnectClient {
   }
 }
 
-class AnkiConnectModal extends Modal {
+class AnkiConnectModal extends QtModal {
   constructor(app, plugin, options, onDone) {
     super(app);
     this.plugin = plugin;

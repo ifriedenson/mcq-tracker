@@ -1,11 +1,12 @@
 "use strict";
+const { QtModal } = require("./a11y");
 /*
  * The read-only query-group report window. Parsing, matching and the fit stay in
  * canvas-query.js; this only draws the report it is given.
  */
 const { Modal } = require("obsidian");
 
-class QueryGroupsModal extends Modal {
+class QueryGroupsModal extends QtModal {
   constructor(app, report) {
     super(app);
     this.report = report || { groups: [], stats: {}, summary: "" };

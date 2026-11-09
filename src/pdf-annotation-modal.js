@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal, Notice, Setting, TFile, normalizePath } = require("obsidian");
 const {
   ANNOTATION_COLORS,
@@ -10,7 +11,7 @@ const {
 } = require("./pdf-annotations");
 
 /* A first-slice annotator: it records annotations and notes beside a PDF, not a canvas overlay. */
-class PdfAnnotationModal extends Modal {
+class PdfAnnotationModal extends QtModal {
   constructor(app, plugin, options) {
     super(app);
     this.plugin = plugin;

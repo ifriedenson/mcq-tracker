@@ -1,11 +1,12 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 const { readActiveNoteContext } = require("./note-context");
 const { normalizeAutoAnki } = require("./auto-anki");
 
 /** Confirm the source and deck, then draft and send the cards in one action. */
-class AutoAnkiModal extends Modal {
+class AutoAnkiModal extends QtModal {
   constructor(app, plugin) {
     super(app);
     this.app = app;

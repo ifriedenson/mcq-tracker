@@ -1,11 +1,12 @@
 "use strict";
+const { QtModal } = require("./a11y");
 /*
  * The read-only auto-link report window. Matching and writing stay in
  * canvas-auto-link.js; this only draws the report it is given.
  */
 const { Modal } = require("obsidian");
 
-class LinkReportModal extends Modal {
+class LinkReportModal extends QtModal {
   constructor(app, report) {
     super(app);
     this.report = report || { proposals: [], skipped: { existing: [], self: [], ambiguous: [], unresolved: [] }, summary: "" };

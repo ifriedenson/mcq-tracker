@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 /*
  * A small Quick Chat surface. It deliberately does not call a provider itself:
  * submitting dispatches into the active Study agent ChatPanel, which already
@@ -8,7 +9,7 @@
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 
-class QuickChatModal extends Modal {
+class QuickChatModal extends QtModal {
   constructor(app, plugin, options) {
     super(app);
     const opts = options && typeof options === "object" ? options : {};

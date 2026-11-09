@@ -1,9 +1,10 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 
 /** Preview and write rule-based cards extracted from one Markdown note. */
-class CardExtractModal extends Modal {
+class CardExtractModal extends QtModal {
   constructor(app, plugin, options, onDone) {
     super(app);
     this.plugin = plugin;

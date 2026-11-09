@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal } = require("obsidian");
 const chatPdf = require("./chat-pdf");
 const { str } = require("./util");
@@ -8,7 +9,11 @@ const { str } = require("./util");
  * selection; the panel reads and bounds the text, so no extraction happens
  * inside a picker and a failed read leaves the conversation unchanged.
  */
-class PdfAttachModal extends Modal {
+class PdfAttachModal extends QtModal {
+  qtDialogLabel() {
+    return "Attach a PDF";
+  }
+
   constructor(app, pdfs, onSubmit) {
     super(app);
     this.pdfs = Array.isArray(pdfs) ? pdfs : [];

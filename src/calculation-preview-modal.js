@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 
 const STATUS_LABELS = {
@@ -14,7 +15,7 @@ function displayValue(value) {
   return String(value);
 }
 
-class CalculationPreviewModal extends Modal {
+class CalculationPreviewModal extends QtModal {
   constructor(app, plugin, preview) {
     super(app);
     this.plugin = plugin;

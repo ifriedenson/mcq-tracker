@@ -1,9 +1,10 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 
 /** Preview-then-write generation for the learner's weakest practised skill. */
-class WeakSpotModal extends Modal {
+class WeakSpotModal extends QtModal {
   constructor(app, plugin, onDone) {
     super(app);
     this.plugin = plugin;

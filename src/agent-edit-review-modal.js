@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { summarize } = require("./agent-edit-review");
 
@@ -8,7 +9,7 @@ const STATUS_LABELS = {
   deleted: "Deleted",
 };
 
-class AgentEditReviewModal extends Modal {
+class AgentEditReviewModal extends QtModal {
   constructor(app, plugin, changes, onDone) {
     super(app);
     this.plugin = plugin;

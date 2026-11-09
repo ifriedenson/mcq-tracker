@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 /*
  * Extract flashcards from a PDF or Markdown document.
  *
@@ -132,7 +133,7 @@ async function previewDocumentCards(plugin, path, options) {
 }
 
 /** A compact review UI. Local extraction is the default; AI is an opt-in fallback. */
-class DocumentCardsModal extends Modal {
+class DocumentCardsModal extends QtModal {
   constructor(app, plugin, options, onDone) {
     super(app);
     this.plugin = plugin;

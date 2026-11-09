@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 const chatBudget = require("./chat-budget");
@@ -6,7 +7,7 @@ const chatPricing = require("./chat-pricing");
 const { QUIZ_LANGUAGES, QUIZ_TYPES, normalizeQuizGenerator } = require("./quiz-generator");
 
 /** Choose source folders, type, count and language, then review before writing. */
-class QuizGeneratorModal extends Modal {
+class QuizGeneratorModal extends QtModal {
   constructor(app, plugin, onDone) {
     super(app);
     this.plugin = plugin;

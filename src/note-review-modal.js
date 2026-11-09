@@ -1,10 +1,11 @@
 "use strict";
+const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
 const { renderMarkdownInto } = require("./view-helpers");
 const { str } = require("./util");
 
 /** Review one whole note at a time, with the same four ratings as cards. */
-class NoteReviewModal extends Modal {
+class NoteReviewModal extends QtModal {
   constructor(app, plugin, options) {
     super(app);
     this.app = app;

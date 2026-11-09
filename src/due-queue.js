@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal } = require("./a11y");
 /*
  * One due list across questions, flashcards and vocabulary.
  *
@@ -103,7 +104,7 @@ function buildDueQueue(questions, cards, options) {
   };
 }
 
-class DueQueueModal extends Modal {
+class DueQueueModal extends QtModal {
   constructor(app, plugin, onDone) {
     super(app);
     this.plugin = plugin;

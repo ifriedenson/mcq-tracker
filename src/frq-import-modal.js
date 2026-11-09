@@ -1,4 +1,5 @@
 "use strict";
+const { QtModal, QtFuzzySuggestModal } = require("./a11y");
 const { FuzzySuggestModal, Modal, Notice } = require("obsidian");
 const { FRQ_COURSES, buildFrqNote, parseRubric, presetsForCourse } = require("./frq");
 const { str } = require("./util");
@@ -17,7 +18,7 @@ function itemTitle(item) {
  * The preview is the write boundary. Opening or redrawing this modal only
  * reads candidate state; createFrqNote() is called from confirm() alone.
  */
-class FrqImportPreviewModal extends Modal {
+class FrqImportPreviewModal extends QtModal {
   constructor(app, plugin, options) {
     super(app);
     this.plugin = plugin;
@@ -209,7 +210,11 @@ class FrqImportPreviewModal extends Modal {
   }
 }
 
-class FrqPdfPickerModal extends FuzzySuggestModal {
+class FrqPdfPickerModal extends QtFuzzySuggestModal {
+  qtDialogLabel() {
+    return "Choose a PDF";
+  }
+
   constructor(app, files, onChoose) {
     super(app);
     this.files = Array.isArray(files) ? files : [];

@@ -6,6 +6,35 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.299.5",
+    date: "November 9, 2026",
+    title: "Dialogs announce themselves",
+    summary:
+      "Every modal and picker now names its dialog window from the title it already shows, so a screen reader announces the surface before the first field.",
+    highlights: [
+      {
+        title: "A name on every window",
+        body: "The card editor, imports, exam and quiz builders, PDF editor and readers, summaries, reports and pickers all carry a dialog name.",
+      },
+      {
+        title: "Named from what you see",
+        body: "The window points at its visible heading, so its name matches the title on screen. No visible copy moved.",
+      },
+      {
+        title: "Pickers state their purpose",
+        body: "PDF, image, folder and question pickers have written names because they have no heading of their own.",
+      },
+      {
+        title: "Enforced by tests",
+        body: "The source audit now fails on a modal that bypasses the shared base, a dialog with no heading or purpose name, and an unnamed custom dialog overlay.",
+      },
+      {
+        title: "Nothing else changed",
+        body: "No note format, review schedule, setting, data path or network request changed. Every association is additive.",
+      },
+    ],
+  },
+  {
     version: "1.299.4",
     date: "November 9, 2026",
     title: "Every field has a name",
