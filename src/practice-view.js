@@ -954,7 +954,7 @@ class PracticeView extends ItemView {
     card.createEl("h3", { text: "Connect AI to import files" });
     card.createDiv({
       cls: "qt-onboard-text",
-      text: "Importing a PDF, PowerPoint or Word file needs an AI model to read the text. Connect a provider here once; nothing is sent until you start an import.",
+      text: "Importing a PDF, PowerPoint or Word file needs an AI model to read the text. OpenCode is the recommended desktop setup; Direct API also works on phones. Connect once here; nothing is sent until you start an import.",
     });
     const form = card.createDiv({ cls: "qt-onboard-form" });
     renderAiConnectionForm(form, {
@@ -963,10 +963,6 @@ class PracticeView extends ItemView {
         this.state = "idle";
         this.render();
         p.openPdfImport();
-      },
-      onUseOpenCode: () => {
-        this.state = "idle";
-        this.render();
       },
     });
     card.createEl("button", { text: "Back" }).addEventListener("click", () => {

@@ -1,5 +1,6 @@
 "use strict";
 const { API_PRESETS } = require("./api-client");
+const { openCodeInstalled } = require("./ai-connection");
 const { resolveApiKey } = require("./secret-keys");
 const { cacheIssues, looksLikeQuestion } = require("./importer");
 const { str } = require("./util");
@@ -54,7 +55,7 @@ function emptyState(app, folder) {
 function aiReady(plugin) {
   const ai = plugin.settings.ai || {};
   if (!ai.enabled) return false;
-  if (plugin.backend() === "opencode") return true; // OpenCode keeps its own provider login and says so if it has none
+  if (plugin.backend() === "opencode") return openCodeInstalled(plugin);
   const api = ai.api || {};
   const preset = API_PRESETS[api.provider] || API_PRESETS.custom;
   if (!str(api.model).trim()) return false;

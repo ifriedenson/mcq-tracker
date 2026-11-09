@@ -146,6 +146,8 @@ test("aiReady: needs AI on, and a key and model for the direct API", async () =>
   assert.equal(T.aiReady(plugin), true); // local models need no key
   ai.backend = "opencode";
   ai.api.model = "";
+  assert.equal(T.aiReady(plugin), false); // an install is required
+  ai.managedBinary = "/tmp/opencode";
   assert.equal(T.aiReady(plugin), true);
 });
 
@@ -184,6 +186,8 @@ test("screen: a cold start pastes a key, fetches a model, tests it, then imports
   assert.equal(plugin.imports, 0, "does not open the import yet");
   assert.equal(view.state, "ai-setup");
   assert.ok(dom.texts().includes("Connect AI to import files"));
+  assert.ok(dom.find("Install OpenCode").length, "OpenCode is the desktop default");
+  await dom.click("Direct API key");
   assert.equal(dom.field("AI provider").value, "anthropic", "the recommended provider is preselected");
   assert.ok(dom.texts().some((text) => /Anthropic \(Claude\) — recommended/.test(text)));
   assert.equal(dom.field("Model name"), undefined, "the happy path never asks for a model name");
@@ -213,15 +217,22 @@ test("screen: a cold start pastes a key, fetches a model, tests it, then imports
   assert.equal(view.state, "idle");
 });
 
-test("screen: the advanced OpenCode route opens its settings and is not a dead end", async () => {
+test("screen: OpenCode installs from the first screen instead of a settings trip", async () => {
   const { plugin, dom, view } = await setup([]);
   view.render();
   await dom.click("Import files (needs AI)");
-  await dom.click("Open OpenCode settings");
-  assert.equal(plugin.openSettingsCalls, 1);
-  assert.equal(plugin.settings.ai.backend, "opencode");
-  assert.equal(plugin.settings.ai.enabled, true, "the settings path leaves AI on");
-  assert.equal(view.state, "idle");
+  assert.ok(dom.find("Install OpenCode").length);
+  assert.equal(dom.find("Open OpenCode settings").length, 0);
+  plugin.installOpenCodeFromWelcome = async (say) => {
+    say("Downloading OpenCode...");
+    plugin.settings.ai.managedBinary = "/tmp/opencode";
+    plugin.settings.ai.installedVersion = "1.2.3";
+    plugin.settings.ai.managed = true;
+    return { version: "1.2.3" };
+  };
+  await dom.click("Install OpenCode");
+  assert.ok(dom.find("Test OpenCode").length);
+  assert.equal(view.state, "ai-setup");
   assert.equal(plugin.imports, 0);
 });
 

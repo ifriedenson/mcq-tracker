@@ -119,7 +119,7 @@ class WelcomeModal extends Modal {
 
   renderAi(card) {
     const section = card.createDiv({ cls: "qt-welcome-ai" });
-    section.createEl("h3", { text: "Optional: AI study agent" });
+    section.createEl("h3", { text: "AI study agent" });
     const status = section.createDiv({ cls: "qt-welcome-ai-status" });
     status.setAttr("aria-live", "polite");
 
@@ -140,7 +140,7 @@ class WelcomeModal extends Modal {
 
     section.createEl("p", {
       cls: "qt-welcome-hint",
-      text: "Install OpenCode here if you want the desktop AI agent. The installer downloads the supported 1.x build from GitHub, checks its SHA-256, and keeps it outside your vault.",
+      text: "OpenCode is the recommended desktop setup. Install it here; the installer downloads the supported 1.x build from GitHub, checks its SHA-256, and keeps it outside your vault. The import wizard finishes the provider connection.",
     });
     const actions = section.createDiv({ cls: "qt-welcome-actions" });
     const install = actions.createEl("button", { text: "Install OpenCode", cls: "mod-cta" });

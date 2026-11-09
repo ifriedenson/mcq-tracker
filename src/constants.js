@@ -124,7 +124,7 @@ const DEFAULT_SETTINGS = {
     commandModels: {}, // optional per-slash-command model overrides, keyed by command id
     pricing: {}, // optional local model prices: { model: { input, output } } in USD per 1M tokens
     autoDeclined: false, // the user said no to the automatic OpenCode download: don't ask again until they press the button
-    backend: "api", // desktop choice: "api" (default) or "opencode". Phones always use "api".
+    backend: "opencode", // desktop default; phones always use "api"
     api: { provider: "anthropic", baseUrl: "", model: "claude-sonnet-5-5", models: [], keys: {} },
     features: {}, // per-feature model overrides, filled by normalizeAiService
     limits: { ...DEFAULT_AI_LIMITS }, // one reply cap, optional daily and per-run request caps

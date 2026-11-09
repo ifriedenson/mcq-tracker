@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 437 groups, 3043 exports. **Commands:** 231. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 437 groups, 3048 exports. **Commands:** 231. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -93,7 +93,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `agentRetrieval` | 14 | `tests/agent-retrieval.test.js` |
 | `agentView` | 5 | `tests/agent-view.test.js`, `tests/chat-branches.test.js`, `tests/chat-pdf.test.js`, `tests/chat-plan.test.js`, `tests/chat-tabs-queue.test.js`, `tests/memory-export.test.js`, `tests/projects-cost.test.js`, `tests/quick-chat-bookmarks.test.js` |
 | `agentWriteGuard` | 3 | `tests/agent-write-guard.test.js` |
-| `aiConnection` | 13 | `tests/ai-beginner-wizard.test.js` |
+| `aiConnection` | 18 | `tests/ai-beginner-wizard.test.js` |
 | `aiContext` | 5 | `tests/ai-context.test.js`, `tests/knowledge-record-scenario.test.js` |
 | `aiReady` | 0 | `tests/empty-state.test.js` |
 | `aiService` | 27 | `tests/ai-service.test.js`, `tests/frq-handwriting.test.js` |

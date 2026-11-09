@@ -7,6 +7,8 @@
  */
 const { API_PRESETS, ApiClient, friendlyApiError } = require("./api-client");
 const { normalizeModelList } = require("./model-discovery");
+const { PROVIDERS } = require("./opencode-manager");
+const { friendlyError } = require("./opencode-client");
 const { storeApiKey } = require("./secret-keys");
 const { str } = require("./util");
 
@@ -30,8 +32,74 @@ function providerLabel(provider) {
   return providerPreset(provider).label;
 }
 
+function recommendedProvider() {
+  return RECOMMENDED_PROVIDER;
+}
+
 function isRecommendedProvider(provider) {
   return str(provider).trim() === RECOMMENDED_PROVIDER;
+}
+
+/** True when the managed install or a manually configured OpenCode is present. */
+function openCodeInstalled(plugin) {
+  const ai = (plugin && plugin.settings && plugin.settings.ai) || {};
+  if (ai.managed === false) return true; // a server you run yourself is checked by Test OpenCode
+  return !!(ai.managedBinary || ai.binaryPath || (plugin && plugin.manager && plugin.manager.foundPath));
+}
+
+/** Start OpenCode and check that it answers and has at least one provider. */
+async function testOpenCode(plugin, options) {
+  const opts = options || {};
+  const ai = (plugin && plugin.settings && plugin.settings.ai) || {};
+  if (!plugin || typeof plugin.openCode !== "function") throw new Error("OpenCode setup is not available on this device.");
+  if (ai.managed !== false) {
+    if (!plugin.manager || typeof plugin.manager.ensure !== "function") throw new Error("The OpenCode installer is not available.");
+    await plugin.manager.ensure(opts.progress);
+  }
+  const oc = plugin.openCode();
+  const health = await oc.health();
+  let providers = null;
+  try {
+    const found = await oc.providers();
+    if (found && Array.isArray(found.providers)) providers = found.providers;
+  } catch (e) {
+    // The providers endpoint is optional on older builds; health alone is still useful there.
+  }
+  if (providers && providers.length === 0) {
+    throw new Error("OpenCode has no AI provider connected yet. Choose a provider and paste a key above, or add one in OpenCode.");
+  }
+  return { health, providers: providers || [] };
+}
+
+/** Save a key into OpenCode's own auth.json without touching the vault. */
+function saveOpenCodeProviderKey(plugin, providerId, key) {
+  const id = str(providerId).trim();
+  const value = str(key).trim();
+  if (!value) throw new Error("Paste a provider key first.");
+  if (!PROVIDERS.some(([provider]) => provider === id)) throw new Error("Choose an OpenCode provider first.");
+  if (!plugin || !plugin.manager || typeof plugin.manager.saveProviderKey !== "function") {
+    throw new Error("OpenCode setup is not available on this device.");
+  }
+  return plugin.manager.saveProviderKey(id, value);
+}
+
+/** Turn an OpenCode failure into the next click a beginner can take. */
+function openCodeProblem(error, plugin) {
+  const raw = str(error && error.message ? error.message : error);
+  const ai = (plugin && plugin.settings && plugin.settings.ai) || {};
+  const url =
+    (plugin && plugin.manager && plugin.manager.conn && plugin.manager.conn.url) ||
+    ai.url ||
+    "http://127.0.0.1:4096";
+  const friendly = friendlyError(error, url);
+  if (/no AI provider connected/i.test(raw)) return friendly;
+  if (/isn't set up|isn't installed|Download and install/i.test(raw)) {
+    return `${friendly} Press Install OpenCode above, or choose Direct API key.`;
+  }
+  if (/Can't reach OpenCode/i.test(friendly)) {
+    return `${friendly} Press Test OpenCode again; if it still fails, choose Direct API key or paste questions instead.`;
+  }
+  return friendly;
 }
 
 /** The provider's key page, or "" for local servers and an unknown provider. */
@@ -183,8 +251,13 @@ module.exports = {
   isRecommendedProvider,
   keyPageHost,
   keyPageUrl,
+  openCodeInstalled,
+  openCodeProblem,
   preferredPatterns,
   providerLabel,
   providerPreset,
+  recommendedProvider,
+  saveOpenCodeProviderKey,
   testConnection,
+  testOpenCode,
 };

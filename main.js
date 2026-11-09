@@ -2857,6 +2857,8 @@ __defs["ai-connection"] = function (module, exports, require) {
  */
 const { API_PRESETS, ApiClient, friendlyApiError } = require("./api-client");
 const { normalizeModelList } = require("./model-discovery");
+const { PROVIDERS } = require("./opencode-manager");
+const { friendlyError } = require("./opencode-client");
 const { storeApiKey } = require("./secret-keys");
 const { str } = require("./util");
 
@@ -2880,8 +2882,74 @@ function providerLabel(provider) {
   return providerPreset(provider).label;
 }
 
+function recommendedProvider() {
+  return RECOMMENDED_PROVIDER;
+}
+
 function isRecommendedProvider(provider) {
   return str(provider).trim() === RECOMMENDED_PROVIDER;
+}
+
+/** True when the managed install or a manually configured OpenCode is present. */
+function openCodeInstalled(plugin) {
+  const ai = (plugin && plugin.settings && plugin.settings.ai) || {};
+  if (ai.managed === false) return true; // a server you run yourself is checked by Test OpenCode
+  return !!(ai.managedBinary || ai.binaryPath || (plugin && plugin.manager && plugin.manager.foundPath));
+}
+
+/** Start OpenCode and check that it answers and has at least one provider. */
+async function testOpenCode(plugin, options) {
+  const opts = options || {};
+  const ai = (plugin && plugin.settings && plugin.settings.ai) || {};
+  if (!plugin || typeof plugin.openCode !== "function") throw new Error("OpenCode setup is not available on this device.");
+  if (ai.managed !== false) {
+    if (!plugin.manager || typeof plugin.manager.ensure !== "function") throw new Error("The OpenCode installer is not available.");
+    await plugin.manager.ensure(opts.progress);
+  }
+  const oc = plugin.openCode();
+  const health = await oc.health();
+  let providers = null;
+  try {
+    const found = await oc.providers();
+    if (found && Array.isArray(found.providers)) providers = found.providers;
+  } catch (e) {
+    // The providers endpoint is optional on older builds; health alone is still useful there.
+  }
+  if (providers && providers.length === 0) {
+    throw new Error("OpenCode has no AI provider connected yet. Choose a provider and paste a key above, or add one in OpenCode.");
+  }
+  return { health, providers: providers || [] };
+}
+
+/** Save a key into OpenCode's own auth.json without touching the vault. */
+function saveOpenCodeProviderKey(plugin, providerId, key) {
+  const id = str(providerId).trim();
+  const value = str(key).trim();
+  if (!value) throw new Error("Paste a provider key first.");
+  if (!PROVIDERS.some(([provider]) => provider === id)) throw new Error("Choose an OpenCode provider first.");
+  if (!plugin || !plugin.manager || typeof plugin.manager.saveProviderKey !== "function") {
+    throw new Error("OpenCode setup is not available on this device.");
+  }
+  return plugin.manager.saveProviderKey(id, value);
+}
+
+/** Turn an OpenCode failure into the next click a beginner can take. */
+function openCodeProblem(error, plugin) {
+  const raw = str(error && error.message ? error.message : error);
+  const ai = (plugin && plugin.settings && plugin.settings.ai) || {};
+  const url =
+    (plugin && plugin.manager && plugin.manager.conn && plugin.manager.conn.url) ||
+    ai.url ||
+    "http://127.0.0.1:4096";
+  const friendly = friendlyError(error, url);
+  if (/no AI provider connected/i.test(raw)) return friendly;
+  if (/isn't set up|isn't installed|Download and install/i.test(raw)) {
+    return `${friendly} Press Install OpenCode above, or choose Direct API key.`;
+  }
+  if (/Can't reach OpenCode/i.test(friendly)) {
+    return `${friendly} Press Test OpenCode again; if it still fails, choose Direct API key or paste questions instead.`;
+  }
+  return friendly;
 }
 
 /** The provider's key page, or "" for local servers and an unknown provider. */
@@ -3033,10 +3101,15 @@ module.exports = {
   isRecommendedProvider,
   keyPageHost,
   keyPageUrl,
+  openCodeInstalled,
+  openCodeProblem,
   preferredPatterns,
   providerLabel,
   providerPreset,
+  recommendedProvider,
+  saveOpenCodeProviderKey,
   testConnection,
+  testOpenCode,
 };
 };
 
@@ -3044,14 +3117,17 @@ module.exports = {
 __defs["ai-connection-form"] = function (module, exports, require) {
 /*
  * The beginner connection form shared by the practice setup screen and the
- * import help modal. It uses the same fetch/test helpers as Settings:
- * recommended provider -> Create a key -> paste -> Fetch models (one is chosen)
- * -> Test connection -> Continue. Paste questions stays available throughout.
+ * import help modal. Desktop setups start with OpenCode, the full study agent,
+ * and can install it here without a detour through Settings. Direct API stays
+ * one click away and is the only backend on phones. Both paths finish with a
+ * tested connection before the importer opens, and paste-question stays visible.
  */
+const { Platform } = require("obsidian");
 const { API_PRESETS } = require("./api-client");
 const { normalizeModelList } = require("./model-discovery");
 const { hasSecretStorage, resolveApiKey } = require("./secret-keys");
 const { openExternal } = require("./settings-ui");
+const { PROVIDERS } = require("./opencode-manager");
 const {
   applyProvider,
   connectionProblem,
@@ -3059,9 +3135,12 @@ const {
   isRecommendedProvider,
   keyPageHost,
   keyPageUrl,
-  providerLabel,
+  openCodeInstalled,
+  openCodeProblem,
   recommendedProvider,
+  saveOpenCodeProviderKey,
   testConnection,
+  testOpenCode,
 } = require("./ai-connection");
 const { str } = require("./util");
 
@@ -3069,12 +3148,13 @@ function renderAiConnectionForm(container, options) {
   const opts = options || {};
   const plugin = opts.plugin;
   const onReady = opts.onReady || (() => {});
-  const onUseOpenCode = opts.onUseOpenCode || null;
   const ai = plugin.settings.ai || (plugin.settings.ai = {});
   if (!ai.api) ai.api = {};
   if (!ai.api.provider) ai.api.provider = recommendedProvider();
   const api = ai.api;
+  const canUseOpenCode = Platform.isDesktopApp === true;
 
+  let mode = canUseOpenCode && ai.backend === "opencode" ? "opencode" : "api";
   let pendingKey = "";
   let tested = false;
   let busy = false;
@@ -3082,10 +3162,10 @@ function renderAiConnectionForm(container, options) {
   let notice = "";
   let otherVisible = false;
   let allowConfigured = false;
-
-  const presetAtStart = API_PRESETS[api.provider] || API_PRESETS.custom;
-  const startKey = presetAtStart.noKey ? "local" : resolveApiKey(plugin.app, api);
-  allowConfigured = !!startKey && !!str(api.model).trim();
+  let statusEl = null;
+  let continueBtn = null;
+  let ocProvider = PROVIDERS[0][0];
+  let ocKey = "";
 
   const preset = () => API_PRESETS[api.provider] || API_PRESETS.custom;
   const local = () => preset().noKey === true;
@@ -3098,12 +3178,19 @@ function renderAiConnectionForm(container, options) {
   };
   const currentKey = () => (local() ? "local" : pendingKey.trim() || savedKey());
   const currentModel = () => str(api.model).trim();
-  const canContinue = () => !busy && !!currentKey() && !!currentModel() && (tested || allowConfigured);
+  const apiConfigured = () => !!currentModel() && (local() || !!savedKey());
+  const canContinue = () => !busy && (mode === "opencode" ? tested : !!currentKey() && !!currentModel() && (tested || allowConfigured));
+
+  if (mode === "api") allowConfigured = apiConfigured();
 
   function statusText() {
     if (error) return error;
     if (notice) return notice;
     if (busy) return "Working…";
+    if (mode === "opencode") {
+      if (tested) return "OpenCode is connected. Continue to import.";
+      return openCodeInstalled(plugin) ? "Test OpenCode before continuing." : "Install OpenCode, then test it before continuing.";
+    }
     if (tested) return `Connected. ${currentModel()} is ready. Continue to import.`;
     if (allowConfigured) return "Ready. Test the connection, then continue.";
     if (!currentKey()) return "Paste your key, then press Fetch models.";
@@ -3114,6 +3201,44 @@ function renderAiConnectionForm(container, options) {
   function draw() {
     container.empty();
     const body = container;
+    drawPaths(body);
+    if (mode === "opencode") drawOpenCode(body);
+    else drawApi(body);
+    drawOffline(body);
+  }
+
+  function drawPaths(body) {
+    if (!canUseOpenCode) return;
+    const paths = body.createDiv({ cls: "qt-ai-connect-paths" });
+    const add = (id, label) => {
+      const button = paths.createEl("button", {
+        text: label,
+        cls: `qt-ai-connect-path${mode === id ? " is-selected" : ""}`,
+      });
+      button.setAttr("aria-pressed", mode === id ? "true" : "false");
+      button.disabled = busy;
+      button.addEventListener("click", () => switchMode(id));
+    };
+    add("opencode", "OpenCode (recommended)");
+    add("api", "Direct API key");
+  }
+
+  async function switchMode(next) {
+    if (busy || next === mode) return;
+    mode = next;
+    tested = false;
+    error = "";
+    notice = "";
+    otherVisible = false;
+    allowConfigured = mode === "api" && apiConfigured();
+    if (mode === "api") {
+      ai.backend = "api";
+      await plugin.save();
+    }
+    draw();
+  }
+
+  function drawApi(body) {
     const provider = api.provider;
     const kind = preset();
 
@@ -3140,8 +3265,8 @@ function renderAiConnectionForm(container, options) {
     body.createDiv({
       cls: "qt-hint",
       text: isRecommendedProvider(provider)
-        ? `${providerLabel(provider)} is recommended for a first setup: it works on desktop and phone, and Fetch models chooses one for you.`
-        : `${providerLabel(provider)} uses the key from its own dashboard.`,
+        ? `${providerLabelFor(provider)} is recommended for a first key setup: it works on desktop and phone, and Fetch models chooses one for you.`
+        : `${providerLabelFor(provider)} uses the key from its own dashboard.`,
     });
 
     const keyUrl = keyPageUrl(provider);
@@ -3174,8 +3299,6 @@ function renderAiConnectionForm(container, options) {
       });
     }
 
-    let continueBtn = null;
-    let statusEl = null;
     if (!local()) {
       body.createDiv({ cls: "qt-label", text: "API key" });
       const keyInput = body.createEl("input", {
@@ -3288,27 +3411,167 @@ function renderAiConnectionForm(container, options) {
     continueBtn.addEventListener("click", async () => {
       await finish();
     });
+  }
 
+  function drawOpenCode(body) {
+    const manual = ai.managed === false;
+    const installed = openCodeInstalled(plugin);
+
+    body.createDiv({ cls: "qt-label", text: "OpenCode agent" });
+    body.createDiv({
+      cls: "qt-hint",
+      text:
+        "OpenCode is the recommended desktop setup. It runs on this computer, can read notes and use tools, and keeps its provider login in OpenCode's own config.",
+    });
+
+    if (!installed) {
+      body.createDiv({
+        cls: "qt-hint",
+        text:
+          "The installer downloads the supported OpenCode 1.x build from GitHub, checks its SHA-256, and keeps it outside your vault. It only runs while Obsidian is open.",
+      });
+      const install = body.createEl("button", { text: "Install OpenCode", cls: "mod-cta qt-primary" });
+      install.disabled = busy;
+      install.addEventListener("click", async () => {
+        await installOpenCode();
+      });
+    } else {
+      body.createDiv({
+        cls: "qt-hint",
+        text: manual
+          ? `Using the OpenCode server you configured at ${ai.url || "http://127.0.0.1:4096"}.`
+          : `OpenCode is installed${ai.installedVersion ? ` (v${ai.installedVersion})` : ""}.`,
+      });
+
+      body.createDiv({ cls: "qt-label", text: "OpenCode provider" });
+      const providerSelect = body.createEl("select", { cls: "qt-select", attr: { "aria-label": "OpenCode provider" } });
+      for (const [id, label] of PROVIDERS) providerSelect.createEl("option", { value: id, text: label });
+      providerSelect.value = ocProvider;
+      providerSelect.disabled = busy;
+      providerSelect.addEventListener("change", () => {
+        ocProvider = providerSelect.value;
+      });
+
+      body.createDiv({ cls: "qt-hint", text: "Paste a provider key, or skip this if OpenCode is already signed in." });
+      const keyInput = body.createEl("input", {
+        type: "password",
+        cls: "qt-fsearch",
+        attr: { placeholder: "Paste provider key (optional)", "aria-label": "OpenCode provider key" },
+      });
+      keyInput.value = ocKey;
+      keyInput.disabled = busy;
+      keyInput.addEventListener("input", () => {
+        ocKey = keyInput.value;
+      });
+      const save = body.createEl("button", { text: "Save provider key" });
+      save.disabled = busy || !ocKey.trim();
+      keyInput.addEventListener("input", () => {
+        save.disabled = busy || !ocKey.trim();
+      });
+      save.addEventListener("click", async () => {
+        try {
+          error = "";
+          saveOpenCodeProviderKey(plugin, ocProvider, ocKey);
+          ocKey = "";
+          tested = false;
+          notice = "Provider key saved. Press Test OpenCode to start it and check the connection.";
+          draw();
+        } catch (e) {
+          error = openCodeProblem(e, plugin);
+          notice = "";
+          draw();
+        }
+      });
+
+      const actions = body.createDiv({ cls: "qt-ai-connect-actions" });
+      const test = actions.createEl("button", { text: "Test OpenCode", cls: "mod-cta" });
+      test.disabled = busy;
+      test.addEventListener("click", async () => {
+        await runOpenCodeTest();
+      });
+      const settings = actions.createEl("button", { text: "More AI settings" });
+      settings.disabled = busy;
+      settings.addEventListener("click", () => plugin.openSettings());
+    }
+
+    statusEl = body.createDiv({
+      cls: `qt-ai-connect-status${error ? " is-error" : tested ? " is-ok" : ""}`,
+      text: statusText(),
+    });
+
+    continueBtn = body.createEl("button", { text: "Continue to import", cls: "mod-cta qt-primary" });
+    continueBtn.disabled = !canContinue();
+    continueBtn.addEventListener("click", async () => {
+      await finish();
+    });
+  }
+
+  function drawOffline(body) {
     body
       .createEl("button", { text: "Paste questions instead (works offline)", cls: "qt-ai-connect-offline" })
       .addEventListener("click", () => {
         if (typeof opts.onOffline === "function") opts.onOffline();
         plugin.openQuickAdd();
       });
+  }
 
-    const advanced = body.createEl("details", { cls: "qt-ai-connect-advanced" });
-    advanced.createEl("summary", { text: "Use the OpenCode agent instead" });
-    advanced.createDiv({
-      cls: "qt-hint",
-      text: "OpenCode runs on this computer and needs its own provider. It can read notes and use tools, which the direct key path does not. Configure it once in settings.",
-    });
-    advanced.createEl("button", { text: "Open OpenCode settings" }).addEventListener("click", async () => {
-      ai.backend = "opencode";
-      ai.enabled = true;
-      await plugin.save();
-      if (typeof onUseOpenCode === "function") onUseOpenCode();
-      plugin.openSettings();
-    });
+  async function installOpenCode() {
+    if (busy) return;
+    busy = true;
+    tested = false;
+    allowConfigured = false;
+    error = "";
+    notice = "Preparing the OpenCode download…";
+    draw();
+    try {
+      const result = await plugin.installOpenCodeFromWelcome(
+        (message) => {
+          notice = message;
+          if (statusEl) statusEl.setText(message);
+        },
+        { enable: false }
+      );
+      const version = result && result.version ? ` v${result.version}` : "";
+      notice = result && result.already ? "OpenCode is installed. Test it before continuing." : `OpenCode${version} installed. Test it before continuing.`;
+    } catch (e) {
+      error = openCodeProblem(e, plugin);
+      notice = "";
+    } finally {
+      busy = false;
+      draw();
+    }
+  }
+
+  async function runOpenCodeTest() {
+    if (!openCodeInstalled(plugin)) {
+      error = "Install OpenCode first.";
+      notice = "";
+      draw();
+      return;
+    }
+    busy = true;
+    tested = false;
+    error = "";
+    notice = "Starting OpenCode and checking the connection…";
+    draw();
+    try {
+      const result = await testOpenCode(plugin, {
+        progress: (message) => {
+          notice = message;
+          if (statusEl) statusEl.setText(message);
+        },
+      });
+      const version = result && result.health && result.health.version ? ` ${result.health.version}` : "";
+      tested = true;
+      notice = `Connected to OpenCode${version}. Continue to import.`;
+    } catch (e) {
+      tested = false;
+      error = openCodeProblem(e, plugin);
+      notice = "";
+    } finally {
+      busy = false;
+      draw();
+    }
   }
 
   async function runFetch() {
@@ -3367,25 +3630,31 @@ function renderAiConnectionForm(container, options) {
 
   async function finish() {
     if (!canContinue()) {
-      error = !currentKey() ? "Paste your API key first, or use Create a key." : "Test the connection before continuing.";
+      error = mode === "opencode" ? "Test OpenCode before continuing." : !currentKey() ? "Paste your API key first, or use Create a key." : "Test the connection before continuing.";
       notice = "";
       draw();
       return;
     }
-    ai.backend = "api";
     ai.enabled = true;
+    ai.backend = mode;
     try {
       await plugin.save();
     } catch (e) {
-      error = connectionProblem(e, api.provider);
+      error = mode === "opencode" ? openCodeProblem(e, plugin) : connectionProblem(e, api.provider);
       draw();
       return;
     }
-    await Promise.resolve(onReady({ provider: api.provider, model: currentModel() }));
+    await Promise.resolve(onReady(mode === "opencode" ? { backend: "opencode" } : { provider: api.provider, model: currentModel() }));
   }
 
   draw();
   return { redraw: draw };
+}
+
+/* Kept local so the provider label lookup stays with the form's imports. */
+function providerLabelFor(id) {
+  const preset = API_PRESETS[id];
+  return preset ? preset.label : "This provider";
 }
 
 module.exports = { renderAiConnectionForm };
@@ -3545,6 +3814,7 @@ __defs["ai-import-modal"] = function (module, exports, require) {
 const { Modal } = require("obsidian");
 const { API_PRESETS } = require("./api-client");
 const { resolveApiKey } = require("./secret-keys");
+const { openCodeInstalled } = require("./ai-connection");
 const { renderAiConnectionForm } = require("./ai-connection-form");
 
 /**
@@ -3555,7 +3825,9 @@ const { renderAiConnectionForm } = require("./ai-connection-form");
 function importAiState(plugin) {
   const ai = (plugin.settings && plugin.settings.ai) || {};
   if (ai.enabled !== true) return "off";
-  if (typeof plugin.backend === "function" && plugin.backend() === "opencode") return "ready";
+  if (typeof plugin.backend === "function" && plugin.backend() === "opencode") {
+    return openCodeInstalled(plugin) ? "ready" : "opencode-missing";
+  }
   const api = ai.api || {};
   const preset = API_PRESETS[api.provider] || API_PRESETS.custom;
   if (preset && preset.noKey) return "ready";
@@ -3601,8 +3873,8 @@ class AiImportHelpModal extends Modal {
     el.createEl("p", {
       cls: "qt-hint",
       text:
-        "Direct AI uses your own provider key. The file's text is sent to that provider, which may charge for long files. " +
-        "The OpenCode agent (desktop) is the other route; its settings are under the advanced section below.",
+        "Direct AI uses your own provider key. OpenCode is the recommended desktop setup and can be installed right here; " +
+        "it keeps its own provider login and also works on phones through Direct AI. The file's text is sent to that provider, which may charge for long files.",
     });
 
     const form = el.createDiv({ cls: "qt-onboard-form" });
@@ -3613,7 +3885,6 @@ class AiImportHelpModal extends Modal {
         this.plugin.openPdfImport();
       },
       onOffline: () => this.close(),
-      onUseOpenCode: () => this.close(),
     });
 
     el.createEl("p", {
@@ -31904,7 +32175,7 @@ const DEFAULT_SETTINGS = {
     commandModels: {}, // optional per-slash-command model overrides, keyed by command id
     pricing: {}, // optional local model prices: { model: { input, output } } in USD per 1M tokens
     autoDeclined: false, // the user said no to the automatic OpenCode download: don't ask again until they press the button
-    backend: "api", // desktop choice: "api" (default) or "opencode". Phones always use "api".
+    backend: "opencode", // desktop default; phones always use "api"
     api: { provider: "anthropic", baseUrl: "", model: "claude-sonnet-5-5", models: [], keys: {} },
     features: {}, // per-feature model overrides, filled by normalizeAiService
     limits: { ...DEFAULT_AI_LIMITS }, // one reply cap, optional daily and per-run request caps
@@ -36378,6 +36649,7 @@ module.exports = {
 /* ---- src/empty-state.js ---- */
 __defs["empty-state"] = function (module, exports, require) {
 const { API_PRESETS } = require("./api-client");
+const { openCodeInstalled } = require("./ai-connection");
 const { resolveApiKey } = require("./secret-keys");
 const { cacheIssues, looksLikeQuestion } = require("./importer");
 const { str } = require("./util");
@@ -36432,7 +36704,7 @@ function emptyState(app, folder) {
 function aiReady(plugin) {
   const ai = plugin.settings.ai || {};
   if (!ai.enabled) return false;
-  if (plugin.backend() === "opencode") return true; // OpenCode keeps its own provider login and says so if it has none
+  if (plugin.backend() === "opencode") return openCodeInstalled(plugin);
   const api = ai.api || {};
   const preset = API_PRESETS[api.provider] || API_PRESETS.custom;
   if (!str(api.model).trim()) return false;
@@ -70094,6 +70366,15 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.ai = Object.assign({}, DEFAULT_SETTINGS.ai, saved.ai || {});
     const sa = (saved.ai && saved.ai.api) || {};
     this.settings.ai.api = Object.assign({}, DEFAULT_SETTINGS.ai.api, sa, { keys: Object.assign({}, sa.keys), secrets: Object.assign({}, sa.secrets) });
+    // A pre-existing Direct API setup keeps working when the desktop default
+    // changes to OpenCode. Only a brand-new install gets the new default.
+    if (
+      saved.ai &&
+      saved.ai.backend === undefined &&
+      (saved.ai.enabled === true || Object.keys(sa.keys || {}).length || Object.keys(sa.secrets || {}).length)
+    ) {
+      this.settings.ai.backend = "api";
+    }
     this.settings.ai.api.models = modelDiscovery.normalizeModelList(this.settings.ai.api.models);
     this.settings.ai.tutorRole = normalizeTutorRole(this.settings.ai.tutorRole);
     this.settings.ai.thinkFirst = this.settings.ai.thinkFirst === true;
@@ -70954,17 +71235,18 @@ class QuestionTrackerPlugin extends Plugin {
    * explains the download and checksum first, so this skips the second confirm
    * modal that the settings page uses. No settings change survives a failure.
    */
-  async installOpenCodeFromWelcome(progress) {
+  async installOpenCodeFromWelcome(progress, options) {
     if (!Platform.isDesktopApp) {
       throw new Error("OpenCode auto-install is available on desktop only. On mobile, add a Direct API provider key in Settings.");
     }
     const manager = this.manager;
     if (!manager) throw new Error("The OpenCode installer is not available.");
     const ai = this.settings.ai;
+    const enable = !(options && options.enable === false);
     const found = await manager.findBinary();
     if (found) {
       manager.foundPath = found;
-      ai.enabled = true;
+      if (enable) ai.enabled = true;
       ai.backend = "opencode";
       ai.managed = true;
       ai.autoDeclined = false;
@@ -70973,7 +71255,7 @@ class QuestionTrackerPlugin extends Plugin {
       return { already: true, path: found, version: ai.installedVersion || "" };
     }
     const result = await manager.install(progress, () => true);
-    ai.enabled = true;
+    if (enable) ai.enabled = true;
     ai.backend = "opencode";
     ai.managed = true;
     ai.autoDeclined = false;
@@ -85152,7 +85434,7 @@ class PracticeView extends ItemView {
     card.createEl("h3", { text: "Connect AI to import files" });
     card.createDiv({
       cls: "qt-onboard-text",
-      text: "Importing a PDF, PowerPoint or Word file needs an AI model to read the text. Connect a provider here once; nothing is sent until you start an import.",
+      text: "Importing a PDF, PowerPoint or Word file needs an AI model to read the text. OpenCode is the recommended desktop setup; Direct API also works on phones. Connect once here; nothing is sent until you start an import.",
     });
     const form = card.createDiv({ cls: "qt-onboard-form" });
     renderAiConnectionForm(form, {
@@ -85161,10 +85443,6 @@ class PracticeView extends ItemView {
         this.state = "idle";
         this.render();
         p.openPdfImport();
-      },
-      onUseOpenCode: () => {
-        this.state = "idle";
-        this.render();
       },
     });
     card.createEl("button", { text: "Back" }).addEventListener("click", () => {
@@ -105055,14 +105333,14 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           }
         })
       );
-    section = card("AI backend", "Pick how the assistant connects. Direct API works on phones; OpenCode can edit notes on this computer.");
+    section = card("AI backend", "OpenCode is the default on desktop: it can edit notes and runs on this computer. Direct API is a plain chat that also works on phones.");
     if (Platform.isDesktopApp) {
       new Setting(section)
         .setName("AI backend")
-        .setDesc("OpenCode can edit your notes and runs on this computer. Direct API is a plain chat that also works on your phone (your phone always uses it).")
+        .setDesc("OpenCode is recommended on desktop: it can edit your notes and runs on this computer. Direct API is a plain chat that also works on your phone (your phone always uses it).")
         .addDropdown((d) =>
           d
-            .addOption("opencode", "OpenCode (this computer)")
+            .addOption("opencode", "OpenCode (recommended, this computer)")
             .addOption("api", "Direct API")
             .setValue(ai.backend)
             .onChange(async (v) => {
@@ -130979,7 +131257,7 @@ class WelcomeModal extends Modal {
 
   renderAi(card) {
     const section = card.createDiv({ cls: "qt-welcome-ai" });
-    section.createEl("h3", { text: "Optional: AI study agent" });
+    section.createEl("h3", { text: "AI study agent" });
     const status = section.createDiv({ cls: "qt-welcome-ai-status" });
     status.setAttr("aria-live", "polite");
 
@@ -131000,7 +131278,7 @@ class WelcomeModal extends Modal {
 
     section.createEl("p", {
       cls: "qt-welcome-hint",
-      text: "Install OpenCode here if you want the desktop AI agent. The installer downloads the supported 1.x build from GitHub, checks its SHA-256, and keeps it outside your vault.",
+      text: "OpenCode is the recommended desktop setup. Install it here; the installer downloads the supported 1.x build from GitHub, checks its SHA-256, and keeps it outside your vault. The import wizard finishes the provider connection.",
     });
     const actions = section.createDiv({ cls: "qt-welcome-actions" });
     const install = actions.createEl("button", { text: "Install OpenCode", cls: "mod-cta" });
@@ -131160,6 +131438,35 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.299.0",
+    date: "November 9, 2026",
+    title: "OpenCode at the front door",
+    summary:
+      "A new desktop setup now starts with OpenCode: install it from the same first-run screen, test it, and continue. Direct API is still one click away for phones and as a fallback.",
+    highlights: [
+      {
+        title: "OpenCode leads the setup",
+        body: "The first-run and import connection screen opens on OpenCode on desktop. Install OpenCode is the main button, not a detour through the advanced section.",
+      },
+      {
+        title: "Install, test, then continue",
+        body: "Installing no longer silently turns AI on. The screen shows download progress, Test OpenCode starts the agent and checks that it answers with a provider, and Continue unlocks only after that test works.",
+      },
+      {
+        title: "No false readiness",
+        body: "Practice, the empty screen and the import helper now require an actual OpenCode install, or a server you configured yourself, before they call AI ready. A missing install points back to the button instead of failing later.",
+      },
+      {
+        title: "Direct API stays one click away",
+        body: "The same screen offers a Direct API key for phones, an existing key or a fallback. A saved Direct API setup from before this update keeps using Direct API.",
+      },
+      {
+        title: "Offline still works",
+        body: "Paste questions instead stays visible on both paths, and every setup failure names the next click instead of leaving the importer as a dead end.",
+      },
+    ],
+  },
   {
     version: "1.298.0",
     date: "November 9, 2026",

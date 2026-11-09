@@ -1016,14 +1016,14 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           }
         })
       );
-    section = card("AI backend", "Pick how the assistant connects. Direct API works on phones; OpenCode can edit notes on this computer.");
+    section = card("AI backend", "OpenCode is the default on desktop: it can edit notes and runs on this computer. Direct API is a plain chat that also works on phones.");
     if (Platform.isDesktopApp) {
       new Setting(section)
         .setName("AI backend")
-        .setDesc("OpenCode can edit your notes and runs on this computer. Direct API is a plain chat that also works on your phone (your phone always uses it).")
+        .setDesc("OpenCode is recommended on desktop: it can edit your notes and runs on this computer. Direct API is a plain chat that also works on your phone (your phone always uses it).")
         .addDropdown((d) =>
           d
-            .addOption("opencode", "OpenCode (this computer)")
+            .addOption("opencode", "OpenCode (recommended, this computer)")
             .addOption("api", "Direct API")
             .setValue(ai.backend)
             .onChange(async (v) => {

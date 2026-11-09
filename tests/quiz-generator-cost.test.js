@@ -11,6 +11,7 @@ test("quiz generator: the modal shows a pre-send cost estimate from the exact pr
   const plugin = new QT(app);
   await plugin.onload();
   plugin.settings.ai.enabled = true;
+  plugin.settings.ai.backend = "api";
   plugin.settings.ai.api.model = "test-model";
   plugin.settings.ai.pricing = { "test-model": { model: "test-model", input: 3, output: 6 } };
   let calls = 0;

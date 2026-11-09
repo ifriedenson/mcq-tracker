@@ -56,11 +56,13 @@ test("ai import help: the explanation keeps the AI split, the data caveat and th
     "Practice, timed tests, review and Today, cards, the calendar, assignments, and the reference and AP tools all work without it.",
     "Direct AI uses your own provider key.",
     "The file's text is sent to that provider",
-    "The OpenCode agent (desktop) is the other route",
+    "OpenCode is the recommended desktop setup",
     "There is no offline PDF-to-question converter.",
     "import ready-made flashcards (Quizlet, Kahoot, Moodle, QTI, GIFT, CSV or Markdown)",
   ]) assert.ok(text.includes(needle), `the explanation says: ${needle}`);
 
+  assert.ok(dom.find("Install OpenCode").length, "OpenCode is the first route");
+  await dom.click("Direct API key");
   assert.equal(dom.field("AI provider").value, "anthropic", "the recommended provider is preselected");
   assert.ok(dom.find("Create a key ↗").length, "the key page is one click");
   assert.ok(dom.find("Fetch models").length, "the shared fetch control is here");
@@ -85,6 +87,7 @@ test("ai import help: the full wizard enables AI and opens the importer", async 
       return { status: 200, json: { content: [{ type: "text", text: "OK" }] } };
     },
     async () => {
+      await dom.click("Direct API key");
       dom.type(dom.field("API key"), "sk-ant-test");
       await dom.clickLast("Fetch models");
       assert.equal(plugin.settings.ai.api.model, "claude-sonnet-4-5");
@@ -97,6 +100,14 @@ test("ai import help: the full wizard enables AI and opens the importer", async 
   assert.equal(plugin.settings.ai.backend, "api");
   assert.equal(imports, 1, "the importer opens after a real test");
   assert.equal(modal.closed, true);
+});
+
+test("ai import help: OpenCode is the default and installs in place", async () => {
+  const { plugin } = await setup();
+  const { dom } = openHelp(plugin, "off");
+  assert.ok(dom.find("Install OpenCode").length, "the installer is on the first screen");
+  assert.ok(dom.find("Direct API key").length, "the key route is one click away");
+  assert.equal(dom.find("Open OpenCode settings").length, 0, "there is no settings detour");
 });
 
 test("ai import help: the offline route closes the help and opens Quick add", async () => {

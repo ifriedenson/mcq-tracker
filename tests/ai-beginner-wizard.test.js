@@ -30,10 +30,11 @@ function providerRequests() {
   };
 }
 
-async function setup() {
+async function setup(prepare) {
   const app = makeApp([]);
   const plugin = new QT(app);
   await plugin.onload();
+  if (typeof prepare === "function") await prepare(plugin);
   plugin.imports = 0;
   plugin.openPdfImport = () => {
     plugin.imports++;
@@ -54,6 +55,7 @@ test("connection: the one renderer and the one fetch/test service are exported",
   assert.equal(typeof T.aiConnection.fetchModels, "function");
   assert.equal(typeof T.aiConnection.testConnection, "function");
   assert.equal(T.aiConnection.RECOMMENDED_PROVIDER, "anthropic");
+  assert.equal(T.aiConnection.recommendedProvider(), "anthropic");
 });
 
 /* ------------------------------------------------------------ model choice */
@@ -95,6 +97,9 @@ test("wizard: a cold start reaches a tested, model-populated import without typi
   const { plugin, dom, view } = await setup();
   assert.equal(view.state, "ai-setup");
   assert.ok(dom.texts().includes("Connect AI to import files"));
+  assert.ok(dom.find("Install OpenCode").length, "OpenCode is the desktop default");
+  assert.equal(dom.field("AI provider"), undefined, "the direct key form is not the first screen");
+  await dom.click("Direct API key");
   assert.equal(dom.field("AI provider").value, "anthropic", "the recommended provider is preselected");
   assert.ok(dom.texts().some((text) => /Anthropic \(Claude\) — recommended/.test(text)));
   assert.ok(dom.find("Create a key ↗").length, "the provider's key page is one visible click");
@@ -134,10 +139,95 @@ test("wizard: a cold start reaches a tested, model-populated import without typi
   assert.equal(requests.filter((request) => request.method === "POST").length, 1);
 });
 
+/* ------------------------------------------------------------ OpenCode first */
+
+test("wizard: desktop opens on OpenCode and installs it without a settings detour", async () => {
+  const { plugin, dom } = await setup();
+  assert.ok(dom.find("Install OpenCode").length, "the install button is in the first-run path");
+  assert.equal(dom.find("Open OpenCode settings").length, 0, "installing does not require a settings trip");
+
+  plugin.installOpenCodeFromWelcome = async (say, options) => {
+    assert.equal(options && options.enable, false, "the wizard enables AI only after the test");
+    say("Downloading OpenCode... 50%");
+    plugin.settings.ai.managedBinary = "/tmp/opencode";
+    plugin.settings.ai.installedVersion = "1.2.3";
+    plugin.settings.ai.managed = true;
+    plugin.settings.ai.backend = "opencode";
+    return { version: "1.2.3", path: "/tmp/opencode" };
+  };
+  await dom.click("Install OpenCode");
+
+  assert.ok(dom.find("Test OpenCode").length);
+  assert.match(dom.texts().join(" "), /OpenCode v1\.2\.3 installed/);
+  assert.match(dom.texts().join(" "), /Test it before continuing/);
+  assert.equal(plugin.settings.ai.enabled, false, "an install alone does not claim a working provider");
+});
+
+test("wizard: a tested OpenCode connection enables AI and opens the importer", async () => {
+  const { plugin, dom, view } = await setup((p) => {
+    p.settings.ai.managedBinary = "/tmp/opencode";
+    p.settings.ai.installedVersion = "1.2.3";
+    p.settings.ai.managed = true;
+    p.settings.ai.backend = "opencode";
+  });
+  let starts = 0;
+  plugin.manager.ensure = async (say) => {
+    starts++;
+    say("Starting OpenCode...");
+  };
+  plugin.openCode = () => ({
+    health: async () => ({ version: "1.2.3" }),
+    providers: async () => ({ providers: [{ id: "anthropic" }] }),
+  });
+
+  await dom.click("Test OpenCode");
+  assert.equal(starts, 1);
+  assert.match(dom.texts().join(" "), /Connected to OpenCode 1\.2\.3/);
+  assert.equal(plugin.settings.ai.enabled, false, "testing does not switch AI on early");
+  assert.equal(dom.last((entry) => entry.meta && entry.meta.text === "Continue to import").disabled, false);
+
+  await dom.clickLast("Continue to import");
+  assert.equal(plugin.settings.ai.enabled, true);
+  assert.equal(plugin.settings.ai.backend, "opencode");
+  assert.equal(plugin.imports, 1);
+  assert.equal(view.state, "idle");
+});
+
+test("wizard: OpenCode without a connected provider names the provider key step", async () => {
+  const { plugin, dom } = await setup((p) => {
+    p.settings.ai.managedBinary = "/tmp/opencode";
+    p.settings.ai.managed = true;
+    p.settings.ai.backend = "opencode";
+  });
+  plugin.manager.ensure = async () => {};
+  plugin.openCode = () => ({
+    health: async () => ({ version: "1.2.3" }),
+    providers: async () => ({ providers: [] }),
+  });
+
+  await dom.click("Test OpenCode");
+  assert.match(dom.texts().join(" "), /no AI provider connected yet/i);
+  assert.equal(dom.last((entry) => entry.meta && entry.meta.text === "Continue to import").disabled, true);
+  assert.equal(plugin.settings.ai.enabled, false);
+});
+
+test("wizard: a failed OpenCode install keeps Direct API and the offline route visible", async () => {
+  const { plugin, dom } = await setup();
+  plugin.installOpenCodeFromWelcome = async () => {
+    throw new Error("download failed");
+  };
+  await dom.click("Install OpenCode");
+  const text = dom.texts().join("\n");
+  assert.match(text, /download failed/);
+  assert.ok(dom.find("Direct API key").length);
+  assert.ok(dom.find("Paste questions instead (works offline)").length);
+});
+
 /* ------------------------------------------------------------ honest failures */
 
 test("wizard: a rejected key names the problem and keeps Create a key and the offline route", async () => {
   const { plugin, dom, view } = await setup();
+  await dom.click("Direct API key");
   await withRequests(
     async () => ({ status: 401, json: { error: { message: "invalid x-api-key" } } }),
     async () => {
@@ -156,6 +246,7 @@ test("wizard: a rejected key names the problem and keeps Create a key and the of
 
 test("wizard: a provider with no chat models explains it instead of leaving a dead save", async () => {
   const { plugin, dom } = await setup();
+  await dom.click("Direct API key");
   await withRequests(
     async () => ({ status: 200, json: { data: [] } }),
     async () => {
@@ -172,6 +263,7 @@ test("wizard: a provider with no chat models explains it instead of leaving a de
 
 test("wizard: an offline device says so and points at the offline paste path", async () => {
   const { plugin, dom } = await setup();
+  await dom.click("Direct API key");
   await withRequests(
     async () => {
       throw new Error("Failed to fetch");

@@ -60,6 +60,7 @@ async function setup(notes = NOTES, saved) {
   await plugin.onload();
   plugin.settings.cards = cards.mergeCardSettings(saved && saved.cards ? saved.cards : SETTINGS.cards);
   plugin.settings.calendar.subjectFolders = { ...SETTINGS.calendar.subjectFolders };
+  plugin.settings.ai.backend = "api";
   obsidian.notices.length = 0;
   return { app, plugin };
 }

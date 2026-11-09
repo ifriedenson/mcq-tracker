@@ -2,6 +2,7 @@
 const { Modal } = require("obsidian");
 const { API_PRESETS } = require("./api-client");
 const { resolveApiKey } = require("./secret-keys");
+const { openCodeInstalled } = require("./ai-connection");
 const { renderAiConnectionForm } = require("./ai-connection-form");
 
 /**
@@ -12,7 +13,9 @@ const { renderAiConnectionForm } = require("./ai-connection-form");
 function importAiState(plugin) {
   const ai = (plugin.settings && plugin.settings.ai) || {};
   if (ai.enabled !== true) return "off";
-  if (typeof plugin.backend === "function" && plugin.backend() === "opencode") return "ready";
+  if (typeof plugin.backend === "function" && plugin.backend() === "opencode") {
+    return openCodeInstalled(plugin) ? "ready" : "opencode-missing";
+  }
   const api = ai.api || {};
   const preset = API_PRESETS[api.provider] || API_PRESETS.custom;
   if (preset && preset.noKey) return "ready";
@@ -58,8 +61,8 @@ class AiImportHelpModal extends Modal {
     el.createEl("p", {
       cls: "qt-hint",
       text:
-        "Direct AI uses your own provider key. The file's text is sent to that provider, which may charge for long files. " +
-        "The OpenCode agent (desktop) is the other route; its settings are under the advanced section below.",
+        "Direct AI uses your own provider key. OpenCode is the recommended desktop setup and can be installed right here; " +
+        "it keeps its own provider login and also works on phones through Direct AI. The file's text is sent to that provider, which may charge for long files.",
     });
 
     const form = el.createDiv({ cls: "qt-onboard-form" });
@@ -70,7 +73,6 @@ class AiImportHelpModal extends Modal {
         this.plugin.openPdfImport();
       },
       onOffline: () => this.close(),
-      onUseOpenCode: () => this.close(),
     });
 
     el.createEl("p", {

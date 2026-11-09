@@ -1329,6 +1329,15 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.ai = Object.assign({}, DEFAULT_SETTINGS.ai, saved.ai || {});
     const sa = (saved.ai && saved.ai.api) || {};
     this.settings.ai.api = Object.assign({}, DEFAULT_SETTINGS.ai.api, sa, { keys: Object.assign({}, sa.keys), secrets: Object.assign({}, sa.secrets) });
+    // A pre-existing Direct API setup keeps working when the desktop default
+    // changes to OpenCode. Only a brand-new install gets the new default.
+    if (
+      saved.ai &&
+      saved.ai.backend === undefined &&
+      (saved.ai.enabled === true || Object.keys(sa.keys || {}).length || Object.keys(sa.secrets || {}).length)
+    ) {
+      this.settings.ai.backend = "api";
+    }
     this.settings.ai.api.models = modelDiscovery.normalizeModelList(this.settings.ai.api.models);
     this.settings.ai.tutorRole = normalizeTutorRole(this.settings.ai.tutorRole);
     this.settings.ai.thinkFirst = this.settings.ai.thinkFirst === true;
@@ -2189,17 +2198,18 @@ class QuestionTrackerPlugin extends Plugin {
    * explains the download and checksum first, so this skips the second confirm
    * modal that the settings page uses. No settings change survives a failure.
    */
-  async installOpenCodeFromWelcome(progress) {
+  async installOpenCodeFromWelcome(progress, options) {
     if (!Platform.isDesktopApp) {
       throw new Error("OpenCode auto-install is available on desktop only. On mobile, add a Direct API provider key in Settings.");
     }
     const manager = this.manager;
     if (!manager) throw new Error("The OpenCode installer is not available.");
     const ai = this.settings.ai;
+    const enable = !(options && options.enable === false);
     const found = await manager.findBinary();
     if (found) {
       manager.foundPath = found;
-      ai.enabled = true;
+      if (enable) ai.enabled = true;
       ai.backend = "opencode";
       ai.managed = true;
       ai.autoDeclined = false;
@@ -2208,7 +2218,7 @@ class QuestionTrackerPlugin extends Plugin {
       return { already: true, path: found, version: ai.installedVersion || "" };
     }
     const result = await manager.install(progress, () => true);
-    ai.enabled = true;
+    if (enable) ai.enabled = true;
     ai.backend = "opencode";
     ai.managed = true;
     ai.autoDeclined = false;

@@ -6,6 +6,35 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.299.0",
+    date: "November 9, 2026",
+    title: "OpenCode at the front door",
+    summary:
+      "A new desktop setup now starts with OpenCode: install it from the same first-run screen, test it, and continue. Direct API is still one click away for phones and as a fallback.",
+    highlights: [
+      {
+        title: "OpenCode leads the setup",
+        body: "The first-run and import connection screen opens on OpenCode on desktop. Install OpenCode is the main button, not a detour through the advanced section.",
+      },
+      {
+        title: "Install, test, then continue",
+        body: "Installing no longer silently turns AI on. The screen shows download progress, Test OpenCode starts the agent and checks that it answers with a provider, and Continue unlocks only after that test works.",
+      },
+      {
+        title: "No false readiness",
+        body: "Practice, the empty screen and the import helper now require an actual OpenCode install, or a server you configured yourself, before they call AI ready. A missing install points back to the button instead of failing later.",
+      },
+      {
+        title: "Direct API stays one click away",
+        body: "The same screen offers a Direct API key for phones, an existing key or a fallback. A saved Direct API setup from before this update keeps using Direct API.",
+      },
+      {
+        title: "Offline still works",
+        body: "Paste questions instead stays visible on both paths, and every setup failure names the next click instead of leaving the importer as a dead end.",
+      },
+    ],
+  },
+  {
     version: "1.298.0",
     date: "November 9, 2026",
     title: "A cleaner community listing",

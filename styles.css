@@ -12642,6 +12642,23 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   min-width: 8em;
 }
 
+.qt-ai-connect-paths {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.qt-ai-connect-path {
+  flex: 1 1 10rem;
+  width: auto;
+}
+
+.qt-ai-connect-path.is-selected {
+  color: var(--text-on-accent);
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+}
+
 /* ---- chat message actions ---- */
 
 .qt-msg-actions {

@@ -41,6 +41,7 @@ async function setup(text) {
   const plugin = new QT(app);
   await plugin.onload();
   plugin.settings.ai.enabled = true;
+  plugin.settings.ai.backend = "api";
   plugin.settings.cards.enabled = true;
   plugin.settings.cards.defaultDeck = "Biology";
   plugin.settings.cards.newCardFolder = "Cards";
@@ -132,6 +133,7 @@ test("spaced quiz: a rerun updates the same note and skips duplicate cards acros
   restarted.saved = plugin.saved;
   await restarted.onload();
   restarted.settings.ai.enabled = true;
+  restarted.settings.ai.backend = "api";
   restarted.settings.cards.enabled = true;
   restarted.settings.cards.defaultDeck = "Biology";
   restarted.settings.cards.newCardFolder = "Cards";

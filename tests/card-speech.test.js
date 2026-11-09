@@ -33,6 +33,7 @@ async function setup(options) {
     aiGrading: opts.ai === true,
   });
   plugin.settings.ai.enabled = opts.ai === true;
+  plugin.settings.ai.backend = "api";
   plugin.settings.ai.api.keys = opts.aiKey ? { anthropic: opts.aiKey } : {};
   return { app, plugin };
 }

@@ -41,6 +41,7 @@ async function setup(text, selection) {
   const plugin = new QT(app);
   await plugin.onload();
   plugin.settings.ai.enabled = true;
+  plugin.settings.ai.backend = "api";
   plugin.settings.cards.enabled = true;
   plugin.settings.cards.defaultDeck = "Biology";
   plugin.settings.cards.ankiConnect = { enabled: true, url: "http://127.0.0.1:8765", deck: "", conflict: "report" };
@@ -136,6 +137,7 @@ test("text2anki: rerun and restart reuse the batch without calling the AI or dup
   restarted.saved = plugin.saved;
   await restarted.onload();
   restarted.settings.ai.enabled = true;
+  restarted.settings.ai.backend = "api";
   restarted.settings.cards.enabled = true;
   restarted.settings.cards.ankiConnect = { enabled: true, url: "http://127.0.0.1:8765", deck: "" };
   restarted.settings.cards.defaultDeck = "Biology";
