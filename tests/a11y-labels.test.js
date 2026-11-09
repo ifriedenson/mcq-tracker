@@ -3,6 +3,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
+const { auditSourceTree } = require("./helpers/a11y-audit");
 const root = path.join(__dirname, "..");
 
 function read(relative) {
@@ -45,6 +46,13 @@ test("workspace answer boxes and filters have accessible names", () => {
   }
 });
 
+test("every form control and text-less button in src has an accessible name", () => {
+  const audit = auditSourceTree(root);
+  assert.ok(audit.files >= 300, `expected to scan the plugin source, scanned ${audit.files} files`);
+  assert.deepEqual(audit.controls, [], "form controls must not rely on a placeholder for their name");
+  assert.deepEqual(audit.buttons, [], "buttons without visible text must carry an accessible name");
+});
+
 test("primary views and modals name their inputs", () => {
   const expected = [
     ["src/quick-ask-modal.js", "Quick Ask question"],
@@ -64,6 +72,16 @@ test("primary views and modals name their inputs", () => {
     ["src/document-cards.js", "Vault file"],
     ["src/ocr-modal.js", "OCR text"],
     ["src/chat-panel.js", "Message the Study agent"],
+    ["src/card-modal.js", "Card front"],
+    ["src/exam-view.js", "First question"],
+    ["src/reference-view.js", "Search formulas"],
+    ["src/quick-add-modal.js", "Pasted questions"],
+    ["src/practice-view.js", "Notes for this question"],
+    ["src/cards-import.js", "Import source"],
+    ["src/image-occlusion-modal.js", "Masks, one per line"],
+    ["src/study-status-modal.js", "Search study status"],
+    ["src/table-csv-modal.js", "Include table headers"],
+    ["src/pdf-editor-modal.js", "Burn annotations into the copy"],
   ];
   for (const [file, name] of expected) {
     assert.ok(labelled(read(file), name), `${file} must expose the name "${name}"`);

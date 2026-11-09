@@ -140,7 +140,7 @@ class AgentView extends ItemView {
     });
     searchRow.createEl("button", { text: "Search" }).addEventListener("click", () => this.search());
     const contextLabel = body.createEl("label", { cls: "qt-agent-search-toggle" });
-    this.vaultToggle = contextLabel.createEl("input", { type: "checkbox" });
+    this.vaultToggle = contextLabel.createEl("input", { type: "checkbox", attr: { "aria-label": "Include a full-vault file index in chat" } });
     contextLabel.appendText(" Include a full-vault file index in chat (opt-in)");
     this.vaultToggle.addEventListener("change", () => {
       this.includeVaultIndex = this.vaultToggle.checked;

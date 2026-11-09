@@ -77,7 +77,7 @@ class QuizGeneratorModal extends Modal {
     types.createEl("label", { text: "Question types" });
     for (const type of QUIZ_TYPES) {
       const label = types.createEl("label", { cls: "qt-check" });
-      const box = label.createEl("input", { type: "checkbox" });
+      const box = label.createEl("input", { type: "checkbox", attr: { "aria-label": type.label } });
       box.checked = this.types.includes(type.id);
       box.addEventListener("change", () => {
         this.types = this.types.includes(type.id) ? this.types.filter((id) => id !== type.id) : [...this.types, type.id];

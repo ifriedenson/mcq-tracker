@@ -34,7 +34,7 @@ class QuickChatModal extends Modal {
     });
     this.input = root.createEl("textarea", {
       cls: "qt-chat-input qt-quick-chat-input",
-      attr: { rows: "3", placeholder: "Ask a quick question..." },
+      attr: { rows: "3", placeholder: "Ask a quick question...", "aria-label": "Quick Chat question" },
     });
     this.input.value = this.initialPrompt;
     this.input.addEventListener("keydown", (event) => {

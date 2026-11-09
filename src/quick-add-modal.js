@@ -48,7 +48,7 @@ class QuickAddModal extends Modal {
 
     this.box = el.createEl("textarea", {
       cls: "qt-quick-add",
-      attr: { rows: "14", placeholder: "Paste your questions here…", spellcheck: "false" },
+      attr: { rows: "14", placeholder: "Paste your questions here…", spellcheck: "false", "aria-label": "Pasted questions" },
     });
     this.box.value = this.text;
     this.box.addEventListener("input", () => {
@@ -59,12 +59,12 @@ class QuickAddModal extends Modal {
     const row = el.createDiv({ cls: "qt-row" });
     const folderWrap = row.createDiv({ cls: "qt-field qt-grow" });
     folderWrap.createEl("label", { text: "Folder" });
-    this.folderInput = folderWrap.createEl("input", { type: "text", attr: { placeholder: "Questions" } });
+    this.folderInput = folderWrap.createEl("input", { type: "text", attr: { placeholder: "Questions", "aria-label": "Folder" } });
     this.folderInput.value = this.folder;
     this.folderInput.addEventListener("input", () => (this.folder = this.folderInput.value));
     const courseWrap = row.createDiv({ cls: "qt-field qt-grow" });
     courseWrap.createEl("label", { text: "Course (optional)" });
-    this.courseInput = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. AP Biology" } });
+    this.courseInput = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. AP Biology", "aria-label": "Course" } });
     this.courseInput.value = this.course;
     this.courseInput.addEventListener("input", () => {
       this.course = this.courseInput.value;

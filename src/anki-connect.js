@@ -689,6 +689,7 @@ class AnkiConnectModal extends Modal {
     const wrap = contentEl.createDiv({ cls: "qt-field" });
     wrap.createEl("label", { text: "Target deck" });
     const target = wrap.createEl("input", { type: "text" });
+    target.setAttribute("aria-label", "Target deck");
     target.placeholder = "Each card's own deck";
     target.value = this.options.targetDeck || settings.deck || "";
 

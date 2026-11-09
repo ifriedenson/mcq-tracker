@@ -112,7 +112,7 @@ class QuickAskModal extends Modal {
 
     if (this.context.text) {
       const noteRow = root.createEl("label", { cls: "qt-row qt-small-row qt-quick-note" });
-      this.noteToggle = noteRow.createEl("input", { type: "checkbox" });
+      this.noteToggle = noteRow.createEl("input", { type: "checkbox", attr: { "aria-label": "Include the full note" } });
       this.noteToggle.checked = this.includeNote;
       noteRow.appendText(" Include the full note (otherwise only the selection is sent)");
       this.noteToggle.addEventListener("change", () => {

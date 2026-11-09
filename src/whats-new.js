@@ -6,6 +6,35 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.299.4",
+    date: "November 9, 2026",
+    title: "Every field has a name",
+    summary:
+      "A whole-surface pass names the remaining form fields and icon-only buttons, so a screen reader announces what each control does instead of reading a placeholder.",
+    highlights: [
+      {
+        title: "Named fields everywhere",
+        body: "The card editor, deck imports, exam builder, practice answers, PDF editor, reference searches, Quick add, Quick Chat and the Study agent all name their controls.",
+      },
+      {
+        title: "Placeholders are hints again",
+        body: "Text like e.g. BIOL 201 or Your answer stays visible as an example, but it is no longer the only thing describing the field.",
+      },
+      {
+        title: "Buttons speak",
+        body: "Icon-only and text-less buttons carry a real name, including the practice explanation and AI toggles and the PDF editor history controls.",
+      },
+      {
+        title: "Enforced by tests",
+        body: "A static audit reads every input, textarea, select and button in the source and fails the suite when a new one has no accessible name.",
+      },
+      {
+        title: "Nothing else changed",
+        body: "No note format, review schedule, setting, data path or network request changed. Every label is additive.",
+      },
+    ],
+  },
+  {
     version: "1.299.3",
     date: "November 9, 2026",
     title: "Every control has a name",

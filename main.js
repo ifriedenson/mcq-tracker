@@ -1612,7 +1612,7 @@ class AgentView extends ItemView {
     });
     searchRow.createEl("button", { text: "Search" }).addEventListener("click", () => this.search());
     const contextLabel = body.createEl("label", { cls: "qt-agent-search-toggle" });
-    this.vaultToggle = contextLabel.createEl("input", { type: "checkbox" });
+    this.vaultToggle = contextLabel.createEl("input", { type: "checkbox", attr: { "aria-label": "Include a full-vault file index in chat" } });
     contextLabel.appendText(" Include a full-vault file index in chat (opt-in)");
     this.vaultToggle.addEventListener("change", () => {
       this.includeVaultIndex = this.vaultToggle.checked;
@@ -6078,6 +6078,7 @@ class AnkiConnectModal extends Modal {
     const wrap = contentEl.createDiv({ cls: "qt-field" });
     wrap.createEl("label", { text: "Target deck" });
     const target = wrap.createEl("input", { type: "text" });
+    target.setAttribute("aria-label", "Target deck");
     target.placeholder = "Each card's own deck";
     target.value = this.options.targetDeck || settings.deck || "";
 
@@ -18269,16 +18270,16 @@ class CardModal extends Modal {
 
     const newDeckWrap = contentEl.createDiv({ cls: "qt-field qt-hidden" });
     newDeckWrap.createEl("label", { text: "New deck name" });
-    const newDeck = newDeckWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Spanish verbs" } });
+    const newDeck = newDeckWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Spanish verbs", "aria-label": "New deck name" } });
     newDeckWrap.createEl("label", { text: "Deck folder (optional)" });
     const newDeckFolder = newDeckWrap.createEl("input", {
       type: "text",
-      attr: { placeholder: "Defaults to Cards/<deck name>" },
+      attr: { placeholder: "Defaults to Cards/<deck name>", "aria-label": "Deck folder" },
     });
     newDeckWrap.createEl("label", { text: "Deck course (optional)" });
     const newDeckCourse = newDeckWrap.createEl("input", {
       type: "text",
-      attr: { placeholder: "e.g. BIOL 201" },
+      attr: { placeholder: "e.g. BIOL 201", "aria-label": "Deck course" },
     });
     newDeckWrap.createDiv({
       cls: "qt-hint",
@@ -18287,7 +18288,7 @@ class CardModal extends Modal {
 
     const courseWrap = contentEl.createDiv({ cls: "qt-field" });
     courseWrap.createEl("label", { text: "Course (optional)" });
-    const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201" } });
+    const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201", "aria-label": "Course" } });
     course.value = this.course;
 
     const schedulerWrap = contentEl.createDiv({ cls: "qt-field" });
@@ -18313,12 +18314,12 @@ class CardModal extends Modal {
 
     const frontWrap = contentEl.createDiv({ cls: "qt-field" });
     const frontLabel = frontWrap.createEl("label", { text: "Front" });
-    const front = frontWrap.createEl("textarea", { attr: { rows: "3", placeholder: "What should the card ask?" } });
+    const front = frontWrap.createEl("textarea", { attr: { rows: "3", placeholder: "What should the card ask?", "aria-label": "Card front" } });
     front.value = this.initialFront;
 
     const backWrap = contentEl.createDiv({ cls: "qt-field" });
     const backLabel = backWrap.createEl("label", { text: "Back" });
-    const back = backWrap.createEl("textarea", { attr: { rows: "3", placeholder: "The answer" } });
+    const back = backWrap.createEl("textarea", { attr: { rows: "3", placeholder: "The answer", "aria-label": "Card back" } });
     back.value = this.initialBack;
 
     const expectationWrap = contentEl.createDiv({ cls: "qt-field" });
@@ -18326,11 +18327,11 @@ class CardModal extends Modal {
     const expectations = expectationWrap.createDiv({ cls: "qt-row" });
     const frontExpectation = expectations.createEl("input", {
       type: "text",
-      attr: { placeholder: "Front expectation, e.g. capital city" },
+      attr: { placeholder: "Front expectation, e.g. capital city", "aria-label": "Front expectation" },
     });
     const backExpectation = expectations.createEl("input", {
       type: "text",
-      attr: { placeholder: "Back expectation, e.g. country" },
+      attr: { placeholder: "Back expectation, e.g. country", "aria-label": "Back expectation" },
     });
 
     const previewWrap = contentEl.createDiv({ cls: "qt-field" });
@@ -18348,8 +18349,8 @@ class CardModal extends Modal {
     const metaWrap = contentDiv(contentEl, "qt-field qt-hidden");
     metaWrap.createEl("label", { text: "Part of speech and language (optional)" });
     const meta = metaWrap.createDiv({ cls: "qt-row" });
-    const pos = meta.createEl("input", { type: "text", attr: { placeholder: "noun" } });
-    const language = meta.createEl("input", { type: "text", attr: { placeholder: "Spanish" } });
+    const pos = meta.createEl("input", { type: "text", attr: { placeholder: "noun", "aria-label": "Part of speech" } });
+    const language = meta.createEl("input", { type: "text", attr: { placeholder: "Spanish", "aria-label": "Language" } });
 
     const applyKind = () => {
       const vocab = this.kind === "vocab";
@@ -19731,18 +19732,18 @@ class CardExtractModal extends Modal {
 
     const deckWrap = contentEl.createDiv({ cls: "qt-field" });
     deckWrap.createEl("label", { text: "Deck" });
-    const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Biology" } });
+    const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Biology", "aria-label": "Deck" } });
     deck.value = preview.deck || "";
 
     const courseWrap = contentEl.createDiv({ cls: "qt-field" });
     courseWrap.createEl("label", { text: "Course tag (optional)" });
-    const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201" } });
+    const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201", "aria-label": "Course" } });
     course.value = preview.course || "";
 
     const seedWrap = contentEl.createDiv({ cls: "qt-field" });
     seedWrap.createEl("label", { text: "Order seed (optional)" });
     const seedRow = seedWrap.createDiv({ cls: "qt-row" });
-    const seed = seedRow.createEl("input", { type: "text", attr: { placeholder: "e.g. midterm-1" } });
+    const seed = seedRow.createEl("input", { type: "text", attr: { placeholder: "e.g. midterm-1", "aria-label": "Import seed" } });
     seed.value = preview.seed || "";
     const reorder = seedRow.createEl("button", { text: "Preview seed" });
     seedWrap.createDiv({
@@ -22047,7 +22048,7 @@ class CardImportModal extends Modal {
 
     const typeWrap = contentEl.createDiv({ cls: "qt-field" });
     typeWrap.createEl("label", { text: "Source" });
-    const type = typeWrap.createEl("select", { cls: "dropdown" });
+    const type = typeWrap.createEl("select", { cls: "dropdown", attr: { "aria-label": "Import source" } });
     type.createEl("option", { text: "Spaced Repetition notes in this vault", value: "spaced" });
     type.createEl("option", { text: "Mochi Markdown folder", value: "mochi" });
     type.createEl("option", { text: "LearnKit note or folder", value: "learnkit" });
@@ -22070,7 +22071,7 @@ class CardImportModal extends Modal {
 
     const sourceWrap = contentEl.createDiv({ cls: "qt-field" });
     const sourceLabel = sourceWrap.createEl("label", { text: "Folder" });
-    const source = sourceWrap.createEl("select", { cls: "dropdown" });
+    const source = sourceWrap.createEl("select", { cls: "dropdown", attr: { "aria-label": "Import file or folder" } });
 
     const deviceWrap = contentEl.createDiv({ cls: "qt-field qt-device-pdf" });
     deviceWrap.createEl("label", { text: "Or choose a PDF from this device" });
@@ -22078,7 +22079,7 @@ class CardImportModal extends Modal {
     const chooseDevice = deviceRow.createEl("button", { text: "Choose PDF from device...", cls: "qt-grow" });
     const clearDevice = deviceRow.createEl("button", { text: "Use a vault file", cls: "qt-grow" });
     const deviceNote = deviceWrap.createDiv({ cls: "qt-hint" });
-    const deviceInput = createEl("input", { type: "file", attr: { accept: ".pdf,application/pdf" } });
+    const deviceInput = createEl("input", { type: "file", attr: { accept: ".pdf,application/pdf", "aria-label": "Choose a PDF from this device" } });
     deviceInput.hidden = true;
     deviceWrap.appendChild(deviceInput);
     const updateDevice = () => {
@@ -22160,16 +22161,16 @@ class CardImportModal extends Modal {
 
     const deckWrap = contentEl.createDiv({ cls: "qt-field" });
     deckWrap.createEl("label", { text: "Fallback deck (source deck wins when present)" });
-    const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: p.settings.cards.defaultDeck || "Imported" } });
+    const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: p.settings.cards.defaultDeck || "Imported", "aria-label": "Fallback deck" } });
     if (this.options.deck) deck.value = this.options.deck;
     const courseWrap = contentEl.createDiv({ cls: "qt-field" });
     courseWrap.createEl("label", { text: "Course tag (optional)" });
-    const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201" } });
+    const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201", "aria-label": "Course tag" } });
     if (this.options.course) course.value = this.options.course;
 
     const duplicateWrap = contentEl.createDiv({ cls: "qt-field" });
     duplicateWrap.createEl("label", { text: "If an import key already exists" });
-    const duplicateMode = duplicateWrap.createEl("select", { cls: "dropdown" });
+    const duplicateMode = duplicateWrap.createEl("select", { cls: "dropdown", attr: { "aria-label": "Duplicate handling" } });
     duplicateMode.createEl("option", { text: "Skip duplicates", value: "skip" });
     duplicateMode.createEl("option", { text: "Update the existing card", value: "update" });
     duplicateMode.createEl("option", { text: "Create a copy", value: "copy" });
@@ -22179,12 +22180,12 @@ class CardImportModal extends Modal {
     const csvSection = contentEl.createDiv({ cls: "qt-csv-section" });
     const csvGrid = csvSection.createDiv({ cls: "qt-csv-mapping" });
     const csvHeaderWrap = csvSection.createDiv({ cls: "qt-field" });
-    const csvHeader = csvHeaderWrap.createEl("input", { type: "checkbox" });
+    const csvHeader = csvHeaderWrap.createEl("input", { type: "checkbox", attr: { "aria-label": "First row is a header" } });
     csvHeader.checked = true;
     csvHeaderWrap.createEl("label", { text: "First row is a header" });
     const csvPreview = csvSection.createDiv({ cls: "qt-csv-preview" });
     const saveMappingWrap = contentEl.createDiv({ cls: "qt-csv-save" });
-    const saveMapping = saveMappingWrap.createEl("input", { type: "checkbox" });
+    const saveMapping = saveMappingWrap.createEl("input", { type: "checkbox", attr: { "aria-label": "Remember this mapping" } });
     saveMapping.checked = true;
     saveMappingWrap.createEl("label", { text: "Remember this mapping for the same column headers" });
 
@@ -22193,7 +22194,7 @@ class CardImportModal extends Modal {
       for (const [field] of GENERIC_FIELDS) {
         const line = csvGrid.createDiv({ cls: "qt-csv-map-row" });
         line.createEl("label", { text: GENERIC_LABELS[field] });
-        const select = line.createEl("select", { cls: "dropdown" });
+        const select = line.createEl("select", { cls: "dropdown", attr: { "aria-label": `${GENERIC_LABELS[field]} column` } });
         select.createEl("option", { text: "Not imported", value: "-1" });
         parsed.headers.forEach((header, i) => select.createEl("option", { text: `${i + 1}. ${header}`, value: String(i) }));
         const current = this.csvMapping && this.csvMapping[field] !== undefined && this.csvMapping[field] !== null ? Number(this.csvMapping[field]) : -1;
@@ -22359,7 +22360,7 @@ class CardImportModal extends Modal {
       }
       if (details.length > 8) diffBox.createDiv({ cls: "qt-hint", text: `…and ${details.length - 8} more.` });
       const confirmWrap = diffBox.createDiv({ cls: "qt-write-preview-confirm" });
-      const reviewed = confirmWrap.createEl("input", { type: "checkbox" });
+      const reviewed = confirmWrap.createEl("input", { type: "checkbox", attr: { "aria-label": "I reviewed these updates" } });
       reviewed.checked = !!this.reviewedUpdates;
       confirmWrap.createEl("label", { text: "I reviewed these updates" });
       reviewed.addEventListener("change", () => {
@@ -22544,7 +22545,7 @@ class CardExportModal extends Modal {
 
     const wrap = contentEl.createDiv({ cls: "qt-field" });
     wrap.createEl("label", { text: "Format" });
-    const format = wrap.createEl("select", { cls: "dropdown" });
+    const format = wrap.createEl("select", { cls: "dropdown", attr: { "aria-label": "Export format" } });
     format.createEl("option", { text: "Quizlet text", value: "quizlet" });
     format.createEl("option", { text: "Anki text", value: "anki" });
     format.createEl("option", { text: "Anki package (.apkg)", value: "apkg" });
@@ -35540,7 +35541,7 @@ class DocumentCardsModal extends Modal {
     this.deckInput = deckRow.createEl("input", { type: "text", attr: { placeholder: "Imported", "aria-label": "Deck" } });
     this.deckInput.value = str(this.options.deck).trim() || str(this.plugin.settings.cards.defaultDeck).trim() || "Imported";
     const aiLabel = this.contentEl.createEl("label", { cls: "qt-row" });
-    this.aiInput = aiLabel.createEl("input", { type: "checkbox" });
+    this.aiInput = aiLabel.createEl("input", { type: "checkbox", attr: { "aria-label": "Use AI only if local extraction finds no cards" } });
     aiLabel.appendText(" Use AI only if local extraction finds no cards");
     const scan = this.contentEl.createEl("button", { text: "Preview cards", cls: "mod-cta" });
     scan.addEventListener("click", () => this.scan());
@@ -38024,7 +38025,7 @@ class TestView extends ItemView {
       sectionRows.empty();
       draft.forEach((section, i) => {
         const row = sectionRows.createDiv({ cls: "qt-row qt-section-row" });
-        const name = row.createEl("input", { type: "text", cls: "qt-fsearch", attr: { placeholder: `Section ${i + 1}` } });
+        const name = row.createEl("input", { type: "text", cls: "qt-fsearch", attr: { placeholder: `Section ${i + 1}`, "aria-label": `Section ${i + 1} name` } });
         name.value = section.name || `Section ${i + 1}`;
         name.addEventListener("input", () => (section.name = name.value));
         const count = row.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", max: "200", "aria-label": `Questions in section ${i + 1}` } });
@@ -38058,22 +38059,22 @@ class TestView extends ItemView {
 
     root.createDiv({ cls: "qt-label", text: "Question range (optional)" });
     const rangeRow = root.createDiv({ cls: "qt-row qt-range" });
-    const fromIn = rangeRow.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", placeholder: "From" } });
+    const fromIn = rangeRow.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", placeholder: "From", "aria-label": "First question" } });
     fromIn.value = String(d.from || 1);
-    const toIn = rangeRow.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", placeholder: "To (last)" } });
+    const toIn = rangeRow.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", placeholder: "To (last)", "aria-label": "Last question" } });
     toIn.value = d.to ? String(d.to) : "";
     root.createDiv({ cls: "qt-hint", text: "Use a range for Bluebook-style section practice, for example 1 to 20. Leave To empty to use the last question." });
 
     root.createDiv({ cls: "qt-label", text: "Test options" });
     const optionsRow = root.createDiv({ cls: "qt-row qt-test-options" });
     const shuffleWrap = optionsRow.createEl("label", { cls: "qt-test-option" });
-    const shuffleIn = shuffleWrap.createEl("input", { type: "checkbox" });
+    const shuffleIn = shuffleWrap.createEl("input", { type: "checkbox", attr: { "aria-label": "Shuffle answer choices" } });
     shuffleIn.checked = this.shuffleDraft === null ? !!d.shuffleChoices : !!this.shuffleDraft;
     shuffleWrap.createSpan({ text: " Shuffle answer choices" });
     shuffleIn.addEventListener("change", () => (this.shuffleDraft = !!shuffleIn.checked));
     const passWrap = optionsRow.createEl("label", { cls: "qt-test-option" });
     passWrap.createSpan({ text: "Pass score % " });
-    const passIn = passWrap.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "0", max: "100", placeholder: "None" } });
+    const passIn = passWrap.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "0", max: "100", placeholder: "None", "aria-label": "Pass score percentage" } });
     const passDraft = this.passDraft === null ? normalizePassScore(d.passScore) : normalizePassScore(this.passDraft);
     passIn.value = passDraft ? String(passDraft) : "";
     passIn.addEventListener("input", () => (this.passDraft = normalizePassScore(passIn.value)));
@@ -38085,7 +38086,7 @@ class TestView extends ItemView {
 
     root.createDiv({ cls: "qt-label", text: "Written responses (FRQ)" });
     const frqRow = root.createDiv({ cls: "qt-row qt-range" });
-    const frqIn = frqRow.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "0", max: "20", placeholder: "0" } });
+    const frqIn = frqRow.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "0", max: "20", placeholder: "0", "aria-label": "Written response count" } });
     frqIn.value = String(this.frqDraft === null ? Math.max(0, Number(d.frq) || 0) : this.frqDraft);
     frqIn.addEventListener("input", () => {
       this.frqDraft = Math.max(0, Math.min(20, parseInt(frqIn.value, 10) || 0));
@@ -38398,7 +38399,7 @@ class TestView extends ItemView {
     } else if (it.mode === "frq") {
       const area = ans.createEl("textarea", {
         cls: "qt-frq-answer",
-        attr: { placeholder: "Type your free-response answer. OS voice dictation works here.", rows: "10" },
+        attr: { placeholder: "Type your free-response answer. OS voice dictation works here.", rows: "10", "aria-label": "Your free-response answer" },
       });
       area.value = it.sel;
       area.addEventListener("input", () => {
@@ -38408,7 +38409,7 @@ class TestView extends ItemView {
       area.addEventListener("change", () => this.persist());
       ans.createDiv({ cls: "qt-hint", text: "This response is graded after the test against the rubric in its note. It is not scored automatically." });
     } else {
-      const input = ans.createEl("input", { type: "text", cls: "qt-spr", attr: { placeholder: "Your answer" } });
+      const input = ans.createEl("input", { type: "text", cls: "qt-spr", attr: { placeholder: "Your answer", "aria-label": "Your answer" } });
       input.value = it.sel;
       input.addEventListener("input", () => {
         it.sel = input.value.trim();
@@ -41448,7 +41449,7 @@ class FrqGraderModal extends Modal {
     root.createEl("h4", { text: "Your answer" });
     const area = root.createEl("textarea", {
       cls: "qt-frq-answer",
-      attr: { placeholder: "Type your free-response answer. OS voice dictation works here on desktop and mobile.", rows: "10" },
+      attr: { placeholder: "Type your free-response answer. OS voice dictation works here on desktop and mobile.", rows: "10", "aria-label": "Your answer" },
     });
     area.value = this.answer;
     area.addEventListener("input", () => {
@@ -41466,7 +41467,7 @@ class FrqGraderModal extends Modal {
     });
 
     const photoRow = root.createDiv({ cls: "qt-row qt-frq-photo" });
-    const photoInput = photoRow.createEl("input", { type: "file", attr: { multiple: "true", accept: "image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif" } });
+    const photoInput = photoRow.createEl("input", { type: "file", attr: { multiple: "true", accept: "image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif", "aria-label": "Photos of handwritten work" } });
     photoInput.hidden = true;
     const support = this.plugin.handwritingPhotoSupport ? this.plugin.handwritingPhotoSupport() : { ok: false, reason: "" };
     const readPhoto = photoRow.createEl("button", {
@@ -48905,26 +48906,26 @@ class ImageOcclusionModal extends Modal {
 
     const deckWrap = contentEl.createDiv({ cls: "qt-field" });
     deckWrap.createEl("label", { text: "Deck" });
-    const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Biology" } });
+    const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Biology", "aria-label": "Deck" } });
     deck.value = str(this.options.deck || p.settings.cards.defaultDeck || "General").trim();
 
     const courseWrap = contentEl.createDiv({ cls: "qt-field" });
     courseWrap.createEl("label", { text: "Course (optional)" });
-    const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201" } });
+    const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201", "aria-label": "Course" } });
     course.value = str(this.options.course).trim();
 
     const imageWrap = contentEl.createDiv({ cls: "qt-field" });
     imageWrap.createEl("label", { text: "Image path" });
     const image = imageWrap.createEl("input", {
       type: "text",
-      attr: { placeholder: "diagrams/cell.png or ![[cell.png]]" },
+      attr: { placeholder: "diagrams/cell.png or ![[cell.png]]", "aria-label": "Image path" },
     });
 
     const promptWrap = contentEl.createDiv({ cls: "qt-field" });
     promptWrap.createEl("label", { text: "Prompt" });
     const prompt = promptWrap.createEl("input", {
       type: "text",
-      attr: { placeholder: "What is hidden in the highlighted area?" },
+      attr: { placeholder: "What is hidden in the highlighted area?", "aria-label": "Prompt" },
     });
     prompt.value = "What is hidden in the highlighted area?";
 
@@ -48934,6 +48935,7 @@ class ImageOcclusionModal extends Modal {
       attr: {
         rows: "6",
         placeholder: "20, 30, 15, 10, Nucleus\n55, 60, 12, 10, Mitochondrion",
+        "aria-label": "Masks, one per line",
       },
     });
     masksWrap.createDiv({
@@ -49698,7 +49700,7 @@ class PdfImportModal extends Modal {
     };
     items.forEach((q) => {
       const row = list.createDiv({ cls: "qt-imp-row" });
-      const cb = row.createEl("input", { type: "checkbox" });
+      const cb = row.createEl("input", { type: "checkbox", attr: { "aria-label": "Include this question" } });
       cb.checked = q.include;
       cb.addEventListener("change", () => {
         q.include = cb.checked;
@@ -66819,7 +66821,7 @@ class PdfEditorModal extends Modal {
     host.empty();
     if (this.annotations.length) {
       const label = host.createEl("label", { cls: "qt-pdf-editor-option" });
-      const box = label.createEl("input", { type: "checkbox" });
+      const box = label.createEl("input", { type: "checkbox", attr: { "aria-label": "Burn annotations into the copy" } });
       box.checked = this.flattenMarks;
       box.addEventListener("change", () => {
         this.flattenMarks = box.checked;
@@ -66828,7 +66830,7 @@ class PdfEditorModal extends Modal {
     }
     if (this.fields.length) {
       const label = host.createEl("label", { cls: "qt-pdf-editor-option" });
-      const box = label.createEl("input", { type: "checkbox" });
+      const box = label.createEl("input", { type: "checkbox", attr: { "aria-label": "Flatten the form" } });
       box.checked = this.flattenFields;
       box.addEventListener("change", () => {
         this.flattenFields = box.checked;
@@ -76439,10 +76441,10 @@ class QuestionTrackerPlugin extends Plugin {
           return;
         }
         const wrap = card.createDiv({ cls: "qt-quiz-numeric" });
-        const attrs = { placeholder: "Your answer", "aria-label": question.question };
+        const attrs = { placeholder: "Your answer" };
         if (question.minSet) attrs.min = String(question.min);
         if (question.maxSet) attrs.max = String(question.max);
-        const input = wrap.createEl("input", { type: "number", cls: "qt-spr", attr: attrs });
+        const input = wrap.createEl("input", { type: "number", cls: "qt-spr", attr: { ...attrs, "aria-label": question.question } });
         if (question.step !== 1) input.setAttr("step", String(question.step));
         wrap.createEl("button", { cls: "qt-quiz-submit", text: "Check answer" }).addEventListener("click", async () => {
           if (done) return;
@@ -76469,7 +76471,7 @@ class QuestionTrackerPlugin extends Plugin {
 
       if (question.type === "text") {
         const wrap = card.createDiv({ cls: "qt-quiz-text" });
-        const input = wrap.createEl("input", { type: "text", cls: "qt-spr", attr: { placeholder: "Your answer" } });
+        const input = wrap.createEl("input", { type: "text", cls: "qt-spr", attr: { placeholder: "Your answer", "aria-label": question.question } });
         input.addEventListener("input", () => {
           if (!done) card.toggleClass("qt-quiz-typed", !!input.value.trim());
         });
@@ -85716,7 +85718,7 @@ class PracticeView extends ItemView {
           });
         }
         if (asSearch) {
-          const box2 = row.createEl("input", { type: "text", cls: "qt-fsearch", attr: { placeholder: "Search folders..." } });
+          const box2 = row.createEl("input", { type: "text", cls: "qt-fsearch", attr: { placeholder: "Search folders...", "aria-label": "Search folders" } });
           new FolderFilterSuggest(this.app, box2, () => counts.filter((c) => !chosen.includes(c.value)), (v) => toggle(v), st.questionFolder);
         }
         const chips = row.createDiv({ cls: "qt-fchips" });
@@ -86050,7 +86052,7 @@ class PracticeView extends ItemView {
     if (adaptive.enabled) {
       const adaptiveRow = root.createDiv({ cls: "qt-row qt-small-row" });
       const label = adaptiveRow.createEl("label", { cls: "qt-hint" });
-      const check = label.createEl("input", { type: "checkbox" });
+      const check = label.createEl("input", { type: "checkbox", attr: { "aria-label": "Use the recommended length" } });
       check.checked = useRecommended;
       label.createSpan({ text: " Use the recommended length" });
       check.addEventListener("change", async () => {
@@ -86615,7 +86617,7 @@ class PracticeView extends ItemView {
       const input = ans.createEl("input", {
         type: "text",
         cls: "qt-spr",
-        attr: { placeholder: fill ? "Type the missing word or phrase" : "Your answer" },
+        attr: { placeholder: fill ? "Type the missing word or phrase" : "Your answer", "aria-label": fill ? "Missing word or phrase" : "Your answer" },
       });
       input.value = this.sel;
       input.addEventListener("input", () => {
@@ -88080,7 +88082,7 @@ class PracticeView extends ItemView {
     root.createDiv({ cls: "qt-label", text: "Notes" });
     const ta = root.createEl("textarea", {
       cls: "qt-notes qt-notes-big",
-      attr: { rows: "9", placeholder: "Saved to your individual question's file. Write why you missed it, the rule to remember, anything to review later..." },
+      attr: { rows: "9", placeholder: "Saved to your individual question's file. Write why you missed it, the rule to remember, anything to review later...", "aria-label": "Notes for this question" },
     });
     ta.value = this.notesText;
     ta.addEventListener("input", () => {
@@ -88095,8 +88097,8 @@ class PracticeView extends ItemView {
     const dflt = p.settings.explanationDefault;
     let expOpen = !!rat && (dflt === "show" || (dflt === "wrong" && !r.correct));
     let aiOpen = false;
-    const eb = pair.createEl("button", { cls: "qt-grow qt-exp-btn" });
-    const ab = pair.createEl("button", { cls: "qt-grow qt-exp-btn" });
+    const eb = pair.createEl("button", { cls: "qt-grow qt-exp-btn", attr: { "aria-label": "Show or hide the explanation" } });
+    const ab = pair.createEl("button", { cls: "qt-grow qt-exp-btn", attr: { "aria-label": "Show or hide the AI answer" } });
 
     const ex = root.createDiv({ cls: "qt-explanation" });
     if (rat) this.md(rat, ex.createDiv({ cls: "qt-stem" }), path);
@@ -89230,7 +89232,7 @@ class QuickAddModal extends Modal {
 
     this.box = el.createEl("textarea", {
       cls: "qt-quick-add",
-      attr: { rows: "14", placeholder: "Paste your questions here…", spellcheck: "false" },
+      attr: { rows: "14", placeholder: "Paste your questions here…", spellcheck: "false", "aria-label": "Pasted questions" },
     });
     this.box.value = this.text;
     this.box.addEventListener("input", () => {
@@ -89241,12 +89243,12 @@ class QuickAddModal extends Modal {
     const row = el.createDiv({ cls: "qt-row" });
     const folderWrap = row.createDiv({ cls: "qt-field qt-grow" });
     folderWrap.createEl("label", { text: "Folder" });
-    this.folderInput = folderWrap.createEl("input", { type: "text", attr: { placeholder: "Questions" } });
+    this.folderInput = folderWrap.createEl("input", { type: "text", attr: { placeholder: "Questions", "aria-label": "Folder" } });
     this.folderInput.value = this.folder;
     this.folderInput.addEventListener("input", () => (this.folder = this.folderInput.value));
     const courseWrap = row.createDiv({ cls: "qt-field qt-grow" });
     courseWrap.createEl("label", { text: "Course (optional)" });
-    this.courseInput = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. AP Biology" } });
+    this.courseInput = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. AP Biology", "aria-label": "Course" } });
     this.courseInput.value = this.course;
     this.courseInput.addEventListener("input", () => {
       this.course = this.courseInput.value;
@@ -89578,7 +89580,7 @@ class QuickAskModal extends Modal {
 
     if (this.context.text) {
       const noteRow = root.createEl("label", { cls: "qt-row qt-small-row qt-quick-note" });
-      this.noteToggle = noteRow.createEl("input", { type: "checkbox" });
+      this.noteToggle = noteRow.createEl("input", { type: "checkbox", attr: { "aria-label": "Include the full note" } });
       this.noteToggle.checked = this.includeNote;
       noteRow.appendText(" Include the full note (otherwise only the selection is sent)");
       this.noteToggle.addEventListener("change", () => {
@@ -89792,7 +89794,7 @@ class QuickChatModal extends Modal {
     });
     this.input = root.createEl("textarea", {
       cls: "qt-chat-input qt-quick-chat-input",
-      attr: { rows: "3", placeholder: "Ask a quick question..." },
+      attr: { rows: "3", placeholder: "Ask a quick question...", "aria-label": "Quick Chat question" },
     });
     this.input.value = this.initialPrompt;
     this.input.addEventListener("keydown", (event) => {
@@ -91211,7 +91213,7 @@ class QuizGeneratorModal extends Modal {
     types.createEl("label", { text: "Question types" });
     for (const type of QUIZ_TYPES) {
       const label = types.createEl("label", { cls: "qt-check" });
-      const box = label.createEl("input", { type: "checkbox" });
+      const box = label.createEl("input", { type: "checkbox", attr: { "aria-label": type.label } });
       box.checked = this.types.includes(type.id);
       box.addEventListener("change", () => {
         this.types = this.types.includes(type.id) ? this.types.filter((id) => id !== type.id) : [...this.types, type.id];
@@ -91657,7 +91659,7 @@ function renderQuizMakerBlock(plugin, source, el, ctx) {
       }
     } else if (question.type === "correction") {
       const row = card.createDiv({ cls: "qt-quiz-maker-input" });
-      const input = row.createEl("input", { type: "text", attr: { placeholder: "Type the correction" } });
+      const input = row.createEl("input", { type: "text", attr: { placeholder: "Type the correction", "aria-label": "Your correction" } });
       row.createEl("button", { text: "Check" }).addEventListener("click", () => show(gradeQuizMakerQuestion(question, input.value)));
     } else {
       const choices = card.createDiv({ cls: "qt-quiz-maker-choices" });
@@ -99703,7 +99705,7 @@ class ReferenceView extends ItemView {
   renderPeriodic(root) {
     const search = root.createEl("input", {
       cls: "qt-ref-search",
-      attr: { type: "search", placeholder: "Search by name, symbol or atomic number" },
+      attr: { type: "search", placeholder: "Search by name, symbol or atomic number", "aria-label": "Search elements" },
     });
     search.value = this.elementQuery;
     search.addEventListener("input", () => {
@@ -99778,7 +99780,7 @@ class ReferenceView extends ItemView {
     });
     const input = root.createEl("input", {
       cls: "qt-ref-search",
-      attr: { type: "text", placeholder: "SMILES (for example: c1ccccc1, CCO, CC(=O)O)" },
+      attr: { type: "text", placeholder: "SMILES (for example: c1ccccc1, CCO, CC(=O)O)", "aria-label": "SMILES string" },
     });
     input.value = this.smilesInput;
     const preview = root.createDiv({ cls: "qt-ref-smiles" });
@@ -99813,7 +99815,7 @@ class ReferenceView extends ItemView {
   renderFormulas(root) {
     const search = root.createEl("input", {
       cls: "qt-ref-search",
-      attr: { type: "search", placeholder: "Search formulas (e.g. quadratic)" },
+      attr: { type: "search", placeholder: "Search formulas (e.g. quadratic)", "aria-label": "Search formulas" },
     });
     search.value = this.query;
     search.addEventListener("input", () => {
@@ -99934,7 +99936,7 @@ class ReferenceView extends ItemView {
   renderConstants(root) {
     const search = root.createEl("input", {
       cls: "qt-ref-search",
-      attr: { type: "search", placeholder: "Search constants" },
+      attr: { type: "search", placeholder: "Search constants", "aria-label": "Search constants" },
     });
     search.value = this.constantQuery;
     search.addEventListener("input", () => {
@@ -100204,7 +100206,7 @@ class ReferenceView extends ItemView {
   renderCodonTable(root) {
     const search = root.createEl("input", {
       cls: "qt-ref-search",
-      attr: { type: "search", placeholder: "Search a codon or amino acid (for example: AUG, methionine)" },
+      attr: { type: "search", placeholder: "Search a codon or amino acid (for example: AUG, methionine)", "aria-label": "Search codons or amino acids" },
     });
     search.value = this.codonQuery;
     search.addEventListener("input", () => {
@@ -100302,7 +100304,7 @@ class ReferenceView extends ItemView {
     source.addEventListener("click", () => openExternal(pack.resources[0].url));
     const unitWrap = controls.createDiv({ cls: "qt-ap-unit" });
     unitWrap.createEl("label", { cls: "qt-ap-label", text: "Unit" });
-    const unit = unitWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Unit 3" } });
+    const unit = unitWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Unit 3", "aria-label": "Unit" } });
     unit.value = this.apResourceUnit;
     unit.addEventListener("input", () => (this.apResourceUnit = unit.value));
 
@@ -113977,6 +113979,7 @@ class StudyStatusModal extends Modal {
       type: "search",
       cls: "qt-status-search",
       placeholder: "Search title, course, deck or type",
+      "aria-label": "Search study status",
     });
     search.value = this.query;
     search.addEventListener("input", () => {
@@ -115797,7 +115800,7 @@ class StudyToolsView extends ItemView {
     const bulkCard = root.createDiv({ cls: "qt-study-card" });
     bulkCard.createEl("h3", { text: "Bulk add" });
     bulkCard.createDiv({ cls: "qt-hint", text: "One lecture per line: Course | YYYY-MM-DD | Lecture title | Optional topics" });
-    const textarea = bulkCard.createEl("textarea", { cls: "qt-study-bulk" });
+    const textarea = bulkCard.createEl("textarea", { cls: "qt-study-bulk", attr: { "aria-label": "Pasted lectures" } });
     textarea.placeholder = "Biology | 2026-11-02 | Cellular respiration | glycolysis, Krebs cycle";
     textarea.rows = 4;
     const bulkActions = bulkCard.createDiv({ cls: "qt-row qt-study-actions" });
@@ -118906,7 +118909,7 @@ class StudyWorkspaceView extends ItemView {
     });
     const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
     const importButton = actions.createEl("button", { text: "Import WordNet files", cls: "mod-cta" });
-    const input = card.createEl("input", { cls: "qt-hidden", attr: { type: "file", accept: ".noun,.verb,.adj,.adv", multiple: "" } });
+    const input = card.createEl("input", { cls: "qt-hidden", attr: { type: "file", accept: ".noun,.verb,.adj,.adv", multiple: "", "aria-label": "WordNet import files" } });
     input.style.display = "none";
     importButton.addEventListener("click", () => input.click());
     input.addEventListener("change", async () => {
@@ -121117,7 +121120,7 @@ class TableCsvModal extends Modal {
     el.empty();
     el.createEl("h2", { text: "Export table as CSV" });
     const label = el.createEl("label", { cls: "qt-table-csv-toggle" });
-    const checkbox = label.createEl("input");
+    const checkbox = label.createEl("input", { attr: { "aria-label": "Include table headers" } });
     checkbox.type = "checkbox";
     checkbox.checked = this.includeHeader;
     label.createSpan({ text: "Include table headers" });
@@ -131865,6 +131868,35 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.299.4",
+    date: "November 9, 2026",
+    title: "Every field has a name",
+    summary:
+      "A whole-surface pass names the remaining form fields and icon-only buttons, so a screen reader announces what each control does instead of reading a placeholder.",
+    highlights: [
+      {
+        title: "Named fields everywhere",
+        body: "The card editor, deck imports, exam builder, practice answers, PDF editor, reference searches, Quick add, Quick Chat and the Study agent all name their controls.",
+      },
+      {
+        title: "Placeholders are hints again",
+        body: "Text like e.g. BIOL 201 or Your answer stays visible as an example, but it is no longer the only thing describing the field.",
+      },
+      {
+        title: "Buttons speak",
+        body: "Icon-only and text-less buttons carry a real name, including the practice explanation and AI toggles and the PDF editor history controls.",
+      },
+      {
+        title: "Enforced by tests",
+        body: "A static audit reads every input, textarea, select and button in the source and fails the suite when a new one has no accessible name.",
+      },
+      {
+        title: "Nothing else changed",
+        body: "No note format, review schedule, setting, data path or network request changed. Every label is additive.",
+      },
+    ],
+  },
   {
     version: "1.299.3",
     date: "November 9, 2026",

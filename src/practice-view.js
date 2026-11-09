@@ -809,7 +809,7 @@ class PracticeView extends ItemView {
           });
         }
         if (asSearch) {
-          const box2 = row.createEl("input", { type: "text", cls: "qt-fsearch", attr: { placeholder: "Search folders..." } });
+          const box2 = row.createEl("input", { type: "text", cls: "qt-fsearch", attr: { placeholder: "Search folders...", "aria-label": "Search folders" } });
           new FolderFilterSuggest(this.app, box2, () => counts.filter((c) => !chosen.includes(c.value)), (v) => toggle(v), st.questionFolder);
         }
         const chips = row.createDiv({ cls: "qt-fchips" });
@@ -1143,7 +1143,7 @@ class PracticeView extends ItemView {
     if (adaptive.enabled) {
       const adaptiveRow = root.createDiv({ cls: "qt-row qt-small-row" });
       const label = adaptiveRow.createEl("label", { cls: "qt-hint" });
-      const check = label.createEl("input", { type: "checkbox" });
+      const check = label.createEl("input", { type: "checkbox", attr: { "aria-label": "Use the recommended length" } });
       check.checked = useRecommended;
       label.createSpan({ text: " Use the recommended length" });
       check.addEventListener("change", async () => {
@@ -1708,7 +1708,7 @@ class PracticeView extends ItemView {
       const input = ans.createEl("input", {
         type: "text",
         cls: "qt-spr",
-        attr: { placeholder: fill ? "Type the missing word or phrase" : "Your answer" },
+        attr: { placeholder: fill ? "Type the missing word or phrase" : "Your answer", "aria-label": fill ? "Missing word or phrase" : "Your answer" },
       });
       input.value = this.sel;
       input.addEventListener("input", () => {
@@ -3173,7 +3173,7 @@ class PracticeView extends ItemView {
     root.createDiv({ cls: "qt-label", text: "Notes" });
     const ta = root.createEl("textarea", {
       cls: "qt-notes qt-notes-big",
-      attr: { rows: "9", placeholder: "Saved to your individual question's file. Write why you missed it, the rule to remember, anything to review later..." },
+      attr: { rows: "9", placeholder: "Saved to your individual question's file. Write why you missed it, the rule to remember, anything to review later...", "aria-label": "Notes for this question" },
     });
     ta.value = this.notesText;
     ta.addEventListener("input", () => {
@@ -3188,8 +3188,8 @@ class PracticeView extends ItemView {
     const dflt = p.settings.explanationDefault;
     let expOpen = !!rat && (dflt === "show" || (dflt === "wrong" && !r.correct));
     let aiOpen = false;
-    const eb = pair.createEl("button", { cls: "qt-grow qt-exp-btn" });
-    const ab = pair.createEl("button", { cls: "qt-grow qt-exp-btn" });
+    const eb = pair.createEl("button", { cls: "qt-grow qt-exp-btn", attr: { "aria-label": "Show or hide the explanation" } });
+    const ab = pair.createEl("button", { cls: "qt-grow qt-exp-btn", attr: { "aria-label": "Show or hide the AI answer" } });
 
     const ex = root.createDiv({ cls: "qt-explanation" });
     if (rat) this.md(rat, ex.createDiv({ cls: "qt-stem" }), path);

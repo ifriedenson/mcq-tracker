@@ -37,6 +37,7 @@ class StudyStatusModal extends Modal {
       type: "search",
       cls: "qt-status-search",
       placeholder: "Search title, course, deck or type",
+      "aria-label": "Search study status",
     });
     search.value = this.query;
     search.addEventListener("input", () => {

@@ -713,7 +713,7 @@ class PdfImportModal extends Modal {
     };
     items.forEach((q) => {
       const row = list.createDiv({ cls: "qt-imp-row" });
-      const cb = row.createEl("input", { type: "checkbox" });
+      const cb = row.createEl("input", { type: "checkbox", attr: { "aria-label": "Include this question" } });
       cb.checked = q.include;
       cb.addEventListener("change", () => {
         q.include = cb.checked;

@@ -1616,7 +1616,7 @@ class StudyWorkspaceView extends ItemView {
     });
     const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
     const importButton = actions.createEl("button", { text: "Import WordNet files", cls: "mod-cta" });
-    const input = card.createEl("input", { cls: "qt-hidden", attr: { type: "file", accept: ".noun,.verb,.adj,.adv", multiple: "" } });
+    const input = card.createEl("input", { cls: "qt-hidden", attr: { type: "file", accept: ".noun,.verb,.adj,.adv", multiple: "", "aria-label": "WordNet import files" } });
     input.style.display = "none";
     importButton.addEventListener("click", () => input.click());
     input.addEventListener("change", async () => {

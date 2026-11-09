@@ -24,26 +24,26 @@ class ImageOcclusionModal extends Modal {
 
     const deckWrap = contentEl.createDiv({ cls: "qt-field" });
     deckWrap.createEl("label", { text: "Deck" });
-    const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Biology" } });
+    const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Biology", "aria-label": "Deck" } });
     deck.value = str(this.options.deck || p.settings.cards.defaultDeck || "General").trim();
 
     const courseWrap = contentEl.createDiv({ cls: "qt-field" });
     courseWrap.createEl("label", { text: "Course (optional)" });
-    const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201" } });
+    const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201", "aria-label": "Course" } });
     course.value = str(this.options.course).trim();
 
     const imageWrap = contentEl.createDiv({ cls: "qt-field" });
     imageWrap.createEl("label", { text: "Image path" });
     const image = imageWrap.createEl("input", {
       type: "text",
-      attr: { placeholder: "diagrams/cell.png or ![[cell.png]]" },
+      attr: { placeholder: "diagrams/cell.png or ![[cell.png]]", "aria-label": "Image path" },
     });
 
     const promptWrap = contentEl.createDiv({ cls: "qt-field" });
     promptWrap.createEl("label", { text: "Prompt" });
     const prompt = promptWrap.createEl("input", {
       type: "text",
-      attr: { placeholder: "What is hidden in the highlighted area?" },
+      attr: { placeholder: "What is hidden in the highlighted area?", "aria-label": "Prompt" },
     });
     prompt.value = "What is hidden in the highlighted area?";
 
@@ -53,6 +53,7 @@ class ImageOcclusionModal extends Modal {
       attr: {
         rows: "6",
         placeholder: "20, 30, 15, 10, Nucleus\n55, 60, 12, 10, Mitochondrion",
+        "aria-label": "Masks, one per line",
       },
     });
     masksWrap.createDiv({

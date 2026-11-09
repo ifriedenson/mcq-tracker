@@ -337,7 +337,7 @@ class TestView extends ItemView {
       sectionRows.empty();
       draft.forEach((section, i) => {
         const row = sectionRows.createDiv({ cls: "qt-row qt-section-row" });
-        const name = row.createEl("input", { type: "text", cls: "qt-fsearch", attr: { placeholder: `Section ${i + 1}` } });
+        const name = row.createEl("input", { type: "text", cls: "qt-fsearch", attr: { placeholder: `Section ${i + 1}`, "aria-label": `Section ${i + 1} name` } });
         name.value = section.name || `Section ${i + 1}`;
         name.addEventListener("input", () => (section.name = name.value));
         const count = row.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", max: "200", "aria-label": `Questions in section ${i + 1}` } });
@@ -371,22 +371,22 @@ class TestView extends ItemView {
 
     root.createDiv({ cls: "qt-label", text: "Question range (optional)" });
     const rangeRow = root.createDiv({ cls: "qt-row qt-range" });
-    const fromIn = rangeRow.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", placeholder: "From" } });
+    const fromIn = rangeRow.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", placeholder: "From", "aria-label": "First question" } });
     fromIn.value = String(d.from || 1);
-    const toIn = rangeRow.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", placeholder: "To (last)" } });
+    const toIn = rangeRow.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", placeholder: "To (last)", "aria-label": "Last question" } });
     toIn.value = d.to ? String(d.to) : "";
     root.createDiv({ cls: "qt-hint", text: "Use a range for Bluebook-style section practice, for example 1 to 20. Leave To empty to use the last question." });
 
     root.createDiv({ cls: "qt-label", text: "Test options" });
     const optionsRow = root.createDiv({ cls: "qt-row qt-test-options" });
     const shuffleWrap = optionsRow.createEl("label", { cls: "qt-test-option" });
-    const shuffleIn = shuffleWrap.createEl("input", { type: "checkbox" });
+    const shuffleIn = shuffleWrap.createEl("input", { type: "checkbox", attr: { "aria-label": "Shuffle answer choices" } });
     shuffleIn.checked = this.shuffleDraft === null ? !!d.shuffleChoices : !!this.shuffleDraft;
     shuffleWrap.createSpan({ text: " Shuffle answer choices" });
     shuffleIn.addEventListener("change", () => (this.shuffleDraft = !!shuffleIn.checked));
     const passWrap = optionsRow.createEl("label", { cls: "qt-test-option" });
     passWrap.createSpan({ text: "Pass score % " });
-    const passIn = passWrap.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "0", max: "100", placeholder: "None" } });
+    const passIn = passWrap.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "0", max: "100", placeholder: "None", "aria-label": "Pass score percentage" } });
     const passDraft = this.passDraft === null ? normalizePassScore(d.passScore) : normalizePassScore(this.passDraft);
     passIn.value = passDraft ? String(passDraft) : "";
     passIn.addEventListener("input", () => (this.passDraft = normalizePassScore(passIn.value)));
@@ -398,7 +398,7 @@ class TestView extends ItemView {
 
     root.createDiv({ cls: "qt-label", text: "Written responses (FRQ)" });
     const frqRow = root.createDiv({ cls: "qt-row qt-range" });
-    const frqIn = frqRow.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "0", max: "20", placeholder: "0" } });
+    const frqIn = frqRow.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "0", max: "20", placeholder: "0", "aria-label": "Written response count" } });
     frqIn.value = String(this.frqDraft === null ? Math.max(0, Number(d.frq) || 0) : this.frqDraft);
     frqIn.addEventListener("input", () => {
       this.frqDraft = Math.max(0, Math.min(20, parseInt(frqIn.value, 10) || 0));
@@ -711,7 +711,7 @@ class TestView extends ItemView {
     } else if (it.mode === "frq") {
       const area = ans.createEl("textarea", {
         cls: "qt-frq-answer",
-        attr: { placeholder: "Type your free-response answer. OS voice dictation works here.", rows: "10" },
+        attr: { placeholder: "Type your free-response answer. OS voice dictation works here.", rows: "10", "aria-label": "Your free-response answer" },
       });
       area.value = it.sel;
       area.addEventListener("input", () => {
@@ -721,7 +721,7 @@ class TestView extends ItemView {
       area.addEventListener("change", () => this.persist());
       ans.createDiv({ cls: "qt-hint", text: "This response is graded after the test against the rubric in its note. It is not scored automatically." });
     } else {
-      const input = ans.createEl("input", { type: "text", cls: "qt-spr", attr: { placeholder: "Your answer" } });
+      const input = ans.createEl("input", { type: "text", cls: "qt-spr", attr: { placeholder: "Your answer", "aria-label": "Your answer" } });
       input.value = it.sel;
       input.addEventListener("input", () => {
         it.sel = input.value.trim();

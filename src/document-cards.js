@@ -158,7 +158,7 @@ class DocumentCardsModal extends Modal {
     this.deckInput = deckRow.createEl("input", { type: "text", attr: { placeholder: "Imported", "aria-label": "Deck" } });
     this.deckInput.value = str(this.options.deck).trim() || str(this.plugin.settings.cards.defaultDeck).trim() || "Imported";
     const aiLabel = this.contentEl.createEl("label", { cls: "qt-row" });
-    this.aiInput = aiLabel.createEl("input", { type: "checkbox" });
+    this.aiInput = aiLabel.createEl("input", { type: "checkbox", attr: { "aria-label": "Use AI only if local extraction finds no cards" } });
     aiLabel.appendText(" Use AI only if local extraction finds no cards");
     const scan = this.contentEl.createEl("button", { text: "Preview cards", cls: "mod-cta" });
     scan.addEventListener("click", () => this.scan());

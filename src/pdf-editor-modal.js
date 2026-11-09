@@ -1743,7 +1743,7 @@ class PdfEditorModal extends Modal {
     host.empty();
     if (this.annotations.length) {
       const label = host.createEl("label", { cls: "qt-pdf-editor-option" });
-      const box = label.createEl("input", { type: "checkbox" });
+      const box = label.createEl("input", { type: "checkbox", attr: { "aria-label": "Burn annotations into the copy" } });
       box.checked = this.flattenMarks;
       box.addEventListener("change", () => {
         this.flattenMarks = box.checked;
@@ -1752,7 +1752,7 @@ class PdfEditorModal extends Modal {
     }
     if (this.fields.length) {
       const label = host.createEl("label", { cls: "qt-pdf-editor-option" });
-      const box = label.createEl("input", { type: "checkbox" });
+      const box = label.createEl("input", { type: "checkbox", attr: { "aria-label": "Flatten the form" } });
       box.checked = this.flattenFields;
       box.addEventListener("change", () => {
         this.flattenFields = box.checked;

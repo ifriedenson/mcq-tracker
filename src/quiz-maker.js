@@ -293,7 +293,7 @@ function renderQuizMakerBlock(plugin, source, el, ctx) {
       }
     } else if (question.type === "correction") {
       const row = card.createDiv({ cls: "qt-quiz-maker-input" });
-      const input = row.createEl("input", { type: "text", attr: { placeholder: "Type the correction" } });
+      const input = row.createEl("input", { type: "text", attr: { placeholder: "Type the correction", "aria-label": "Your correction" } });
       row.createEl("button", { text: "Check" }).addEventListener("click", () => show(gradeQuizMakerQuestion(question, input.value)));
     } else {
       const choices = card.createDiv({ cls: "qt-quiz-maker-choices" });

@@ -44,18 +44,18 @@ class CardExtractModal extends Modal {
 
     const deckWrap = contentEl.createDiv({ cls: "qt-field" });
     deckWrap.createEl("label", { text: "Deck" });
-    const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Biology" } });
+    const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Biology", "aria-label": "Deck" } });
     deck.value = preview.deck || "";
 
     const courseWrap = contentEl.createDiv({ cls: "qt-field" });
     courseWrap.createEl("label", { text: "Course tag (optional)" });
-    const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201" } });
+    const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201", "aria-label": "Course" } });
     course.value = preview.course || "";
 
     const seedWrap = contentEl.createDiv({ cls: "qt-field" });
     seedWrap.createEl("label", { text: "Order seed (optional)" });
     const seedRow = seedWrap.createDiv({ cls: "qt-row" });
-    const seed = seedRow.createEl("input", { type: "text", attr: { placeholder: "e.g. midterm-1" } });
+    const seed = seedRow.createEl("input", { type: "text", attr: { placeholder: "e.g. midterm-1", "aria-label": "Import seed" } });
     seed.value = preview.seed || "";
     const reorder = seedRow.createEl("button", { text: "Preview seed" });
     seedWrap.createDiv({

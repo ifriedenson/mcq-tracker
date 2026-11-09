@@ -32,7 +32,7 @@ class TableCsvModal extends Modal {
     el.empty();
     el.createEl("h2", { text: "Export table as CSV" });
     const label = el.createEl("label", { cls: "qt-table-csv-toggle" });
-    const checkbox = label.createEl("input");
+    const checkbox = label.createEl("input", { attr: { "aria-label": "Include table headers" } });
     checkbox.type = "checkbox";
     checkbox.checked = this.includeHeader;
     label.createSpan({ text: "Include table headers" });

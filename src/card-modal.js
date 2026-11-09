@@ -63,16 +63,16 @@ class CardModal extends Modal {
 
     const newDeckWrap = contentEl.createDiv({ cls: "qt-field qt-hidden" });
     newDeckWrap.createEl("label", { text: "New deck name" });
-    const newDeck = newDeckWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Spanish verbs" } });
+    const newDeck = newDeckWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Spanish verbs", "aria-label": "New deck name" } });
     newDeckWrap.createEl("label", { text: "Deck folder (optional)" });
     const newDeckFolder = newDeckWrap.createEl("input", {
       type: "text",
-      attr: { placeholder: "Defaults to Cards/<deck name>" },
+      attr: { placeholder: "Defaults to Cards/<deck name>", "aria-label": "Deck folder" },
     });
     newDeckWrap.createEl("label", { text: "Deck course (optional)" });
     const newDeckCourse = newDeckWrap.createEl("input", {
       type: "text",
-      attr: { placeholder: "e.g. BIOL 201" },
+      attr: { placeholder: "e.g. BIOL 201", "aria-label": "Deck course" },
     });
     newDeckWrap.createDiv({
       cls: "qt-hint",
@@ -81,7 +81,7 @@ class CardModal extends Modal {
 
     const courseWrap = contentEl.createDiv({ cls: "qt-field" });
     courseWrap.createEl("label", { text: "Course (optional)" });
-    const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201" } });
+    const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201", "aria-label": "Course" } });
     course.value = this.course;
 
     const schedulerWrap = contentEl.createDiv({ cls: "qt-field" });
@@ -107,12 +107,12 @@ class CardModal extends Modal {
 
     const frontWrap = contentEl.createDiv({ cls: "qt-field" });
     const frontLabel = frontWrap.createEl("label", { text: "Front" });
-    const front = frontWrap.createEl("textarea", { attr: { rows: "3", placeholder: "What should the card ask?" } });
+    const front = frontWrap.createEl("textarea", { attr: { rows: "3", placeholder: "What should the card ask?", "aria-label": "Card front" } });
     front.value = this.initialFront;
 
     const backWrap = contentEl.createDiv({ cls: "qt-field" });
     const backLabel = backWrap.createEl("label", { text: "Back" });
-    const back = backWrap.createEl("textarea", { attr: { rows: "3", placeholder: "The answer" } });
+    const back = backWrap.createEl("textarea", { attr: { rows: "3", placeholder: "The answer", "aria-label": "Card back" } });
     back.value = this.initialBack;
 
     const expectationWrap = contentEl.createDiv({ cls: "qt-field" });
@@ -120,11 +120,11 @@ class CardModal extends Modal {
     const expectations = expectationWrap.createDiv({ cls: "qt-row" });
     const frontExpectation = expectations.createEl("input", {
       type: "text",
-      attr: { placeholder: "Front expectation, e.g. capital city" },
+      attr: { placeholder: "Front expectation, e.g. capital city", "aria-label": "Front expectation" },
     });
     const backExpectation = expectations.createEl("input", {
       type: "text",
-      attr: { placeholder: "Back expectation, e.g. country" },
+      attr: { placeholder: "Back expectation, e.g. country", "aria-label": "Back expectation" },
     });
 
     const previewWrap = contentEl.createDiv({ cls: "qt-field" });
@@ -142,8 +142,8 @@ class CardModal extends Modal {
     const metaWrap = contentDiv(contentEl, "qt-field qt-hidden");
     metaWrap.createEl("label", { text: "Part of speech and language (optional)" });
     const meta = metaWrap.createDiv({ cls: "qt-row" });
-    const pos = meta.createEl("input", { type: "text", attr: { placeholder: "noun" } });
-    const language = meta.createEl("input", { type: "text", attr: { placeholder: "Spanish" } });
+    const pos = meta.createEl("input", { type: "text", attr: { placeholder: "noun", "aria-label": "Part of speech" } });
+    const language = meta.createEl("input", { type: "text", attr: { placeholder: "Spanish", "aria-label": "Language" } });
 
     const applyKind = () => {
       const vocab = this.kind === "vocab";

@@ -191,7 +191,7 @@ class FrqGraderModal extends Modal {
     root.createEl("h4", { text: "Your answer" });
     const area = root.createEl("textarea", {
       cls: "qt-frq-answer",
-      attr: { placeholder: "Type your free-response answer. OS voice dictation works here on desktop and mobile.", rows: "10" },
+      attr: { placeholder: "Type your free-response answer. OS voice dictation works here on desktop and mobile.", rows: "10", "aria-label": "Your answer" },
     });
     area.value = this.answer;
     area.addEventListener("input", () => {
@@ -209,7 +209,7 @@ class FrqGraderModal extends Modal {
     });
 
     const photoRow = root.createDiv({ cls: "qt-row qt-frq-photo" });
-    const photoInput = photoRow.createEl("input", { type: "file", attr: { multiple: "true", accept: "image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif" } });
+    const photoInput = photoRow.createEl("input", { type: "file", attr: { multiple: "true", accept: "image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif", "aria-label": "Photos of handwritten work" } });
     photoInput.hidden = true;
     const support = this.plugin.handwritingPhotoSupport ? this.plugin.handwritingPhotoSupport() : { ok: false, reason: "" };
     const readPhoto = photoRow.createEl("button", {

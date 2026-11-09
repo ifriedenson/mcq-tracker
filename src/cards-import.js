@@ -2225,7 +2225,7 @@ class CardImportModal extends Modal {
 
     const typeWrap = contentEl.createDiv({ cls: "qt-field" });
     typeWrap.createEl("label", { text: "Source" });
-    const type = typeWrap.createEl("select", { cls: "dropdown" });
+    const type = typeWrap.createEl("select", { cls: "dropdown", attr: { "aria-label": "Import source" } });
     type.createEl("option", { text: "Spaced Repetition notes in this vault", value: "spaced" });
     type.createEl("option", { text: "Mochi Markdown folder", value: "mochi" });
     type.createEl("option", { text: "LearnKit note or folder", value: "learnkit" });
@@ -2248,7 +2248,7 @@ class CardImportModal extends Modal {
 
     const sourceWrap = contentEl.createDiv({ cls: "qt-field" });
     const sourceLabel = sourceWrap.createEl("label", { text: "Folder" });
-    const source = sourceWrap.createEl("select", { cls: "dropdown" });
+    const source = sourceWrap.createEl("select", { cls: "dropdown", attr: { "aria-label": "Import file or folder" } });
 
     const deviceWrap = contentEl.createDiv({ cls: "qt-field qt-device-pdf" });
     deviceWrap.createEl("label", { text: "Or choose a PDF from this device" });
@@ -2256,7 +2256,7 @@ class CardImportModal extends Modal {
     const chooseDevice = deviceRow.createEl("button", { text: "Choose PDF from device...", cls: "qt-grow" });
     const clearDevice = deviceRow.createEl("button", { text: "Use a vault file", cls: "qt-grow" });
     const deviceNote = deviceWrap.createDiv({ cls: "qt-hint" });
-    const deviceInput = createEl("input", { type: "file", attr: { accept: ".pdf,application/pdf" } });
+    const deviceInput = createEl("input", { type: "file", attr: { accept: ".pdf,application/pdf", "aria-label": "Choose a PDF from this device" } });
     deviceInput.hidden = true;
     deviceWrap.appendChild(deviceInput);
     const updateDevice = () => {
@@ -2338,16 +2338,16 @@ class CardImportModal extends Modal {
 
     const deckWrap = contentEl.createDiv({ cls: "qt-field" });
     deckWrap.createEl("label", { text: "Fallback deck (source deck wins when present)" });
-    const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: p.settings.cards.defaultDeck || "Imported" } });
+    const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: p.settings.cards.defaultDeck || "Imported", "aria-label": "Fallback deck" } });
     if (this.options.deck) deck.value = this.options.deck;
     const courseWrap = contentEl.createDiv({ cls: "qt-field" });
     courseWrap.createEl("label", { text: "Course tag (optional)" });
-    const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201" } });
+    const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201", "aria-label": "Course tag" } });
     if (this.options.course) course.value = this.options.course;
 
     const duplicateWrap = contentEl.createDiv({ cls: "qt-field" });
     duplicateWrap.createEl("label", { text: "If an import key already exists" });
-    const duplicateMode = duplicateWrap.createEl("select", { cls: "dropdown" });
+    const duplicateMode = duplicateWrap.createEl("select", { cls: "dropdown", attr: { "aria-label": "Duplicate handling" } });
     duplicateMode.createEl("option", { text: "Skip duplicates", value: "skip" });
     duplicateMode.createEl("option", { text: "Update the existing card", value: "update" });
     duplicateMode.createEl("option", { text: "Create a copy", value: "copy" });
@@ -2357,12 +2357,12 @@ class CardImportModal extends Modal {
     const csvSection = contentEl.createDiv({ cls: "qt-csv-section" });
     const csvGrid = csvSection.createDiv({ cls: "qt-csv-mapping" });
     const csvHeaderWrap = csvSection.createDiv({ cls: "qt-field" });
-    const csvHeader = csvHeaderWrap.createEl("input", { type: "checkbox" });
+    const csvHeader = csvHeaderWrap.createEl("input", { type: "checkbox", attr: { "aria-label": "First row is a header" } });
     csvHeader.checked = true;
     csvHeaderWrap.createEl("label", { text: "First row is a header" });
     const csvPreview = csvSection.createDiv({ cls: "qt-csv-preview" });
     const saveMappingWrap = contentEl.createDiv({ cls: "qt-csv-save" });
-    const saveMapping = saveMappingWrap.createEl("input", { type: "checkbox" });
+    const saveMapping = saveMappingWrap.createEl("input", { type: "checkbox", attr: { "aria-label": "Remember this mapping" } });
     saveMapping.checked = true;
     saveMappingWrap.createEl("label", { text: "Remember this mapping for the same column headers" });
 
@@ -2371,7 +2371,7 @@ class CardImportModal extends Modal {
       for (const [field] of GENERIC_FIELDS) {
         const line = csvGrid.createDiv({ cls: "qt-csv-map-row" });
         line.createEl("label", { text: GENERIC_LABELS[field] });
-        const select = line.createEl("select", { cls: "dropdown" });
+        const select = line.createEl("select", { cls: "dropdown", attr: { "aria-label": `${GENERIC_LABELS[field]} column` } });
         select.createEl("option", { text: "Not imported", value: "-1" });
         parsed.headers.forEach((header, i) => select.createEl("option", { text: `${i + 1}. ${header}`, value: String(i) }));
         const current = this.csvMapping && this.csvMapping[field] !== undefined && this.csvMapping[field] !== null ? Number(this.csvMapping[field]) : -1;
@@ -2537,7 +2537,7 @@ class CardImportModal extends Modal {
       }
       if (details.length > 8) diffBox.createDiv({ cls: "qt-hint", text: `…and ${details.length - 8} more.` });
       const confirmWrap = diffBox.createDiv({ cls: "qt-write-preview-confirm" });
-      const reviewed = confirmWrap.createEl("input", { type: "checkbox" });
+      const reviewed = confirmWrap.createEl("input", { type: "checkbox", attr: { "aria-label": "I reviewed these updates" } });
       reviewed.checked = !!this.reviewedUpdates;
       confirmWrap.createEl("label", { text: "I reviewed these updates" });
       reviewed.addEventListener("change", () => {
@@ -2722,7 +2722,7 @@ class CardExportModal extends Modal {
 
     const wrap = contentEl.createDiv({ cls: "qt-field" });
     wrap.createEl("label", { text: "Format" });
-    const format = wrap.createEl("select", { cls: "dropdown" });
+    const format = wrap.createEl("select", { cls: "dropdown", attr: { "aria-label": "Export format" } });
     format.createEl("option", { text: "Quizlet text", value: "quizlet" });
     format.createEl("option", { text: "Anki text", value: "anki" });
     format.createEl("option", { text: "Anki package (.apkg)", value: "apkg" });

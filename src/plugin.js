@@ -6993,10 +6993,10 @@ class QuestionTrackerPlugin extends Plugin {
           return;
         }
         const wrap = card.createDiv({ cls: "qt-quiz-numeric" });
-        const attrs = { placeholder: "Your answer", "aria-label": question.question };
+        const attrs = { placeholder: "Your answer" };
         if (question.minSet) attrs.min = String(question.min);
         if (question.maxSet) attrs.max = String(question.max);
-        const input = wrap.createEl("input", { type: "number", cls: "qt-spr", attr: attrs });
+        const input = wrap.createEl("input", { type: "number", cls: "qt-spr", attr: { ...attrs, "aria-label": question.question } });
         if (question.step !== 1) input.setAttr("step", String(question.step));
         wrap.createEl("button", { cls: "qt-quiz-submit", text: "Check answer" }).addEventListener("click", async () => {
           if (done) return;
@@ -7023,7 +7023,7 @@ class QuestionTrackerPlugin extends Plugin {
 
       if (question.type === "text") {
         const wrap = card.createDiv({ cls: "qt-quiz-text" });
-        const input = wrap.createEl("input", { type: "text", cls: "qt-spr", attr: { placeholder: "Your answer" } });
+        const input = wrap.createEl("input", { type: "text", cls: "qt-spr", attr: { placeholder: "Your answer", "aria-label": question.question } });
         input.addEventListener("input", () => {
           if (!done) card.toggleClass("qt-quiz-typed", !!input.value.trim());
         });

@@ -2800,7 +2800,7 @@ class ReferenceView extends ItemView {
   renderPeriodic(root) {
     const search = root.createEl("input", {
       cls: "qt-ref-search",
-      attr: { type: "search", placeholder: "Search by name, symbol or atomic number" },
+      attr: { type: "search", placeholder: "Search by name, symbol or atomic number", "aria-label": "Search elements" },
     });
     search.value = this.elementQuery;
     search.addEventListener("input", () => {
@@ -2875,7 +2875,7 @@ class ReferenceView extends ItemView {
     });
     const input = root.createEl("input", {
       cls: "qt-ref-search",
-      attr: { type: "text", placeholder: "SMILES (for example: c1ccccc1, CCO, CC(=O)O)" },
+      attr: { type: "text", placeholder: "SMILES (for example: c1ccccc1, CCO, CC(=O)O)", "aria-label": "SMILES string" },
     });
     input.value = this.smilesInput;
     const preview = root.createDiv({ cls: "qt-ref-smiles" });
@@ -2910,7 +2910,7 @@ class ReferenceView extends ItemView {
   renderFormulas(root) {
     const search = root.createEl("input", {
       cls: "qt-ref-search",
-      attr: { type: "search", placeholder: "Search formulas (e.g. quadratic)" },
+      attr: { type: "search", placeholder: "Search formulas (e.g. quadratic)", "aria-label": "Search formulas" },
     });
     search.value = this.query;
     search.addEventListener("input", () => {
@@ -3031,7 +3031,7 @@ class ReferenceView extends ItemView {
   renderConstants(root) {
     const search = root.createEl("input", {
       cls: "qt-ref-search",
-      attr: { type: "search", placeholder: "Search constants" },
+      attr: { type: "search", placeholder: "Search constants", "aria-label": "Search constants" },
     });
     search.value = this.constantQuery;
     search.addEventListener("input", () => {
@@ -3301,7 +3301,7 @@ class ReferenceView extends ItemView {
   renderCodonTable(root) {
     const search = root.createEl("input", {
       cls: "qt-ref-search",
-      attr: { type: "search", placeholder: "Search a codon or amino acid (for example: AUG, methionine)" },
+      attr: { type: "search", placeholder: "Search a codon or amino acid (for example: AUG, methionine)", "aria-label": "Search codons or amino acids" },
     });
     search.value = this.codonQuery;
     search.addEventListener("input", () => {
@@ -3399,7 +3399,7 @@ class ReferenceView extends ItemView {
     source.addEventListener("click", () => openExternal(pack.resources[0].url));
     const unitWrap = controls.createDiv({ cls: "qt-ap-unit" });
     unitWrap.createEl("label", { cls: "qt-ap-label", text: "Unit" });
-    const unit = unitWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Unit 3" } });
+    const unit = unitWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Unit 3", "aria-label": "Unit" } });
     unit.value = this.apResourceUnit;
     unit.addEventListener("input", () => (this.apResourceUnit = unit.value));
 

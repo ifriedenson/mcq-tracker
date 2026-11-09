@@ -310,7 +310,7 @@ class StudyToolsView extends ItemView {
     const bulkCard = root.createDiv({ cls: "qt-study-card" });
     bulkCard.createEl("h3", { text: "Bulk add" });
     bulkCard.createDiv({ cls: "qt-hint", text: "One lecture per line: Course | YYYY-MM-DD | Lecture title | Optional topics" });
-    const textarea = bulkCard.createEl("textarea", { cls: "qt-study-bulk" });
+    const textarea = bulkCard.createEl("textarea", { cls: "qt-study-bulk", attr: { "aria-label": "Pasted lectures" } });
     textarea.placeholder = "Biology | 2026-11-02 | Cellular respiration | glycolysis, Krebs cycle";
     textarea.rows = 4;
     const bulkActions = bulkCard.createDiv({ cls: "qt-row qt-study-actions" });
