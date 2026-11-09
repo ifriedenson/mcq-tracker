@@ -1,9 +1,9 @@
 {
   "name": "mcq-tracker",
-  "version": "1.297.0",
+  "version": "1.298.0",
   "private": true,
   "license": "MIT",
-  "description": "Turn notes and PDFs into exam-style practice in Obsidian: seven question formats, spaced review, timed tests and cards. Every attempt stays on its note. Free, local-first, no telemetry.",
+  "description": "Turn notes and PDFs into exam-style practice: seven question formats, spaced review, timed tests and cards. Every attempt stays on its note. Free, local-first, no telemetry.",
   "scripts": {
     "build": "node scripts/build.js",
     "check": "node scripts/check-no-dynamic-code.js && node scripts/check-vendor.js && node scripts/build.js --check && node scripts/plan-status.js",

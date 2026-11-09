@@ -22,11 +22,18 @@ test("styles avoid browser features the release scanner flags", () => {
   const css = fs.readFileSync(path.join(root, "styles.css"), "utf8");
   assert.equal(css.includes(":has("), false, "SAT layout must use sibling selectors, not :has");
   assert.equal(css.includes("column-gap"), false, "use the supported gap shorthand");
+  assert.equal(css.includes("clip-path"), false, "clip-path is only partially supported by Obsidian 1.7.4");
   assert.equal(
     /text-decoration-(?:line|style|color|thickness)\s*:/.test(css),
     false,
     "use the text-decoration shorthand; the scanner flags its longhands",
   );
+});
+
+test("the manifest description passes the community listing rule", () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
+  assert.equal(/obsidian/i.test(manifest.description), false, "the listing rejects the word Obsidian in the description");
+  assert.ok(manifest.description.length > 40, "the description still explains the plugin");
 });
 
 test("styles avoid duplicate height declarations and !important", () => {

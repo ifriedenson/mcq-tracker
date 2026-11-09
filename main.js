@@ -131161,6 +131161,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.298.0",
+    date: "November 9, 2026",
+    title: "A cleaner community listing",
+    summary:
+      "A small follow-up clears the Community Plugins review's blocking manifest issue and its one stylesheet compatibility warning, with no new settings or note changes.",
+    highlights: [
+      {
+        title: "Listing description fixed",
+        body: "The plugin description no longer repeats the word Obsidian, which the Community Plugins review rejects as redundant in its directory context.",
+      },
+      {
+        title: "One stylesheet warning cleared",
+        body: "The exam flag marker now uses a supported rounded shape instead of clip-path, which the review flags as only partially supported in Obsidian 1.7.4.",
+      },
+      {
+        title: "Nothing else changed",
+        body: "Practice, imports, the AI connection wizard, review and every note format are unchanged, so existing questions keep working exactly as before.",
+      },
+      {
+        title: "Update as usual",
+        body: "Install the update from Community Plugins or the release page; there is no migration and no new setting to review.",
+      },
+    ],
+  },
+  {
     version: "1.297.0",
     date: "November 9, 2026",
     title: "A first import anyone can finish",

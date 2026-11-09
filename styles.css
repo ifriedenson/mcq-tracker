@@ -16740,10 +16740,10 @@ body.is-mobile .qt-review-sidebar-review, body.is-mobile .qt-review-sidebar-grad
   position: absolute;
   top: -5px;
   right: -5px;
-  width: 9px;
-  height: 11px;
+  width: 8px;
+  height: 8px;
   background: var(--color-red);
-  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%);
+  border-radius: 2px;
 }
 
 .qt-exam .qt-spr {
