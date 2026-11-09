@@ -525,7 +525,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `calendar-add-schedule` | Calendar: add an .ics schedule | `openCalendarImport` | `tests/command-effects.test.js` |
 | `calendar-note-next-class` | Calendar: create or open the note for the next class | `openNextClassNote` | `tests/command-effects.test.js` |
 | `calendar-export` | Calendar: export the visible schedule to .ics | `exportCalendarIcs` | `tests/calendar.test.js`, `tests/term-calendar.test.js` |
-| `open-cards` | Open cards | `activateCards` | `tests/cards.test.js`, `tests/plugin.test.js` |
+| `open-cards` | Open cards | `activateCards` | `tests/cards.test.js`, `tests/hotkey-cleanup.test.js`, `tests/plugin.test.js` |
 | `ankiweb-find-deck` | Cards: find a deck on AnkiWeb | `openAnkiWebSearch` | `tests/plugin.test.js` |
 | `open-assignments` | Open assignments and grades | `activateAssignments` | `tests/core-values.test.js`, `tests/plugin.test.js`, `tests/today.test.js` |
 | `open-study-tools` | Open Study Tools | `activateStudyTools` | `tests/plugin.test.js` |

@@ -2,6 +2,7 @@
 const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const { Modal, Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
+const { releaseCommandPaletteShortcut } = require("./hotkey-cleanup");
 const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_REVIEW_SIDEBAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST, VIEW_TYPE_WEB_BROWSER, VIEW_TYPE_RECENT_FILES, VIEW_TYPE_AGENT } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { parseQuickPracticeUri } = require("./quick-practice");
@@ -594,6 +595,10 @@ class QuestionTrackerPlugin extends Plugin {
     });
     this.addCommand({ id: "calendar-export", name: "Calendar: export the visible schedule to .ics", callback: () => this.exportCalendarIcs() });
     this.addCommand({ id: "open-cards", name: "Open cards", callback: () => this.activateCards() });
+    const cardsCommandId = `${(this.manifest && this.manifest.id) || "mcq-tracker"}:open-cards`;
+    if (releaseCommandPaletteShortcut(this.app, cardsCommandId)) {
+      new Notice("Ctrl/Cmd+P now opens only Obsidian's command palette. Open cards is still in the palette.", 7000);
+    }
     this.addCommand({ id: "ankiweb-find-deck", name: "Cards: find a deck on AnkiWeb", callback: () => this.openAnkiWebSearch() });
     this.addCommand({ id: "open-assignments", name: "Open assignments and grades", callback: () => this.activateAssignments() });
     this.addCommand({ id: "open-study-tools", name: "Open Study Tools", callback: () => this.activateStudyTools() });

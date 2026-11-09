@@ -18,6 +18,27 @@ async function start(notes = NOTES) {
   return { app, plugin };
 }
 
+test("the plugin clears Ctrl+P from Open cards without touching the command palette", async () => {
+  const app = makeApp(NOTES);
+  const bindings = {
+    "mcq-tracker:open-cards": [
+      { modifiers: ["Mod"], key: "P" },
+      { modifiers: ["Mod"], key: "O" },
+    ],
+    "command-palette:open": [{ modifiers: ["Mod"], key: "P" }],
+  };
+  app.hotkeyManager = {
+    getHotkeys: (id) => bindings[id] || null,
+    setHotkeys: (id, hotkeys) => {
+      bindings[id] = hotkeys;
+    },
+  };
+  const plugin = new QT(app, { id: "mcq-tracker" });
+  await plugin.onload();
+  assert.deepEqual(bindings["mcq-tracker:open-cards"], [{ modifiers: ["Mod"], key: "O" }]);
+  assert.deepEqual(bindings["command-palette:open"], [{ modifiers: ["Mod"], key: "P" }]);
+});
+
 test("the plugin starts and registers its views, commands and folder events", async () => {
   const { app, plugin } = await start();
   assert.deepEqual(Object.keys(plugin.views).sort(), ["question-tracker-agent", "question-tracker-assignments", "question-tracker-calendar", "question-tracker-cards", "question-tracker-insights", "question-tracker-local-events", "question-tracker-pomodoro", "question-tracker-recent-files", "question-tracker-reference", "question-tracker-review-calendar", "question-tracker-review-sidebar", "question-tracker-study-stats", "question-tracker-study-tools", "question-tracker-study-workspace", "question-tracker-table-controls", "question-tracker-task-list", "question-tracker-test", "question-tracker-today", "question-tracker-view", "question-tracker-web-browser"]);

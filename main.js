@@ -48469,6 +48469,68 @@ module.exports = {
 };
 };
 
+/* ---- src/hotkey-cleanup.js ---- */
+__defs["hotkey-cleanup"] = function (module, exports, require) {
+/*
+ * Obsidian's command palette owns Ctrl/Cmd+P. A custom hotkey on an MCQ
+ * command with the same chord can make both actions run, so a Cards-off
+ * "Open cards" command can pull the user into settings. Remove only that
+ * exact chord from the named command; the command itself stays in the
+ * palette and every other binding is preserved.
+ */
+
+const PALETTE_KEY = "p";
+const PALETTE_MODIFIERS = new Set(["mod", "ctrl", "meta", "cmd", "command", "control"]);
+
+/** True for a Ctrl/Cmd+P binding, but not Shift/Alt variants or other keys. */
+function stealsCommandPalette(hotkey) {
+  if (!hotkey || typeof hotkey !== "object") return false;
+  if (String(hotkey.key || "").toLowerCase() !== PALETTE_KEY) return false;
+  const modifiers = Array.isArray(hotkey.modifiers) ? hotkey.modifiers : [];
+  if (!modifiers.length) return false;
+  const names = modifiers.map((modifier) => String(modifier || "").toLowerCase());
+  if (names.some((name) => name === "shift" || name === "alt")) return false;
+  return names.every((name) => PALETTE_MODIFIERS.has(name));
+}
+
+/**
+ * Remove Ctrl/Cmd+P from one command's custom hotkeys. Returns true only when
+ * Obsidian reports a binding and the write succeeds. Missing APIs are a no-op
+ * so older hosts and the test harness keep working.
+ */
+function releaseCommandPaletteShortcut(app, commandId) {
+  const manager = app && app.hotkeyManager;
+  if (!manager || typeof manager.getHotkeys !== "function" || !commandId) return false;
+  let current = null;
+  try {
+    current = manager.getHotkeys(commandId);
+  } catch (e) {
+    return false;
+  }
+  if (!Array.isArray(current) || !current.length) return false;
+  const blocked = current.filter(stealsCommandPalette);
+  if (!blocked.length) return false;
+  const kept = current.filter((hotkey) => !stealsCommandPalette(hotkey));
+  try {
+    if (typeof manager.removeHotkeys === "function") {
+      manager.removeHotkeys(commandId, blocked);
+      return true;
+    }
+  } catch (e) {
+    /* fall through to replacing the list */
+  }
+  try {
+    if (typeof manager.setHotkeys !== "function") return false;
+    manager.setHotkeys(commandId, kept);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+module.exports = { releaseCommandPaletteShortcut, stealsCommandPalette };
+};
+
 /* ---- src/image-occlusion-modal.js ---- */
 __defs["image-occlusion-modal"] = function (module, exports, require) {
 const { Modal, Notice } = require("obsidian");
@@ -69039,6 +69101,7 @@ __defs["plugin"] = function (module, exports, require) {
 const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const { Modal, Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
+const { releaseCommandPaletteShortcut } = require("./hotkey-cleanup");
 const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_REVIEW_SIDEBAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST, VIEW_TYPE_WEB_BROWSER, VIEW_TYPE_RECENT_FILES, VIEW_TYPE_AGENT } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { parseQuickPracticeUri } = require("./quick-practice");
@@ -69631,6 +69694,10 @@ class QuestionTrackerPlugin extends Plugin {
     });
     this.addCommand({ id: "calendar-export", name: "Calendar: export the visible schedule to .ics", callback: () => this.exportCalendarIcs() });
     this.addCommand({ id: "open-cards", name: "Open cards", callback: () => this.activateCards() });
+    const cardsCommandId = `${(this.manifest && this.manifest.id) || "mcq-tracker"}:open-cards`;
+    if (releaseCommandPaletteShortcut(this.app, cardsCommandId)) {
+      new Notice("Ctrl/Cmd+P now opens only Obsidian's command palette. Open cards is still in the palette.", 7000);
+    }
     this.addCommand({ id: "ankiweb-find-deck", name: "Cards: find a deck on AnkiWeb", callback: () => this.openAnkiWebSearch() });
     this.addCommand({ id: "open-assignments", name: "Open assignments and grades", callback: () => this.activateAssignments() });
     this.addCommand({ id: "open-study-tools", name: "Open Study Tools", callback: () => this.activateStudyTools() });
@@ -131438,6 +131505,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.299.1",
+    date: "November 9, 2026",
+    title: "Ctrl/Cmd+P stays yours",
+    summary:
+      "Pressing Ctrl/Cmd+P now opens Obsidian's command palette only, even on an older install that had also assigned the shortcut to Open cards.",
+    highlights: [
+      {
+        title: "The command palette wins",
+        body: "A leftover custom binding on Open cards that used Ctrl/Cmd+P is removed once when the plugin starts. The palette no longer competes with the Cards module.",
+      },
+      {
+        title: "Nothing was taken away",
+        body: "Open cards remains in the command palette, and the ribbon button stays whenever Cards is on. Only the duplicate Ctrl/Cmd+P assignment is removed; Shift and Alt variants and every other shortcut are left alone.",
+      },
+      {
+        title: "Cards-off guidance stays",
+        body: "If the Cards module is off, choosing Open cards still shows the existing notice and takes you to Settings, where Modules can be turned back on.",
+      },
+      {
+        title: "No data changes",
+        body: "Question notes, cards, review history, settings and saved hotkeys other than that one binding are unchanged.",
+      },
+    ],
+  },
   {
     version: "1.299.0",
     date: "November 9, 2026",

@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.299.1",
+    date: "November 9, 2026",
+    title: "Ctrl/Cmd+P stays yours",
+    summary:
+      "Pressing Ctrl/Cmd+P now opens Obsidian's command palette only, even on an older install that had also assigned the shortcut to Open cards.",
+    highlights: [
+      {
+        title: "The command palette wins",
+        body: "A leftover custom binding on Open cards that used Ctrl/Cmd+P is removed once when the plugin starts. The palette no longer competes with the Cards module.",
+      },
+      {
+        title: "Nothing was taken away",
+        body: "Open cards remains in the command palette, and the ribbon button stays whenever Cards is on. Only the duplicate Ctrl/Cmd+P assignment is removed; Shift and Alt variants and every other shortcut are left alone.",
+      },
+      {
+        title: "Cards-off guidance stays",
+        body: "If the Cards module is off, choosing Open cards still shows the existing notice and takes you to Settings, where Modules can be turned back on.",
+      },
+      {
+        title: "No data changes",
+        body: "Question notes, cards, review history, settings and saved hotkeys other than that one binding are unchanged.",
+      },
+    ],
+  },
+  {
     version: "1.299.0",
     date: "November 9, 2026",
     title: "OpenCode at the front door",
