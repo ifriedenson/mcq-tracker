@@ -49413,6 +49413,7 @@ class PdfImportModal extends QtModal {
     this._nextBatchTimer = null;
     this.finishedBatch = false;
     this.running = false;
+    this.reviewing = false;
     const st = plugin.settings;
     this.meta = Object.assign(
       { test: "", course: "", section: "", domain: "", skill: "", unit: "", difficulty: "", prefix: "", start: "1", pages: "" },
@@ -49433,6 +49434,20 @@ class PdfImportModal extends QtModal {
     // File first: the AI gate comes only after the text layer is known to be readable.
     if (importAiState(this.plugin) !== "ready") this.showPreflight();
     else this.showSetup();
+  }
+
+  /** Rebuild the visible screen after its panel moves into a new popout window. */
+  rebuildForWindow() {
+    if (this.closed || this.finishedBatch) return false;
+    if (!this.batchStarted) {
+      this.onOpen();
+      return true;
+    }
+    if (this.reviewing && !this.running && this.items.length) {
+      this.showReview();
+      return true;
+    }
+    return false;
   }
 
   onClose() {
@@ -49869,28 +49884,56 @@ class PdfImportModal extends QtModal {
     return readDocumentSource(this.app, { file: this.file, vaultDoc: this.vaultDoc });
   }
 
+  async captureFiles() {
+    const captured = [];
+    for (let i = 0; i < this.files.length; i++) {
+      const file = this.files[i];
+      if (this.progress) {
+        this.progress.update(
+          "Preparing " + this.files.length + " file" + (this.files.length === 1 ? "" : "s"),
+          "Reading " + file.name + " (" + (i + 1) + " of " + this.files.length + ")...",
+          i / this.files.length
+        );
+      }
+      try {
+        const raw = await file.arrayBuffer();
+        const copy = new Uint8Array(raw).slice().buffer;
+        captured.push({
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          arrayBuffer: async () => copy.slice(0),
+        });
+      } catch (e) {
+        captured.push(null);
+      }
+    }
+    return captured;
+  }
+
   async startBatch() {
     if (this.batchStarted) return;
     if (importAiState(this.plugin) !== "ready") { this.showPreflight(); return; }
     if (!this.files.length) { new Notice("Choose files first."); return; }
     const parent = normalizePath(str(this.folder).trim() || this.parent);
     this.batchParent = parent;
+    this.batchStarted = true;
+    this.progress = new ImportProgressNotice(this.app, this.files.length);
+    const capturedFiles = await this.captureFiles();
     const used = new Set();
     this.batchJobs = this.files.map((file, i) => {
       const base = documentBaseName(file.name) || "File " + (i + 1);
       let folder = normalizePath(parent + "/" + base);
       for (let n = 2; used.has(folder.toLowerCase()); n++) folder = normalizePath(parent + "/" + base + " (" + n + ")");
       used.add(folder.toLowerCase());
-      return { file, folder, preflight: this.preflights[i] || null };
+      return { file, readFile: capturedFiles[i] || file, folder, preflight: this.preflights[i] || null };
     });
     this.batchMode = this.batchJobs.length > 1;
-    this.batchStarted = true;
     this.batchStopped = false;
     this.batchIndex = 0;
     this.batchResults = [];
     this.batchNotes = 0;
     this.finishedBatch = false;
-    this.progress = new ImportProgressNotice(this.app, this.batchJobs.length);
     this.prepareBatchJob(0);
     try {
       await this.start();
@@ -49903,7 +49946,7 @@ class PdfImportModal extends QtModal {
     const job = this.batchJobs[index];
     if (!job) return false;
     this.batchIndex = index;
-    this.file = job.file;
+    this.file = job.readFile || job.file;
     this.vaultDoc = "";
     this.preflight = job.preflight;
     this.folder = job.folder;
@@ -50483,6 +50526,7 @@ class PdfImportModal extends QtModal {
 
   showReview() {
     const el = this.contentEl;
+    this.reviewing = true;
     el.empty();
     if (this.batchMode && this.progress) this.progress.update(this.progressLabel, "Waiting for your review.", this.batchIndex / Math.max(1, this.batchJobs.length));
     if (this.batchMode) el.createEl("p", { cls: "qt-hint", text: "File " + (this.batchIndex + 1) + " of " + this.batchJobs.length + " · " + this.file.name });
@@ -50555,6 +50599,7 @@ class PdfImportModal extends QtModal {
 
   async createNotes() {
     const el = this.contentEl;
+    this.reviewing = false;
     const chosen = this.items.filter((q) => q.include);
     el.empty();
     el.createEl("h3", { text: "Creating notes" });
@@ -50761,8 +50806,12 @@ class ImportWindowView extends ItemView {
     this.contentEl.addClass("qt-root");
     this.contentEl.addClass("qt-import-window");
     const session = this.liveSession();
-    if (session) this.attachSession(session);
-    else this.createSession();
+    if (session) {
+      this.attachSession(session);
+      // The old popout's renderer owned the button listeners. Rebuild the
+      // visible screen now that the panel belongs to this window.
+      if (typeof session.modal.rebuildForWindow === "function") session.modal.rebuildForWindow();
+    } else this.createSession();
   }
 
   /** The session outlives this leaf, so a closed popout can be opened again. */

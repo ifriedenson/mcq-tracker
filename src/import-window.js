@@ -33,8 +33,12 @@ class ImportWindowView extends ItemView {
     this.contentEl.addClass("qt-root");
     this.contentEl.addClass("qt-import-window");
     const session = this.liveSession();
-    if (session) this.attachSession(session);
-    else this.createSession();
+    if (session) {
+      this.attachSession(session);
+      // The old popout's renderer owned the button listeners. Rebuild the
+      // visible screen now that the panel belongs to this window.
+      if (typeof session.modal.rebuildForWindow === "function") session.modal.rebuildForWindow();
+    } else this.createSession();
   }
 
   /** The session outlives this leaf, so a closed popout can be opened again. */

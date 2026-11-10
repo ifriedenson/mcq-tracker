@@ -185,6 +185,9 @@ test("import window: close and reopen reattaches the same running batch and revi
   assert.ok(first.dom.texts().join("\n").includes("File 1 of 2"));
   assert.ok(first.dom.texts().includes("Found 1 question"));
   const progress = modal.progress.notice;
+  let reviewRenders = 0;
+  const showReview = modal.showReview.bind(modal);
+  modal.showReview = () => { reviewRenders++; return showReview(); };
   assert.match(progress.message, /Waiting for your review/, "the notice names the current stage");
   assert.equal(progress.hidden, false);
 
@@ -197,6 +200,7 @@ test("import window: close and reopen reattaches the same running batch and revi
   const second = await openWindow(state.plugin, state.app, {});
   assert.equal(second.view.modal, modal, "reopening reuses the running import");
   assert.equal(second.view.contentEl.__own.children.some((child) => child.classes && child.classes.has("qt-import-panel")), true, "the existing panel is moved into the new window");
+  assert.equal(reviewRenders, 1, "the review is rebuilt for the new popout window");
   assert.ok(first.dom.texts().join("\n").includes("File 1 of 2"), "the review state survived the window close");
 
   await first.dom.clickLast("Create 1 note");
@@ -215,18 +219,31 @@ test("import window: closing while AI is answering still finishes and summarizes
   const reply = `---\nnumber: 1\nanswer: B\nanswer_source: pdf\n---\n\n## Question\nWhat is 2 + 2?\n\n## Answer Choices\n- A. 3\n- B. 4\n\n## Answer\n**Correct Answer: B**\n`;
   let release;
   let calls = 0;
+  let windowClosed = false;
+  let lateReads = 0;
+  const guardedFile = (name) => ({
+    name,
+    async arrayBuffer() {
+      if (windowClosed) {
+        lateReads++;
+        throw new Error("file handle no longer belongs to a live window");
+      }
+      return bytes;
+    },
+  });
   state.plugin.aiChat = () => {
     if (calls++ === 0) return new Promise((resolve) => { release = () => resolve(reply); });
     return Promise.resolve(reply);
   };
 
-  const opened = await openWindow(state.plugin, state.app, { files: [file("Unit A.pdf", bytes), file("Unit B.pdf", bytes)] });
+  const opened = await openWindow(state.plugin, state.app, { files: [guardedFile("Unit A.pdf"), guardedFile("Unit B.pdf")] });
   const modal = opened.view.modal;
   const started = modal.startBatch();
   await waitFor(() => typeof release === "function", "the pending AI request");
   const progress = modal.progress.notice;
 
   await opened.view.onClose();
+  windowClosed = true;
   assert.equal(modal.closed, false, "closing during the AI request does not abort it");
   assert.equal(progress.hidden, false, "the progress notice remains visible");
 
@@ -237,6 +254,7 @@ test("import window: closing while AI is answering still finishes and summarizes
   await waitFor(() => opened.dom.texts().join("\n").includes("File 2 of 2"), "the second file after the closed-window review");
   await opened.dom.clickLast("Create 1 note");
   await waitFor(() => completionModal(modal), "the summary after completing with the window closed");
+  assert.equal(lateReads, 0, "the second file's bytes are captured before the window closes");
 
   assert.equal(modal.closed, true, "the batch closes its session after finishing");
   assert.equal(progress.hidden, true, "the summary dismisses the progress notice");
