@@ -36,6 +36,8 @@ AI is optional and off by default. Almost everything works without it: writing q
 
 AI also powers the Study agent and tutor chat, AI grading of free response, generating questions or cards from a document or photo, and the optional course-note summary.
 
+**Find or generate quiz questions** can work from your own notes, a plain-language brief, text you paste, or up to three PDFs in your vault. The brief names the subject, level, exam style or difficulty (for example, “10 SAT-style reading questions on social science, medium difficulty”). Prompt mode uses the AI's general knowledge and does not browse the web; PDF and pasted-text sources are read or accepted locally and sent only after you press **Send request**. A preview and a blind answer check come before anything is written.
+
 ### Install
 
 Choose the path that matches you.
@@ -150,7 +152,7 @@ Bring material in as notes, not as a locked database. Import from PDF, `.pptx`/`
 
 ## How it compares with Spaceforge
 
-Spaceforge is a strong spaced-repetition and study suite. This comparison is based on its public README (reference `dralkh/spaceforge` at `1.2.92`) and on this 1.299.5 build. The point is to show the trade-offs, not to claim that one plugin wins every row.
+Spaceforge is a strong spaced-repetition and study suite. This comparison is based on its public README (reference `dralkh/spaceforge` at `1.2.92`) and on this 1.300.0 build. The point is to show the trade-offs, not to claim that one plugin wins every row.
 
 | Capability | MCQ Tracker | Spaceforge | The practical difference |
 | --- | --- | --- | --- |
@@ -253,7 +255,7 @@ The optional AI and CouchDB sync features use the network only after you turn th
 
 Open the command palette with `Ctrl/Cmd+P` and search **MCQ Tracker**, **Cards**, **Review**, **Study agent** or **Calendar**. The palette has more than 200 commands, including:
 
-- **Practice:** Open practice, Quick Practice, Start a timed test, Practice this note only, Show weak spots.
+- **Practice:** Open practice, Quick Practice, Start a timed test, Practice this note only, Show weak spots, Find or generate quiz questions.
 - **Review:** Open the review sidebar, Next/Previous review note, Review current note, Add current note to review, Open the review calendar, Open study statistics.
 - **Cards:** Open cards, New card, Import an Anki deck, Export a deck as an Anki package, Find a deck on AnkiWeb.
 - **Study agent:** Open the sidebar, Quick Chat, plan a multi-step task, attach a PDF, export a conversation.

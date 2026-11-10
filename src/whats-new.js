@@ -6,6 +6,39 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.300.0",
+    date: "November 10, 2026",
+    title: "Questions from more places",
+    summary:
+      "Find or generate quiz questions now starts from your notes, a plain-language brief, pasted text, or up to three PDFs, and file import checks that a document is readable before it asks for AI or writes anything.",
+    highlights: [
+      {
+        title: "Four ways to ask",
+        body: "Choose My notes to search your folders, My prompt for original questions from the model's own knowledge, PDFs in my vault, or Text I paste. Prompt mode does not browse the web.",
+      },
+      {
+        title: "A readable file first",
+        body: "Import reads the PDF, PowerPoint or Word text locally before AI setup. A scanned file explains the OCR fix and leaves your vault untouched; the offline paste route stays visible.",
+      },
+      {
+        title: "Nothing half-written",
+        body: "A cancelled or failed import removes the source copy, captured figures, new notes and folders it created. Closing while the agent is still answering cleans up after it finishes.",
+      },
+      {
+        title: "OpenCode says what is wrong",
+        body: "The managed server now starts before the connection test, readiness is bounded, and a server stuck on an old database is repaired once. OpenCode 2.x names its unsupported routes instead of failing mid-chat.",
+      },
+      {
+        title: "A lighter startup",
+        body: "The PDF editor, reader and vendored PDF engines load only when a PDF opens, and question and card reads reuse path indexes with scoped invalidation. Two new checks keep both gains from eroding.",
+      },
+      {
+        title: "No format changes",
+        body: "Question notes, cards, review dates, settings, saved layouts and network behaviour are unchanged. Existing PDFs, imports and provider keys keep working.",
+      },
+    ],
+  },
+  {
     version: "1.299.5",
     date: "November 9, 2026",
     title: "Dialogs announce themselves",

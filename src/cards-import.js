@@ -2811,6 +2811,5 @@ module.exports = {
   quizletExportHint,
   giftExportHint,
   questionSetExportHint,
-  CardImportModal,
   CardExportModal,
 };

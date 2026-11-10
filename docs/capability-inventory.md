@@ -1,11 +1,11 @@
 # Capability inventory — derived from the bundle
 
-Generated Nov 7, 2026 from the built `main.js` (`T`, the plugin's test surface) and the
+Generated Nov 9, 2026 from the built `main.js` (`T`, the plugin's test surface) and the
 plugin's registered commands, not from prose. Each row names the exports a group carries
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 439 groups, 3054 exports. **Commands:** 232. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 439 groups, 3061 exports. **Commands:** 232. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -15,7 +15,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `API_SYSTEM` | 0 | `tests/ai-write-guard.test.js` |
 | `ASSIGNMENTS_TABS` | 3 | `tests/modules.test.js` |
 | `AgentEditReviewModal` | 0 | `tests/feature-surfaces.test.js` |
-| `AiImportHelpModal` | 0 | `tests/ai-import-help.test.js` |
+| `AiImportHelpModal` | 0 | `tests/ai-beginner-wizard.test.js`, `tests/ai-import-help.test.js`, `tests/import-real-pdf.test.js` |
 | `ApiClient` | 0 | `tests/chat-stream.test.js`, `tests/local-models.test.js`, `tests/model-discovery.test.js`, `tests/ocr.test.js`, `tests/qwen-preset.test.js`, `tests/secret-keys.test.js` |
 | `AssignmentModal` | 0 | `tests/feature-surfaces.test.js` |
 | `AssignmentsView` | 0 | `tests/assignments.test.js`, `tests/mobile-module-layout.test.js` |
@@ -54,10 +54,10 @@ the table and fails if a group, export count, command or citing test drifts.
 | `OpenCodeClient` | 0 | `tests/chat-stream.test.js`, `tests/opencode-compat.test.js` |
 | `OpenCodeManager` | 0 | `tests/opencode-compat.test.js` |
 | `PdfAnnotationModal` | 0 | `tests/feature-surfaces.test.js` |
-| `PdfImportModal` | 0 | `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/import-existing-folder.test.js`, `tests/import-properties.test.js`, `tests/import-source.test.js`, `tests/views.test.js` |
+| `PdfImportModal` | 0 | `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/import-existing-folder.test.js`, `tests/import-preflight.test.js`, `tests/import-properties.test.js`, `tests/import-real-pdf.test.js`, `tests/import-source.test.js`, `tests/views.test.js` |
 | `PdfInkModal` | 0 | `tests/pdf-backlinks.test.js`, `tests/pdf-ink.test.js` |
 | `PomodoroView` | 0 | `tests/mobile-module-layout.test.js`, `tests/pomodoro-view.test.js` |
-| `PracticeView` | 0 | `tests/ai-beginner-wizard.test.js`, `tests/closed-book.test.js`, `tests/empty-state.test.js`, `tests/exam-ready.test.js`, `tests/hints.test.js`, `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/mobile-practice.test.js`, `tests/modules.test.js`, `tests/needs-fixing.test.js`, `tests/practice-chrome.test.js`, `tests/practice-fullscreen.test.js`, `tests/practice-keys.test.js`, `tests/practice-tools.test.js`, `tests/study-modes.test.js`, `tests/study-skin.test.js`, `tests/study-status.test.js`, `tests/views.test.js` |
+| `PracticeView` | 0 | `tests/closed-book.test.js`, `tests/empty-state.test.js`, `tests/exam-ready.test.js`, `tests/hints.test.js`, `tests/import-real-pdf.test.js`, `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/mobile-practice.test.js`, `tests/modules.test.js`, `tests/needs-fixing.test.js`, `tests/practice-chrome.test.js`, `tests/practice-fullscreen.test.js`, `tests/practice-keys.test.js`, `tests/practice-tools.test.js`, `tests/study-modes.test.js`, `tests/study-skin.test.js`, `tests/study-status.test.js`, `tests/views.test.js` |
 | `QUICK_COUNT_OPTIONS` | 3 | `tests/uncited-groups.test.js` |
 | `QUICK_START_URL` | 0 | `tests/empty-state.test.js` |
 | `QUICK_TIME_OPTIONS` | 3 | `tests/uncited-groups.test.js` |
@@ -94,7 +94,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `agentRetrieval` | 14 | `tests/agent-retrieval.test.js` |
 | `agentView` | 5 | `tests/agent-view.test.js`, `tests/chat-branches.test.js`, `tests/chat-pdf.test.js`, `tests/chat-plan.test.js`, `tests/chat-tabs-queue.test.js`, `tests/memory-export.test.js`, `tests/projects-cost.test.js`, `tests/quick-chat-bookmarks.test.js` |
 | `agentWriteGuard` | 3 | `tests/agent-write-guard.test.js` |
-| `aiConnection` | 18 | `tests/ai-beginner-wizard.test.js` |
+| `aiConnection` | 19 | `tests/ai-beginner-wizard.test.js`, `tests/opencode-compat.test.js` |
 | `aiContext` | 5 | `tests/ai-context.test.js`, `tests/knowledge-record-scenario.test.js` |
 | `aiReady` | 0 | `tests/empty-state.test.js` |
 | `aiService` | 27 | `tests/ai-service.test.js`, `tests/frq-handwriting.test.js` |
@@ -346,7 +346,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `quizBlock` | 18 | `tests/numeric-quiz.test.js`, `tests/quiz-bind.test.js`, `tests/quiz-block.test.js`, `tests/quiz-note-gate.test.js`, `tests/quiz-results.test.js`, `tests/reorder.test.js`, `tests/shared-choice.test.js` |
 | `quizClipboard` | 2 | `tests/note-quiz-clipboard.test.js` |
 | `quizDedup` | 2 | `tests/quiz-dedup.test.js` |
-| `quizGenerator` | 13 | `tests/quiz-generator.test.js` |
+| `quizGenerator` | 19 | `tests/quiz-generator.test.js` |
 | `quizMaker` | 8 | `tests/quiz-maker.test.js` |
 | `quizNoteGate` | 2 | `tests/quiz-note-gate.test.js` |
 | `quizport` | 7 | `tests/quizport.test.js` |
@@ -469,10 +469,10 @@ the table and fails if a group, export count, command or citing test drifts.
 | `export-results-csv` | Export practice results to CSV | `exportResultsCsv` | `tests/results-export.test.js` |
 | `export-practice-sheet` | Export an answer-free practice sheet | `exportPracticeSheet` | `tests/practice-sheet.test.js` |
 | `export-review-sheet` | Export an error-log review sheet | `exportReviewSheet` | `tests/practice-sheet.test.js`, `tests/views.test.js` |
-| `import-pdf` | Import questions from a file (PDF, PowerPoint, Word) | `openPdfImport` | `tests/ai-beginner-wizard.test.js`, `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/modules.test.js`, `tests/plugin.test.js` |
+| `import-pdf` | Import questions from a file (PDF, PowerPoint, Word) | `openPdfImport` | `tests/ai-beginner-wizard.test.js`, `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/import-preflight.test.js`, `tests/import-real-pdf.test.js`, `tests/modules.test.js`, `tests/plugin.test.js` |
 | `import-service-export` | Import notes from an export (Airtable, Notion, Evernote, Keep, Bear, Roam) | `importActiveServiceExport` | `tests/service-import.test.js` |
 | `import-service-clipboard` | Import notes from a pasted export | `importServiceClipboard` | `tests/service-import.test.js` |
-| `quick-add` | Quick add questions from pasted text | `openQuickAdd` | `tests/ai-import-help.test.js`, `tests/hotkey-audit.test.js`, `tests/note-quiz-clipboard.test.js`, `tests/plugin.test.js`, `tests/quick-add.test.js`, `tests/quiz-generator.test.js` |
+| `quick-add` | Quick add questions from pasted text | `openQuickAdd` | `tests/a11y-labels.test.js`, `tests/ai-import-help.test.js`, `tests/hotkey-audit.test.js`, `tests/import-preflight.test.js`, `tests/note-quiz-clipboard.test.js`, `tests/plugin.test.js`, `tests/quick-add.test.js`, `tests/quiz-generator.test.js` |
 | `import-quiz-clipboard` | Import a generated quiz from the clipboard | `openQuizClipboardImport` | `tests/note-quiz-clipboard.test.js` |
 | `export-study-bundle` | Export a study bundle (backup of questions and cards) | `exportStudyBundle` | `tests/study-bundle-import.test.js`, `tests/study-bundle.test.js` |
 | `import-study-bundle` | Import a study bundle (restore questions and cards) | `importStudyBundle` | `tests/study-bundle-import.test.js` |
@@ -491,9 +491,9 @@ the table and fails if a group, export count, command or citing test drifts.
 | `mindmap-move` | Mind map: move a node | `promptMindMap` | `tests/mindmap-edit.test.js` |
 | `mindmap-from-note` | Mind map: make a Markmind map from this note | `mindMapFromNote` | `tests/mindmap-edit.test.js` |
 | `pdf-open-link` | PDF: open a copied deep link | `openPdfDeepLink` | `tests/pdf-deep-link.test.js` |
-| `epub-read` | EPUB: open the reader | `openActiveEpubReader` | `tests/epub.test.js` |
+| `epub-read` | EPUB: open the reader | `openActiveEpubReader` | `tests/a11y-labels.test.js`, `tests/epub.test.js` |
 | `epub-annotations` | EPUB: open this book's annotations | `openEpubAnnotations` | `tests/epub.test.js` |
-| `pdf-edit` | PDF: open the editor (pages and forms) | `openActivePdfEditor` | `tests/pdf-editor-history.test.js`, `tests/pdf-editor-record.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-editor.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/security-inventory.test.js`, `tests/ui-layout.test.js` |
+| `pdf-edit` | PDF: open the editor (pages and forms) | `openActivePdfEditor` | `tests/a11y-labels.test.js`, `tests/pdf-editor-history.test.js`, `tests/pdf-editor-record.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-editor.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/security-inventory.test.js`, `tests/ui-layout.test.js` |
 | `pdf-export-notes` | PDF: export annotations to Markdown | `exportActivePdfAnnotations` | `tests/pdf-annotator.test.js` |
 | `pdf-open-annotations` | PDF: open annotations | `openPdfAnnotations` | `tests/command-effects.test.js` |
 | `practice-folder` | Practice a folder... | `practiceFolder` | `tests/plugin.test.js` |
@@ -640,7 +640,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `spaced-everything-log` | Spaced Everything: log review outcome for this note | `moduleOff` | `tests/frq-review.test.js`, `tests/spaced-everything.test.js`, `tests/views.test.js` |
 | `spaced-everything-capture` | Spaced Everything: capture thought | `moduleOff` | `tests/frq-review.test.js`, `tests/spaced-everything.test.js`, `tests/views.test.js` |
 | `simple-note-quiz` | Simple note quiz: start on this note | `moduleOff` | `tests/frq-review.test.js`, `tests/simple-note-quiz.test.js`, `tests/views.test.js` |
-| `generate-quiz` | Generate quiz questions from notes | `openQuizGenerator` | `tests/quiz-generator-cost.test.js`, `tests/quiz-generator.test.js` |
+| `generate-quiz` | Find or generate quiz questions | `openQuizGenerator` | `tests/quiz-generator-cost.test.js`, `tests/quiz-generator.test.js` |
 | `cards-export-archive` | Cards: export a portable archive | `exportCardArchive` | `tests/card-archive.test.js` |
 | `cards-import-archive` | Cards: import a portable archive | `openCardArchiveImport` | `tests/command-effects.test.js` |
 | `study-nudge-show` | Show today's study nudge | `maybeShowStudyNudge` | `tests/study-nudge.test.js` |

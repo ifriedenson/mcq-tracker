@@ -8,7 +8,7 @@
 const { API_PRESETS, ApiClient, friendlyApiError } = require("./api-client");
 const { normalizeModelList } = require("./model-discovery");
 const { PROVIDERS } = require("./opencode-manager");
-const { friendlyError } = require("./opencode-client");
+const { HEALTH_TIMEOUT_MS, friendlyError } = require("./opencode-client");
 const { storeApiKey } = require("./secret-keys");
 const { str } = require("./util");
 
@@ -47,8 +47,13 @@ function openCodeInstalled(plugin) {
   return !!(ai.managedBinary || ai.binaryPath || (plugin && plugin.manager && plugin.manager.foundPath));
 }
 
-/** Start OpenCode and check that it answers and has at least one provider. */
-async function testOpenCode(plugin, options) {
+/**
+ * Start the selected OpenCode transport and return the client to probe.
+ * Managed mode must start the plugin's server before openCode() is called:
+ * openCode() falls back to the manual/default ai.url when the managed
+ * connection is not up, which is not an endpoint a managed user configured.
+ */
+async function ensureOpenCodeClient(plugin, options) {
   const opts = options || {};
   const ai = (plugin && plugin.settings && plugin.settings.ai) || {};
   if (!plugin || typeof plugin.openCode !== "function") throw new Error("OpenCode setup is not available on this device.");
@@ -56,19 +61,31 @@ async function testOpenCode(plugin, options) {
     if (!plugin.manager || typeof plugin.manager.ensure !== "function") throw new Error("The OpenCode installer is not available.");
     await plugin.manager.ensure(opts.progress);
   }
-  const oc = plugin.openCode();
-  const health = await oc.health();
+  return plugin.openCode();
+}
+
+/** Start OpenCode and check that it answers and has at least one provider. */
+async function testOpenCode(plugin, options) {
+  const opts = options || {};
+  const ai = (plugin && plugin.settings && plugin.settings.ai) || {};
+  const oc = await ensureOpenCodeClient(plugin, opts);
   let providers = null;
   try {
-    const found = await oc.providers();
+    // Use the providers endpoint as readiness: /global/health stalls through
+    // Obsidian's request layer on OpenCode 1.19.5 even when the server is healthy.
+    const found = await oc.providers(HEALTH_TIMEOUT_MS);
     if (found && Array.isArray(found.providers)) providers = found.providers;
   } catch (e) {
     // The providers endpoint is optional on older builds; health alone is still useful there.
   }
-  if (providers && providers.length === 0) {
+  if (!providers) {
+    await oc.health(HEALTH_TIMEOUT_MS);
+    providers = [];
+  }
+  if (providers.length === 0) {
     throw new Error("OpenCode has no AI provider connected yet. Choose a provider and paste a key above, or add one in OpenCode.");
   }
-  return { health, providers: providers || [] };
+  return { version: str(ai.installedVersion), providers };
 }
 
 /** Save a key into OpenCode's own auth.json without touching the vault. */
@@ -84,19 +101,27 @@ function saveOpenCodeProviderKey(plugin, providerId, key) {
 }
 
 /** Turn an OpenCode failure into the next click a beginner can take. */
-function openCodeProblem(error, plugin) {
+function openCodeProblem(error, plugin, url) {
   const raw = str(error && error.message ? error.message : error);
   const ai = (plugin && plugin.settings && plugin.settings.ai) || {};
-  const url =
-    (plugin && plugin.manager && plugin.manager.conn && plugin.manager.conn.url) ||
-    ai.url ||
-    "http://127.0.0.1:4096";
-  const friendly = friendlyError(error, url);
+  const managed = ai.managed !== false;
+  const endpoint =
+    str(url).trim() ||
+    (plugin && plugin.manager && plugin.manager.conn && str(plugin.manager.conn.url).trim()) ||
+    (managed ? "" : str(ai.url).trim());
+  const friendly = endpoint ? friendlyError(error, endpoint) : raw;
   if (/no AI provider connected/i.test(raw)) return friendly;
   if (/isn't set up|isn't installed|Download and install/i.test(raw)) {
     return `${friendly} Press Install OpenCode above, or choose Direct API key.`;
   }
+  const unreachable = /ECONNREFUSED|ERR_CONNECTION|Failed to fetch|ENOTFOUND|net::|ETIMEDOUT/i.test(raw);
+  if (unreachable && !endpoint && managed) {
+    return "The plugin-managed OpenCode server isn't reachable. Press Test again; if it still fails, switch AI backend to Direct API or paste questions instead.";
+  }
   if (/Can't reach OpenCode/i.test(friendly)) {
+    if (managed) {
+      return `${friendly} Press Test again; the plugin manages this local server. If it still fails, switch AI backend to Direct API or paste questions instead.`;
+    }
     return `${friendly} Press Test OpenCode again; if it still fails, choose Direct API key or paste questions instead.`;
   }
   return friendly;
@@ -251,6 +276,7 @@ module.exports = {
   isRecommendedProvider,
   keyPageHost,
   keyPageUrl,
+  ensureOpenCodeClient,
   openCodeInstalled,
   openCodeProblem,
   preferredPatterns,

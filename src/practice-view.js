@@ -12,8 +12,7 @@ const { gradeMatching, parsePicks, shuffleForSeed } = require("./matching");
 const { variantSummary, variantValuesText } = require("./parameterized");
 const { FolderFilterSuggest, NameModal } = require("./modals");
 const { ChatPanel } = require("./chat-panel");
-const { renderAiConnectionForm } = require("./ai-connection-form");
-const { QUICK_START_URL, aiReady, emptyState } = require("./empty-state");
+const { QUICK_START_URL, emptyState } = require("./empty-state");
 const { groupIssues } = require("./importer");
 const { buildGeneralContext, buildTutorContext } = require("./opencode-client");
 const { anyContext, buildStudyContext } = require("./ai-context");
@@ -661,7 +660,6 @@ class PracticeView extends ItemView {
     else if (this.state === "study") this.renderStudy(root);
     else if (this.state === "study-summary") this.renderStudySummary(root);
     else if (this.state === "quick-setup") this.renderQuickSetup(root);
-    else if (this.state === "ai-setup") this.renderAiSetup(root);
     else this.renderIdle(root);
     // two-pane screens scroll inside their panes, not the whole view
     el.toggleClass("qt-no-scroll", root.hasClass("qt-wide"));
@@ -903,7 +901,7 @@ class PracticeView extends ItemView {
     card.createEl("h3", { text: "No questions yet" });
     card.createDiv({
       cls: "qt-onboard-text",
-      text: "Practice, cards and timed tests work offline. Turning a PDF, PowerPoint or Word file into question notes needs AI, and you can connect a provider on the next screen.",
+      text: "Practice, cards and timed tests work offline. Turning a PDF, PowerPoint or Word file into question notes needs AI. Pick a file first; if it has readable text, you'll connect a provider on the next screen.",
     });
     card.createEl("button", { text: "Import files (needs AI)", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.startImport());
     card.createEl("button", { text: "Paste questions instead (works offline)" }).addEventListener("click", () => this.plugin.openQuickAdd());
@@ -937,38 +935,9 @@ class PracticeView extends ItemView {
     }
   }
 
-  /** The Import files button: set up AI first when it isn't, then the usual import window. */
+  /** The Import files button: choose and check a file first, then connect AI if it is readable. */
   startImport() {
-    if (aiReady(this.plugin)) {
-      this.plugin.openPdfImport();
-      return;
-    }
-    this.state = "ai-setup";
-    this.render();
-  }
-
-  renderAiSetup(root) {
-    const p = this.plugin;
-    root.addClass("qt-onboard");
-    const card = root.createDiv({ cls: "qt-onboard-card" });
-    card.createEl("h3", { text: "Connect AI to import files" });
-    card.createDiv({
-      cls: "qt-onboard-text",
-      text: "Importing a PDF, PowerPoint or Word file needs an AI model to read the text. OpenCode is the recommended desktop setup; Direct API also works on phones. Connect once here; nothing is sent until you start an import.",
-    });
-    const form = card.createDiv({ cls: "qt-onboard-form" });
-    renderAiConnectionForm(form, {
-      plugin: p,
-      onReady: async () => {
-        this.state = "idle";
-        this.render();
-        p.openPdfImport();
-      },
-    });
-    card.createEl("button", { text: "Back" }).addEventListener("click", () => {
-      this.state = "idle";
-      this.render();
-    });
+    this.plugin.openPdfImport();
   }
 
   renderStudy(root) {

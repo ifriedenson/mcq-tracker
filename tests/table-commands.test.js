@@ -650,6 +650,22 @@ test("the ribbon button follows the Advanced Tables settings", async () => {
   assert.equal(removed.length, 1, "and does not remove it twice");
 });
 
+test("the table editor toggle rerenders already-open reading views", async () => {
+  const { plugin } = await tablePlugin(NOTE, { line: 4, ch: 2 });
+  let rerenders = 0;
+  let refreshes = 0;
+  plugin.app.workspace.iterateAllLeaves = (fn) => {
+    fn({ view: { previewMode: { rerender: () => { throw new Error("closing"); } } } });
+    fn({ view: {} });
+    fn({ view: { previewMode: { rerender(force) { assert.equal(force, true); rerenders += 1; } } } });
+  };
+  plugin.refreshViews = () => { refreshes += 1; };
+
+  await plugin.onTableEditorToggled();
+  assert.equal(rerenders, 1, "a live Markdown preview repaints");
+  assert.equal(refreshes, 1, "the plugin views refresh once");
+});
+
 test("touch devices keep the reading-view toolbar visible without a hover", () => {
   const css = fs.readFileSync(path.join(__dirname, "..", "styles.css"), "utf8");
   const base = css.match(/(^|\n)\.qt-table-toolbar \{([^}]*)\}/);

@@ -445,7 +445,7 @@ function renderAiConnectionForm(container, options) {
           if (statusEl) statusEl.setText(message);
         },
       });
-      const version = result && result.health && result.health.version ? ` ${result.health.version}` : "";
+      const version = result && result.version ? ` ${result.version}` : "";
       tested = true;
       notice = `Connected to OpenCode${version}. Continue to import.`;
     } catch (e) {

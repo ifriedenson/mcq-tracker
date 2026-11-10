@@ -5,11 +5,13 @@ const { importAiState } = require("./ai-import-modal");
 const { FolderSuggest } = require("./modals");
 const { ensureFolder, localDate, sleep, str, uniquePath } = require("./util");
 const { chunkPages, readPdfPages, slugId } = require("./pdf");
-const { DOCUMENT_EXTENSIONS, documentBaseName, documentKind, documentLabel, extensionOf, readDocumentPages } = require("./documents");
+const { DOCUMENT_EXTENSIONS, documentBaseName, documentKind, documentLabel, extensionOf } = require("./documents");
+const { readDocumentSource, readPagesForSource } = require("./document-source");
 const { AGENT_SYSTEM, agentPrompt, aiFlags, answerKeyText, buildReportMarkdown, carryPassages, ensureProviders, extractNotesChunk, finalizeNote, groupIssues, mergeNotes, modelFromMessages, noteIssues, parseNote } = require("./importer");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { findDuplicateIds, indexOfficialIds, officialIdOf } = require("./filters");
 const { friendlyApiError } = require("./api-client");
+const { checkDocumentText, summaryText } = require("./import-preflight");
 
 class PdfImportModal extends QtModal {
   constructor(app, plugin, options) {
@@ -18,6 +20,8 @@ class PdfImportModal extends QtModal {
     const init = options || {};
     this.file = init.file || null; // a File chosen from the device
     this.vaultDoc = init.vaultDoc || ""; // or a supported document path inside the vault
+    this.preflight = init.preflight || null; // a local readability result from an earlier pass
+    this.preflightBusy = false;
     this.stop = false;
     this.closed = false;
     this.items = [];
@@ -25,6 +29,9 @@ class PdfImportModal extends QtModal {
     this.folderTouched = false;
     this.confirming = false;
     this.beforeImages = new Set();
+    this.artifacts = null;
+    this.agentBefore = null;
+    this.running = false;
     const st = plugin.settings;
     this.meta = Object.assign(
       { test: "", course: "", section: "", domain: "", skill: "", unit: "", difficulty: "", prefix: "", start: "1", pages: "" },
@@ -42,11 +49,17 @@ class PdfImportModal extends QtModal {
 
   onOpen() {
     this.modalEl.addClass("qt-import-modal");
-    this.showSetup();
+    // File first: the AI gate comes only after the text layer is known to be readable.
+    if (importAiState(this.plugin) !== "ready") this.showPreflight();
+    else this.showSetup();
   }
 
   onClose() {
     this.closed = true;
+    // A closed preview or a closed failed import must not leave a half-made folder behind.
+    // While an import is still running, its own finally cleans up after the last
+    // write; cleaning now would race the work in flight and miss later files.
+    if (this.artifacts && !this.artifacts.committed && !this.running) this.cleanupPromise = this.cleanupArtifacts();
     this.contentEl.empty();
     this.plugin.refreshEmptyViews(); // the first-run screen goes away once the new notes are indexed
   }
@@ -84,27 +97,20 @@ class PdfImportModal extends QtModal {
     );
   }
 
-  showSetup() {
-    const el = this.contentEl;
-    el.empty();
-    el.createEl("h3", { text: "Import questions from a file" });
+  /* ---- step 1: check the file locally, before AI setup or any vault write */
 
+  renderSourcePicker(el, onChange) {
     const docs = this.app.vault.getFiles().filter((f) => documentKind(f.path || f.name));
     const picked = new Setting(el).setName("File").setDesc(this.file ? this.file.name : this.vaultDoc || "No file chosen");
-    const setName = (name) => {
-      if (!this.folderTouched) {
-        this.folder = this.autoFolder(documentBaseName(name));
-        if (this.folderText) this.folderText.setValue(this.folder);
-      }
-    };
     const input = createEl("input", { type: "file", attr: { accept: DOCUMENT_EXTENSIONS.map((e) => "." + e).join(",") } });
     input.hidden = true;
     input.addEventListener("change", () => {
       this.file = input.files && input.files[0] ? input.files[0] : null;
       if (this.file) {
         this.vaultDoc = "";
+        this.preflight = null;
         picked.setDesc(this.file.name);
-        setName(this.file.name);
+        if (typeof onChange === "function") onChange(this.file.name);
       }
     });
     picked.addButton((b) => b.setButtonText("Choose file...").onClick(() => input.click()));
@@ -116,12 +122,136 @@ class PdfImportModal extends QtModal {
           this.vaultDoc = v;
           if (v) {
             this.file = null;
-            picked.setDesc("No file chosen");
-            setName(v);
+            this.preflight = null;
+            picked.setDesc(v);
+            if (typeof onChange === "function") onChange(v);
           }
         });
       });
     }
+    return picked;
+  }
+
+  showPreflight() {
+    this.preflight = null;
+    const el = this.contentEl;
+    el.empty();
+    el.createEl("h3", { text: "Import questions from a file" });
+    el.createEl("p", {
+      cls: "qt-hint",
+      text: "Choose a PDF, PowerPoint or Word file. We'll read its text first and tell you whether it is usable before you connect AI. Nothing is written to your vault in this step.",
+    });
+    this.renderSourcePicker(el);
+    this.preflightStatus = el.createDiv({
+      cls: "qt-hint",
+      text: this.file || this.vaultDoc ? "Ready to check this file." : "Choose a file to check.",
+    });
+    const row = el.createDiv({ cls: "qt-row" });
+    row.createEl("button", { text: "Cancel", cls: "qt-grow" }).addEventListener("click", () => this.close());
+    const check = row.createEl("button", { text: "Check this file", cls: "mod-cta qt-grow" });
+    check.addEventListener("click", () => this.runPreflight(check));
+    this.renderOfflineButton(el);
+  }
+
+  renderOfflineButton(el) {
+    el.createEl("button", { text: "Paste questions instead (works offline)" }).addEventListener("click", () => {
+      this.close();
+      this.plugin.openQuickAdd();
+    });
+  }
+
+  async runPreflight(button) {
+    if (this.preflightBusy) return;
+    if (!this.file && !this.vaultDoc) {
+      if (this.preflightStatus) this.preflightStatus.setText("Choose a file first.");
+      return;
+    }
+    this.preflightBusy = true;
+    if (button) button.disabled = true;
+    const status = (message) => {
+      if (this.preflightStatus && !this.closed) this.preflightStatus.setText(message);
+    };
+    status("Reading the file...");
+    try {
+      const src = await this.readSource();
+      if (!src.kind) throw new Error(`This plugin can't read ${src.ext ? `.${src.ext}` : "that kind of"} files.`);
+      const read = await this.readPages(src, status, null, "");
+      const check = checkDocumentText(read.pages, { kind: src.kind, label: documentLabel(`${src.name}.${src.ext}`) });
+      if (!check.ok) {
+        this.showPreflightError(check.message);
+        return;
+      }
+      this.preflight = { ...check, sourceName: src.name, sourceKind: src.kind };
+      this.showPreflightReady();
+    } catch (e) {
+      this.showPreflightError(e && e.message ? e.message : String(e));
+    } finally {
+      this.preflightBusy = false;
+      if (button) button.disabled = false;
+    }
+  }
+
+  showPreflightReady() {
+    const el = this.contentEl;
+    el.empty();
+    el.createEl("h3", { text: "This file is readable" });
+    el.createEl("p", { cls: "qt-hint", text: summaryText(this.preflight) });
+    if (!this.preflight.likelyQuestions) {
+      el.createEl("p", {
+        cls: "qt-hint",
+        text: "No numbered question starts were spotted. The AI will do the real count on the next step.",
+      });
+    }
+    el.createEl("p", {
+      cls: "qt-hint",
+      text: "Next, connect AI to turn this file into question notes. Nothing has been written to your vault yet.",
+    });
+    const row = el.createDiv({ cls: "qt-row" });
+    row.createEl("button", { text: "Choose another file", cls: "qt-grow" }).addEventListener("click", () => this.showPreflight());
+    const next = row.createEl("button", { text: "Continue to AI setup", cls: "mod-cta qt-grow" });
+    next.addEventListener("click", () => this.beginAiSetup());
+    this.renderOfflineButton(el);
+  }
+
+  showPreflightError(message) {
+    const el = this.contentEl;
+    el.empty();
+    el.createEl("h3", { text: "This file can't be read" });
+    el.createDiv({ cls: "qt-error", text: message });
+    el.createEl("p", { cls: "qt-hint", text: "Nothing was added to your vault. Try a file with selectable text, or paste questions instead." });
+    const row = el.createDiv({ cls: "qt-row" });
+    row.createEl("button", { text: "Choose another file", cls: "qt-grow" }).addEventListener("click", () => this.showPreflight());
+    row.createEl("button", { text: "Cancel", cls: "qt-grow" }).addEventListener("click", () => this.close());
+    this.renderOfflineButton(el);
+  }
+
+  beginAiSetup() {
+    const source = { file: this.file || null, vaultDoc: this.file ? "" : this.vaultDoc || "", preflight: this.preflight };
+    const state = importAiState(this.plugin);
+    this.close();
+    this.plugin.openAiImportHelp(state, {
+      preflight: source.preflight,
+      onReady: () => this.plugin.openPdfImport(source),
+    });
+  }
+
+  readPages(src, progress, cap, spec) {
+    const pages = spec === undefined ? this.meta.pages : spec;
+    return readPagesForSource(src, pages, progress, cap);
+  }
+
+  showSetup() {
+    const el = this.contentEl;
+    el.empty();
+    el.createEl("h3", { text: "Import questions from a file" });
+    if (this.preflight) el.createEl("p", { cls: "qt-hint", text: summaryText(this.preflight) });
+
+    this.renderSourcePicker(el, (name) => {
+      if (!this.folderTouched) {
+        this.folder = this.autoFolder(documentBaseName(name));
+        if (this.folderText) this.folderText.setValue(this.folder);
+      }
+    });
 
     new Setting(el)
       .setName("Folder for the notes")
@@ -210,26 +340,90 @@ class PdfImportModal extends QtModal {
     row.createEl("button", { text: "Start import", cls: "mod-cta qt-grow" }).addEventListener("click", () => this.start());
   }
 
+  /* ---- one import attempt owns its writes until it finishes ---- */
+
+  beginArtifacts() {
+    this.artifacts = { files: new Set(), folders: new Set(), committed: false };
+    this.agentBefore = null;
+  }
+
+  /** Records only folders that did not exist before this attempt. */
+  trackFolderChain(folder) {
+    if (!this.artifacts || !folder) return;
+    const parts = normalizePath(str(folder)).split("/").filter(Boolean);
+    let current = "";
+    for (const part of parts) {
+      current = current ? `${current}/${part}` : part;
+      if (!this.app.vault.getAbstractFileByPath(current)) this.artifacts.folders.add(current);
+    }
+  }
+
+  trackArtifact(path) {
+    if (this.artifacts && path) this.artifacts.files.add(normalizePath(path));
+  }
+
+  commitArtifacts() {
+    if (!this.artifacts) return;
+    this.artifacts.committed = true;
+    this.artifacts = null;
+    this.agentBefore = null;
+  }
+
+  /** Removes every write this attempt made, newest folders first, never touching pre-existing notes. */
+  async cleanupArtifacts() {
+    const tracked = this.artifacts;
+    if (!tracked || tracked.committed) return;
+    tracked.committed = true;
+    const adapter = this.app.vault && this.app.vault.adapter;
+    if (!adapter) {
+      this.artifacts = null;
+      this.agentBefore = null;
+      return;
+    }
+    const files = new Set(tracked.files);
+    // The OpenCode agent writes note files itself, so find the ones added after its baseline.
+    if (this.agentBefore && this.target && typeof adapter.list === "function") {
+      try {
+        const listing = await adapter.list(this.target);
+        for (const path of (listing && listing.files) || []) {
+          if (/\.md$/i.test(path) && !this.agentBefore.has(path)) files.add(path);
+        }
+      } catch (e) {
+        /* the folder may not have been created */
+      }
+    }
+    if (typeof adapter.remove === "function") {
+      for (const path of files) {
+        try {
+          await adapter.remove(path);
+        } catch (e) {
+          /* it may have failed before writing, or already be gone */
+        }
+      }
+    }
+    if (typeof adapter.rmdir === "function") {
+      const folders = [...tracked.folders].sort((a, b) => b.split("/").length - a.split("/").length);
+      for (const path of folders) {
+        try {
+          await adapter.rmdir(path, false);
+        } catch (e) {
+          /* not empty, or already gone */
+        }
+      }
+    }
+    this.artifacts = null;
+    this.agentBefore = null;
+  }
+
   async readSource() {
-    if (this.file) {
-      const name = this.file.name;
-      return { buf: await this.file.arrayBuffer(), name: documentBaseName(name), ext: extensionOf(name), kind: documentKind(name), device: true };
-    }
-    if (this.vaultDoc) {
-      const f = this.app.vault.getAbstractFileByPath(this.vaultDoc);
-      if (!(f instanceof TFile)) throw new Error("I couldn't find that file in your vault.");
-      const path = f.path || f.name;
-      return { buf: await this.app.vault.readBinary(f), name: f.basename, ext: extensionOf(path), kind: documentKind(path), device: false, path: f.path };
-    }
-    throw new Error("Choose a file first.");
+    return readDocumentSource(this.app, { file: this.file, vaultDoc: this.vaultDoc });
   }
 
   async start() {
     const p = this.plugin;
     const aiState = importAiState(p);
     if (aiState !== "ready") {
-      this.close();
-      p.openAiImportHelp(aiState);
+      this.showPreflight();
       return;
     }
     if (!this.file && !this.vaultDoc) {
@@ -273,10 +467,23 @@ class PdfImportModal extends QtModal {
     this.stop = false;
     this.sid = "";
     this.warnings = [];
+    this.running = true;
     try {
       const src = await this.readSource();
       if (!src.kind) throw new Error(`This plugin can't read ${src.ext ? `.${src.ext}` : "that kind of"} files.`);
       this.source = src.name;
+      // Read and check before creating a folder or copying the source. A
+      // scanned handout must leave the vault untouched.
+      const precheck = await this.readPages(src, (m) => !this.closed && this.status(m));
+      this.warnings.push(...(precheck.warnings || []).slice(0, 5));
+      const textCheck = checkDocumentText(precheck.pages, {
+        kind: src.kind,
+        label: documentLabel(`${src.name}.${src.ext}`),
+      });
+      if (!textCheck.ok) throw new Error(textCheck.message);
+
+      this.beginArtifacts();
+      this.trackFolderChain(this.target);
       const vault = this.app.vault;
       const folder = await ensureFolder(this.app, this.target);
       const prefix = slugId(this.meta.prefix || src.name);
@@ -294,46 +501,46 @@ class PdfImportModal extends QtModal {
       // keep a copy of the original file with the notes
       this.status("Copying the file into the folder...");
       const sourcePath = uniquePath(vault, folder, src.name, src.ext, "Source");
+      this.trackArtifact(sourcePath);
       await vault.createBinary(sourcePath, src.buf);
       if (this.opts.capture && src.kind !== "pdf") {
         this.warnings.push("Pictures are only captured from PDFs, so this import uses the text of the file.");
       }
-      const cap = this.opts.capture && src.kind === "pdf"
-        ? {
-            prefix,
-            scale: 2,
-            pages: this.opts.pagePics,
-            save: async (name, data) => {
-              await ensureFolder(this.app, imagesDir);
-              const clean = str(name).replace(/^.*\//, "");
-              const dot = clean.lastIndexOf(".");
-              const base = dot > 0 ? clean.slice(0, dot) : clean;
-              const ext = dot > 0 ? clean.slice(dot + 1) : "png";
-              const path = uniquePath(vault, imagesDir, base, ext, "figure");
-              await vault.createBinary(path, data);
-              return path;
-            },
-          }
-        : null;
-      const read = src.kind === "pdf"
-        ? await readPdfPages(src.buf, this.meta.pages, (m) => !this.closed && this.status(m), cap)
-        : await readDocumentPages(src.buf, `${src.name}.${src.ext}`, this.meta.pages, (m) => !this.closed && this.status(m));
-      const pages = read.pages;
-      this.warnings.push(...read.warnings.slice(0, 5));
-      const chars = pages.reduce((n, pg) => n + pg.text.trim().length, 0);
-      if (chars < 40 * pages.length) {
-        throw new Error(
-          src.kind === "pdf"
-            ? "This PDF has almost no readable text, so it is probably scanned images. Scanned PDFs aren't supported yet. Run it through text recognition (OCR) first, for example by opening it in Google Drive or Adobe, then try again."
-            : `This ${documentLabel(`${src.name}.${src.ext}`)} file has almost no readable text. If it is a scanned document, run it through text recognition (OCR) first, then try again.`
-        );
+      let pages = precheck.pages;
+      let figCount = precheck.figCount;
+      if (this.opts.capture && src.kind === "pdf") {
+        const cap = {
+          prefix,
+          scale: 2,
+          pages: this.opts.pagePics,
+          save: async (name, data) => {
+            this.trackFolderChain(imagesDir);
+            await ensureFolder(this.app, imagesDir);
+            const clean = str(name).replace(/^.*\//, "");
+            const dot = clean.lastIndexOf(".");
+            const base = dot > 0 ? clean.slice(0, dot) : clean;
+            const ext = dot > 0 ? clean.slice(dot + 1) : "png";
+            const path = uniquePath(vault, imagesDir, base, ext, "figure");
+            this.trackArtifact(path);
+            await vault.createBinary(path, data);
+            return path;
+          },
+        };
+        this.status("Capturing pictures...");
+        const withPictures = await readPdfPages(src.buf, this.meta.pages, (m) => !this.closed && this.status(m), cap);
+        pages = withPictures.pages;
+        figCount = withPictures.figCount;
+        this.warnings.push(...(withPictures.warnings || []).slice(0, 5));
       }
-      this.ctx = { folder, prefix, sourcePath, imagesDir, sourceName: src.name, kind: src.kind, figCount: read.figCount };
+      this.ctx = { folder, prefix, sourcePath, imagesDir, sourceName: src.name, kind: src.kind, figCount };
       if (this.method === "agent") await this.runAgent(pages);
       else await this.runApi(pages);
     } catch (e) {
-      if (this.closed) return;
-      this.showError(e && e.message ? e.message : String(e));
+      await this.cleanupArtifacts();
+      if (!this.closed) this.showError(e && e.message ? e.message : String(e));
+    } finally {
+      this.running = false;
+      if (this.closed) await this.cleanupArtifacts();
     }
   }
 
@@ -344,7 +551,9 @@ class PdfImportModal extends QtModal {
     const vault = this.app.vault;
     const { folder, prefix, sourcePath, imagesDir, sourceName, kind } = this.ctx;
     const before = new Set(await this.listNotes(folder));
+    this.agentBefore = before;
     const textPath = uniquePath(vault, folder, "_import-text", "txt", "import-text");
+    this.trackArtifact(textPath);
     await vault.create(textPath, pages.map((pg) => `--- Page ${pg.n} ---\n${pg.text.trim()}`).join("\n\n"));
 
     this.status("Starting OpenCode...");
@@ -394,7 +603,10 @@ class PdfImportModal extends QtModal {
     }
     await this.pruneImages(folder, result);
     result.issues = await this.auditNotes(folder, result.paths);
-    if (!this.closed) this.showAgentDone(result, folder);
+    if (!this.closed) {
+      this.showAgentDone(result, folder);
+      this.commitArtifacts();
+    }
   }
 
   /** Removes cut-out pictures that no note uses, so the images folder only holds what's needed. */
@@ -658,6 +870,7 @@ class PdfImportModal extends QtModal {
     this.items = mergeNotes(blocks);
     await this.verifyAiAnswers();
     if (this.closed) return;
+    if (!this.items.length) await this.cleanupArtifacts();
     this.showReview();
   }
 
@@ -744,7 +957,10 @@ class PdfImportModal extends QtModal {
     };
     tools.createEl("button", { text: "Select all" }).addEventListener("click", () => setAll(true));
     tools.createEl("button", { text: "Select none" }).addEventListener("click", () => setAll(false));
-    tools.createEl("button", { text: "Back" }).addEventListener("click", () => this.showSetup());
+    tools.createEl("button", { text: "Back" }).addEventListener("click", async () => {
+      await this.cleanupArtifacts();
+      this.showSetup();
+    });
     count();
     create.addEventListener("click", () => this.createNotes());
   }
@@ -755,6 +971,7 @@ class PdfImportModal extends QtModal {
     el.empty();
     el.createEl("h3", { text: "Creating notes" });
     this.statusEl = el.createDiv({ cls: "qt-hint", text: "Working..." });
+    this.running = true;
     try {
       const { folder, prefix, sourcePath, kind } = this.ctx;
       const nums = chosen.map((q) => q.fm.number);
@@ -789,6 +1006,7 @@ class PdfImportModal extends QtModal {
         let path = normalizePath(`${folder}/${qid}.md`);
         for (let k = 2; this.app.vault.getAbstractFileByPath(path); k++) path = normalizePath(`${folder}/${qid}-${k}.md`);
         const out = finalizeNote(q.text, meta, qid, { ...stamp, stimId, verification: q.verification });
+        this.trackArtifact(path);
         await this.app.vault.create(path, out);
         result.paths.push(path);
         if (oid) seenIds.set(oid, path);
@@ -801,9 +1019,15 @@ class PdfImportModal extends QtModal {
       }
       await this.pruneImages(folder, result);
       result.issues = await this.auditNotes(folder, result.paths);
+      if (this.closed) return;
       this.showAgentDone(result, folder);
+      this.commitArtifacts();
     } catch (e) {
-      this.showError(`Some notes may have been created before this stopped. ${e && e.message ? e.message : e}`);
+      await this.cleanupArtifacts();
+      if (!this.closed) this.showError(`Some notes may have been created before this stopped. ${e && e.message ? e.message : e}`);
+    } finally {
+      this.running = false;
+      if (this.closed) await this.cleanupArtifacts();
     }
   }
 

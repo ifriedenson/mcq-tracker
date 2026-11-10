@@ -9,8 +9,8 @@ const { QtModal } = require("./a11y");
  */
 const { Modal, Notice, Setting, TFile, normalizePath } = require("obsidian");
 const { ensureFolder, localDate, str } = require("./util");
-const { readPdfPages } = require("./pdf");
-const { documentBaseName, documentKind, documentLabel, extensionOf, readDocumentPages } = require("./documents");
+const { documentBaseName, documentKind, documentLabel, extensionOf } = require("./documents");
+const { readDocumentSource, readPagesForSource } = require("./document-source");
 
 const DEFAULT_COURSE_NOTES_FOLDER = "Course notes";
 
@@ -268,30 +268,7 @@ class CourseNotesModal extends QtModal {
   }
 
   async readSource() {
-    if (this.file) {
-      const name = this.file.name;
-      return {
-        buf: await this.file.arrayBuffer(),
-        name: documentBaseName(name),
-        ext: extensionOf(name),
-        kind: documentKind(name),
-        device: true,
-        path: "",
-      };
-    }
-    if (this.vaultDoc) {
-      const f = this.app.vault.getAbstractFileByPath(this.vaultDoc);
-      if (!(f instanceof TFile)) throw new Error("I couldn't find that file in your vault.");
-      return {
-        buf: await this.app.vault.readBinary(f),
-        name: f.basename,
-        ext: extensionOf(f.path),
-        kind: documentKind(f.path),
-        device: false,
-        path: f.path,
-      };
-    }
-    throw new Error("Choose a file first.");
+    return readDocumentSource(this.app, { file: this.file, vaultDoc: this.vaultDoc });
   }
 
   async start() {
@@ -324,9 +301,7 @@ class CourseNotesModal extends QtModal {
           }
         : null;
       status.setText(`Reading ${documentLabel(`${src.name}.${src.ext}`)}...`);
-      const read = src.kind === "pdf"
-        ? await readPdfPages(src.buf, this.pages, (m) => status.setText(m), capture)
-        : await readDocumentPages(src.buf, `${src.name}.${src.ext}`, this.pages, (m) => status.setText(m));
+      const read = await readPagesForSource(src, this.pages, (m) => status.setText(m), capture);
       const pages = (read.pages || []).filter((page) => str(page.text).trim());
       if (!pages.length) throw new Error("No readable text was found in that file. Scanned pages need OCR first.");
       if (capture && read.figCount) status.setText(`Copied ${read.figCount} figure${read.figCount === 1 ? "" : "s"}.`);

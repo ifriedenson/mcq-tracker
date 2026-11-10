@@ -1,6 +1,6 @@
 # Plan decision sheet — answered Nov 6, 2026
 
-`plan.md` (v1.299.5) now has **98 checked roadmap rows, 3 `[~]` partial rows
+`plan.md` (v1.300.0) now has **98 checked roadmap rows, 3 `[~]` partial rows
 and 0 unchecked rows**. The three owner manual passes are environment-blocked
 (no Obsidian window, no X server/Xvfb, and no iOS or Android device), so they
 are recorded as `[~]` partial rows in §7 and tracked with their blockers in §B;

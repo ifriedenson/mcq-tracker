@@ -179,70 +179,13 @@ test("screen: Import files opens the import flow when AI is set up", async () =>
   assert.equal(view.state, "idle");
 });
 
-test("screen: a cold start pastes a key, fetches a model, tests it, then imports", async () => {
+test("screen: a cold start opens the file-first import flow before AI setup", async () => {
   const { plugin, dom, view } = await setup([]);
   view.render();
   await dom.click("Import files (needs AI)");
-  assert.equal(plugin.imports, 0, "does not open the import yet");
-  assert.equal(view.state, "ai-setup");
-  assert.ok(dom.texts().includes("Connect AI to import files"));
-  assert.ok(dom.find("Install OpenCode").length, "OpenCode is the desktop default");
-  await dom.click("Direct API key");
-  assert.equal(dom.field("AI provider").value, "anthropic", "the recommended provider is preselected");
-  assert.ok(dom.texts().some((text) => /Anthropic \(Claude\) — recommended/.test(text)));
-  assert.equal(dom.field("Model name"), undefined, "the happy path never asks for a model name");
-  assert.equal(dom.find("Save and continue").length, 0, "the old dead-end save is gone");
-
-  obsidian.requestImpl = async (request) => {
-    if (request.method === "GET") {
-      return { status: 200, json: { data: [{ id: "claude-sonnet-4-5" }, { id: "claude-haiku-4-5" }] } };
-    }
-    return { status: 200, json: { content: [{ type: "text", text: "OK" }] } };
-  };
-  try {
-    dom.type(dom.field("API key"), "sk-abc");
-    await dom.clickLast("Fetch models");
-    assert.equal(plugin.settings.ai.api.model, "claude-sonnet-4-5", "a model was chosen automatically");
-    await dom.clickLast("Test connection");
-    await dom.clickLast("Continue to import");
-  } finally {
-    obsidian.requestImpl = null;
-  }
-  const ai = plugin.settings.ai;
-  assert.equal(ai.enabled, true);
-  assert.equal(ai.backend, "api");
-  assert.equal(ai.api.keys.anthropic, "sk-abc");
-  assert.equal(plugin.saved.ai.enabled, true, "saved to data.json");
-  assert.equal(plugin.imports, 1, "returned to the import flow");
-  assert.equal(view.state, "idle");
-});
-
-test("screen: OpenCode installs from the first screen instead of a settings trip", async () => {
-  const { plugin, dom, view } = await setup([]);
-  view.render();
-  await dom.click("Import files (needs AI)");
-  assert.ok(dom.find("Install OpenCode").length);
-  assert.equal(dom.find("Open OpenCode settings").length, 0);
-  plugin.installOpenCodeFromWelcome = async (say) => {
-    say("Downloading OpenCode...");
-    plugin.settings.ai.managedBinary = "/tmp/opencode";
-    plugin.settings.ai.installedVersion = "1.2.3";
-    plugin.settings.ai.managed = true;
-    return { version: "1.2.3" };
-  };
-  await dom.click("Install OpenCode");
-  assert.ok(dom.find("Test OpenCode").length);
-  assert.equal(view.state, "ai-setup");
-  assert.equal(plugin.imports, 0);
-});
-
-test("screen: Back from AI setup returns to the empty screen without changing settings", async () => {
-  const { plugin, dom, view } = await setup([]);
-  view.render();
-  await dom.click("Import files (needs AI)");
-  await dom.click("Back");
-  assert.equal(view.state, "idle");
-  assert.equal(plugin.settings.ai.enabled, false);
+  assert.equal(plugin.imports, 1, "the file-first importer opens immediately");
+  assert.equal(view.state, "idle", "Practice does not replace itself with an AI setup form");
+  assert.equal(plugin.settings.ai.enabled, false, "AI stays off until the file passes its check");
 });
 
 test("screen: broken notes are counted, listed by problem, and open when tapped", async () => {

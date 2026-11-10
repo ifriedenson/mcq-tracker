@@ -232,7 +232,6 @@ const referenceData = require("./reference-data");
 const pdfAnnotations = require("./pdf-annotations");
 const pdfInk = require("./pdf-ink");
 const { PdfAnnotationModal } = require("./pdf-annotation-modal");
-const { PdfInkModal } = require("./pdf-ink-modal");
 const welcome = require("./welcome");
 const focus = require("./focus");
 const studyPlan = require("./study-plan");
@@ -546,11 +545,11 @@ QuestionTrackerPlugin.__test = {
   pdfAnnotations,
   pdfInk,
   pdfAnnotatorSidebar: require("./pdf-annotator-sidebar"),
-  pdfInkModal: require("./pdf-ink-modal"),
-  pdfEditor: require("./pdf-editor"),
-  pdfEditorModal: require("./pdf-editor-modal"),
+  get pdfInkModal() { return require("./pdf-ink-modal"); },
+  get pdfEditor() { return require("./pdf-editor"); },
+  get pdfEditorModal() { return require("./pdf-editor-modal"); },
   PdfAnnotationModal,
-  PdfInkModal,
+  get PdfInkModal() { return require("./pdf-ink-modal").PdfInkModal; },
   welcome,
   whatsNew,
   WelcomeModal,
@@ -683,7 +682,6 @@ QuestionTrackerPlugin.__test = {
   emptyState,
   hasValidQuestion,
   scanQuestionNotes,
-  loadQuestionData,
   isExamReady,
   normalizeExamReadyPasses,
   offline,

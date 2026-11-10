@@ -33,7 +33,7 @@ async function withRequests(handler, fn) {
   }
 }
 
-test("ai import help: the import entry point opens the explanation when AI is off", async () => {
+test("ai import help: the import entry point opens the file-first importer when AI is off", async () => {
   const { plugin } = await setup();
   plugin.settings.ai.enabled = false;
   obsidian.modals.length = 0;
@@ -41,8 +41,9 @@ test("ai import help: the import entry point opens the explanation when AI is of
 
   plugin.openPdfImport();
 
-  assert.equal(obsidian.modals.length, 1, "one help surface opens");
-  assert.ok(obsidian.modals[0] instanceof T.AiImportHelpModal, "it is the explanation, not the importer");
+  assert.equal(obsidian.modals.length, 1, "one import surface opens");
+  assert.ok(obsidian.modals[0] instanceof T.PdfImportModal, "the importer opens before AI setup");
+  assert.equal(obsidian.modals[0] instanceof T.AiImportHelpModal, false, "the explanation waits for a readable file");
   assert.equal(obsidian.notices.some((n) => /Turn on AI features/.test(n)), false, "no terse dead-end notice");
 });
 

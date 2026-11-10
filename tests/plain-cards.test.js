@@ -152,7 +152,7 @@ test("plugin: repeated question and card reads reuse the cache until data change
   await plugin.recordCardReview(cards[0], "good", 5);
   scans = 0;
   const afterReview = plugin.getCards();
-  assert.equal(scans, 1, "a review invalidates the card cache");
+  assert.equal(scans, 1, "a review save refreshes the card index");
   assert.equal(afterReview[0].fm.attempts, 1);
 
   scans = 0;
@@ -186,4 +186,45 @@ test("plugin: plain-card events are debounced and limited to the card folder", a
   plugin.schedulePlainCardRefresh(0);
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(scans, 1);
+});
+
+test("plugin: question and card indexes update by path without a full vault scan", async () => {
+  const notes = [
+    { path: "Questions/One.md", fm: { question_id: "one" } },
+    { path: "Cards/One.md", noFm: true },
+    { path: "Notes/Unrelated.md", noFm: true },
+  ];
+  const app = makeApp(notes);
+  app.files[1].fm = { card_id: "one", deck: "Default" };
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.getQuestions();
+  plugin.getCards();
+  let count = 0;
+  const original = app.vault.getMarkdownFiles;
+  app.vault.getMarkdownFiles = () => {
+    count += 1;
+    return original();
+  };
+
+  const q = app.files.find((file) => file.path === "Questions/One.md");
+  const card = app.files.find((file) => file.path === "Cards/One.md");
+  const unrelated = app.files.find((file) => file.path === "Notes/Unrelated.md");
+  const now = new Date(2026, 10, 1, 12);
+  const stats = plugin.studyStatsSnapshot(now);
+  count = 0;
+
+  plugin.handleIndexChange(unrelated);
+  assert.equal(plugin.studyStatsSnapshot(now), stats, "an unrelated metadata change keeps derived snapshots");
+  assert.equal(count, 0, "and it does not scan the vault");
+
+  q.fm.question_id = "";
+  plugin.handleIndexChange(q);
+  assert.equal(plugin.getQuestions().length, 0, "the changed question leaves the index");
+  assert.equal(count, 0, "the question index updates without a scan");
+
+  card.fm.attempts = 1;
+  plugin.handleIndexChange(card);
+  assert.equal(plugin.getCards()[0].fm.attempts, 1, "the changed card is visible from the index");
+  assert.equal(count, 0, "the card index updates without a scan");
 });

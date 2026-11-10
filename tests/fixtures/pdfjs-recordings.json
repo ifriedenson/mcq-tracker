@@ -1,0 +1,150 @@
+{
+  "note": "Recorded with pdfjs-dist 4.10.38 legacy build from the adjacent real PDF files. This is an Obsidian loadPdfJs recording, not a parser.",
+  "text": {
+    "file": "pdfjs-membranes.pdf",
+    "sha256": "53a0b0b4ce87535a010bd7159f54b60fcc1b08d0d586b3bb38a8ac80397e8ac2",
+    "numPages": 1,
+    "pages": [
+      {
+        "n": 1,
+        "viewport": {
+          "width": 612,
+          "height": 792,
+          "scale": 1,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            792
+          ]
+        },
+        "items": [
+          {
+            "str": "Cell membranes are made of a phospholipid bilayer.",
+            "transform": [
+              12,
+              0,
+              0,
+              12,
+              72,
+              720
+            ],
+            "width": 277.44,
+            "height": 12,
+            "hasEOL": false
+          },
+          {
+            "str": "",
+            "transform": [
+              12,
+              0,
+              0,
+              12,
+              72,
+              696
+            ],
+            "width": 0,
+            "height": 0,
+            "hasEOL": true
+          },
+          {
+            "str": "The hydrophobic tails face inward and the heads face water.",
+            "transform": [
+              12,
+              0,
+              0,
+              12,
+              72,
+              696
+            ],
+            "width": 320.16000000000014,
+            "height": 12,
+            "hasEOL": false
+          },
+          {
+            "str": "",
+            "transform": [
+              12,
+              0,
+              0,
+              12,
+              72,
+              672
+            ],
+            "width": 0,
+            "height": 0,
+            "hasEOL": true
+          },
+          {
+            "str": "Membrane proteins move laterally in the fluid mosaic model.",
+            "transform": [
+              12,
+              0,
+              0,
+              12,
+              72,
+              672
+            ],
+            "width": 319.4400000000001,
+            "height": 12,
+            "hasEOL": false
+          },
+          {
+            "str": "",
+            "transform": [
+              12,
+              0,
+              0,
+              12,
+              72,
+              648
+            ],
+            "width": 0,
+            "height": 0,
+            "hasEOL": true
+          },
+          {
+            "str": "Cholesterol changes membrane fluidity at different temperatures.",
+            "transform": [
+              12,
+              0,
+              0,
+              12,
+              72,
+              648
+            ],
+            "width": 344.8080000000003,
+            "height": 12,
+            "hasEOL": false
+          }
+        ]
+      }
+    ]
+  },
+  "scan": {
+    "file": "pdfjs-scan.pdf",
+    "sha256": "09d635fa1b1799c8cc755d3120a7801c7bdcf05f947c48d013b06077232626e7",
+    "numPages": 1,
+    "pages": [
+      {
+        "n": 1,
+        "viewport": {
+          "width": 612,
+          "height": 792,
+          "scale": 1,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            792
+          ]
+        },
+        "items": []
+      }
+    ]
+  }
+}

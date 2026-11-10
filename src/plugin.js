@@ -1,7 +1,7 @@
 "use strict";
 const { QtModal } = require("./a11y");
 const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
-const { Modal, Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
+const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
 const { releaseCommandPaletteShortcut } = require("./hotkey-cleanup");
 const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_REVIEW_SIDEBAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST, VIEW_TYPE_WEB_BROWSER, VIEW_TYPE_RECENT_FILES, VIEW_TYPE_AGENT } = require("./constants");
@@ -24,7 +24,6 @@ const studyWorkspace = require("./study-workspace");
 const timeBlocks = require("./time-blocks");
 const webBrowser = require("./web-browser");
 const canvasMarkdown = require("./canvas-markdown");
-const fsrsTrain = require("./fsrs-train");
 const mindmap = require("./mindmap");
 const pdfDeepLink = require("./pdf-deep-link");
 const pdfBacklinks = require("./pdf-backlinks");
@@ -153,22 +152,20 @@ const chatPricing = require("./chat-pricing");
 const chatMemory = require("./chat-memory");
 const { ChatMemoryModal } = require("./chat-memory-modal");
 const { PdfImportModal } = require("./import-modal");
+const { checkDocumentText } = require("./import-preflight");
 const { readPdfPages, renderPdfPagesAsPng } = require("./pdf");
 const { CourseNotesModal, removeAiSummary } = require("./course-notes");
 const { DocumentReviewModal } = require("./document-review-modal");
 const { OcrModal } = require("./ocr-modal");
 const { PaperScannerModal } = require("./paper-scanner");
 const { PdfAnnotationModal } = require("./pdf-annotation-modal");
-const { PdfInkModal } = require("./pdf-ink-modal");
-const { PdfEditorModal } = require("./pdf-editor-modal");
-const { editedPathFor } = require("./pdf-editor");
-const { annotationLink, annotationSummary, annotationsMarkdown, normalizeTags, parseAnnotationFile, sidecarPathFor, upsertAnnotation, removeAnnotation } = require("./pdf-annotations");
+const { annotationSummary, annotationsMarkdown, normalizeTags, parseAnnotationFile, sidecarPathFor, upsertAnnotation, removeAnnotation } = require("./pdf-annotations");
 const { WelcomeModal } = require("./welcome-modal");
 const { WhatsNewModal } = require("./whats-new-modal");
 const { releaseFor, whatsNewShouldShow } = require("./whats-new");
 const { auditHotkeys } = require("./hotkey-audit");
 const { HotkeyAuditModal } = require("./hotkey-audit-modal");
-const { AiImportHelpModal, importAiState } = require("./ai-import-modal");
+const { AiImportHelpModal } = require("./ai-import-modal");
 const aiConnection = require("./ai-connection");
 const { FocusLogModal } = require("./focus-modal");
 const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normalizeStudyLog, pauseFocus, resumeFocus, startFocus, studySummary } = require("./focus");
@@ -184,7 +181,7 @@ const agentWriteGuard = require("./agent-write-guard");
 const agentEditReview = require("./agent-edit-review");
 const { CalculationPreviewModal } = require("./calculation-preview-modal");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
-const { applyTermWeeks, cleanSubjectTitle, eventKey, examMatchesCourse, examReviewCap, findRegisteredCourse, isExamEvent, mergeCalendarSettings, nextClassStatus, normalizeFolder, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
+const { applyTermWeeks, cleanSubjectTitle, eventKey, examMatchesCourse, examReviewCap, findRegisteredCourse, isExamEvent, mergeCalendarSettings, nextClassStatus, normalizeFolder, subjectKey, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan, normalizeStudyPlanDays } = require("./study-plan");
 const { buildDashboard, courseMatches } = require("./analytics");
 const { bandQuestions, buildMastery, buildMasteryTrend, buildProgress, masteryScopes, masteryWindowDays, scopeQuestions } = require("./progress");
@@ -216,7 +213,7 @@ const { parseApkg } = require("./apkg");
 const { buildApkg, apkgMediaWarning } = require("./apkg-export");
 const { parseQtiArchive } = require("./qti-archive");
 const { extractCardsFromMarkdown, flashcardsFlag } = require("./cards-extract");
-const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckOf, deckSummary, effectiveFsrsRetention, isCardNote, schedulerForDeck, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
+const { cardAttempt, cardNote, courseForFolder, deckConfig, deckOf, deckSummary, effectiveFsrsRetention, isCardNote, schedulerForDeck, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
 const { inferPlainCard, isPlainPath, normalizePlainCards } = require("./plain-cards");
 const { cardUpdateDiff } = require("./card-write-diff");
 const { DueQueueModal, buildDueQueue, normalizeDailyCap } = require("./due-queue");
@@ -301,7 +298,7 @@ const { appendPrefix, buildCardBlock, buildCardGeneratorPrompt, normalizeCardGen
 const { buildSpacedQuizNote, spacedQuizFileName, spacedQuizSourceKey } = require("./spaced-quiz");
 const { readActiveNoteContext } = require("./note-context");
 const { QuizGeneratorModal } = require("./quiz-generator-modal");
-const { buildQuizGeneratorPrompt, collectGeneratorSources, folderMatches, normalizeQuizGenerator, parseGeneratorQuestions } = require("./quiz-generator");
+const { MAX_SOURCE_CHARS, buildQuizGeneratorPrompt, collectGeneratorSources, folderMatches, normalizeQuizGenerator, parseGeneratorQuestions } = require("./quiz-generator");
 const { buildStudyBundle, bundleFileName } = require("./study-bundle");
 const { parseStudyBundle, planStudyBundleRestore } = require("./study-bundle-import");
 const { buildWeakSpotPrompt, pickWeakSpot, weakSpotRows } = require("./weak-spot");
@@ -352,6 +349,9 @@ class QuestionTrackerPlugin extends Plugin {
     this._knowledgeRecordRefreshPaths = new Set();
     this._knowledgeRecordRebuildTimer = null;
     this.plainCardIndex = new Map();
+    this._questionIndex = null;
+    this._questionIndexFolder = null;
+    this._cardIndex = null;
     this._calendarNoteIndex = null;
     this._calendarFolders = null;
     this._calendarCache = null;
@@ -946,7 +946,7 @@ class QuestionTrackerPlugin extends Plugin {
         return true;
       },
     });
-    this.addCommand({ id: "generate-quiz", name: "Generate quiz questions from notes", callback: () => this.openQuizGenerator() });
+    this.addCommand({ id: "generate-quiz", name: "Find or generate quiz questions", callback: () => this.openQuizGenerator() });
     this.addCommand({ id: "cards-export-archive", name: "Cards: export a portable archive", callback: () => this.exportCardArchive().catch((e) => new Notice(str(e && e.message ? e.message : e) || "Could not export the archive.", 6000)) });
     this.addCommand({ id: "cards-import-archive", name: "Cards: import a portable archive", callback: () => this.openCardArchiveImport() });
     this.addCommand({ id: "study-nudge-show", name: "Show today's study nudge", callback: () => this.maybeShowStudyNudge(new Date()) });
@@ -1271,7 +1271,7 @@ class QuestionTrackerPlugin extends Plugin {
 
     // These are vault-wide listeners. Registering them after layout avoids
     // reacting to the initial file enumeration and metadata scan.
-    const invalidateNotes = () => this.invalidateCalendarNotes();
+    const invalidateNotes = (file, oldPath) => this.handleIndexChange(file, oldPath);
     this.registerEvent(this.app.vault.on("create", invalidateNotes));
     this.registerEvent(this.app.vault.on("delete", invalidateNotes));
     this.registerEvent(this.app.vault.on("rename", invalidateNotes));
@@ -1481,6 +1481,11 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   save() {
+    // A settings save often follows an import or bulk write. Drop the path
+    // indexes so a new note is visible even when a test/tool did not emit a
+    // metadata event; ordinary reads still reuse them between saves.
+    this._questionIndex = null;
+    this._cardIndex = null;
     this.invalidateSnapshots();
     return this.saveData(this.settings);
   }
@@ -2308,17 +2313,12 @@ class QuestionTrackerPlugin extends Plugin {
 
   openPdfImport(options) {
     if (this.moduleOff("mcq")) return;
-    const state = importAiState(this);
-    if (state !== "ready") {
-      this.openAiImportHelp(state);
-      return;
-    }
     new PdfImportModal(this.app, this, options).open();
   }
 
-  /** Explain the one AI-only import path with a setup or manual-question action. */
-  openAiImportHelp(state) {
-    new AiImportHelpModal(this.app, this, state).open();
+  /** Explain the AI-only import step after the chosen file passes its local check. */
+  openAiImportHelp(state, options) {
+    new AiImportHelpModal(this.app, this, state, options).open();
   }
 
   openCourseNotesImport(onDone, options) {
@@ -2345,6 +2345,9 @@ class QuestionTrackerPlugin extends Plugin {
   openPdfInk(pdfPath, options) {
     if (this.moduleOff("mcq")) return;
     const extra = options && typeof options === "object" ? options : {};
+    // The PDF reader and editor carry the vendored PDF library. Load them
+    // only when a user opens a PDF, not on every Obsidian startup.
+    const { PdfInkModal } = require("./pdf-ink-modal");
     new PdfInkModal(this.app, this, { ...extra, pdfPath: pdfPath || extra.pdfPath || "" }).open();
   }
 
@@ -2448,6 +2451,7 @@ class QuestionTrackerPlugin extends Plugin {
 
   openPdfEditor(pdfPath) {
     if (this.moduleOff("mcq")) return;
+    const { PdfEditorModal } = require("./pdf-editor-modal");
     new PdfEditorModal(this.app, this, { pdfPath: pdfPath || "" }).open();
   }
 
@@ -2467,6 +2471,7 @@ class QuestionTrackerPlugin extends Plugin {
    * keep pointing at the PDF they were drawn on.
    */
   async savePdfCopy(originalPath, bytes, label) {
+    const { editedPathFor } = require("./pdf-editor");
     const path = editedPathFor(originalPath, (candidate) => Boolean(this.app.vault.getAbstractFileByPath(candidate)), label);
     const file = await this.app.vault.createBinary(path, bytes);
     return { path, file };
@@ -3765,26 +3770,6 @@ class QuestionTrackerPlugin extends Plugin {
     this.refreshViews();
   }
 
-  async onTableEditorToggled() {
-    const leaves = [];
-    const workspace = this.app && this.app.workspace;
-    if (workspace && typeof workspace.iterateAllLeaves === "function") {
-      workspace.iterateAllLeaves((leaf) => leaves.push(leaf));
-    }
-    for (const leaf of leaves) {
-      const view = leaf && leaf.view;
-      const preview = view && view.previewMode;
-      if (preview && typeof preview.rerender === "function") {
-        try {
-          preview.rerender(true);
-        } catch (e) {
-          // A view that is closing can refuse a rerender; the next open applies the switch.
-        }
-      }
-    }
-    this.refreshViews();
-  }
-
   onGlobalSettingsChanged() {
     this.refreshRibbon();
     this.refreshViews();
@@ -3821,9 +3806,11 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   invalidateCalendarNotes() {
+    // The calendars parse their own sources; this only clears the class-note
+    // lookup and folder list. Dashboard snapshots must not be discarded for
+    // an unrelated question or card edit.
     this._calendarNoteIndex = null;
     this._calendarFolders = null;
-    this.invalidateSnapshots();
   }
 
   /** Finds the existing note for a class occurrence, if there is one. */
@@ -7494,23 +7481,114 @@ class QuestionTrackerPlugin extends Plugin {
     for (const issue of parsed.issues.slice(0, 3)) box.createDiv({ cls: "qt-simple-quiz-issue", text: issue });
   }
 
+  /** Read the chosen PDFs as quiz source material. This sends and writes nothing. */
+  async quizSourceFromPdfs(paths) {
+    const list = [];
+    for (const value of Array.isArray(paths) ? paths : []) {
+      const path = str(value).trim().replace(/^\/+/, "");
+      if (!path || !/\.pdf$/i.test(path) || list.includes(path)) continue;
+      list.push(path);
+      if (list.length >= 3) break;
+    }
+    if (!list.length) throw new Error("Choose at least one PDF, or switch to another source.");
+    const chunks = [];
+    const titles = [];
+    const skipped = [];
+    let pages = 0;
+    for (const path of list) {
+      const file = this.app.vault.getAbstractFileByPath(path);
+      if (!(file instanceof TFile)) throw new Error(`There is no ${path} in this vault.`);
+      if (!/\.pdf$/i.test(file.path || path)) throw new Error(`${path} is not a PDF.`);
+      let read;
+      try {
+        read = await readPdfPages(await this.readVaultBytes(file), "1-40", () => {});
+      } catch (e) {
+        skipped.push({ path, reason: str(e && e.message ? e.message : e) || "could not be read" });
+        continue;
+      }
+      const check = checkDocumentText(read.pages, { kind: "pdf", label: file.name || path });
+      if (!check.ok) {
+        skipped.push({ path, reason: check.message });
+        continue;
+      }
+      pages += read.pages.length;
+      titles.push(file.path || path);
+      chunks.push(
+        read.pages
+          .map((page) => `--- ${file.path || path}, page ${page.n} ---\n${str(page.text).trim()}`)
+          .join("\n\n")
+      );
+    }
+    if (!chunks.length) {
+      const reasons = skipped.map((item) => `${item.path}: ${item.reason}`).join(" ");
+      throw new Error(`No selected PDF has enough readable text. ${reasons}`.trim());
+    }
+    let text = chunks.join("\n\n");
+    const truncated = text.length > MAX_SOURCE_CHARS;
+    if (truncated) text = text.slice(0, MAX_SOURCE_CHARS);
+    return {
+      text,
+      titles,
+      count: titles.length,
+      skipped,
+      chars: text.length,
+      truncated,
+      retrieval: { mode: "pdf-pages", pages, files: titles.slice() },
+    };
+  }
+
+  /** Use one pasted passage as quiz source material. This sends and writes nothing. */
+  quizSourceFromText(value, title) {
+    const full = str(value).trim();
+    if (!full) throw new Error("Paste some source text first.");
+    const text = full.slice(0, MAX_SOURCE_CHARS);
+    return {
+      text,
+      titles: [str(title).trim() || "Pasted text"],
+      count: 1,
+      chars: text.length,
+      truncated: full.length > MAX_SOURCE_CHARS,
+      retrieval: { mode: "pasted-text", chars: text.length },
+    };
+  }
+
   /** Build the exact generation payload and price it locally. This method sends nothing. */
   async prepareQuizGeneration(options) {
     if (!this.settings.ai.enabled) throw new Error("Turn on AI features under Settings, Global, Modules first.");
     if (this.moduleOff("mcq")) throw new Error("Turn on MCQ Tracker to create practice questions.");
-    const config = normalizeQuizGenerator({ ...normalizeQuizGenerator(this.settings.quizGenerator), ...(options || {}) });
-    const sources = [];
-    for (const candidate of this.getNoteCandidates()) {
-      if (!folderMatches(candidate.file.path, config.folders)) continue;
-      try {
-        sources.push({ ...candidate, text: await this.app.vault.cachedRead(candidate.file) });
-      } catch (e) {
-        /* an unreadable note is left out rather than failing the whole draft */
+    const requested = options && typeof options === "object" ? options : {};
+    const config = normalizeQuizGenerator({ ...normalizeQuizGenerator(this.settings.quizGenerator), ...requested });
+    let source;
+    if (config.sourceMode === "notes") {
+      const sources = [];
+      for (const candidate of this.getNoteCandidates()) {
+        if (!folderMatches(candidate.file.path, config.folders)) continue;
+        try {
+          sources.push({ ...candidate, text: await this.app.vault.cachedRead(candidate.file) });
+        } catch (e) {
+          /* an unreadable note is left out rather than failing the whole draft */
+        }
       }
+      source = collectGeneratorSources(sources, { folders: config.folders, maxNotes: 12, focus: config.brief.slice(0, 200) });
+      if (!source.text.trim()) throw new Error("No readable notes matched those folders. Choose a prompt, a PDF or pasted text instead.");
+    } else if (config.sourceMode === "pdfs") {
+      source = await this.quizSourceFromPdfs(config.pdfPaths);
+    } else if (config.sourceMode === "paste") {
+      source = this.quizSourceFromText(requested.paste, "Pasted text");
+    } else {
+      if (!config.brief) throw new Error("Write a question brief first, for example “10 SAT-style reading questions on social science”.");
+      source = { text: "", titles: [], count: 0, chars: 0, truncated: false, retrieval: { mode: "model-knowledge" } };
     }
-    const source = collectGeneratorSources(sources, { folders: config.folders, maxNotes: 12, focus: config.focus });
-    if (!source.text.trim()) throw new Error("No readable notes matched those folders.");
-    const prompt = buildQuizGeneratorPrompt({ text: source.text, titles: source.titles, focus: config.focus, count: config.count, language: config.language, types: config.types });
+    const prompt = buildQuizGeneratorPrompt({
+      text: source.text,
+      titles: source.titles,
+      brief: config.brief,
+      focus: config.brief,
+      count: config.count,
+      language: config.language,
+      types: config.types,
+      sourceMode: config.sourceMode,
+    });
     const maxTokens = aiService.clampMaxTokens(this.settings.ai, 4000);
     const inputTokens = aiService.estimateRequestTokens(prompt.system, [{ role: "user", content: prompt.user }]);
     const model = this.aiModelFor("generation");
@@ -7525,13 +7603,13 @@ class QuestionTrackerPlugin extends Plugin {
     };
   }
 
-  /** Draft quiz questions from chosen notes and folders. This method writes nothing. */
+  /** Draft quiz questions from notes, a prompt, pasted text or PDFs. This method writes nothing. */
   async generateQuizFromNotes(options, prepared) {
     const plan = prepared && prepared.prompt && prepared.config ? prepared : await this.prepareQuizGeneration(options);
     const { config, source, prompt } = plan;
     const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "generation", maxTokens: plan.maxTokens || 4000 });
     const parsed = parseGeneratorQuestions(reply, { count: config.count, types: config.types });
-    if (!parsed.items.length) throw new Error("The AI returned no usable questions. Try different notes or fewer types.");
+    if (!parsed.items.length) throw new Error("The AI returned no usable questions. Try a different brief, source or fewer types.");
     const verification = await this.verifyDraftQuestions(parsed.items);
     for (const item of parsed.items) item.aiGenerated = this.aiModelLabel("generation");
     return {
@@ -7539,6 +7617,7 @@ class QuestionTrackerPlugin extends Plugin {
       items: parsed.items.filter((item) => !(item.verification && item.verification.drop)),
       verification,
       issues: parsed.issues,
+      source,
       sourceCount: source.count,
       sourceChars: source.chars,
       retrieval: source.retrieval,
@@ -7853,7 +7932,9 @@ class QuestionTrackerPlugin extends Plugin {
     const rowPaths = write.rows
       .filter((row) => ["created", "updated", "copied", "skipped"].includes(row.status) && row.path)
       .map((row) => row.path);
-    const paths = [...new Set([...autoAnkiBatchPaths(this.getCards(), batch), ...rowPaths])];
+    // Use the rows the writer just reported. Reading the card index here would
+    // race the metadata cache before the new frontmatter is hydrated.
+    const paths = [...new Set(rowPaths)];
     if (!paths.length) throw new Error("The generated cards could not be written to the vault.");
     this.recordAiTranscriptWrite(generated, beforePaths);
     const pushed = await this.pushCardsToAnki({ paths, deck });
@@ -9481,19 +9562,65 @@ ${body}
 
   /* ---- questions */
 
-  getQuestions() {
-    const folder = this.settings.questionFolder.trim().replace(/^\/+|\/+$/g, "");
-    return this.snapshot("questions:" + folder, () => {
-      const out = [];
-      for (const file of this.app.vault.getMarkdownFiles()) {
-        if (folder && file.path !== folder && !file.path.startsWith(folder + "/")) continue;
-        const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-        if (fm && fm.question_id !== undefined && fm.question_id !== null && fm.question_id !== "") {
-          out.push({ file, fm });
-        }
+  /** The normalized folder that owns question notes. */
+  questionFolder() {
+    return String(this.settings.questionFolder || "").trim().replace(/^\/+|\/+$/g, "");
+  }
+
+  /** Rebuild the path index once; subsequent reads are O(question count). */
+  rebuildQuestionIndex() {
+    const folder = this.questionFolder();
+    const index = new Map();
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      if (folder && file.path !== folder && !file.path.startsWith(folder + "/")) continue;
+      const entry = this.questionDataFor(file);
+      if (entry) index.set(file.path, entry);
+    }
+    this._questionIndex = index;
+    this._questionIndexFolder = folder;
+    return index;
+  }
+
+  /** The index entry for one question note, or null when it is not a question. */
+  questionDataFor(file) {
+    if (!file || !file.path || !/\.md$/i.test(file.path)) return null;
+    const folder = this.questionFolder();
+    if (folder && file.path !== folder && !file.path.startsWith(folder + "/")) return null;
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    if (!fm || fm.question_id === undefined || fm.question_id === null || fm.question_id === "") return null;
+    return { file, fm };
+  }
+
+  /** Keep one changed path current without scanning the vault again. */
+  syncQuestionIndex(file, oldPath) {
+    if (!this._questionIndex) return false;
+    let changed = false;
+    if (oldPath && this._questionIndex.delete(oldPath)) changed = true;
+    if (file && file.path) {
+      const entry = this.questionDataFor(file);
+      if (entry) {
+        this._questionIndex.set(file.path, entry);
+        changed = true;
+      } else if (this._questionIndex.delete(file.path)) {
+        changed = true;
       }
-      return out;
-    }).slice();
+    }
+    return changed;
+  }
+
+  /** Apply one vault event to both indexes, then invalidate only when they changed. */
+  handleIndexChange(file, oldPath) {
+    const questionChanged = this.syncQuestionIndex(file, oldPath);
+    const cardChanged = this.syncCardIndex(file, oldPath);
+    if (questionChanged || cardChanged) this.invalidateSnapshots();
+    this.invalidateCalendarNotes();
+    return { questionChanged, cardChanged };
+  }
+
+  getQuestions() {
+    const folder = this.questionFolder();
+    if (!this._questionIndex || this._questionIndexFolder !== folder) this.rebuildQuestionIndex();
+    return Array.from(this._questionIndex.values());
   }
 
   filtered(questions, options) {
@@ -9511,14 +9638,50 @@ ${body}
 
   /* ---- cards */
 
+  /** Rebuild the card path index once; only the final cards are cached. */
+  rebuildCardIndex() {
+    const index = new Map();
+    const plain = this.plainCardIndex || new Map();
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+      if (isCardNote(fm) || plain.has(file.path)) index.set(file.path, { file, fm });
+    }
+    this._cardIndex = index;
+    return index;
+  }
+
+  cardDataFor(file) {
+    if (!file || !file.path || !/\.md$/i.test(file.path)) return null;
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+    if (!isCardNote(fm) && !(this.plainCardIndex || new Map()).has(file.path)) return null;
+    return { file, fm };
+  }
+
+  /** Keep one changed path current without scanning the vault again. */
+  syncCardIndex(file, oldPath) {
+    if (!this._cardIndex) return false;
+    let changed = false;
+    if (oldPath && this._cardIndex.delete(oldPath)) changed = true;
+    if (file && file.path) {
+      const entry = this.cardDataFor(file);
+      if (entry) {
+        this._cardIndex.set(file.path, entry);
+        changed = true;
+      } else if (this._cardIndex.delete(file.path)) {
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
   /** Every card or vocabulary note, with its effective deck and course. */
   getCards() {
+    if (!this._cardIndex) this.rebuildCardIndex();
     return this.snapshot("cards", () => {
       const out = [];
-      const plain = this.plainCardIndex || new Map();
-      for (const file of this.app.vault.getMarkdownFiles()) {
-        const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-        if (isCardNote(fm) || plain.has(file.path)) out.push(resolveCard(file, fm || {}, this.settings));
+      for (const entry of this._cardIndex.values()) {
+        const fm = this.app.metadataCache.getFileCache(entry.file)?.frontmatter || entry.fm || {};
+        out.push(resolveCard(entry.file, fm, this.settings));
       }
       return out;
     }).slice();
@@ -9572,6 +9735,7 @@ ${body}
       }
     }
     this.plainCardIndex = found;
+    this._cardIndex = null;
     this.invalidateSnapshots();
     if (options && options.refresh) this.refreshViews();
     return found.size;
@@ -10175,6 +10339,9 @@ ${body}
     }
     if (data.aiGenerated || data.importFormat === "transcript-ai") assertAllowedWritePath(path, this.settings);
     const file = await this.app.vault.create(path, note.text);
+    // The new note is already in the vault, but its metadata event may arrive
+    // later. Drop the card index so the next read includes it.
+    this._cardIndex = null;
     return { path, file, deck, course };
   }
 
@@ -10892,7 +11059,10 @@ ${body}
         rows.push({ status: "failed", reason, source: target.importSource || "" });
       }
     }
-    if (created || updated || copied) this.invalidateSnapshots();
+    if (created || updated || copied) {
+      this._cardIndex = null;
+      this.invalidateSnapshots();
+    }
     return { created, updated, copied, skipped, errors, rows, media: opts.media || null, total: Array.isArray(parsed) ? parsed.length : 0, duplicateMode: mode };
   }
 
@@ -12272,6 +12442,22 @@ ${body}
     } else if (!wanted && this._tableRibbon) {
       if (typeof this._tableRibbon.remove === "function") this._tableRibbon.remove();
       this._tableRibbon = null;
+    }
+    const leaves = [];
+    const workspace = this.app && this.app.workspace;
+    if (workspace && typeof workspace.iterateAllLeaves === "function") {
+      workspace.iterateAllLeaves((leaf) => leaves.push(leaf));
+    }
+    for (const leaf of leaves) {
+      const view = leaf && leaf.view;
+      const preview = view && view.previewMode;
+      if (preview && typeof preview.rerender === "function") {
+        try {
+          preview.rerender(true);
+        } catch (e) {
+          // A view that is closing can refuse a rerender; the next open applies the switch.
+        }
+      }
     }
     if (typeof this.refreshViews === "function") this.refreshViews();
   }

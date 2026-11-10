@@ -37,10 +37,11 @@ function importAiState(plugin) {
  * visible as the offline way forward.
  */
 class AiImportHelpModal extends QtModal {
-  constructor(app, plugin, state) {
+  constructor(app, plugin, state, options) {
     super(app);
     this.plugin = plugin;
     this.state = state || importAiState(plugin);
+    this.options = options || {};
   }
 
   onOpen() {
@@ -59,6 +60,14 @@ class AiImportHelpModal extends QtModal {
         "Turning a PDF, PowerPoint or Word file into question notes is the one everyday step that needs AI. " +
         "Practice, timed tests, review and Today, cards, the calendar, assignments, and the reference and AP tools all work without it.",
     });
+    if (this.options.preflight) {
+      const checked = this.options.preflight;
+      const pages = `${checked.pages} page${checked.pages === 1 ? "" : "s"}`;
+      el.createEl("p", {
+        cls: "qt-hint",
+        text: `This file passed the text check (${pages}, ${checked.chars.toLocaleString()} characters). Nothing has been sent yet.`,
+      });
+    }
     el.createEl("p", {
       cls: "qt-hint",
       text:
@@ -71,7 +80,8 @@ class AiImportHelpModal extends QtModal {
       plugin: this.plugin,
       onReady: () => {
         this.close();
-        this.plugin.openPdfImport();
+        if (typeof this.options.onReady === "function") this.options.onReady();
+        else this.plugin.openPdfImport();
       },
       onOffline: () => this.close(),
     });

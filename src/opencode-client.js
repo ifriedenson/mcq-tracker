@@ -8,6 +8,19 @@ const { chunksFromStream, sseData } = require("./chat-stream");
 
 /* ------------------------------------------------------------ OpenCode (AI) */
 
+/** A health check must finish even when the server accepts the socket but never answers. */
+const HEALTH_TIMEOUT_MS = 4000;
+
+function bounded(promise, ms, label) {
+  let timer = null;
+  const limit = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s.`)), ms);
+  });
+  return Promise.race([promise, limit]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 function modelFromString(s) {
   const t = str(s).trim();
   const i = t.indexOf("/");
@@ -167,14 +180,17 @@ class OpenCodeClient {
       return null;
     }
   }
-  health() {
-    return this.req("GET", "/global/health");
+  health(timeoutMs) {
+    const ms = Number(timeoutMs) > 0 ? Number(timeoutMs) : HEALTH_TIMEOUT_MS;
+    return bounded(this.req("GET", "/global/health"), ms, "OpenCode health check");
   }
   agents() {
     return this.req("GET", "/agent");
   }
-  providers() {
-    return this.req("GET", "/config/providers");
+  providers(timeoutMs) {
+    const req = this.req("GET", "/config/providers");
+    const ms = Number(timeoutMs) > 0 ? Number(timeoutMs) : 0;
+    return ms ? bounded(req, ms, "OpenCode providers check") : req;
   }
   createSession(title) {
     return this.req("POST", "/session", { title });
@@ -243,6 +259,7 @@ class OpenCodeClient {
 }
 
 module.exports = {
+  HEALTH_TIMEOUT_MS,
   modelFromString,
   friendlyError,
   partsToTurns,

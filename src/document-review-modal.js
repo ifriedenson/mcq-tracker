@@ -6,8 +6,8 @@ const { QtModal } = require("./a11y");
  * This modal never writes notes itself.
  */
 const { Modal, Setting, TFile } = require("obsidian");
-const { DOCUMENT_EXTENSIONS, documentBaseName, documentKind, documentLabel, extensionOf, readDocumentPages } = require("./documents");
-const { readPdfPages } = require("./pdf");
+const { DOCUMENT_EXTENSIONS, documentBaseName, documentKind, documentLabel, extensionOf } = require("./documents");
+const { readDocumentSource, readPagesForSource } = require("./document-source");
 const { DOCUMENT_TYPE_LABELS, DOCUMENT_TYPES, classifyDocument } = require("./document-classify");
 const { str } = require("./util");
 
@@ -71,32 +71,7 @@ class DocumentReviewModal extends QtModal {
   }
 
   async readSource() {
-    if (this.file) {
-      const name = this.file.name;
-      return {
-        buf: await this.file.arrayBuffer(),
-        name: documentBaseName(name),
-        ext: extensionOf(name),
-        kind: documentKind(name),
-        device: true,
-        path: "",
-        file: this.file,
-      };
-    }
-    if (this.vaultDoc) {
-      const file = this.app.vault.getAbstractFileByPath(this.vaultDoc);
-      if (!(file instanceof TFile)) throw new Error("I couldn't find that file in your vault.");
-      return {
-        buf: await this.app.vault.readBinary(file),
-        name: file.basename,
-        ext: extensionOf(file.path),
-        kind: documentKind(file.path),
-        device: false,
-        path: file.path,
-        file: null,
-      };
-    }
-    throw new Error("Choose a file first.");
+    return readDocumentSource(this.app, { file: this.file, vaultDoc: this.vaultDoc });
   }
 
   async analyze() {
@@ -108,9 +83,7 @@ class DocumentReviewModal extends QtModal {
       const src = await this.readSource();
       if (!src.kind) throw new Error(`This plugin can't read .${src.ext || "that"} files.`);
       status.setText(`Reading ${documentLabel(`${src.name}.${src.ext}`)}...`);
-      const read = src.kind === "pdf"
-        ? await readPdfPages(src.buf, "", (message) => status.setText(message))
-        : await readDocumentPages(src.buf, `${src.name}.${src.ext}`, "", (message) => status.setText(message));
+      const read = await readPagesForSource(src, "", (message) => status.setText(message));
       const pages = (read.pages || []).filter((page) => str(page.text).trim());
       if (!pages.length) throw new Error("No readable text was found. Scanned pages need OCR first; this review will not guess from images.");
       this.source = src;
@@ -172,10 +145,13 @@ class DocumentReviewModal extends QtModal {
       });
 
     const aiReady = this.plugin.settings.ai.enabled;
-    const canImportQuestions = !this.plugin.moduleOff("mcq") && aiReady;
+    const canImportQuestions = !this.plugin.moduleOff("mcq");
     if (kind === "mcq" || kind === "mixed") {
       if (!aiReady) {
-        el.createEl("p", { cls: "qt-hint", text: "Question import needs AI features turned on. You can still make course notes from this file." });
+        el.createEl("p", {
+          cls: "qt-hint",
+          text: "The file is checked first. If it has readable text, the next step connects AI; you can still make course notes instead.",
+        });
       } else if (this.plugin.moduleOff("mcq")) {
         el.createEl("p", { cls: "qt-hint", text: "MCQ Tracker is off. Turn it on under Settings, Global, Modules to import questions." });
       }

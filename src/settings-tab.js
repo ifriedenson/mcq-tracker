@@ -5,7 +5,7 @@ const { API_PRESETS, ApiClient, friendlyApiError } = require("./api-client");
 const { localModelGuide } = require("./local-models");
 const { str } = require("./util");
 const { OPENCODE_REPO, PROVIDERS } = require("./opencode-manager");
-const { friendlyError } = require("./opencode-client");
+const { HEALTH_TIMEOUT_MS } = require("./opencode-client");
 const { fvals, hasFilters } = require("./filters");
 const { NameModal } = require("./modals");
 const { renderCalendarSettings } = require("./calendar-settings");
@@ -25,7 +25,7 @@ const { renderPdfPlusSettings } = require("./pdf-plus-settings");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const { ASSIGNMENTS_TABS, renderAssignmentsSettings } = require("./assignments-settings");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
-const { connectionProblem } = require("./ai-connection");
+const { connectionProblem, ensureOpenCodeClient, openCodeProblem } = require("./ai-connection");
 const { STUDY_TOOL_SETTINGS_BY_ID, STUDY_TOOL_SETTINGS_MODULES, renderStudyToolSettings } = require("./study-tool-settings");
 const { STUDY_MODE_LABELS, STUDY_SKIN_LABELS, normalizeStudyMode, normalizeStudySkin } = require("./study-skin");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
@@ -1427,12 +1427,16 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       );
     new Setting(section).setName("Test connection").addButton((b) =>
       b.setButtonText("Test").onClick(async () => {
-        if (ai.managed && !this.plugin.manager.isRunning()) {
-          return new Notice("OpenCode isn't running yet. It starts when you use the AI chat, or press Start above.", 8000);
-        }
-        const oc = this.plugin.openCode();
+        b.setDisabled(true);
+        b.setButtonText("Testing...");
+        let oc = null;
         try {
-          const h = await oc.health();
+          // Start the managed server before opening the client. openCode()
+          // otherwise uses the manual/default URL while no managed connection exists.
+          oc = await ensureOpenCodeClient(this.plugin);
+          // /global/health stalls through Obsidian's request layer on OpenCode 1.19.5;
+          // use the same bounded readiness route as the first-run connection test.
+          await oc.providers(HEALTH_TIMEOUT_MS);
           let names = "";
           try {
             const agents = await oc.agents();
@@ -1440,9 +1444,13 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           } catch (e) {
             /* agents list is optional */
           }
-          new Notice(`Connected to OpenCode${h && h.version ? " " + h.version : ""}.${names ? " Agents: " + names : ""}`, 8000);
+          const version = str(ai.installedVersion).trim();
+          new Notice(`Connected to OpenCode${version ? " " + version : ""}.${names ? " Agents: " + names : ""}`, 8000);
         } catch (e) {
-          new Notice(friendlyError(e, oc.base()), 8000);
+          new Notice(oc ? openCodeProblem(e, this.plugin, oc.base()) : openCodeProblem(e, this.plugin), 10000);
+        } finally {
+          b.setDisabled(false);
+          b.setButtonText("Test");
         }
       })
     );

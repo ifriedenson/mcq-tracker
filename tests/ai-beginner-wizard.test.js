@@ -40,12 +40,13 @@ async function setup(prepare) {
     plugin.imports++;
   };
   const dom = makeDom();
-  const view = new T.PracticeView({ app }, plugin);
-  view.app = app;
-  view.contentEl = dom.root;
-  view.render();
-  await dom.click("Import files (needs AI)");
-  return { app, plugin, dom, view };
+  const modal = new T.AiImportHelpModal(plugin.app, plugin, "off");
+  modal.containerEl = dom.root;
+  modal.modalEl = dom.root;
+  modal.contentEl = dom.root;
+  modal.titleEl = dom.root;
+  modal.open();
+  return { app, plugin, dom, modal };
 }
 
 /* ------------------------------------------------------------ shared surfaces */
@@ -94,9 +95,8 @@ test("connection: each provider's key page is a real, direct address", () => {
 /* ------------------------------------------------------------ the cold start */
 
 test("wizard: a cold start reaches a tested, model-populated import without typing a model", async () => {
-  const { plugin, dom, view } = await setup();
-  assert.equal(view.state, "ai-setup");
-  assert.ok(dom.texts().includes("Connect AI to import files"));
+  const { plugin, dom } = await setup();
+  assert.ok(dom.texts().includes("Connect AI to import a file"));
   assert.ok(dom.find("Install OpenCode").length, "OpenCode is the desktop default");
   assert.equal(dom.field("AI provider"), undefined, "the direct key form is not the first screen");
   await dom.click("Direct API key");
@@ -134,7 +134,6 @@ test("wizard: a cold start reaches a tested, model-populated import without typi
   assert.equal(plugin.settings.ai.backend, "api");
   assert.equal(plugin.saved.ai.enabled, true, "the choice is saved");
   assert.equal(plugin.imports, 1, "the real importer opens");
-  assert.equal(view.state, "idle");
   assert.equal(requests.filter((request) => request.method === "GET").length, 1);
   assert.equal(requests.filter((request) => request.method === "POST").length, 1);
 });
@@ -164,7 +163,7 @@ test("wizard: desktop opens on OpenCode and installs it without a settings detou
 });
 
 test("wizard: a tested OpenCode connection enables AI and opens the importer", async () => {
-  const { plugin, dom, view } = await setup((p) => {
+  const { plugin, dom } = await setup((p) => {
     p.settings.ai.managedBinary = "/tmp/opencode";
     p.settings.ai.installedVersion = "1.2.3";
     p.settings.ai.managed = true;
@@ -190,7 +189,6 @@ test("wizard: a tested OpenCode connection enables AI and opens the importer", a
   assert.equal(plugin.settings.ai.enabled, true);
   assert.equal(plugin.settings.ai.backend, "opencode");
   assert.equal(plugin.imports, 1);
-  assert.equal(view.state, "idle");
 });
 
 test("wizard: OpenCode without a connected provider names the provider key step", async () => {
@@ -226,7 +224,7 @@ test("wizard: a failed OpenCode install keeps Direct API and the offline route v
 /* ------------------------------------------------------------ honest failures */
 
 test("wizard: a rejected key names the problem and keeps Create a key and the offline route", async () => {
-  const { plugin, dom, view } = await setup();
+  const { plugin, dom } = await setup();
   await dom.click("Direct API key");
   await withRequests(
     async () => ({ status: 401, json: { error: { message: "invalid x-api-key" } } }),
@@ -240,7 +238,6 @@ test("wizard: a rejected key names the problem and keeps Create a key and the of
   assert.match(text, /create a new one with Create a key/);
   assert.ok(dom.find("Paste questions instead (works offline)").length, "offline work stays reachable");
   assert.equal(dom.last((entry) => entry.meta && entry.meta.text === "Continue to import").disabled, true);
-  assert.equal(view.state, "ai-setup");
   assert.equal(plugin.settings.ai.enabled, false);
 });
 

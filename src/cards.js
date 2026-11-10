@@ -740,7 +740,6 @@ module.exports = {
   REVEAL_ANIMATIONS,
   DEFAULT_SM2,
   normalizeFolder,
-  normalizeSchedulerChoice,
   normalizeRevealAnimation,
   revealAnimationClass,
   normalizeDeckIntervals,

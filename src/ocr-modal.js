@@ -11,6 +11,7 @@ const { FolderSuggest } = require("./modals");
 const { ensureFolder, localDate, str, uniquePath } = require("./util");
 const { renderPdfPagesAsPng } = require("./pdf");
 const { OCR_SYSTEM, buildOcrNote, cleanOcrText, ocrPrompt } = require("./ocr");
+const { readDocumentSource } = require("./document-source");
 
 function bytesToBase64(buf) {
   const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
@@ -124,17 +125,14 @@ class OcrModal extends QtModal {
   }
 
   async readSource() {
-    if (this.file) {
-      const name = this.file.name;
-      if (!/\.pdf$/i.test(name)) throw new Error("Choose a PDF first.");
-      return { buf: await this.file.arrayBuffer(), name: name.replace(/\.pdf$/i, ""), path: "", device: true, file: this.file };
-    }
-    if (this.vaultDoc) {
-      const file = this.app.vault.getAbstractFileByPath(this.vaultDoc);
-      if (!(file instanceof TFile)) throw new Error("I couldn't find that PDF in your vault.");
-      return { buf: await this.app.vault.readBinary(file), name: file.basename, path: file.path, device: false, file: null };
-    }
-    throw new Error("Choose a PDF first.");
+    return readDocumentSource(this.app, {
+      file: this.file,
+      vaultDoc: this.vaultDoc,
+      pdfOnly: true,
+      missingMessage: "I couldn't find that PDF in your vault.",
+      emptyMessage: "Choose a PDF first.",
+      notPdfMessage: "Choose a PDF first.",
+    });
   }
 
   async start() {

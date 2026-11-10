@@ -52,3 +52,19 @@ test("styles avoid duplicate height declarations and !important", () => {
     assert.ok(heights.length <= 1, `duplicate height in ${block.slice(0, 80)}`);
   }
 });
+
+test("the version files agree on the release being shipped", () => {
+  const read = (name) => JSON.parse(fs.readFileSync(path.join(root, name), "utf8"));
+  const pkg = read("package.json");
+  const manifest = read("manifest.json");
+  const lock = read("package-lock.json");
+  const versions = read("versions.json");
+  assert.equal(manifest.version, pkg.version, "manifest.json and package.json must name the same version");
+  assert.equal(lock.version, pkg.version, "package-lock.json must name the package version");
+  assert.equal(lock.packages[""] && lock.packages[""].version, pkg.version, "the lockfile root must name the package version");
+  assert.equal(versions[manifest.version], manifest.minAppVersion, "versions.json must carry the manifest's minimum app version");
+  for (const [version, minApp] of Object.entries(versions)) {
+    assert.match(version, /^\d+\.\d+\.\d+$/, `versions.json has a non-version key: ${version}`);
+    assert.match(minApp, /^\d+\.\d+\.\d+$/, `versions.json has a non-version minimum for ${version}`);
+  }
+});

@@ -1,7 +1,7 @@
 "use strict";
 const { Platform, requestUrl } = require("obsidian");
 const { fmtMB, sleep, str } = require("./util");
-const { OpenCodeClient } = require("./opencode-client");
+const { HEALTH_TIMEOUT_MS, OpenCodeClient } = require("./opencode-client");
 
 /*
  * Node built-ins are loaded lazily by literal name, so a static review can
@@ -567,15 +567,21 @@ class OpenCodeManager {
     return moved;
   }
 
-  async start(progress, retried) {
+  async start(progress, retried, hooks) {
     progress = progress || (() => {});
     if (this.isRunning()) return;
     const bin = await this.findBinary();
     if (!bin) throw new Error("OpenCode isn't installed.");
-    const { spawn } = nodeReq("child_process");
+    // Tests pass hooks so the readiness/retry decision (including the
+    // quarantine-and-retry recovery) can run without real timers or child
+    // processes. ensure() and normal callers pass none and get the real ones.
+    const h = hooks || {};
+    const now = h.now || Date.now;
+    const pause = h.sleep || sleep;
+    const { spawn } = h.spawn ? { spawn: h.spawn } : nodeReq("child_process");
     const crypto = nodeReq("crypto");
     const os = nodeReq("os");
-    const port = await freePort();
+    const port = await (h.freePort || freePort)();
     const password = crypto.randomBytes(16).toString("hex");
     progress("Starting OpenCode...");
     try {
@@ -608,29 +614,54 @@ class OpenCodeManager {
     this.proc = proc;
     this.conn = { url: `http://127.0.0.1:${port}`, username: "opencode", password };
 
-    const client = new OpenCodeClient(this.conn);
-    const t0 = Date.now();
-    for (let i = 0; i < 180; i++) {
+    const client = h.client ? h.client(this.conn) : new OpenCodeClient(this.conn);
+    const t0 = now();
+    let timedOut = false;
+    for (let i = 0; now() - t0 < 90 * 1000; i++) {
       if (!this.isRunning()) {
         const out = this.tail.replace(/\x1b\[[0-9;]*m/g, "").replace(/\[[0-9;]*m/g, "").trim();
         if (!retried && /Database is not empty|no session table/i.test(out) && this.quarantineDb()) {
           progress("Repairing OpenCode's database...");
-          return this.start(progress, true);
+          return this.start(progress, true, hooks);
         }
         throw new Error(`OpenCode stopped right after starting. ${out.slice(-300)}`);
       }
       try {
-        await client.health();
+        // OpenCode 1.19.5's /global/health stalls in Obsidian's request layer even
+        // while the server answers it over HTTP. Providers is the same readiness
+        // signal the importer uses, and it answers immediately.
+        const found = await client.providers(HEALTH_TIMEOUT_MS);
+        if (!found || !Array.isArray(found.providers)) throw new Error("OpenCode returned an unexpected providers response.");
         return;
       } catch (e) {
+        if (/timed out/i.test(str(e && e.message))) timedOut = true;
+        if (!retried && timedOut && now() - t0 > 20 * 1000) {
+          // A server that is listening but never answers providers is usually
+          // stuck on OpenCode's own database after a previous process was killed.
+          // Preserve the old database and start once with a fresh one.
+          this.stop();
+          await pause(1000);
+          if (this.quarantineDb()) {
+            progress("Repairing OpenCode's database...");
+            return this.start(progress, true, hooks);
+          }
+          throw new Error(
+            "OpenCode started, but its readiness check timed out. Press Test again; if it keeps happening, reinstall OpenCode or switch AI backend to Direct API."
+          );
+        }
         if (i % 2 === 1) {
-          const secs = Math.round((Date.now() - t0) / 1000);
+          const secs = Math.round((now() - t0) / 1000);
           progress(secs > 10 ? `Starting OpenCode... ${secs}s (the first start is slow while antivirus checks the program)` : `Starting OpenCode... ${secs}s`);
         }
-        await sleep(500);
+        await pause(500);
       }
     }
     this.stop();
+    if (timedOut) {
+      throw new Error(
+        "OpenCode started, but its readiness check timed out. Press Test OpenCode again; if it keeps happening, reinstall OpenCode or switch AI backend to Direct API."
+      );
+    }
     throw new Error(`OpenCode didn't become ready within 90 seconds. ${this.tail.trim().slice(-300)}`);
   }
 

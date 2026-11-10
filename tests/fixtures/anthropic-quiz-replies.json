@@ -1,0 +1,39 @@
+{
+  "note": "Recorded Anthropic Messages API response shape. The request is captured by the test; only the response body shape and text are fixture data.",
+  "generation": {
+    "id": "msg_01MCQTrackerQuizGeneration",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-sonnet-4-5",
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"questions\":[{\"question\":\"What forms the main structure of a cell membrane?\",\"choices\":[\"Phospholipid bilayer\",\"Cellulose wall\",\"Protein crystal\",\"Cholesterol sheet\"],\"answer\":\"A\",\"type\":\"mcq\",\"explanation\":\"The membrane is a phospholipid bilayer with hydrophobic tails facing inward.\",\"difficulty\":\"medium\",\"subtopic\":\"Membrane structure\"}]}"
+      }
+    ],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "usage": {
+      "input_tokens": 286,
+      "output_tokens": 91
+    }
+  },
+  "verification": {
+    "id": "msg_01MCQTrackerQuizVerification",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-sonnet-4-5",
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"answer\":\"A\",\"confidence\":\"high\",\"reason\":\"The passage names the phospholipid bilayer as the membrane structure.\"}"
+      }
+    ],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "usage": {
+      "input_tokens": 74,
+      "output_tokens": 31
+    }
+  }
+}

@@ -241,7 +241,7 @@ const DEFAULT_SETTINGS = {
   cardGenerator: { count: 8, customPrompt: "", style: "inline", separator: "::", hideInPreview: false, output: "notes", source: "auto", deck: "" }, // last flashcard-generator choices
   autoAnki: { count: 8, deck: "" }, // Auto Anki: AI card creation sent through the existing Anki bridge
   text2anki: { count: 5, deck: "", customPrompt: "" }, // Text2Anki: one-shot selection to Anki through the same card store
-  quizGenerator: { folders: [], count: 5, language: "English", types: ["mcq"] }, // last AI quiz-generator choices
+  quizGenerator: { sourceMode: "notes", folders: [], count: 5, language: "English", types: ["mcq"], brief: "", pdfPaths: [] }, // last AI question-generator choices
   cards: {
     enabled: false, // cards and vocabulary are opt-in; nothing else changes when this is off
     newCardFolder: "Cards", // where new cards go when their deck has no folder
