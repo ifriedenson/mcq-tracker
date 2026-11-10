@@ -6,6 +6,39 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.0",
+    date: "November 10, 2026",
+    title: "Import a batch, practice the result",
+    summary:
+      "Import several PDFs, PowerPoint or Word files at once, follow the queue from the main window while the import runs in its own desktop window, and start practicing the imported folder when the batch finishes.",
+    highlights: [
+      {
+        title: "Several files, one batch",
+        body: "The source picker accepts multiple documents. Each file gets its own review and subfolder, and a file that fails is recorded without stopping the rest of the queue.",
+      },
+      {
+        title: "Progress that stays visible",
+        body: "The main window keeps a live notice with the current file, queue position, stage and progress bar. It keeps updating when you click away or close the import window.",
+      },
+      {
+        title: "A real import window",
+        body: "On desktop the importer opens in a separate Obsidian window. Closing that window does not cancel the batch; run the import command again to return to the same panel and review.",
+      },
+      {
+        title: "Practice what you imported",
+        body: "When the batch finishes, the summary lists every file and offers Practice these questions. The button opens Practice on the imported parent folder, including after a partial failure.",
+      },
+      {
+        title: "A clearer interface",
+        body: "A shared design-token layer now drives type, spacing, colour, focus, motion and target sizes across the plugin, with stronger light and dark contrast and a keyboard-friendly statistics heatmap.",
+      },
+      {
+        title: "No format changes",
+        body: "Question notes, cards, review dates, saved settings and provider keys are unchanged. Existing imports keep working.",
+      },
+    ],
+  },
+  {
     version: "1.300.0",
     date: "November 10, 2026",
     title: "Questions from more places",

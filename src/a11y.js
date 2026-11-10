@@ -79,6 +79,10 @@ function describeDialog(modal, fallback) {
   }
 
   if (!name) return "";
+  // One shared UI root for the plugin's interaction primitives; Obsidian's
+  // modal container has no plugin-specific class of its own.
+  if (typeof container.addClass === "function") container.addClass("qt-ui");
+  else if (container.classList) container.classList.add("qt-ui");
   setAttr(container, "role", "dialog");
   setAttr(container, "aria-modal", "true");
   return name;

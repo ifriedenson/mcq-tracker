@@ -24,6 +24,7 @@ const VIEW_TYPE_WEB_BROWSER = "question-tracker-web-browser";
 const VIEW_TYPE_RECENT_FILES = "question-tracker-recent-files";
 const VIEW_TYPE_AGENT = "question-tracker-agent";
 const VIEW_TYPE_TABLE_CONTROLS = "question-tracker-table-controls";
+const VIEW_TYPE_IMPORT_WINDOW = "question-tracker-import-window";
 
 const FILTER_FIELDS = [
   ["folder", "Folder"], // not a property: comes from where the note is saved, and includes sub folders
@@ -320,6 +321,7 @@ module.exports = {
   VIEW_TYPE_RECENT_FILES,
   VIEW_TYPE_AGENT,
   VIEW_TYPE_TABLE_CONTROLS,
+  VIEW_TYPE_IMPORT_WINDOW,
   FILTER_FIELDS,
   MODES,
   DEFAULT_SETTINGS,

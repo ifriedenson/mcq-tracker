@@ -655,6 +655,7 @@ QuestionTrackerPlugin.__test = {
   QuestionFolderModal,
   FindQuestionModal,
   PdfImportModal,
+  moveNoticeToMain: require("./import-modal").moveNoticeToMain,
   AiImportHelpModal,
   importAiState,
   aiConnection,

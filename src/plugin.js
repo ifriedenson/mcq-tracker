@@ -4,7 +4,7 @@ const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
 const { releaseCommandPaletteShortcut } = require("./hotkey-cleanup");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_REVIEW_SIDEBAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST, VIEW_TYPE_WEB_BROWSER, VIEW_TYPE_RECENT_FILES, VIEW_TYPE_AGENT } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_REVIEW_SIDEBAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST, VIEW_TYPE_WEB_BROWSER, VIEW_TYPE_RECENT_FILES, VIEW_TYPE_AGENT, VIEW_TYPE_IMPORT_WINDOW } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { parseQuickPracticeUri } = require("./quick-practice");
 const practiceFullscreen = require("./practice-fullscreen");
@@ -191,6 +191,7 @@ const { addResourceLink, classNoteIndex, findClassNote, openOrCreateClassNote, v
 const { fullCalendarNotes } = require("./calendar-interop");
 const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, removePending, unpackAttempt, unpackPendingAttempts, updatePendingError } = require("./offline");
 const { CardView } = require("./cards-view");
+const { ImportWindowView } = require("./import-window");
 const { ReferenceView } = require("./reference-view");
 const { mergeReferenceSettings } = require("./reference-data");
 const { AP_EXAM_FOLDER, buildApExamNote, entryFromFrontmatter, sortApExamEntries, uniqueApExamPath } = require("./ap-exam-history");
@@ -363,6 +364,9 @@ class QuestionTrackerPlugin extends Plugin {
     this.wordNetIndex = null;
     this.wordNetLoadedAt = 0;
     this._tableEditQueue = Promise.resolve();
+    this.importSession = null;
+    this.pendingImportOptions = null;
+    this._importWindowOpening = false;
 
     // The timer is kept per device (not in the synced settings). One that was running when the
     // app closed becomes paused, counting only up to the last heartbeat (time away isn't counted).
@@ -416,6 +420,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_TEST, (leaf) => new TestView(leaf, this));
     this.registerView(VIEW_TYPE_CALENDAR, (leaf) => new CalendarView(leaf, this));
     this.registerView(VIEW_TYPE_CARDS, (leaf) => new CardView(leaf, this));
+    this.registerView(VIEW_TYPE_IMPORT_WINDOW, (leaf) => new ImportWindowView(leaf, this));
     this.registerView(VIEW_TYPE_REFERENCE, (leaf) => new ReferenceView(leaf, this));
     this.registerView(VIEW_TYPE_ASSIGNMENTS, (leaf) => new AssignmentsView(leaf, this));
     this.registerView(VIEW_TYPE_STUDY_TOOLS, (leaf) => new StudyToolsView(leaf, this));
@@ -2313,7 +2318,54 @@ class QuestionTrackerPlugin extends Plugin {
 
   openPdfImport(options) {
     if (this.moduleOff("mcq")) return;
-    new PdfImportModal(this.app, this, options).open();
+    const opts = options || {};
+    const workspace = this.app.workspace;
+    // A user command normally runs after layout-ready, but the AI wizard can
+    // reopen the importer from a callback; don't create a leaf before the
+    // workspace has finished restoring itself.
+    if (workspace && workspace.layoutReady === false && typeof workspace.onLayoutReady === "function") {
+      workspace.onLayoutReady(() => this.openPdfImport(opts));
+      return;
+    }
+    // Desktop gets a real popout window, like Settings. Mobile keeps the modal.
+    if (Platform.isDesktopApp && workspace && typeof workspace.openPopoutLeaf === "function") {
+      try {
+        const open = typeof workspace.getLeavesOfType === "function" ? workspace.getLeavesOfType(VIEW_TYPE_IMPORT_WINDOW) : [];
+        if (open && open.length) {
+          workspace.revealLeaf(open[0]);
+          return;
+        }
+        if (this._importWindowOpening) return;
+        this._importWindowOpening = true;
+        const live = this.importSession && this.importSession.modal && !this.importSession.modal.closed;
+        if (!live) this.pendingImportOptions = opts;
+        const leaf = workspace.openPopoutLeaf({ size: { width: 780, height: 900 } });
+        if (leaf && typeof leaf.setViewState === "function") {
+          const shown = leaf.setViewState({ type: VIEW_TYPE_IMPORT_WINDOW, active: true });
+          const done = () => { this._importWindowOpening = false; };
+          if (shown && typeof shown.then === "function") {
+            shown.then(done, () => {
+              done();
+              this.pendingImportOptions = null;
+              try {
+                if (typeof leaf.detach === "function") leaf.detach();
+              } catch (e) {
+                /* the failed leaf may already be gone */
+              }
+              new PdfImportModal(this.app, this, opts).open();
+            });
+          } else done();
+          return;
+        }
+        if (leaf && typeof leaf.detach === "function") leaf.detach();
+        this._importWindowOpening = false;
+      } catch (e) {
+        this._importWindowOpening = false;
+        /* fall back to the in-window modal */
+      }
+    }
+    this.pendingImportOptions = null;
+    new PdfImportModal(this.app, this, opts).open();
   }
 
   /** Explain the AI-only import step after the chosen file passes its local check. */
@@ -2693,6 +2745,17 @@ class QuestionTrackerPlugin extends Plugin {
       }
       this._quickChatModal = null;
     }
+    if (this.importSession) {
+      const session = this.importSession;
+      this.importSession = null;
+      try {
+        if (session.modal && !session.modal.closed) session.modal.onClose();
+      } catch (e) {
+        /* plugin unload must not be blocked by a closing window */
+      }
+    }
+    this.pendingImportOptions = null;
+    this._importWindowOpening = false;
     if (this._plainCardRefreshTimer) {
       activeWindow.clearTimeout(this._plainCardRefreshTimer);
       this._plainCardRefreshTimer = null;

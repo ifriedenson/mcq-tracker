@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 439 groups, 3061 exports. **Commands:** 232. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 440 groups, 3061 exports. **Commands:** 232. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -54,7 +54,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `OpenCodeClient` | 0 | `tests/chat-stream.test.js`, `tests/opencode-compat.test.js` |
 | `OpenCodeManager` | 0 | `tests/opencode-compat.test.js` |
 | `PdfAnnotationModal` | 0 | `tests/feature-surfaces.test.js` |
-| `PdfImportModal` | 0 | `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/import-existing-folder.test.js`, `tests/import-preflight.test.js`, `tests/import-properties.test.js`, `tests/import-real-pdf.test.js`, `tests/import-source.test.js`, `tests/views.test.js` |
+| `PdfImportModal` | 0 | `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/import-batch-window.test.js`, `tests/import-existing-folder.test.js`, `tests/import-preflight.test.js`, `tests/import-properties.test.js`, `tests/import-real-pdf.test.js`, `tests/import-source.test.js`, `tests/views.test.js` |
 | `PdfInkModal` | 0 | `tests/pdf-backlinks.test.js`, `tests/pdf-ink.test.js` |
 | `PomodoroView` | 0 | `tests/mobile-module-layout.test.js`, `tests/pomodoro-view.test.js` |
 | `PracticeView` | 0 | `tests/closed-book.test.js`, `tests/empty-state.test.js`, `tests/exam-ready.test.js`, `tests/hints.test.js`, `tests/import-real-pdf.test.js`, `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/mobile-practice.test.js`, `tests/modules.test.js`, `tests/needs-fixing.test.js`, `tests/practice-chrome.test.js`, `tests/practice-fullscreen.test.js`, `tests/practice-keys.test.js`, `tests/practice-tools.test.js`, `tests/study-modes.test.js`, `tests/study-skin.test.js`, `tests/study-status.test.js`, `tests/views.test.js` |
@@ -292,6 +292,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `mochiExport` | 5 | `tests/mochi-export.test.js` |
 | `modelDiscovery` | 4 | `tests/model-discovery.test.js` |
 | `modelFromString` | 0 | `tests/feature-surfaces.test.js` |
+| `moveNoticeToMain` | 0 | `tests/import-batch-window.test.js` |
 | `normalizeDailyCap` | 0 | `tests/due-queue.test.js` |
 | `normalizeExamReadyPasses` | 0 | `tests/uncited-groups.test.js` |
 | `noteContext` | 7 | `tests/note-context.test.js` |
@@ -469,7 +470,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `export-results-csv` | Export practice results to CSV | `exportResultsCsv` | `tests/results-export.test.js` |
 | `export-practice-sheet` | Export an answer-free practice sheet | `exportPracticeSheet` | `tests/practice-sheet.test.js` |
 | `export-review-sheet` | Export an error-log review sheet | `exportReviewSheet` | `tests/practice-sheet.test.js`, `tests/views.test.js` |
-| `import-pdf` | Import questions from a file (PDF, PowerPoint, Word) | `openPdfImport` | `tests/ai-beginner-wizard.test.js`, `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/import-preflight.test.js`, `tests/import-real-pdf.test.js`, `tests/modules.test.js`, `tests/plugin.test.js` |
+| `import-pdf` | Import questions from a file (PDF, PowerPoint, Word) | `openPdfImport` | `tests/ai-beginner-wizard.test.js`, `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/import-batch-window.test.js`, `tests/import-preflight.test.js`, `tests/import-real-pdf.test.js`, `tests/modules.test.js`, `tests/plugin.test.js` |
 | `import-service-export` | Import notes from an export (Airtable, Notion, Evernote, Keep, Bear, Roam) | `importActiveServiceExport` | `tests/service-import.test.js` |
 | `import-service-clipboard` | Import notes from a pasted export | `importServiceClipboard` | `tests/service-import.test.js` |
 | `quick-add` | Quick add questions from pasted text | `openQuickAdd` | `tests/a11y-labels.test.js`, `tests/ai-import-help.test.js`, `tests/hotkey-audit.test.js`, `tests/import-preflight.test.js`, `tests/note-quiz-clipboard.test.js`, `tests/plugin.test.js`, `tests/quick-add.test.js`, `tests/quiz-generator.test.js` |
@@ -496,7 +497,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `pdf-edit` | PDF: open the editor (pages and forms) | `openActivePdfEditor` | `tests/a11y-labels.test.js`, `tests/pdf-editor-history.test.js`, `tests/pdf-editor-record.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-editor.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/security-inventory.test.js`, `tests/ui-layout.test.js` |
 | `pdf-export-notes` | PDF: export annotations to Markdown | `exportActivePdfAnnotations` | `tests/pdf-annotator.test.js` |
 | `pdf-open-annotations` | PDF: open annotations | `openPdfAnnotations` | `tests/command-effects.test.js` |
-| `practice-folder` | Practice a folder... | `practiceFolder` | `tests/plugin.test.js` |
+| `practice-folder` | Practice a folder... | `practiceFolder` | `tests/import-batch-window.test.js`, `tests/plugin.test.js` |
 | `practice-current-folder` | Practice the folder of this note | `folderHasQuestions` | `tests/plugin.test.js` |
 | `timed-test` | Start a timed test | `activateTest` | `tests/modules.test.js`, `tests/plugin.test.js`, `tests/views.test.js` |
 | `open-today` | Open Today | `activateToday` | `tests/plugin.test.js` |
@@ -585,7 +586,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `feynman-ai-feedback` | Feynman: get AI feedback on an explanation | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |
 | `pdf-annotation-index` | PDF annotations: index the vault sidecars | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |
 | `new-assignment` | Assignments: add an assignment | `openNewAssignment` | `tests/plugin.test.js` |
-| `new-exam` | Exams: add an exam | `refreshViews` | `tests/core-values.test.js`, `tests/knowledge-view.test.js` |
+| `new-exam` | Exams: add an exam | `refreshViews` | `tests/core-values.test.js`, `tests/knowledge-view.test.js`, `tests/table-commands.test.js` |
 | `calendar-class-attended` | Calendar: mark this class note attended | `classNoteEvent` | `tests/command-effects.test.js` |
 | `calendar-class-absent` | Calendar: mark this class note absent | `classNoteEvent` | `tests/command-effects.test.js` |
 | `course-overview` | Courses: open the course overview | `openCourseOverview` | `tests/core-values.test.js`, `tests/study-workspace-tabs.test.js` |

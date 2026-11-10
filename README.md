@@ -32,7 +32,7 @@ Reopen it any time with **Open Start here note**. The interactive guide is still
 
 AI is optional and off by default. Almost everything works without it: writing question notes, practice, timed tests, review and **Today**, cards, the calendar, assignments and grades, the reference tools and the AP resources.
 
-**One everyday workflow does need AI: turning a PDF or another document into question notes.** There is no offline converter. **Import questions from a file (PDF, PowerPoint, Word)** requires **AI features** plus a provider key (**Direct AI**) or the **OpenCode agent** on desktop, and sends the file's text to that provider. Without it, write the questions by hand or import ready-made flashcards (Quizlet, Kahoot, Moodle, QTI, GIFT, CSV or Markdown).
+**One everyday workflow does need AI: turning a PDF or another document into question notes.** There is no offline converter. **Import questions from a file (PDF, PowerPoint, Word)** requires **AI features** plus a provider key (**Direct AI**) or the **OpenCode agent** on desktop, and sends the file's text to that provider. The picker accepts several files at once; they are reviewed one at a time, and the final summary can open Practice on the imported folder. Without it, write the questions by hand or import ready-made flashcards (Quizlet, Kahoot, Moodle, QTI, GIFT, CSV or Markdown).
 
 AI also powers the Study agent and tutor chat, AI grading of free response, generating questions or cards from a document or photo, and the optional course-note summary.
 
@@ -94,7 +94,7 @@ To update later, use **Check for updates** on the Community plugins page.
 | **Study tools** | Feynman sessions, recall queues, Cornell notes, study flow, reading library, mind maps, study plans, time blocks, citations and reference sheets. |
 | **Calendar** | Classes and exams from `.ics` or Full Calendar notes, local event CRUD with categories and recurrence, assignment deadlines, grades and study planning. |
 | **Statistics** | Attempts, accuracy, confidence calibration, weak spots, study activity, true retention by maturity, memory-now, distributions, leeches and per-deck summaries. |
-| **Import/export** | PDF, PowerPoint, Word/OpenDocument, HTML, RTF, Markdown, CSV, text, Quizlet, Kahoot, Moodle, QTI, GIFT, `.apkg`, Mochi and ICS. |
+| **Import/export** | PDF, PowerPoint, Word/OpenDocument, HTML, RTF, Markdown, CSV, text, Quizlet, Kahoot, Moodle, QTI, GIFT, `.apkg`, Mochi and ICS; multi-file AI import with a completion practice link. |
 | **Focus** | Pomodoro timer with work/short-break/long-break phases, a completion sound, a daily goal and a study log. |
 
 <img src="docs/images/cards-review.png" alt="Cards view with two flashcards ready to review, deck filters and a Start review button." width="440"> <img src="docs/images/insights-overview.png" alt="Insights Overview with attempts, accuracy, due counts, course health and study activity." width="440">
@@ -148,11 +148,11 @@ AI is off by default and only uses the provider you configure. The Study agent i
 
 ## Import and export
 
-Bring material in as notes, not as a locked database. Import from PDF, `.pptx`/`.ppsx`/`.ppt` (text), `.docx`/`.docm`, `.odt`/`.odp`, HTML, RTF, Markdown, CSV, text, Quizlet, Kahoot, Moodle XML, QTI, GIFT, `.apkg`, CrowdAnki JSON, Mochi Markdown and Anki text. Export a study bundle, a card archive, `.apkg`, ICS, CSV, Markdown or JSON where the format supports it. Every import shows a preview or a report before it writes.
+Bring material in as notes, not as a locked database. Import from PDF, `.pptx`/`.ppsx`/`.ppt` (text), `.docx`/`.docm`, `.odt`/`.odp`, HTML, RTF, Markdown, CSV, text, Quizlet, Kahoot, Moodle XML, QTI, GIFT, `.apkg`, CrowdAnki JSON, Mochi Markdown and Anki text. Export a study bundle, a card archive, `.apkg`, ICS, CSV, Markdown or JSON where the format supports it. Every import shows a preview or a report before it writes. **Import questions from a file (PDF, PowerPoint, Word)** accepts several files at once, keeps the queue visible in the main notice area, and ends with a summary that can open Practice on the imported folder; on desktop it runs in its own Obsidian window.
 
 ## How it compares with Spaceforge
 
-Spaceforge is a strong spaced-repetition and study suite. This comparison is based on its public README (reference `dralkh/spaceforge` at `1.2.92`) and on this 1.300.0 build. The point is to show the trade-offs, not to claim that one plugin wins every row.
+Spaceforge is a strong spaced-repetition and study suite. This comparison is based on its public README (reference `dralkh/spaceforge` at `1.2.92`) and on this 1.301.0 build. The point is to show the trade-offs, not to claim that one plugin wins every row.
 
 | Capability | MCQ Tracker | Spaceforge | The practical difference |
 | --- | --- | --- | --- |

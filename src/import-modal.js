@@ -12,15 +12,108 @@ const { friendlyError, modelFromString, partsToTurns } = require("./opencode-cli
 const { findDuplicateIds, indexOfficialIds, officialIdOf } = require("./filters");
 const { friendlyApiError } = require("./api-client");
 const { checkDocumentText, summaryText } = require("./import-preflight");
+const { ImportCompleteModal } = require("./import-complete-modal");
 
+function importNoticeDocument(app) {
+  try {
+    const ws = app && app.workspace;
+    if (ws && ws.containerEl && ws.containerEl.ownerDocument) return ws.containerEl.ownerDocument;
+  } catch (e) {
+    /* use the active document */
+  }
+  return typeof activeDocument !== "undefined" ? activeDocument : null;
+}
+
+/** Notices follow the active window; move this one to the main window after creation. */
+function importHostWindow(app) {
+  try {
+    const doc = importNoticeDocument(app);
+    if (doc && doc.defaultView && typeof doc.defaultView.setTimeout === "function") return doc.defaultView;
+  } catch (e) {
+    /* use the focused window */
+  }
+  if (typeof window !== "undefined" && window && typeof window.setTimeout === "function") return window;
+  return typeof activeWindow !== "undefined" ? activeWindow : null;
+}
+
+function moveNoticeToMain(notice, doc) {
+  if (!notice || !notice.noticeEl || !doc || !doc.body || typeof doc.createElement !== "function") return;
+  let container = typeof doc.body.querySelector === "function" ? doc.body.querySelector(".notice-container") : null;
+  if (!container) {
+    container = doc.createElement("div");
+    container.className = "notice-container";
+    doc.body.appendChild(container);
+  }
+  const el = notice.noticeEl;
+  if (el.parentNode && el.parentNode !== container) el.parentNode.removeChild(el);
+  if (el.parentNode !== container) container.appendChild(el);
+}
+
+/** Notice.hide() is the supported API; remove the moved element as a fallback. */
+function dismissNotice(notice) {
+  if (!notice) return;
+  try {
+    if (typeof notice.hide === "function") notice.hide();
+  } catch (e) {
+    /* the popout may already be gone */
+  }
+  const el = notice.noticeEl;
+  try {
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+    else if (el && typeof el.remove === "function") el.remove();
+  } catch (e) {
+    /* already detached */
+  }
+}
+
+class ImportProgressNotice {
+  constructor(app, total) {
+    this.total = total;
+    this.doc = importNoticeDocument(app);
+    this.win = importHostWindow(app);
+    this.notice = new Notice("Preparing import...", 0);
+    moveNoticeToMain(this.notice, this.doc);
+    this.fill = null;
+    const el = this.notice && this.notice.noticeEl;
+    if (el) {
+      if (typeof el.addClass === "function") el.addClass("qt-import-progress-notice");
+      if (typeof el.createDiv === "function") {
+        const track = el.createDiv({ cls: "qt-import-progress-track" });
+        this.fill = track.createDiv({ cls: "qt-import-progress-fill" });
+      }
+    }
+  }
+  update(label, detail, fraction) {
+    const message = detail ? label + "\n" + detail : label;
+    if (this.notice && typeof this.notice.setMessage === "function") this.notice.setMessage(message);
+    if (this.fill && this.fill.style) this.fill.style.width = Math.round(Math.max(0, Math.min(1, Number(fraction) || 0)) * 100) + "%";
+  }
+  cancel() { dismissNotice(this.notice); this.notice = null; }
+  finish(message) {
+    this.cancel();
+    // A zero-duration notice lives in the main window even after the popout
+    // closes, so its 12 seconds are timed by that window rather than the popout.
+    const done = new Notice(message, 0);
+    moveNoticeToMain(done, this.doc);
+    const win = this.win;
+    if (win && typeof win.setTimeout === "function") {
+      const timer = win.setTimeout(() => dismissNotice(done), 12000);
+      if (timer && typeof timer.unref === "function") timer.unref();
+    }
+  }
+}
 class PdfImportModal extends QtModal {
   constructor(app, plugin, options) {
     super(app);
     this.plugin = plugin;
+    this.hostWindow = importHostWindow(app);
     const init = options || {};
-    this.file = init.file || null; // a File chosen from the device
-    this.vaultDoc = init.vaultDoc || ""; // or a supported document path inside the vault
-    this.preflight = init.preflight || null; // a local readability result from an earlier pass
+    this.files = Array.isArray(init.files) ? init.files.filter(Boolean) : init.file ? [init.file] : [];
+    if (!this.files.length && init.file) this.files = [init.file];
+    this.file = this.files[0] || init.file || null;
+    this.vaultDoc = init.vaultDoc || "";
+    this.preflight = init.preflight || null;
+    this.preflights = Array.isArray(init.preflights) ? init.preflights : [];
     this.preflightBusy = false;
     this.stop = false;
     this.closed = false;
@@ -31,6 +124,18 @@ class PdfImportModal extends QtModal {
     this.beforeImages = new Set();
     this.artifacts = null;
     this.agentBefore = null;
+    this.batchMode = this.files.length > 1;
+    this.batchStarted = false;
+    this.batchStopped = false;
+    this.batchParent = "";
+    this.batchJobs = [];
+    this.batchIndex = 0;
+    this.batchResults = [];
+    this.batchNotes = 0;
+    this.progress = null;
+    this.progressLabel = "";
+    this._nextBatchTimer = null;
+    this.finishedBatch = false;
     this.running = false;
     const st = plugin.settings;
     this.meta = Object.assign(
@@ -48,7 +153,7 @@ class PdfImportModal extends QtModal {
   }
 
   onOpen() {
-    this.modalEl.addClass("qt-import-modal");
+    if (this.modalEl && typeof this.modalEl.addClass === "function") this.modalEl.addClass("qt-import-modal");
     // File first: the AI gate comes only after the text layer is known to be readable.
     if (importAiState(this.plugin) !== "ready") this.showPreflight();
     else this.showSetup();
@@ -59,6 +164,12 @@ class PdfImportModal extends QtModal {
     // A closed preview or a closed failed import must not leave a half-made folder behind.
     // While an import is still running, its own finally cleans up after the last
     // write; cleaning now would race the work in flight and miss later files.
+    if (this.progress) { this.progress.cancel(); this.progress = null; }
+    if (this._nextBatchTimer) {
+      const win = this.hostWindow || (typeof activeWindow !== "undefined" ? activeWindow : null);
+      if (win) win.clearTimeout(this._nextBatchTimer);
+      this._nextBatchTimer = null;
+    }
     if (this.artifacts && !this.artifacts.committed && !this.running) this.cleanupPromise = this.cleanupArtifacts();
     this.contentEl.empty();
     this.plugin.refreshEmptyViews(); // the first-run screen goes away once the new notes are indexed
@@ -66,6 +177,20 @@ class PdfImportModal extends QtModal {
 
   status(msg) {
     if (this.statusEl) this.statusEl.setText(msg);
+    if (this.batchMode && this.progress) this.progress.update(this.progressLabel || "Importing...", msg, this.batchIndex / Math.max(1, this.batchJobs.length));
+  }
+
+  sourceEntries() {
+    if (this.files.length) return this.files.map((file) => ({ file, vaultDoc: "" }));
+    if (this.file) return [{ file: this.file, vaultDoc: this.vaultDoc || "" }];
+    return [];
+  }
+
+  fileSummary() {
+    const names = this.files.map((file) => file && file.name).filter(Boolean);
+    if (!names.length) return this.vaultDoc || "No file chosen";
+    if (names.length <= 3) return names.join(", ");
+    return names.length + " files chosen";
   }
 
   modelLabel() {
@@ -101,19 +226,23 @@ class PdfImportModal extends QtModal {
 
   renderSourcePicker(el, onChange) {
     const docs = this.app.vault.getFiles().filter((f) => documentKind(f.path || f.name));
-    const picked = new Setting(el).setName("File").setDesc(this.file ? this.file.name : this.vaultDoc || "No file chosen");
-    const input = createEl("input", { type: "file", attr: { accept: DOCUMENT_EXTENSIONS.map((e) => "." + e).join(",") } });
+    const picked = new Setting(el).setName("Files").setDesc(this.fileSummary());
+    const input = createEl("input", { type: "file", attr: { accept: DOCUMENT_EXTENSIONS.map((e) => "." + e).join(","), multiple: "" } });
+    input.multiple = true;
     input.hidden = true;
     input.addEventListener("change", () => {
-      this.file = input.files && input.files[0] ? input.files[0] : null;
-      if (this.file) {
-        this.vaultDoc = "";
-        this.preflight = null;
-        picked.setDesc(this.file.name);
-        if (typeof onChange === "function") onChange(this.file.name);
-      }
+      const chosen = input.files ? Array.from(input.files) : [];
+      if (!chosen.length) return;
+      this.files = chosen;
+      this.file = chosen[0];
+      this.vaultDoc = "";
+      this.preflight = null;
+      this.preflights = [];
+      this.batchMode = chosen.length > 1;
+      picked.setDesc(this.fileSummary());
+      if (typeof onChange === "function") onChange(chosen.map((file) => file.name), chosen.length);
     });
-    picked.addButton((b) => b.setButtonText("Choose file...").onClick(() => input.click()));
+    picked.addButton((b) => b.setButtonText("Choose files...").onClick(() => input.click()));
     if (docs.length) {
       new Setting(el).setName("...or a file in your vault").addDropdown((d) => {
         d.addOption("", "Choose...");
@@ -121,10 +250,9 @@ class PdfImportModal extends QtModal {
         d.setValue(this.vaultDoc).onChange((v) => {
           this.vaultDoc = v;
           if (v) {
-            this.file = null;
-            this.preflight = null;
+            this.files = []; this.file = null; this.batchMode = false; this.preflight = null; this.preflights = [];
             picked.setDesc(v);
-            if (typeof onChange === "function") onChange(v);
+            if (typeof onChange === "function") onChange([v], 1);
           }
         });
       });
@@ -134,21 +262,24 @@ class PdfImportModal extends QtModal {
 
   showPreflight() {
     this.preflight = null;
+    const multiple = this.files.length > 1;
     const el = this.contentEl;
     el.empty();
-    el.createEl("h3", { text: "Import questions from a file" });
+    el.createEl("h3", { text: multiple ? "Import questions from files" : "Import questions from a file" });
     el.createEl("p", {
       cls: "qt-hint",
-      text: "Choose a PDF, PowerPoint or Word file. We'll read its text first and tell you whether it is usable before you connect AI. Nothing is written to your vault in this step.",
+      text: multiple
+        ? "Choose two or more PDFs, PowerPoints or Word files. We'll read each one first and tell you which are usable before you connect AI. Nothing is written to your vault in this step."
+        : "Choose a PDF, PowerPoint or Word file. We'll read its text first and tell you whether it is usable before you connect AI. Nothing is written to your vault in this step.",
     });
     this.renderSourcePicker(el);
     this.preflightStatus = el.createDiv({
       cls: "qt-hint",
-      text: this.file || this.vaultDoc ? "Ready to check this file." : "Choose a file to check.",
+      text: this.files.length > 1 ? "Ready to check " + this.files.length + " files." : this.file || this.vaultDoc ? "Ready to check this file." : "Choose a file to check.",
     });
     const row = el.createDiv({ cls: "qt-row" });
     row.createEl("button", { text: "Cancel", cls: "qt-grow" }).addEventListener("click", () => this.close());
-    const check = row.createEl("button", { text: "Check this file", cls: "mod-cta qt-grow" });
+    const check = row.createEl("button", { text: multiple ? "Check " + this.files.length + " files" : "Check this file", cls: "mod-cta qt-grow" });
     check.addEventListener("click", () => this.runPreflight(check));
     this.renderOfflineButton(el);
   }
@@ -161,6 +292,7 @@ class PdfImportModal extends QtModal {
   }
 
   async runPreflight(button) {
+    if (this.files.length > 1) return this.runBatchPreflight(button);
     if (this.preflightBusy) return;
     if (!this.file && !this.vaultDoc) {
       if (this.preflightStatus) this.preflightStatus.setText("Choose a file first.");
@@ -189,6 +321,61 @@ class PdfImportModal extends QtModal {
       this.preflightBusy = false;
       if (button) button.disabled = false;
     }
+  }
+
+  async readSourceFor(entry) { return readDocumentSource(this.app, entry); }
+
+  async runBatchPreflight(button) {
+    if (this.preflightBusy) return;
+    this.preflightBusy = true;
+    if (button) button.disabled = true;
+    const status = (message) => { if (this.preflightStatus && !this.closed) this.preflightStatus.setText(message); };
+    const results = [];
+    try {
+      for (let i = 0; i < this.files.length; i++) {
+        const file = this.files[i];
+        status("Checking " + (i + 1) + " of " + this.files.length + ": " + file.name + "...");
+        try {
+          const src = await this.readSourceFor({ file, vaultDoc: "" });
+          if (!src.kind) throw new Error("This plugin can't read " + (src.ext ? "." + src.ext : "that kind of") + " files.");
+          const read = await this.readPages(src, status, null, "");
+          const check = checkDocumentText(read.pages, { kind: src.kind, label: documentLabel(src.name + "." + src.ext) });
+          results.push({ file, name: file.name, ok: !!check.ok, message: check.ok ? "" : check.message, preflight: { ...check, sourceName: src.name, sourceKind: src.kind } });
+        } catch (e) {
+          results.push({ file, name: file.name, ok: false, message: e && e.message ? e.message : String(e), preflight: null });
+        }
+      }
+      const good = results.filter((entry) => entry.ok);
+      if (!good.length) { this.showPreflightError(results[0] ? results[0].message : "No file could be read."); return; }
+      this.files = good.map((entry) => entry.file);
+      this.preflights = good.map((entry) => entry.preflight);
+      this.preflight = this.preflights[0] || null;
+      this.batchMode = this.files.length > 1;
+      this.showBatchPreflightReady(results);
+    } finally {
+      this.preflightBusy = false;
+      if (button) button.disabled = false;
+    }
+  }
+
+  showBatchPreflightReady(results) {
+    const good = results.filter((entry) => entry.ok);
+    const el = this.contentEl;
+    el.empty();
+    el.createEl("h3", { text: good.length + " of " + results.length + " files are readable" });
+    el.createEl("p", { cls: "qt-hint", text: "Nothing has been written to your vault yet. The unreadable files will be skipped." });
+    const list = el.createDiv({ cls: "qt-import-file-list" });
+    for (const entry of results) {
+      const row = list.createDiv({ cls: "qt-import-file-row" });
+      row.createSpan({ cls: entry.ok ? "qt-import-file-state is-ready" : "qt-import-file-state is-error", text: entry.ok ? "Readable" : "Skipped" });
+      const body = row.createDiv({ cls: "qt-import-file-body" });
+      body.createDiv({ cls: "qt-import-file-name", text: entry.name });
+      body.createDiv({ cls: "qt-import-file-detail", text: entry.ok ? summaryText(entry.preflight) : entry.message });
+    }
+    const row = el.createDiv({ cls: "qt-row" });
+    row.createEl("button", { text: "Choose other files", cls: "qt-grow" }).addEventListener("click", () => this.showPreflight());
+    row.createEl("button", { text: "Continue to AI setup", cls: "mod-cta qt-grow" }).addEventListener("click", () => this.beginAiSetup());
+    this.renderOfflineButton(el);
   }
 
   showPreflightReady() {
@@ -226,7 +413,8 @@ class PdfImportModal extends QtModal {
   }
 
   beginAiSetup() {
-    const source = { file: this.file || null, vaultDoc: this.file ? "" : this.vaultDoc || "", preflight: this.preflight };
+    const files = this.files.length ? this.files.slice() : this.file ? [this.file] : [];
+    const source = { file: files.length === 1 ? files[0] : null, files, vaultDoc: files.length ? "" : this.vaultDoc || "", preflight: this.preflight, preflights: this.preflights.slice() };
     const state = importAiState(this.plugin);
     this.close();
     this.plugin.openAiImportHelp(state, {
@@ -243,19 +431,29 @@ class PdfImportModal extends QtModal {
   showSetup() {
     const el = this.contentEl;
     el.empty();
-    el.createEl("h3", { text: "Import questions from a file" });
+    const multiple = this.files.length > 1;
+    el.createEl("h3", { text: multiple ? "Import questions from files" : "Import questions from a file" });
     if (this.preflight) el.createEl("p", { cls: "qt-hint", text: summaryText(this.preflight) });
 
-    this.renderSourcePicker(el, (name) => {
+    this.renderSourcePicker(el, (names, count) => {
       if (!this.folderTouched) {
-        this.folder = this.autoFolder(documentBaseName(name));
+        this.folder = count > 1 ? this.parent : this.autoFolder(documentBaseName(names[0]));
         if (this.folderText) this.folderText.setValue(this.folder);
       }
     });
+    if (this.files.length > 1) {
+      el.createEl("p", { cls: "qt-hint", text: this.files.length + " files will be imported one after another. Each gets its own subfolder under the folder below." });
+      const list = el.createDiv({ cls: "qt-import-file-list" });
+      for (const file of this.files) {
+        const row = list.createDiv({ cls: "qt-import-file-row" });
+        row.createSpan({ cls: "qt-import-file-state is-ready", text: "Queued" });
+        row.createDiv({ cls: "qt-import-file-body" }).createDiv({ cls: "qt-import-file-name", text: file.name });
+      }
+    }
 
     new Setting(el)
-      .setName("Folder for the notes")
-      .setDesc("It's created if it doesn't exist. If it already has files, you'll be asked before the questions are added to it.")
+      .setName(multiple ? "Folder for every file" : "Folder for the notes")
+      .setDesc(multiple ? "Each file gets a subfolder here. If a subfolder already has files, you'll be asked before questions are added to it." : "It's created if it doesn't exist. If it already has files, you'll be asked before the questions are added to it.")
       .addText((t) => {
         this.folderText = t;
         new FolderSuggest(this.app, t.inputEl);
@@ -264,20 +462,16 @@ class PdfImportModal extends QtModal {
           this.folderTouched = true;
         });
       });
-    if (!this.folderTouched && (this.file || this.vaultDoc)) {
-      const sourceName = this.file ? this.file.name : this.vaultDoc;
-      this.folder = this.autoFolder(documentBaseName(sourceName));
+    if (!this.folderTouched) {
+      if (multiple) this.folder = this.parent;
+      else if (this.file || this.vaultDoc) this.folder = this.autoFolder(documentBaseName(this.file ? this.file.name : this.vaultDoc));
       if (this.folderText) this.folderText.setValue(this.folder);
     }
 
     const agentOk = this.agentAvailable();
     new Setting(el)
       .setName("Who writes the notes")
-      .setDesc(
-        agentOk
-          ? "The OpenCode agent reads the file and writes the note files itself. Direct AI sends the text to your provider and the plugin writes the files after you review them."
-          : "Direct AI sends the file's text to your provider, and the plugin writes the files after you review them. To let the OpenCode agent write the files itself, switch the AI backend to OpenCode in settings (desktop only)."
-      )
+      .setDesc(agentOk ? "The OpenCode agent reads the file and writes the note files itself. Direct AI sends the text to your provider and the plugin writes the files after you review them." : "Direct AI sends the file's text to your provider, and the plugin writes the files after you review them. To let the OpenCode agent write the files itself, switch the AI backend to OpenCode in settings (desktop only).")
       .addDropdown((d) => {
         if (agentOk) d.addOption("agent", "OpenCode agent (writes the files itself)");
         d.addOption("api", "Direct AI (you review first)");
@@ -302,42 +496,22 @@ class PdfImportModal extends QtModal {
       ["difficulty", "Difficulty", "easy, medium or hard"],
       ["skill", "Skill (optional)", "Blank lets the file's own labels through"],
     ];
-    // Property overrides are optional. Keep them out of the way unless the user
-    // has saved one, and say plainly who fills them in by default.
     const hasPropertyOverrides = fields.some(([key]) => str(this.meta[key]).trim());
-    const propertyDetails = el.createEl("details", {
-      cls: "qt-import-properties",
-      attr: hasPropertyOverrides ? { open: "" } : {},
-    });
+    const propertyDetails = el.createEl("details", { cls: "qt-import-properties", attr: hasPropertyOverrides ? { open: "" } : {} });
     const propertySummary = propertyDetails.createEl("summary", { cls: "qt-import-properties-summary" });
     propertySummary.createSpan({ cls: "qt-import-properties-title", text: "Properties added to every note (optional)" });
     propertySummary.createSpan({ cls: "qt-import-properties-state", text: "AI fills these automatically; open to override" });
-    propertyDetails.createEl("p", {
-      cls: "qt-hint",
-      text: "You do not need to fill these in. By default, the AI reads each property from the file for every question and adds it automatically. To override that, type a value here: it is used for every note even when the file says something different. Leave a box blank to keep the AI's value.",
-    });
-    for (const [key, label, ph] of fields) {
-      new Setting(propertyDetails).setName(label).addText((t) => t.setPlaceholder(ph).setValue(this.meta[key]).onChange((v) => (this.meta[key] = v.trim())));
-    }
-    new Setting(el)
-      .setName("Question id prefix")
-      .setDesc("Ids look like PREFIX-Q01. Blank uses the file's name.")
-      .addText((t) => t.setValue(this.meta.prefix).onChange((v) => (this.meta.prefix = v.trim())));
-    new Setting(el)
-      .setName("Pages or slides (optional)")
-      .setDesc("Blank means every page or slide. Example: 1-12 or 2,4,6-8. Try a few first to check the result and the cost.")
-      .addText((t) => t.setValue(this.meta.pages).onChange((v) => (this.meta.pages = v.trim())));
+    propertyDetails.createEl("p", { cls: "qt-hint", text: "You do not need to fill these in. By default, the AI reads each property from the file for every question and adds it automatically. To override that, type a value here: it is used for every note even when the file says something different. Leave a box blank to keep the AI's value." });
+    for (const [key, label, ph] of fields) new Setting(propertyDetails).setName(label).addText((t) => t.setPlaceholder(ph).setValue(this.meta[key]).onChange((v) => (this.meta[key] = v.trim())));
+    new Setting(el).setName("Question id prefix").setDesc("Ids look like PREFIX-Q01. Blank uses the file's name.").addText((t) => t.setValue(this.meta.prefix).onChange((v) => (this.meta.prefix = v.trim())));
+    new Setting(el).setName("Pages or slides (optional)").setDesc("Blank means every page or slide. Example: 1-12 or 2,4,6-8. Try a few first to check the result and the cost.").addText((t) => t.setValue(this.meta.pages).onChange((v) => (this.meta.pages = v.trim())));
 
-    el.createEl("p", {
-      cls: "qt-hint",
-      text:
-        "Where the file doesn't show an answer or explanation, the AI writes one and says so at the top of that note, with the model name and today's date. AI answers can be wrong, so check them. " +
-        "The file's text is sent to your AI provider, which may charge for long files. A copy of the original file is saved in the new folder with the notes.",
-    });
+    el.createEl("p", { cls: "qt-hint", text: "Where the file doesn't show an answer or explanation, the AI writes one and says so at the top of that note, with the model name and today's date. AI answers can be wrong, so check them. The file's text is sent to your AI provider, which may charge for long files. A copy of the original file is saved in the new folder with the notes." });
 
     const row = el.createDiv({ cls: "qt-row" });
     row.createEl("button", { text: "Cancel", cls: "qt-grow" }).addEventListener("click", () => this.close());
-    row.createEl("button", { text: "Start import", cls: "mod-cta qt-grow" }).addEventListener("click", () => this.start());
+    const start = row.createEl("button", { text: multiple ? "Import " + this.files.length + " files" : "Start import", cls: "mod-cta qt-grow" });
+    start.addEventListener("click", () => { if (this.files.length > 1) this.startBatch(); else this.start(); });
   }
 
   /* ---- one import attempt owns its writes until it finishes ---- */
@@ -419,7 +593,104 @@ class PdfImportModal extends QtModal {
     return readDocumentSource(this.app, { file: this.file, vaultDoc: this.vaultDoc });
   }
 
+  async startBatch() {
+    if (this.batchStarted) return;
+    if (importAiState(this.plugin) !== "ready") { this.showPreflight(); return; }
+    if (!this.files.length) { new Notice("Choose files first."); return; }
+    const parent = normalizePath(str(this.folder).trim() || this.parent);
+    this.batchParent = parent;
+    const used = new Set();
+    this.batchJobs = this.files.map((file, i) => {
+      const base = documentBaseName(file.name) || "File " + (i + 1);
+      let folder = normalizePath(parent + "/" + base);
+      for (let n = 2; used.has(folder.toLowerCase()); n++) folder = normalizePath(parent + "/" + base + " (" + n + ")");
+      used.add(folder.toLowerCase());
+      return { file, folder, preflight: this.preflights[i] || null };
+    });
+    this.batchMode = this.batchJobs.length > 1;
+    this.batchStarted = true;
+    this.batchStopped = false;
+    this.batchIndex = 0;
+    this.batchResults = [];
+    this.batchNotes = 0;
+    this.finishedBatch = false;
+    this.progress = new ImportProgressNotice(this.app, this.batchJobs.length);
+    this.prepareBatchJob(0);
+    try {
+      await this.start();
+    } catch (e) {
+      if (!this.closed && !this.finishedBatch) this.showError(e && e.message ? e.message : String(e));
+    }
+  }
+
+  prepareBatchJob(index) {
+    const job = this.batchJobs[index];
+    if (!job) return false;
+    this.batchIndex = index;
+    this.file = job.file;
+    this.vaultDoc = "";
+    this.preflight = job.preflight;
+    this.folder = job.folder;
+    this.items = [];
+    this.warnings = [];
+    this.ctx = null;
+    this.artifacts = null;
+    this.agentBefore = null;
+    this.stop = false;
+    this.closed = false;
+    this.progressLabel = "Importing " + (index + 1) + " of " + this.batchJobs.length + " · " + job.file.name;
+    if (this.progress) this.progress.update(this.progressLabel, "Starting...", index / this.batchJobs.length);
+    return true;
+  }
+
+  recordBatchResult(result, folder) {
+    this.batchResults.push({ name: this.file ? this.file.name : "File", folder, made: Number(result.made) || 0, skipped: Array.isArray(result.skipped) ? result.skipped.slice(0, 20) : [], error: "" });
+    this.batchNotes += Number(result.made) || 0;
+  }
+
+  scheduleNextBatch() {
+    if (this.closed || !this.batchStarted || this._nextBatchTimer) return;
+    const win = this.hostWindow || (typeof activeWindow !== "undefined" ? activeWindow : null);
+    if (!win) return;
+    this._nextBatchTimer = win.setTimeout(() => { this._nextBatchTimer = null; this.nextBatchJob(); }, 450);
+  }
+
+  nextBatchJob() {
+    if (this.closed || !this.batchStarted) return;
+    if (this.batchIndex + 1 >= this.batchJobs.length) return this.finishBatch();
+    this.prepareBatchJob(this.batchIndex + 1);
+    this.start().catch((e) => {
+      if (!this.closed && !this.finishedBatch) this.showError(e && e.message ? e.message : String(e));
+    });
+  }
+
+  finishBatch(reason) {
+    if (this.finishedBatch || !this.batchStarted) return;
+    this.finishedBatch = true;
+    this.batchStarted = false;
+    if (this._nextBatchTimer) {
+      const win = this.hostWindow || (typeof activeWindow !== "undefined" ? activeWindow : null);
+      if (win) win.clearTimeout(this._nextBatchTimer);
+      this._nextBatchTimer = null;
+    }
+    const made = this.batchNotes;
+    const files = this.batchResults.filter((row) => row.made > 0).length;
+    const failed = this.batchResults.filter((row) => row.error).length;
+    const failureText = failed ? " " + failed + " file" + (failed === 1 ? "" : "s") + " failed." : "";
+    const summary = made ? "Imported " + made + " question note" + (made === 1 ? "" : "s") + " from " + files + " file" + (files === 1 ? "" : "s") + "." + failureText : "No question notes were imported." + failureText;
+    if (this.progress) { this.progress.finish(summary); this.progress = null; }
+    const options = { folder: this.batchParent, results: this.batchResults.slice(), expected: made, cancelled: reason === "stopped" || this.batchStopped };
+    this.close();
+    new ImportCompleteModal(this.app, this.plugin, options).open();
+  }
+
   async start() {
+    if (this.batchMode && !this.batchJobs.length) { this.startBatch(); return; }
+    if (this.batchMode && !this.progress) {
+      this.progress = new ImportProgressNotice(this.app, this.files.length);
+      this.progressLabel = "Importing " + (this.batchIndex + 1) + " of " + this.files.length + " · " + (this.file ? this.file.name : "File");
+      this.progress.update(this.progressLabel, "Starting...", this.batchIndex / Math.max(1, this.files.length));
+    }
     const p = this.plugin;
     const aiState = importAiState(p);
     if (aiState !== "ready") {
@@ -444,21 +715,25 @@ class PdfImportModal extends QtModal {
       } finally {
         this.confirming = false;
       }
-      if (!useExisting) return;
+      if (!useExisting) {
+        if (this.batchMode) this.showError("Skipped " + this.file.name + ": the existing folder was not confirmed.");
+        return;
+      }
     }
     this.target = folderPath;
-    p.settings.importFolder = folderPath.includes("/") ? folderPath.slice(0, folderPath.lastIndexOf("/")) : "";
+    p.settings.importFolder = this.batchMode ? this.batchParent : folderPath.includes("/") ? folderPath.slice(0, folderPath.lastIndexOf("/")) : "";
     p.settings.importDefaults = Object.assign({}, this.meta, { prefix: "", pages: "" });
     p.settings.importOptions = Object.assign({}, this.opts);
     await p.save();
 
     const el = this.contentEl;
     el.empty();
-    el.createEl("h3", { text: "Importing" });
+    el.createEl("h3", { text: this.batchMode ? "Importing " + (this.batchIndex + 1) + " of " + this.batchJobs.length + ": " + this.file.name : "Importing" });
     this.statusEl = el.createDiv({ cls: "qt-hint", text: "Starting..." });
     this.activityEl = el.createDiv({ cls: "qt-tool" });
     this.stopBtn = el.createEl("button", { text: "Stop", cls: "qt-modal-btn" });
     this.stopBtn.addEventListener("click", () => {
+      if (this.batchMode) this.batchStopped = true;
       this.stop = true;
       this.stopBtn.disabled = true;
       this.status("Stopping...");
@@ -729,6 +1004,21 @@ class PdfImportModal extends QtModal {
   }
 
   showAgentDone(r, folder) {
+    if (this.batchMode) {
+      this.commitArtifacts();
+      this.recordBatchResult(r, folder);
+      if (this.batchStopped) return this.finishBatch("stopped");
+      if (this.batchIndex + 1 < this.batchJobs.length) {
+        const el = this.contentEl;
+        el.empty();
+        el.createEl("h3", { text: "Imported " + (r.made || 0) + " from " + this.file.name });
+        el.createEl("p", { cls: "qt-hint", text: "File " + (this.batchIndex + 1) + " of " + this.batchJobs.length + " finished. Starting the next file..." });
+        this.status("Finished " + this.file.name + ". Starting the next file...");
+        this.scheduleNextBatch();
+        return;
+      }
+      return this.finishBatch();
+    }
     const el = this.contentEl;
     el.empty();
     el.createEl("h3", { text: r.made ? `Created ${r.made} note${r.made === 1 ? "" : "s"}` : "No notes were created" });
@@ -892,6 +1182,20 @@ class PdfImportModal extends QtModal {
   }
 
   showError(msg) {
+    if (this.batchMode) {
+      this.recordBatchResult({ made: 0, skipped: [] }, this.folder);
+      this.batchResults[this.batchResults.length - 1].error = msg;
+      if (this.progress) this.progress.update(this.progressLabel, "Skipped: " + msg, this.batchIndex / Math.max(1, this.batchJobs.length));
+      const el = this.contentEl;
+      el.empty();
+      el.createEl("h3", { text: "Couldn't import " + this.file.name });
+      el.createDiv({ cls: "qt-error", text: msg });
+      el.createEl("p", { cls: "qt-hint", text: "The other files will continue." });
+      if (this.batchStopped) this.finishBatch("stopped");
+      else if (this.batchIndex + 1 < this.batchJobs.length) this.scheduleNextBatch();
+      else this.finishBatch();
+      return;
+    }
     const el = this.contentEl;
     el.empty();
     el.createEl("h3", { text: "Couldn't import" });
@@ -904,12 +1208,20 @@ class PdfImportModal extends QtModal {
   showReview() {
     const el = this.contentEl;
     el.empty();
+    if (this.batchMode && this.progress) this.progress.update(this.progressLabel, "Waiting for your review.", this.batchIndex / Math.max(1, this.batchJobs.length));
+    if (this.batchMode) el.createEl("p", { cls: "qt-hint", text: "File " + (this.batchIndex + 1) + " of " + this.batchJobs.length + " · " + this.file.name });
     const items = this.items;
     el.createEl("h3", { text: items.length ? `Found ${items.length} question${items.length === 1 ? "" : "s"}` : "No questions found" });
     for (const w of this.warnings) el.createDiv({ cls: "qt-error", text: w });
     if (!items.length) {
       el.createEl("p", { cls: "qt-hint", text: "Try a smaller page range, or check that the file contains questions with readable text." });
       el.createEl("button", { text: "Back", cls: "qt-modal-btn" }).addEventListener("click", () => this.showSetup());
+      if (this.batchMode) {
+        this.recordBatchResult({ made: 0, skipped: ["No questions found"] }, this.target);
+        if (this.batchStopped) this.finishBatch("stopped");
+        else if (this.batchIndex + 1 < this.batchJobs.length) this.scheduleNextBatch();
+        else this.finishBatch();
+      }
       return;
     }
     el.createEl("p", {
@@ -1053,4 +1365,6 @@ class PdfImportModal extends QtModal {
 
 module.exports = {
   PdfImportModal,
+  ImportCompleteModal,
+  moveNoticeToMain,
 };

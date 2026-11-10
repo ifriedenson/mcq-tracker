@@ -95,6 +95,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
   display() {
     const rootEl = this.containerEl;
     const st = this.plugin.settings;
+    if (typeof rootEl.addClass === "function") rootEl.addClass("qt-ui");
     rootEl.empty();
 
     const visibleCategories = settingsCategoriesFor(this.plugin);

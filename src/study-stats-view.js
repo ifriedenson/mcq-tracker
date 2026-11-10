@@ -171,8 +171,11 @@ class StudyStatsView extends ItemView {
       text: `${map.activeDays} active day${map.activeDays === 1 ? "" : "s"} in the last ${map.weeks.length} week${map.weeks.length === 1 ? "" : "s"}. These counters are permanent and survive history trimming.`,
     });
     const grid = card.createDiv({ cls: "qt-study-stats-heatmap" });
+    grid.setAttr("role", "grid");
+    grid.setAttr("aria-label", "Daily review heatmap");
     for (const week of map.weeks) {
       const column = grid.createDiv({ cls: "qt-study-stats-heatmap-week" });
+      column.setAttr("role", "row");
       for (const day of week.days) {
         const cell = column.createDiv({ cls: `qt-study-stats-heatmap-cell is-level-${day.level}` });
         cell.setAttr("data-date", day.date);
@@ -181,7 +184,7 @@ class StudyStatsView extends ItemView {
         makeKeyboardClickable(cell, () => {
           this.selectedHeatDay = this.selectedHeatDay === day.date ? "" : day.date;
           this.render();
-        });
+        }, { role: "gridcell" });
       }
     }
     if (!this.selectedHeatDay) return;

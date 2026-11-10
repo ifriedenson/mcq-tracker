@@ -203,11 +203,19 @@ const obsidian = {
   },
   AbstractInputSuggest: class extends Base {},
   Notice: class {
-    constructor(msg) {
-      obsidian.notices.push(String(msg));
+    constructor(msg, duration) {
+      this.message = String(msg);
+      this.duration = duration;
+      this.hidden = false;
+      obsidian.notices.push(this.message);
+      obsidian.noticeObjects.push(this);
     }
-    setMessage() {}
-    hide() {}
+    setMessage(msg) {
+      this.message = String(msg);
+    }
+    hide() {
+      this.hidden = true;
+    }
   },
   MarkdownRenderer: { render: async () => {} },
   Platform: { isDesktopApp: true, isMobile: false },
@@ -220,6 +228,7 @@ const obsidian = {
   parseYaml,
   normalizePath: (p) => String(p).replace(/\/+/g, "/").replace(/^\/|\/$/g, ""),
   notices: [],
+  noticeObjects: [],
   modals: [],
   settingNames: [],
 };
