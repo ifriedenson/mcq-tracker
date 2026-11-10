@@ -6,6 +6,35 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.1",
+    date: "November 10, 2026",
+    title: "Batch import from the import window",
+    summary:
+      "Choose PDFs from the separate import window, add another file while the first is importing, keep the main-window progress after closing it, and practice the exact folder the batch filled.",
+    highlights: [
+      {
+        title: "Pick files in the import window",
+        body: "The source chooser opens from the button's own window, so the desktop popout can select several PDFs before the import starts.",
+      },
+      {
+        title: "Add a PDF mid-import",
+        body: "Add more files on the running or review screen queues another PDF; a single import becomes a batch and the notice totals move from 1 of 1 to 1 of 2 and 2 of 2.",
+      },
+      {
+        title: "Progress outlives the window",
+        body: "Closing the import window leaves the live notice in the main window, and refocusing the main window keeps the session, review and queue running to completion.",
+      },
+      {
+        title: "Practice the imported folder",
+        body: "The completion summary reports the true file and note counts, and Practice these questions opens the imported parent folder with the new questions.",
+      },
+      {
+        title: "No format changes",
+        body: "Question notes, review dates, cards, saved settings and provider keys are unchanged; existing imports and practice sessions keep working.",
+      },
+    ],
+  },
+  {
     version: "1.301.0",
     date: "November 10, 2026",
     title: "Import a batch, practice the result",

@@ -66,6 +66,87 @@ function dismissNotice(notice) {
   }
 }
 
+/**
+ * Open the operating system's file chooser for a button click.
+ *
+ * The input is created at click time inside the document that owns the button
+ * and is attached before it is clicked. A detached input, or one created in the
+ * other window while the import lives in a popout, is why the chooser can appear
+ * late or not at all. Clearing `value` afterwards also lets the same file be
+ * chosen twice in a row.
+ */
+function pickDocumentFiles(buttonEl, onPicked) {
+  const owner = buttonEl && buttonEl.ownerDocument ? buttonEl.ownerDocument : null;
+  const doc =
+    owner ||
+    (typeof activeDocument !== "undefined" && activeDocument ? activeDocument : null) ||
+    (typeof document !== "undefined" && document ? document : null);
+  if (!doc || typeof doc.createElement !== "function" || !doc.body) return null;
+  const input = doc.createElement("input");
+  input.type = "file";
+  input.accept = DOCUMENT_EXTENSIONS.map((ext) => "." + ext).join(",");
+  input.multiple = true;
+  if (typeof input.setAttribute === "function") {
+    input.setAttribute("aria-hidden", "true");
+    input.setAttribute("tabindex", "-1");
+  }
+  if (input.style) input.style.display = "none";
+  let settled = false;
+  const cleanup = () => {
+    try {
+      if (input.parentNode && typeof input.parentNode.removeChild === "function") input.parentNode.removeChild(input);
+      else if (typeof input.remove === "function") input.remove();
+    } catch (e) {
+      /* the window may already be gone */
+    }
+  };
+  const settle = () => {
+    if (settled) return;
+    settled = true;
+    // Copy the File objects out before the input is removed; they stay readable.
+    const chosen = input.files && input.files.length ? Array.from(input.files) : [];
+    try {
+      input.value = "";
+    } catch (e) {
+      /* a stand-in input in a test */
+    }
+    const later = (doc.defaultView && doc.defaultView.setTimeout) || setTimeout;
+    later(cleanup, 0);
+    if (chosen.length && typeof onPicked === "function") onPicked(chosen);
+  };
+  input.addEventListener("change", settle);
+  // Chromium fires "cancel" when the chooser is dismissed, so nothing piles up.
+  input.addEventListener("cancel", () => {
+    settled = true;
+    cleanup();
+  });
+  try {
+    doc.body.appendChild(input);
+    input.click();
+  } catch (e) {
+    cleanup();
+    return null;
+  }
+  return input;
+}
+
+/** Copy a picked file's bytes now: its handle belongs to the window that opened the chooser. */
+async function captureFile(file) {
+  if (!file || typeof file.arrayBuffer !== "function") return null;
+  try {
+    const raw = await file.arrayBuffer();
+    const copy = new Uint8Array(raw).slice().buffer;
+    return {
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      arrayBuffer: async () => copy.slice(0),
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
 class ImportProgressNotice {
   constructor(app, total) {
     this.total = total;
@@ -134,6 +215,8 @@ class PdfImportModal extends QtModal {
     this.batchNotes = 0;
     this.progress = null;
     this.progressLabel = "";
+    this.lastStatus = "";
+    this.headerEl = null;
     this._nextBatchTimer = null;
     this.finishedBatch = false;
     this.running = false;
@@ -191,6 +274,7 @@ class PdfImportModal extends QtModal {
   }
 
   status(msg) {
+    this.lastStatus = msg;
     if (this.statusEl) this.statusEl.setText(msg);
     if (this.batchMode && this.progress) this.progress.update(this.progressLabel || "Importing...", msg, this.batchIndex / Math.max(1, this.batchJobs.length));
   }
@@ -241,25 +325,15 @@ class PdfImportModal extends QtModal {
 
   renderSourcePicker(el, onChange) {
     const docs = this.app.vault.getFiles().filter((f) => documentKind(f.path || f.name));
-    const picked = new Setting(el).setName("Files").setDesc(this.fileSummary());
-    const input = createEl("input", { type: "file", attr: { accept: DOCUMENT_EXTENSIONS.map((e) => "." + e).join(","), multiple: "" } });
-    input.multiple = true;
-    input.hidden = true;
-    input.addEventListener("change", () => {
-      const chosen = input.files ? Array.from(input.files) : [];
-      if (!chosen.length) return;
-      this.files = chosen;
-      this.file = chosen[0];
-      this.vaultDoc = "";
-      this.preflight = null;
-      this.preflights = [];
-      this.batchMode = chosen.length > 1;
-      picked.setDesc(this.fileSummary());
-      if (typeof onChange === "function") onChange(chosen.map((file) => file.name), chosen.length);
-    });
-    picked.addButton((b) => b.setButtonText("Choose files...").onClick(() => input.click()));
+    const picked = new Setting(el).setName("Files from this device").setDesc(this.fileSummary());
+    picked.addButton((b) =>
+      b.setButtonText("Choose files...").onClick(() =>
+        // b.buttonEl is the element in this window; the chooser is created from it.
+        this.openFileChooser(b.buttonEl, (chosen) => this.acceptChosenFiles(chosen, picked, onChange))
+      )
+    );
     if (docs.length) {
-      new Setting(el).setName("...or a file in your vault").addDropdown((d) => {
+      new Setting(el).setName("...or a file already in your vault").addDropdown((d) => {
         d.addOption("", "Choose...");
         for (const f of docs) d.addOption(f.path, f.path);
         d.setValue(this.vaultDoc).onChange((v) => {
@@ -275,6 +349,29 @@ class PdfImportModal extends QtModal {
     return picked;
   }
 
+  /** The OS file chooser for this panel, created from the button's own window. */
+  openFileChooser(buttonEl, onPicked) {
+    return pickDocumentFiles(buttonEl, onPicked);
+  }
+
+  /** Take a fresh pick as the whole queue for this import. */
+  acceptChosenFiles(chosen, picked, onChange) {
+    const list = Array.from(chosen || []).filter(Boolean);
+    if (!list.length || this.closed || this.finishedBatch) return 0;
+    this.files = list;
+    this.file = list[0];
+    this.vaultDoc = "";
+    this.preflight = null;
+    this.preflights = [];
+    this.batchMode = list.length > 1;
+    if (picked && typeof picked.setDesc === "function") picked.setDesc(this.fileSummary());
+    if (this.preflightStatus && typeof this.preflightStatus.setText === "function") {
+      this.preflightStatus.setText(list.length > 1 ? "Ready to check " + list.length + " files." : "Ready to check this file.");
+    }
+    if (typeof onChange === "function") onChange(list.map((file) => file.name), list.length);
+    return list.length;
+  }
+
   showPreflight() {
     this.preflight = null;
     const multiple = this.files.length > 1;
@@ -287,7 +384,8 @@ class PdfImportModal extends QtModal {
         ? "Choose two or more PDFs, PowerPoints or Word files. We'll read each one first and tell you which are usable before you connect AI. Nothing is written to your vault in this step."
         : "Choose a PDF, PowerPoint or Word file. We'll read its text first and tell you whether it is usable before you connect AI. Nothing is written to your vault in this step.",
     });
-    this.renderSourcePicker(el);
+    // A new pick redraws this screen so the count and the button label match it.
+    this.renderSourcePicker(el, () => this.showPreflight());
     this.preflightStatus = el.createDiv({
       cls: "qt-hint",
       text: this.files.length > 1 ? "Ready to check " + this.files.length + " files." : this.file || this.vaultDoc ? "Ready to check this file." : "Choose a file to check.",
@@ -455,6 +553,9 @@ class PdfImportModal extends QtModal {
         this.folder = count > 1 ? this.parent : this.autoFolder(documentBaseName(names[0]));
         if (this.folderText) this.folderText.setValue(this.folder);
       }
+      // Redraw so the queued list, the folder wording and the Start button's
+      // count match the files that were just chosen.
+      this.showSetup();
     });
     if (this.files.length > 1) {
       el.createEl("p", { cls: "qt-hint", text: this.files.length + " files will be imported one after another. Each gets its own subfolder under the folder below." });
@@ -619,20 +720,83 @@ class PdfImportModal extends QtModal {
           i / this.files.length
         );
       }
-      try {
-        const raw = await file.arrayBuffer();
-        const copy = new Uint8Array(raw).slice().buffer;
-        captured.push({
-          name: file.name,
-          size: file.size,
-          type: file.type,
-          arrayBuffer: async () => copy.slice(0),
-        });
-      } catch (e) {
-        captured.push(null);
-      }
+      captured.push(await captureFile(file));
     }
     return captured;
+  }
+
+  /**
+   * Queue files chosen while an import is already running, so a second PDF does
+   * not have to wait for the first one to finish. A single import is promoted to
+   * a batch whose first entry is the file already being worked on.
+   */
+  async addFiles(list) {
+    const chosen = Array.from(list || []).filter(Boolean);
+    if (!chosen.length || this.closed || this.finishedBatch || this.stop || this.batchStopped) return 0;
+    const runningTarget = normalizePath(str(this.target || this.folder).trim() || this.parent);
+    let parent;
+    if (this.batchStarted) parent = this.batchParent;
+    else if (runningTarget.includes("/")) parent = runningTarget.slice(0, runningTarget.lastIndexOf("/"));
+    else parent = runningTarget;
+    if (!this.batchStarted) {
+      this.batchStarted = true;
+      this.batchMode = true;
+      this.batchParent = parent;
+      this.batchIndex = 0;
+      this.batchResults = [];
+      this.batchNotes = 0;
+      this.batchJobs = [
+        { file: this.file, readFile: this.file, folder: runningTarget, preflight: this.preflight || null },
+      ];
+      if (!this.progress) {
+        this.progress = new ImportProgressNotice(this.app, 2);
+        this.progressLabel = "Importing 1 of 2 · " + (this.file ? this.file.name : "File");
+        this.progress.update(this.progressLabel, this.lastStatus || "Starting...", 0);
+      }
+    }
+    const used = new Set(this.batchJobs.map((job) => String(job.folder || "").toLowerCase()));
+    const jobs = [];
+    for (const file of chosen) {
+      const base = documentBaseName(file.name) || "File " + (this.batchJobs.length + jobs.length + 1);
+      let folder = normalizePath(parent + "/" + base);
+      for (let n = 2; used.has(folder.toLowerCase()); n++) folder = normalizePath(parent + "/" + base + " (" + n + ")");
+      used.add(folder.toLowerCase());
+      const readFile = (await captureFile(file)) || file;
+      jobs.push({ file, readFile, folder, preflight: null, added: true });
+    }
+    this.batchJobs = this.batchJobs.concat(jobs);
+    this.files = this.batchJobs.map((job) => job.file).filter(Boolean);
+    this.refreshBatchLabels();
+    const total = this.batchJobs.length;
+    new Notice(
+      "Added " + jobs.length + " file" + (jobs.length === 1 ? "" : "s") + " to the queue. " +
+        total + " file" + (total === 1 ? "" : "s") + " in this import.",
+      7000
+    );
+    return jobs.length;
+  }
+
+  /** The queue button, available while a file is importing and while reviewing. */
+  chooseMoreFiles(button) {
+    this.openFileChooser(button, (picked) => {
+      this.addFiles(picked).catch((e) => {
+        new Notice("Couldn't add those files: " + (e && e.message ? e.message : e), 8000);
+      });
+    });
+  }
+
+  /** Keep the running header and the long-lived notice in step with a longer queue. */
+  refreshBatchLabels() {
+    const total = this.batchJobs.length;
+    if (!total) return;
+    const job = this.batchJobs[this.batchIndex];
+    const name = job && job.file ? job.file.name : this.file ? this.file.name : "File";
+    this.progressLabel = "Importing " + (this.batchIndex + 1) + " of " + total + " · " + name;
+    if (this.progress) {
+      this.progress.total = total;
+      this.progress.update(this.progressLabel, this.lastStatus || "Starting...", this.batchIndex / Math.max(1, total));
+    }
+    if (this.headerEl) this.headerEl.setText("Importing " + (this.batchIndex + 1) + " of " + total + ": " + name);
   }
 
   async startBatch() {
@@ -681,6 +845,7 @@ class PdfImportModal extends QtModal {
     this.agentBefore = null;
     this.stop = false;
     this.closed = false;
+    this.lastStatus = "Starting...";
     this.progressLabel = "Importing " + (index + 1) + " of " + this.batchJobs.length + " · " + job.file.name;
     if (this.progress) this.progress.update(this.progressLabel, "Starting...", index / this.batchJobs.length);
     return true;
@@ -771,10 +936,17 @@ class PdfImportModal extends QtModal {
 
     const el = this.contentEl;
     el.empty();
-    el.createEl("h3", { text: this.batchMode ? "Importing " + (this.batchIndex + 1) + " of " + this.batchJobs.length + ": " + this.file.name : "Importing" });
+    this.headerEl = el.createEl("h3", { text: this.batchMode ? "Importing " + (this.batchIndex + 1) + " of " + this.batchJobs.length + ": " + this.file.name : "Importing" });
     this.statusEl = el.createDiv({ cls: "qt-hint", text: "Starting..." });
     this.activityEl = el.createDiv({ cls: "qt-tool" });
-    this.stopBtn = el.createEl("button", { text: "Stop", cls: "qt-modal-btn" });
+    const actions = el.createDiv({ cls: "qt-row qt-small-row" });
+    const addMore = actions.createEl("button", {
+      text: "Add more files...",
+      cls: "qt-modal-btn",
+      attr: { title: "Choose another PDF, PowerPoint or Word file. It joins the queue behind the current file." },
+    });
+    addMore.addEventListener("click", () => this.chooseMoreFiles(addMore));
+    this.stopBtn = actions.createEl("button", { text: "Stop", cls: "qt-modal-btn" });
     this.stopBtn.addEventListener("click", () => {
       if (this.batchMode) this.batchStopped = true;
       this.stop = true;
@@ -1252,7 +1424,8 @@ class PdfImportModal extends QtModal {
     const el = this.contentEl;
     this.reviewing = true;
     el.empty();
-    if (this.batchMode && this.progress) this.progress.update(this.progressLabel, "Waiting for your review.", this.batchIndex / Math.max(1, this.batchJobs.length));
+    this.lastStatus = "Waiting for your review.";
+    if (this.batchMode && this.progress) this.progress.update(this.progressLabel, this.lastStatus, this.batchIndex / Math.max(1, this.batchJobs.length));
     if (this.batchMode) el.createEl("p", { cls: "qt-hint", text: "File " + (this.batchIndex + 1) + " of " + this.batchJobs.length + " · " + this.file.name });
     const items = this.items;
     el.createEl("h3", { text: items.length ? `Found ${items.length} question${items.length === 1 ? "" : "s"}` : "No questions found" });
@@ -1317,6 +1490,10 @@ class PdfImportModal extends QtModal {
       await this.cleanupArtifacts();
       this.showSetup();
     });
+    // A single import can become a batch here too: the file under review is
+    // written first, and the added files follow it.
+    const addMore = tools.createEl("button", { text: "Add more files..." });
+    addMore.addEventListener("click", () => this.chooseMoreFiles(addMore));
     count();
     create.addEventListener("click", () => this.createNotes());
   }

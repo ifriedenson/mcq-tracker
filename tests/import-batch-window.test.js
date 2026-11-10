@@ -100,6 +100,69 @@ async function waitFor(check, label) {
   throw new Error(`timed out waiting for ${label}`);
 }
 
+/** Opens the import through the real popout path and returns the live view. */
+async function openPopoutImport(plugin, app, options) {
+  const dom = makeDom();
+  const leaf = { app, view: null };
+  leaf.setViewState = async () => {
+    const view = plugin.views[VIEW_TYPE_IMPORT_WINDOW](leaf);
+    leaf.view = view;
+    view.contentEl = dom.root;
+    view.containerEl = dom.root;
+    await view.onOpen();
+  };
+  app.workspace.getLeavesOfType = (type) => (type === VIEW_TYPE_IMPORT_WINDOW && leaf.view ? [leaf] : []);
+  app.workspace.openPopoutLeaf = () => leaf;
+  app.workspace.revealLeaf = () => {};
+  plugin.openPdfImport(options);
+  await waitFor(() => leaf.view && leaf.view.modal, "the import popout");
+  return { leaf, view: leaf.view, dom };
+}
+
+/** A real PracticeView behind the real activateView path, with a stand-in screen. */
+function attachPracticeView(app, plugin) {
+  const leaf = { app, view: null, screen: null };
+  leaf.setViewState = async () => {
+    const view = new T.PracticeView(leaf, plugin);
+    view.app = app;
+    const screen = makeDom();
+    view.contentEl = screen.root;
+    view.containerEl = screen.root;
+    leaf.view = view;
+    leaf.screen = screen;
+  };
+  app.workspace.getLeaf = () => leaf;
+  app.workspace.revealLeaf = () => {};
+  return leaf;
+}
+
+/**
+ * Obsidian's metadata cache parses the frontmatter of a note it just wrote; the
+ * test vault does not, so read the note text the import actually produced. This
+ * is what makes the imported notes visible to getQuestions() and Practice.
+ */
+function indexImportedNotes(app, plugin) {
+  for (const made of app.created || []) {
+    const file = app.vault.getAbstractFileByPath(made.path);
+    if (!file) continue;
+    const block = /^---\r?\n([\s\S]*?)\r?\n---/.exec(made.text || "");
+    const fm = {};
+    if (block) {
+      for (const line of block[1].split(/\r?\n/)) {
+        const m = /^([A-Za-z0-9_]+):\s*(.*)$/.exec(line);
+        if (m) fm[m[1]] = m[2].trim().replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
+      }
+    }
+    file.fm = fm;
+    file.text = made.text;
+    file.headings = [...String(made.text || "").matchAll(/^#{1,6}\s+(.+?)\s*#*\s*$/gm)].map((m) => ({ heading: m[1] }));
+  }
+  if (plugin) {
+    plugin.invalidateSnapshots();
+    plugin.rebuildQuestionIndex();
+  }
+}
+
 test("batch import: two PDFs are queued, imported one after the other, and summarized", async () => {
   const state = await setup();
   const bytes = await textPdf();
@@ -371,6 +434,278 @@ test("notice placement: the import notice moves into the main window container",
 
   T.moveNoticeToMain({ noticeEl }, doc);
   assert.equal(noticeEl.parentNode, container, "the notice is parented by the main notice area");
+});
+
+const ONE_NOTE_REPLY = `---\nnumber: 1\nanswer: B\nanswer_source: pdf\n---\n\n## Question\nWhat is 2 + 2?\n\n## Answer Choices\n- A. 3\n- B. 4\n\n## Answer\n**Correct Answer: B**\n`;
+
+test("source picker: the chooser is created in the button's window, asks for several files, and opens immediately", async () => {
+  const appended = [];
+  const handlers = {};
+  const input = {
+    type: "",
+    accept: "",
+    multiple: false,
+    value: "",
+    style: {},
+    attrs: {},
+    files: null,
+    parentNode: null,
+    setAttribute(name, value) {
+      this.attrs[name] = value;
+    },
+    addEventListener(ev, fn) {
+      handlers[ev] = fn;
+    },
+    click() {
+      this.clicked = true;
+    },
+    remove() {
+      this.removed = true;
+    },
+  };
+  const doc = {
+    createElement(tag) {
+      assert.equal(tag, "input");
+      return input;
+    },
+    body: {
+      appendChild(el) {
+        appended.push(el);
+        el.parentNode = {
+          removeChild() {
+            el.parentNode = null;
+          },
+        };
+        return el;
+      },
+    },
+    defaultView: {
+      setTimeout(fn) {
+        fn();
+        return 0;
+      },
+    },
+  };
+
+  const state = await setup();
+  const modal = new T.PdfImportModal(state.app, state.plugin, {});
+  const picked = [];
+  const returned = modal.openFileChooser({ ownerDocument: doc }, (list) => picked.push(list));
+  assert.equal(returned, input, "the caller gets the input that was used");
+  assert.equal(appended.length, 1, "the input is attached before the OS chooser is asked");
+  assert.equal(input.clicked, true, "the chooser opens from the same click, not on a later tick");
+  assert.equal(input.multiple, true, "more than one file can be chosen at once");
+  assert.match(input.accept, /\.pdf/, "PDFs are accepted");
+  assert.equal(input.attrs["aria-hidden"], "true", "the temporary input is hidden from assistive tech");
+
+  input.files = [file("Unit A.pdf"), file("Unit B.pdf")];
+  handlers.change();
+  assert.deepEqual(picked[0].map((entry) => entry.name), ["Unit A.pdf", "Unit B.pdf"], "every chosen file is handed over");
+  assert.equal(input.parentNode, null, "the temporary input is removed after the pick");
+  assert.equal(input.value, "", "the same file can be chosen again");
+});
+
+test("source picker: choosing files replaces the queue and labels the batch", async () => {
+  const state = await setup();
+  const modal = new T.PdfImportModal(state.app, state.plugin, {});
+  attach(modal);
+  modal.onOpen();
+
+  const described = [];
+  const changes = [];
+  const count = modal.acceptChosenFiles(
+    [file("Unit A.pdf"), file("Unit B.pdf")],
+    { setDesc: (text) => described.push(text) },
+    (names, n) => changes.push([names, n])
+  );
+
+  assert.equal(count, 2, "both files are accepted");
+  assert.equal(modal.files.length, 2);
+  assert.equal(modal.batchMode, true, "two files make a batch");
+  assert.deepEqual(changes, [[["Unit A.pdf", "Unit B.pdf"], 2]], "the screen is told about the whole pick");
+  assert.equal(described.at(-1), "Unit A.pdf, Unit B.pdf", "the pick is described by its file names");
+});
+
+test("single import: adding a second PDF while the first one runs imports both", async () => {
+  const state = await setup();
+  const bytes = await textPdf();
+  let release;
+  let calls = 0;
+  state.plugin.aiChat = () => {
+    if (calls++ === 0) return new Promise((resolve) => { release = () => resolve(ONE_NOTE_REPLY); });
+    return Promise.resolve(ONE_NOTE_REPLY);
+  };
+
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [file("Unit A.pdf", bytes)] });
+  const dom = attach(modal);
+  modal.onOpen();
+  const started = modal.start();
+  await waitFor(() => typeof release === "function", "the pending AI request");
+  assert.equal(dom.find("Add more files...").length, 1, "the running screen offers the queue button");
+
+  const added = await modal.addFiles([file("Unit B.pdf", bytes)]);
+  assert.equal(added, 1, "the second file is queued");
+  assert.equal(modal.batchJobs.length, 2, "the running file is the first job in the new queue");
+  assert.equal(modal.batchMode, true, "the single import becomes a batch");
+  assert.equal(modal.batchJobs[0].folder, "Questions/Unit A", "the running file keeps its own folder");
+  assert.equal(modal.batchJobs[1].folder, "Questions/Unit B", "the added file gets a sibling folder");
+
+  release();
+  await started;
+  assert.equal(dom.find("Add more files...").length, 2, "the review screen offers the queue button too");
+  assert.ok(dom.texts().join("\n").includes("File 1 of 2"), "the first review names the larger queue");
+  await dom.click("Create 1 note");
+  await waitFor(() => dom.texts().join("\n").includes("File 2 of 2"), "the added file's review");
+  assert.ok(dom.texts().join("\n").includes("Unit B.pdf"), "the added file is the one being reviewed");
+  await dom.clickLast("Create 1 note");
+  await waitFor(() => completionModal(modal), "the two-file summary");
+
+  const complete = completionModal(modal);
+  const completeDom = attach(complete);
+  complete.onOpen();
+  assert.match(completeDom.texts().join("\n"), /2 question notes imported from 2 files/);
+});
+
+test("batch import: a file added during review is imported after the current one", async () => {
+  const state = await setup();
+  const bytes = await textPdf();
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [file("Unit A.pdf", bytes), file("Unit B.pdf", bytes)] });
+  const dom = attach(modal);
+  modal.onOpen();
+  await modal.startBatch();
+  assert.ok(dom.texts().join("\n").includes("File 1 of 2"));
+
+  const added = await modal.addFiles([file("Unit C.pdf", bytes)]);
+  assert.equal(added, 1, "the file chosen during review is queued");
+  assert.equal(modal.batchJobs.length, 3);
+  assert.equal(modal.batchJobs.at(-1).folder, "Questions/Unit C", "the added file gets its own subfolder");
+  assert.equal(modal.progress.total, 3, "the live notice knows the queue grew");
+
+  await dom.click("Create 1 note");
+  await waitFor(() => dom.texts().join("\n").includes("File 2 of 3"), "the second review with the larger queue");
+  await dom.clickLast("Create 1 note");
+  await waitFor(() => dom.texts().join("\n").includes("File 3 of 3"), "the added file's review");
+  assert.ok(dom.texts().join("\n").includes("Unit C.pdf"));
+  await dom.clickLast("Create 1 note");
+  await waitFor(() => completionModal(modal), "the three-file summary");
+
+  const complete = completionModal(modal);
+  const completeDom = attach(complete);
+  complete.onOpen();
+  const summary = completeDom.texts().join("\n");
+  assert.match(summary, /3 question notes imported from 3 files/);
+  assert.ok(summary.includes("Unit C.pdf"), "the added file appears in the summary");
+});
+
+test("import end to end: a PDF added mid-import, the live notice, the summary and real Practice", async () => {
+  const state = await setup();
+  const bytes = await textPdf();
+  let release;
+  let calls = 0;
+  state.plugin.aiChat = () => {
+    if (calls++ === 0) return new Promise((resolve) => { release = () => resolve(ONE_NOTE_REPLY); });
+    return Promise.resolve(ONE_NOTE_REPLY);
+  };
+  const practiceLeaf = attachPracticeView(state.app, state.plugin);
+
+  // The real popout path, starting from one PDF exactly as a user would.
+  const opened = await openPopoutImport(state.plugin, state.app, { files: [file("Unit A.pdf", bytes)] });
+  const modal = opened.view.modal;
+  await opened.dom.click("Start import");
+  await waitFor(() => typeof release === "function", "the first AI request");
+
+  // Add the second PDF from the popout while the first is still importing.
+  let chooserButton = null;
+  modal.openFileChooser = (buttonEl, onPicked) => {
+    chooserButton = buttonEl;
+    onPicked([file("Unit B.pdf", bytes)]);
+    return null;
+  };
+  await opened.dom.click("Add more files...");
+  await waitFor(() => modal.batchJobs.length === 2, "the second file joins the running queue");
+  assert.ok(chooserButton, "the add button asked for another file");
+  const live = modal.progress.notice;
+  assert.equal(live.hidden, false, "the live notice appears while the queue runs");
+  assert.match(live.message, /Importing 1 of 2/, "the notice names the running file and the new total");
+
+  release();
+  await waitFor(() => opened.dom.texts().join("\n").includes("File 1 of 2"), "the first review");
+  assert.match(live.message, /Importing 1 of 2/, "the notice still reports the first of two");
+  assert.match(live.message, /Waiting for your review/, "the notice reports the review stage");
+
+  await opened.dom.click("Create 1 note");
+  await waitFor(() => opened.dom.texts().join("\n").includes("File 2 of 2"), "the added file's review");
+  assert.match(live.message, /Importing 2 of 2/, "the notice advances to the added file");
+  assert.equal(live.hidden, false, "the notice stays up for the added file");
+
+  await opened.dom.clickLast("Create 1 note");
+  await waitFor(() => completionModal(modal), "the completion summary");
+  const complete = completionModal(modal);
+  const completeDom = attach(complete);
+  complete.onOpen();
+  const summary = completeDom.texts().join("\n");
+  assert.match(summary, /Import complete/);
+  assert.match(summary, /2 question notes imported from 2 files/, "the popup reports the true file and note counts");
+  assert.ok(summary.includes("Unit A.pdf") && summary.includes("Unit B.pdf"), "both files are listed");
+  assert.equal((summary.match(/1 note/g) || []).length, 2, "each file reports its own note count");
+  assert.equal(live.hidden, true, "the live notice is replaced at the end");
+  assert.ok(
+    obsidian.notices.some((line) => /Imported 2 question notes from 2 files/.test(line)),
+    "the long-lived summary notice reports the true total"
+  );
+
+  // What the import actually wrote is now visible to the question index.
+  indexImportedNotes(state.app, state.plugin);
+  const imported = (state.app.created || []).map((row) => row.path).filter((path) => /\.md$/i.test(path));
+  assert.deepEqual(
+    imported.map((path) => path.replace(/^Questions\//, "").split("/")[0]).sort(),
+    ["Unit A", "Unit B"],
+    "each PDF got its own folder under the parent"
+  );
+  assert.equal(state.plugin.getQuestions().length, 2, "both imported notes are practiceable");
+
+  // The real button, the real practiceFolder and the real activateView.
+  await completeDom.click("Practice these questions");
+  await waitFor(() => practiceLeaf.view && practiceLeaf.view.state === "question", "practice to start");
+  assert.deepEqual(state.plugin.settings.filters.folder, ["Questions"], "practice is limited to the imported parent folder");
+  assert.equal(state.plugin.settings.practicePath, "", "practice is not limited to a single note");
+  const started = practiceLeaf.view.current;
+  assert.ok(started && imported.includes(started.file.path), "practice opened one of the imported notes");
+  assert.equal(practiceLeaf.view.plugin.getQuestions().length, 2, "both imported notes were available to practice");
+});
+
+test("popout import: refocusing the main window keeps the import window and its progress alive", async () => {
+  const state = await setup();
+  const bytes = await textPdf();
+  state.plugin.aiChat = async () => ONE_NOTE_REPLY;
+  const opened = await openPopoutImport(state.plugin, state.app, {
+    files: [file("Unit A.pdf", bytes), file("Unit B.pdf", bytes)],
+  });
+  const modal = opened.view.modal;
+  await modal.startBatch();
+  const live = modal.progress.notice;
+  assert.equal(live.hidden, false);
+  assert.match(live.message, /Importing 1 of 2/);
+
+  // What Obsidian emits when the main window takes focus after the popout.
+  assert.equal(typeof state.app.handlers["ws:active-leaf-change"], "function", "the plugin listens for focus changes");
+  state.app.handlers["ws:active-leaf-change"]();
+  state.app.handlers["ws:layout-change"]();
+  await sleep(0);
+
+  assert.equal(state.plugin.importSession.modal, modal, "the import session survives the main window taking focus");
+  assert.equal(opened.view.modal, modal, "the popout still shows the same import");
+  assert.equal(opened.leaf.view, opened.view, "the popout view is not detached");
+  assert.equal(modal.closed, false, "the import is not cancelled");
+  assert.equal(live.hidden, false, "the long-lived notice is still visible");
+  assert.match(live.message, /Importing 1 of 2/, "the notice still shows the queue position");
+
+  await opened.dom.click("Create 1 note");
+  await waitFor(() => opened.dom.texts().join("\n").includes("File 2 of 2"), "the queue to advance after refocus");
+  assert.match(live.message, /Importing 2 of 2/, "progress keeps advancing after the refocus");
+  await opened.dom.clickLast("Create 1 note");
+  await waitFor(() => completionModal(modal), "the summary after refocus");
+  assert.equal(live.hidden, true, "the notice is replaced when the batch completes");
 });
 
 test("import window: the popout view mounts the real import controls", async () => {
