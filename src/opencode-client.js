@@ -202,6 +202,10 @@ class OpenCodeClient {
     // blocks until the assistant has finished (including any tool use)
     return this.req("POST", `/session/${encodeURIComponent(id)}/message`, body);
   }
+  /** Queue a prompt without waiting for the agent; poll messages/status for completion. */
+  promptAsync(id, body) {
+    return this.req("POST", `/session/${encodeURIComponent(id)}/prompt_async`, body);
+  }
   /**
    * Send a message and report text deltas from the server's SSE event stream
    * while the blocking send runs. Streaming is best effort: no fetch, no event

@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.2",
+    date: "November 11, 2026",
+    title: "Stop an import cleanly",
+    summary:
+      "The running import now offers Undo everything, Finish this file then stop, and Discard this file. Hanging AI or OpenCode requests end promptly, stopped work is cleaned up, and the summary says what was kept, stopped or undone.",
+    highlights: [
+      {
+        title: "Three explicit stop choices",
+        body: "Undo everything removes the notes, source copies and pictures this import made. Finish this file then stop saves the current file before stopping. Discard this file keeps finished files and removes only the current one.",
+      },
+      {
+        title: "Hanging requests end promptly",
+        body: "Stopping cancels the in-flight AI or OpenCode wait instead of leaving it running. A stalled OpenCode send is aborted, and a hanging Direct AI request leaves nothing behind.",
+      },
+      {
+        title: "Honest stopped summaries",
+        body: "Stopped batches report the files that finished, the current file marked Stopped, and any failures. An undone import reports the removed files and keeps the Practice button hidden.",
+      },
+      {
+        title: "No format changes",
+        body: "Question notes, review dates, cards, saved settings and provider keys are unchanged; existing imports and practice sessions keep working.",
+      },
+    ],
+  },
+  {
     version: "1.301.1",
     date: "November 10, 2026",
     title: "Batch import from the import window",

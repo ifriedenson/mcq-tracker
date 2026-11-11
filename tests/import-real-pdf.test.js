@@ -341,3 +341,34 @@ test("cleanup: a note-creation failure removes the notes already written, the so
   assert.equal(state.files.size, 0);
   assert.equal(state.dirs.size, 0, "the folder is removed");
 });
+
+test("stop: a hanging Direct AI request ends promptly and leaves nothing behind", async () => {
+  const state = await setup([]);
+  enableAi(state.plugin);
+  state.plugin.verifyDraftQuestions = async () => {};
+  let finish = null;
+  state.plugin.aiChat = () => new Promise((resolve) => {
+    finish = resolve;
+  });
+
+  const bytes = await textPdf();
+  const { modal, dom } = openImport(state.plugin, bytes);
+  const run = modal.start();
+  await waitFor(() => dom.texts().includes("Discard this file"), "the running import");
+  await dom.click("Discard this file");
+  await run;
+  const complete = obsidian.modals.find((entry) => entry !== modal && entry.render);
+  assert.ok(complete, "the stop opens the larger summary");
+  const completeDom = attach(complete);
+  complete.onOpen();
+  assert.match(completeDom.texts().join("\n"), /Import stopped/);
+  assert.match(completeDom.texts().join("\n"), /No question notes were imported/);
+  assert.ok(!dom.texts().includes("Found 1 question"), "the stopped file never reaches review");
+  assert.equal(modal.running, false);
+  assert.equal(state.files.size, 0, "the stopped attempt removes its folder and source copy");
+  assert.equal(state.dirs.size, 0);
+
+  finish(noteReply(1, "What is 2 + 2?", ["3", "4"], "B"));
+  await sleep(0);
+  assert.equal(state.files.size, 0, "the late reply writes nothing");
+});

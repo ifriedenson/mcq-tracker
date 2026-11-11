@@ -91,6 +91,12 @@ function completionModal(modal) {
   return obsidian.modals.find((entry) => entry !== modal && entry.onOpen && entry.render);
 }
 
+function agentMessage(id) {
+  return [{ info: { id, role: "assistant", time: { completed: Date.now() }, finish: "stop" }, parts: [] }];
+}
+
+const AGENT_NOTE = `---\nnumber: 1\nanswer: B\nanswer_source: pdf\n---\n\n## Question\nWhat is 2 + 2?\n\n## Answer Choices\n- A. 3\n- B. 4\n\n## Answer\n**Correct Answer: B**\n`;
+
 async function waitFor(check, label) {
   const end = Date.now() + 5000;
   while (Date.now() < end) {
@@ -722,4 +728,232 @@ test("import window: the popout view mounts the real import controls", async () 
   assert.ok(view.modal, "the view owns the import panel");
   assert.ok(dom.texts().join("\n").includes("Import questions from a file"), "the importer renders in the popout");
   await view.onClose();
+});
+
+test("batch import: Stop ends a hanging OpenCode send and summarizes the batch", async () => {
+  const state = await setup();
+  state.plugin.settings.ai.backend = "opencode";
+  state.plugin.settings.ai.managed = false;
+  state.plugin.ensureOpenCode = async () => {};
+  let finishSend = null;
+  const aborted = [];
+  state.plugin.openCode = () => ({
+    providers: async () => ({ providers: [{}] }),
+    createSession: async () => ({ id: "import-1" }),
+    send: () => new Promise((resolve) => {
+      finishSend = resolve;
+    }),
+    messages: async () => [],
+    abort: async (id) => {
+      aborted.push(id);
+      return {};
+    },
+  });
+
+  const bytes = await textPdf();
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [file("Unit A.pdf", bytes), file("Unit B.pdf", bytes)] });
+  const dom = attach(modal);
+  modal.onOpen();
+  assert.equal(modal.method, "agent");
+  const started = modal.startBatch();
+  await waitFor(() => modal.progress && modal.progress.notice, "the live progress notice");
+  const live = modal.progress.notice;
+  await waitFor(() => dom.texts().includes("Discard this file"), "the running import");
+  await dom.click("Discard this file");
+  await started;
+
+  assert.deepEqual(aborted, ["import-1"], "Stop asks OpenCode to abort the import session");
+  assert.equal(modal.finishedBatch, true);
+  assert.equal(modal.batchResults.length, 1, "the queue stops after the current file");
+  assert.match(modal.batchResults[0].skipped.join(" "), /Stopped before this file finished/);
+  assert.equal(modal.progress, null);
+  assert.equal(live.hidden, true, "the live notice is replaced, not left on Stopping");
+  assert.equal(state.files.size, 0, "the stopped file is cleaned up");
+  assert.equal(state.dirs.size, 0);
+
+  await waitFor(() => completionModal(modal), "the stopped summary");
+  const complete = completionModal(modal);
+  const completeDom = attach(complete);
+  complete.onOpen();
+  const summary = completeDom.texts().join("\n");
+  assert.match(summary, /Import stopped/);
+  assert.match(summary, /No question notes were imported/);
+  assert.equal(completeDom.texts().includes("Practice these questions"), false);
+
+  finishSend({});
+  await sleep(0);
+  assert.equal(state.files.size, 0, "the late agent reply writes nothing");
+  assert.ok(!state.plugin.importSession, "no session survives the stopped batch");
+});
+
+test("batch import: an agent finish advances the queue even when send never resolves", async () => {
+  const state = await setup();
+  state.plugin.settings.ai.backend = "opencode";
+  state.plugin.settings.ai.managed = false;
+  state.plugin.ensureOpenCode = async () => {};
+  let sessions = 0;
+  const sent = [];
+  state.plugin.openCode = () => ({
+    providers: async () => ({ providers: [{}] }),
+    createSession: async () => ({ id: "import-" + ++sessions }),
+    send: (id) => {
+      sent.push(id);
+      return new Promise(() => {});
+    },
+    messages: async () => agentMessage("done"),
+    abort: async () => ({}),
+  });
+
+  const bytes = await textPdf();
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [file("Unit A.pdf", bytes), file("Unit B.pdf", bytes)] });
+  const dom = attach(modal);
+  modal.onOpen();
+  modal.agentPollMs = 5;
+  modal.agentSettleMs = 20;
+  modal.agentIdleMs = 200;
+  modal.agentMaxMs = 1000;
+  const started = modal.startBatch();
+  await started;
+  await waitFor(() => completionModal(modal), "the completion summary after both files");
+
+  assert.deepEqual(sent, ["import-1", "import-2"], "a blocking send is started once per file but never awaited");
+  assert.equal(modal.batchResults.length, 2, "the second PDF is imported when the first send stays unresolved");
+});
+
+test("batch import: Undo everything removes the notes from files that already finished", async () => {
+  const state = await setup();
+  state.plugin.settings.ai.backend = "opencode";
+  state.plugin.settings.ai.managed = false;
+  state.plugin.ensureOpenCode = async () => {};
+  const notePath = "Questions/Unit A/Unit A-Q01.md";
+  let sessions = 0;
+  state.plugin.openCode = () => ({
+    providers: async () => ({ providers: [{}] }),
+    createSession: async () => ({ id: "import-" + ++sessions }),
+    promptAsync: async (id) => {
+      if (id === "import-1") await state.app.vault.create(notePath, AGENT_NOTE);
+      return {};
+    },
+    messages: async (id) => (id === "import-1" ? agentMessage("done") : []),
+    abort: async () => ({}),
+  });
+
+  const bytes = await textPdf();
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [file("Unit A.pdf", bytes), file("Unit B.pdf", bytes)] });
+  const dom = attach(modal);
+  modal.onOpen();
+  modal.agentPollMs = 5;
+  modal.agentSettleMs = 20;
+  modal.agentIdleMs = 5000;
+  modal.agentMaxMs = 10000;
+  const started = modal.startBatch();
+  await started;
+  await waitFor(() => dom.texts().join("\n").includes("Importing 2 of 2"), "the second file to start");
+  assert.equal(state.files.has(notePath), true, "the first file's note is committed before Undo");
+
+  await dom.click("Undo everything");
+  await waitFor(() => completionModal(modal), "the undo summary");
+  const complete = completionModal(modal);
+  const completeDom = attach(complete);
+  complete.onOpen();
+  const summary = completeDom.texts().join("\n");
+  assert.match(summary, /Import undone/);
+  assert.match(summary, /No imported notes were kept/);
+  assert.match(summary, /Removed by Undo/);
+  assert.equal(state.files.has(notePath), false, "Undo removes notes made by earlier files");
+  assert.ok(![...state.files.keys()].some((path) => path.startsWith("Questions/Unit A/")), "the finished folder is removed too");
+  assert.equal(state.dirs.has("Questions/Unit A"), false);
+});
+
+test("batch import: Discard this file keeps earlier files and removes only the current one", async () => {
+  const state = await setup();
+  state.plugin.settings.ai.backend = "opencode";
+  state.plugin.settings.ai.managed = false;
+  state.plugin.ensureOpenCode = async () => {};
+  const notePath = "Questions/Unit A/Unit A-Q01.md";
+  let sessions = 0;
+  state.plugin.openCode = () => ({
+    providers: async () => ({ providers: [{}] }),
+    createSession: async () => ({ id: "import-" + ++sessions }),
+    promptAsync: async (id) => {
+      if (id === "import-1") await state.app.vault.create(notePath, AGENT_NOTE);
+      return {};
+    },
+    messages: async (id) => (id === "import-1" ? agentMessage("done") : []),
+    abort: async () => ({}),
+  });
+
+  const bytes = await textPdf();
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [file("Unit A.pdf", bytes), file("Unit B.pdf", bytes)] });
+  const dom = attach(modal);
+  modal.onOpen();
+  modal.agentPollMs = 5;
+  modal.agentSettleMs = 20;
+  modal.agentIdleMs = 5000;
+  modal.agentMaxMs = 10000;
+  const started = modal.startBatch();
+  await started;
+  await waitFor(() => dom.texts().join("\n").includes("Importing 2 of 2"), "the second file to start");
+  assert.equal(state.files.has(notePath), true, "the first file's note is committed before Discard");
+
+  await dom.click("Discard this file");
+  await waitFor(() => completionModal(modal), "the discard summary");
+  const complete = completionModal(modal);
+  const completeDom = attach(complete);
+  complete.onOpen();
+  const summary = completeDom.texts().join("\n");
+  assert.match(summary, /Import stopped/);
+  assert.match(summary, /1 question note imported/);
+  assert.match(summary, /Stopped/);
+  assert.equal(state.files.has(notePath), true, "Discard keeps the PDF that already finished");
+  assert.ok([...state.files.keys()].some((path) => path.startsWith("Questions/Unit A/")), "the finished folder stays");
+  assert.ok(![...state.files.keys()].some((path) => path.startsWith("Questions/Unit B/")), "only the current folder is removed");
+});
+
+test("batch import: Finish this file, then stop saves the current file and leaves the queue", async () => {
+  const state = await setup();
+  state.plugin.settings.ai.backend = "opencode";
+  state.plugin.settings.ai.managed = false;
+  state.plugin.ensureOpenCode = async () => {};
+  const notePath = "Questions/Unit A/Unit A-Q01.md";
+  let sessions = 0;
+  let calls = 0;
+  let release = false;
+  state.plugin.openCode = () => ({
+    providers: async () => ({ providers: [{}] }),
+    createSession: async () => ({ id: "import-" + ++sessions }),
+    promptAsync: async () => {
+      calls++;
+      await state.app.vault.create(notePath, AGENT_NOTE);
+      while (!release) await sleep(5);
+      return {};
+    },
+    messages: async () => (release ? agentMessage("done") : []),
+    abort: async () => ({}),
+  });
+
+  const bytes = await textPdf();
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [file("Unit A.pdf", bytes), file("Unit B.pdf", bytes)] });
+  const dom = attach(modal);
+  modal.onOpen();
+  modal.agentPollMs = 5;
+  modal.agentSettleMs = 20;
+  modal.agentIdleMs = 5000;
+  modal.agentMaxMs = 10000;
+  const started = modal.startBatch();
+  await waitFor(() => dom.texts().includes("Finish this file, then stop"), "the stop choices");
+  await dom.click("Finish this file, then stop");
+  release = true;
+  await started;
+  await waitFor(() => completionModal(modal), "the finish-current summary");
+
+  const complete = completionModal(modal);
+  const completeDom = attach(complete);
+  complete.onOpen();
+  const summary = completeDom.texts().join("\n");
+  assert.equal(calls, 1, "the next PDF is never sent to the agent");
+  assert.equal(modal.batchResults.length, 1);
+  assert.match(summary, /The current file finished/);
+  assert.match(summary, /1 question note imported/);
+  assert.ok(summary.includes("Practice these questions"));
 });

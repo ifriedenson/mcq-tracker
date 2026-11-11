@@ -24,21 +24,27 @@ class ImportCompleteModal extends QtModal {
     const made = results.reduce((sum, row) => sum + (Number(row.made) || 0), 0);
     const failed = results.filter((row) => row.error).length;
     const stopped = !!this.opts.cancelled;
+    const undo = !!this.opts.undo;
+    const removed = Number(this.opts.removed) || 0;
     const filesWithNotes = results.filter((row) => Number(row.made) > 0).length;
 
     const root = el.createDiv({ cls: "qt-import-complete" });
     root.createEl("h3", {
-      text: stopped ? "Import stopped" : failed ? "Import finished with problems" : "Import complete",
+      text: undo ? "Import undone" : stopped ? "Import stopped" : failed ? "Import finished with problems" : "Import complete",
     });
     const failureText = failed ? ` ${failed} file${failed === 1 ? "" : "s"} failed.` : "";
     root.createEl("p", {
       cls: "qt-import-complete-summary",
-      text:
-        (made > 0
+      text: undo
+        ? `Undo removed ${removed} file${removed === 1 ? "" : "s"} from this import. No imported notes were kept.`
+        : (made > 0
           ? `${made} question note${made === 1 ? "" : "s"} imported from ${filesWithNotes} file${filesWithNotes === 1 ? "" : "s"}.`
           : "No question notes were imported.") + failureText,
     });
-    if (folder) root.createEl("p", { cls: "qt-hint", text: `Saved under ${folder}.` });
+    if (this.opts.stoppedAfterCurrent) {
+      root.createEl("p", { cls: "qt-hint", text: "The current file finished. The remaining files were not started." });
+    }
+    if (folder && !undo) root.createEl("p", { cls: "qt-hint", text: `Saved under ${folder}.` });
 
     if (results.length) {
       const list = root.createDiv({ cls: "qt-import-complete-list" });
@@ -47,15 +53,19 @@ class ImportCompleteModal extends QtModal {
         item.createSpan({ cls: "qt-import-complete-name", text: row.name || "File" });
         const state = row.error
           ? "Could not import"
-          : Number(row.made) > 0
-            ? `${row.made} note${Number(row.made) === 1 ? "" : "s"}`
-            : "No questions found";
+          : undo && Number(row.made) > 0
+            ? "Removed by Undo"
+            : Number(row.made) > 0
+              ? `${row.made} note${Number(row.made) === 1 ? "" : "s"}`
+              : Array.isArray(row.skipped) && row.skipped.length
+                ? "Stopped"
+                : "No questions found";
         item.createSpan({ cls: row.error ? "qt-import-complete-state is-error" : "qt-import-complete-state", text: state });
       }
     }
 
     const row = root.createDiv({ cls: "qt-row qt-import-complete-actions" });
-    if (made > 0 && folder) {
+    if (made > 0 && folder && !undo) {
       const practice = row.createEl("button", { text: "Practice these questions", cls: "mod-cta qt-grow" });
       practice.addEventListener("click", () => this.practice(practice, folder, made));
     }

@@ -221,6 +221,17 @@ class PdfImportModal extends QtModal {
     this.finishedBatch = false;
     this.running = false;
     this.reviewing = false;
+    this.cancelGate = null;
+    this.cancelRun = null;
+    this.stopMode = "";
+    this.sessionFiles = new Set();
+    this.sessionFolders = new Set();
+    this.attemptRemoved = 0;
+    this.agentSendError = null;
+    this.agentPollMs = 1500;
+    this.agentIdleMs = 3 * 60 * 1000;
+    this.agentSettleMs = 90 * 1000;
+    this.agentMaxMs = 20 * 60 * 1000;
     const st = plugin.settings;
     this.meta = Object.assign(
       { test: "", course: "", section: "", domain: "", skill: "", unit: "", difficulty: "", prefix: "", start: "1", pages: "" },
@@ -277,6 +288,84 @@ class PdfImportModal extends QtModal {
     this.lastStatus = msg;
     if (this.statusEl) this.statusEl.setText(msg);
     if (this.batchMode && this.progress) this.progress.update(this.progressLabel || "Importing...", msg, this.batchIndex / Math.max(1, this.batchJobs.length));
+  }
+
+  beginCancellableRun() {
+    let cancel = null;
+    this.cancelGate = new Promise((resolve) => {
+      cancel = resolve;
+    });
+    this.cancelRun = () => {
+      if (cancel) {
+        cancel();
+        cancel = null;
+      }
+    };
+  }
+
+  cancelledImportError() {
+    const error = new Error("Import stopped.");
+    error.code = "import-stopped";
+    return error;
+  }
+
+  isStopError(e) {
+    return (e && e.code === "import-stopped") || this.stop === true;
+  }
+
+  throwIfCancelled() {
+    if (this.stop) throw this.cancelledImportError();
+  }
+
+  async awaitCancellable(promise) {
+    const gate = this.cancelGate;
+    const outcome = Promise.resolve(promise).then(
+      (value) => ({ value }),
+      (error) => ({ error })
+    );
+    const raced = gate ? await Promise.race([outcome, gate.then(() => ({ cancelled: true }))]) : await outcome;
+    if (raced && raced.cancelled) throw this.cancelledImportError();
+    if (raced && Object.prototype.hasOwnProperty.call(raced, "error")) throw raced.error;
+    return raced.value;
+  }
+
+  requestStop(plugin, mode) {
+    if (mode === "finish") {
+      this.batchStopped = true;
+      this.stopMode = "finish";
+      this.disableStopButtons();
+      this.status("Finishing this file, then stopping...");
+      return;
+    }
+    this.stopMode = mode === "undo" ? "undo" : "discard";
+    if (this.batchMode) this.batchStopped = true;
+    this.stop = true;
+    this.disableStopButtons();
+    this.status(this.stopMode === "undo" ? "Undoing this import..." : "Stopping this file...");
+    if (typeof this.cancelRun === "function") {
+      try {
+        this.cancelRun();
+      } catch (e) {
+        /* the attempt already finished */
+      }
+      this.cancelRun = null;
+    }
+    this.abortAgent();
+  }
+
+  disableStopButtons() {
+    for (const button of this.stopBtns || []) button.disabled = true;
+    if (this.stopBtn) this.stopBtn.disabled = true;
+  }
+
+  abortAgent() {
+    if (!this.sid || !this.plugin || typeof this.plugin.openCode !== "function") return;
+    try {
+      const request = this.plugin.openCode().abort(this.sid);
+      if (request && typeof request.catch === "function") request.catch(() => {});
+    } catch (e) {
+      /* the server may already have finished */
+    }
   }
 
   sourceEntries() {
@@ -635,6 +724,7 @@ class PdfImportModal extends QtModal {
   beginArtifacts() {
     this.artifacts = { files: new Set(), folders: new Set(), committed: false };
     this.agentBefore = null;
+    this.attemptRemoved = 0;
   }
 
   /** Records only folders that did not exist before this attempt. */
@@ -654,9 +744,43 @@ class PdfImportModal extends QtModal {
 
   commitArtifacts() {
     if (!this.artifacts) return;
+    for (const path of this.artifacts.files) this.sessionFiles.add(path);
+    for (const path of this.artifacts.folders) this.sessionFolders.add(path);
     this.artifacts.committed = true;
     this.artifacts = null;
     this.agentBefore = null;
+  }
+
+  /** Remove every artifact this whole import session created, including finished files. */
+  async removeSessionArtifacts() {
+    const adapter = this.app.vault && this.app.vault.adapter;
+    if (!adapter) return 0;
+    let removed = 0;
+    if (typeof adapter.remove === "function") {
+      for (const path of [...this.sessionFiles]) {
+        let existed = true;
+        try {
+          if (typeof adapter.exists === "function") existed = await adapter.exists(path);
+          await adapter.remove(path);
+          if (existed) removed++;
+        } catch (e) {
+          /* already gone */
+        }
+      }
+    }
+    if (typeof adapter.rmdir === "function") {
+      const folders = [...this.sessionFolders].sort((a, b) => b.split("/").length - a.split("/").length);
+      for (const path of folders) {
+        try {
+          await adapter.rmdir(path, false);
+        } catch (e) {
+          /* not empty, or already gone */
+        }
+      }
+    }
+    this.sessionFiles.clear();
+    this.sessionFolders.clear();
+    return removed;
   }
 
   /** Removes every write this attempt made, newest folders first, never touching pre-existing notes. */
@@ -682,15 +806,24 @@ class PdfImportModal extends QtModal {
         /* the folder may not have been created */
       }
     }
+    if (this.stopMode === "undo") {
+      for (const path of files) this.sessionFiles.add(path);
+      for (const path of tracked.folders) this.sessionFolders.add(path);
+    }
+    let removed = 0;
     if (typeof adapter.remove === "function") {
       for (const path of files) {
+        let existed = true;
         try {
+          if (typeof adapter.exists === "function") existed = await adapter.exists(path);
           await adapter.remove(path);
+          if (existed) removed++;
         } catch (e) {
           /* it may have failed before writing, or already be gone */
         }
       }
     }
+    this.attemptRemoved = (this.attemptRemoved || 0) + removed;
     if (typeof adapter.rmdir === "function") {
       const folders = [...tracked.folders].sort((a, b) => b.split("/").length - a.split("/").length);
       for (const path of folders) {
@@ -844,6 +977,8 @@ class PdfImportModal extends QtModal {
     this.artifacts = null;
     this.agentBefore = null;
     this.stop = false;
+    this.stopMode = "";
+    for (const button of this.stopBtns || []) button.disabled = false;
     this.closed = false;
     this.lastStatus = "Starting...";
     this.progressLabel = "Importing " + (index + 1) + " of " + this.batchJobs.length + " · " + job.file.name;
@@ -872,7 +1007,7 @@ class PdfImportModal extends QtModal {
     });
   }
 
-  finishBatch(reason) {
+  async finishBatch(reason) {
     if (this.finishedBatch || !this.batchStarted) return;
     this.finishedBatch = true;
     this.batchStarted = false;
@@ -882,14 +1017,52 @@ class PdfImportModal extends QtModal {
       this._nextBatchTimer = null;
     }
     const made = this.batchNotes;
+    const undo = this.stopMode === "undo";
+    const removed = undo ? (this.attemptRemoved || 0) + (await this.removeSessionArtifacts()) : 0;
     const files = this.batchResults.filter((row) => row.made > 0).length;
     const failed = this.batchResults.filter((row) => row.error).length;
+    const current = this.batchResults[this.batchResults.length - 1];
+    const currentFailed = !!(current && current.error);
     const failureText = failed ? " " + failed + " file" + (failed === 1 ? "" : "s") + " failed." : "";
-    const summary = made ? "Imported " + made + " question note" + (made === 1 ? "" : "s") + " from " + files + " file" + (files === 1 ? "" : "s") + "." + failureText : "No question notes were imported." + failureText;
+    const summary = undo
+      ? "Import undone. Removed " + removed + " file" + (removed === 1 ? "" : "s") + " from this import."
+      : made
+        ? "Imported " + made + " question note" + (made === 1 ? "" : "s") + " from " + files + " file" + (files === 1 ? "" : "s") + "." + failureText
+        : "No question notes were imported." + failureText;
     if (this.progress) { this.progress.finish(summary); this.progress = null; }
-    const options = { folder: this.batchParent, results: this.batchResults.slice(), expected: made, cancelled: reason === "stopped" || this.batchStopped };
+    const options = {
+      folder: this.batchParent,
+      results: this.batchResults.slice(),
+      expected: made,
+      cancelled: reason === "stopped" || this.batchStopped,
+      undo,
+      removed,
+      stoppedAfterCurrent: this.stopMode === "finish" && !currentFailed,
+    };
     this.close();
     new ImportCompleteModal(this.app, this.plugin, options).open();
+  }
+
+  /** A single-file stop still gets the larger summary, not a bare error line. */
+  async finishSingleStop(reason) {
+    if (this.finishedBatch) return;
+    this.finishedBatch = true;
+    const undo = this.stopMode === "undo";
+    const removed = undo ? (this.attemptRemoved || 0) + (await this.removeSessionArtifacts()) : 0;
+    const result = { name: this.file ? this.file.name : "File", folder: this.folder, made: 0, skipped: [reason], error: "" };
+    const summary = undo
+      ? "Import undone. Removed " + removed + " file" + (removed === 1 ? "" : "s") + " from this import."
+      : "No question notes were imported. Stopped before this file finished.";
+    if (this.progress) { this.progress.finish(summary); this.progress = null; }
+    this.close();
+    new ImportCompleteModal(this.app, this.plugin, {
+      folder: this.folder,
+      results: [result],
+      expected: 0,
+      cancelled: true,
+      undo,
+      removed,
+    }).open();
   }
 
   async start() {
@@ -946,16 +1119,20 @@ class PdfImportModal extends QtModal {
       attr: { title: "Choose another PDF, PowerPoint or Word file. It joins the queue behind the current file." },
     });
     addMore.addEventListener("click", () => this.chooseMoreFiles(addMore));
-    this.stopBtn = actions.createEl("button", { text: "Stop", cls: "qt-modal-btn" });
-    this.stopBtn.addEventListener("click", () => {
-      if (this.batchMode) this.batchStopped = true;
-      this.stop = true;
-      this.stopBtn.disabled = true;
-      this.status("Stopping...");
-      if (this.sid) p.openCode().abort(this.sid).catch(() => {});
-    });
+    const stopActions = el.createDiv({ cls: "qt-row qt-small-row" });
+    this.stopBtns = [];
+    const addStop = (text, mode, title) => {
+      const button = stopActions.createEl("button", { text, cls: "qt-modal-btn", attr: { title } });
+      button.addEventListener("click", () => this.requestStop(p, mode));
+      this.stopBtns.push(button);
+      return button;
+    };
+    addStop("Undo everything", "undo", "Delete every note, source copy and picture this import has made, then stop now.");
+    addStop("Finish this file, then stop", "finish", "Keep working on the current PDF, save it when it finishes, then stop before the next PDF.");
+    this.stopBtn = addStop("Discard this file", "discard", "Stop now. Keep PDFs that already finished, but delete the current one.");
     this.stop = false;
     this.sid = "";
+    this.beginCancellableRun();
     this.warnings = [];
     this.running = true;
     try {
@@ -971,7 +1148,7 @@ class PdfImportModal extends QtModal {
         label: documentLabel(`${src.name}.${src.ext}`),
       });
       if (!textCheck.ok) throw new Error(textCheck.message);
-
+      this.throwIfCancelled();
       this.beginArtifacts();
       this.trackFolderChain(this.target);
       const vault = this.app.vault;
@@ -993,6 +1170,7 @@ class PdfImportModal extends QtModal {
       const sourcePath = uniquePath(vault, folder, src.name, src.ext, "Source");
       this.trackArtifact(sourcePath);
       await vault.createBinary(sourcePath, src.buf);
+      this.throwIfCancelled();
       if (this.opts.capture && src.kind !== "pdf") {
         this.warnings.push("Pictures are only captured from PDFs, so this import uses the text of the file.");
       }
@@ -1022,11 +1200,21 @@ class PdfImportModal extends QtModal {
         figCount = withPictures.figCount;
         this.warnings.push(...(withPictures.warnings || []).slice(0, 5));
       }
+      this.throwIfCancelled();
       this.ctx = { folder, prefix, sourcePath, imagesDir, sourceName: src.name, kind: src.kind, figCount };
       if (this.method === "agent") await this.runAgent(pages);
       else await this.runApi(pages);
     } catch (e) {
       await this.cleanupArtifacts();
+      if (this.isStopError(e)) {
+        if (this.batchMode) {
+          this.recordBatchResult({ made: 0, skipped: ["Stopped before this file finished"] }, this.folder);
+          await this.finishBatch("stopped");
+        } else if (!this.closed) {
+          await this.finishSingleStop("Stopped before this file finished");
+        }
+        return;
+      }
       if (!this.closed) this.showError(e && e.message ? e.message : String(e));
     } finally {
       this.running = false;
@@ -1047,10 +1235,10 @@ class PdfImportModal extends QtModal {
     await vault.create(textPath, pages.map((pg) => `--- Page ${pg.n} ---\n${pg.text.trim()}`).join("\n\n"));
 
     this.status("Starting OpenCode...");
-    await p.ensureOpenCode((m) => !this.closed && this.status(m));
+    await this.awaitCancellable(p.ensureOpenCode((m) => !this.closed && this.status(m)));
     const oc = p.openCode();
-    await ensureProviders(oc);
-    const s = await oc.createSession(`Import ${sourceName}`);
+    await this.awaitCancellable(ensureProviders(oc));
+    const s = await this.awaitCancellable(oc.createSession(`Import ${sourceName}`));
     this.sid = s && s.id;
     if (!this.sid) throw new Error("OpenCode did not return a session id.");
     const ai = p.settings.ai;
@@ -1063,35 +1251,41 @@ class PdfImportModal extends QtModal {
     if (str(ai.agent).trim()) body.agent = ai.agent.trim();
 
     const mySid = this.sid;
-    const timer = activeWindow.setInterval(() => this.pollAgent(mySid, folder), 1500);
     let msgs = null;
+    this.agentSendError = null;
     try {
-      await oc.send(mySid, body);
+      await this.dispatchAgentPrompt(oc, mySid, body);
+      await this.waitForAgent(mySid, folder);
     } catch (e) {
-      if (!this.stop) throw new Error(friendlyError(e, oc.base()));
-    } finally {
-      activeWindow.clearInterval(timer);
+      if (this.isStopError(e)) throw e;
+      throw new Error(friendlyError(e, oc.base()));
     }
     try {
-      msgs = await oc.messages(mySid);
+      msgs = await this.awaitCancellable(oc.messages(mySid));
     } catch (e) {
+      if (this.isStopError(e)) throw e;
       /* the model name is only for the label */
     }
     this.status("Checking the notes...");
-    await sleep(1500);
+    await this.awaitCancellable(sleep(1500));
+    this.throwIfCancelled();
     const model2 = str(ai.model).trim() || modelFromMessages(msgs) || "the AI model set up in OpenCode";
-    const result = await this.finishAgentNotes(folder, sourceName, {
+    const result = await this.awaitCancellable(this.finishAgentNotes(folder, sourceName, {
       model: model2,
       date: localDate(),
       sourcePath,
       sourceKind: kind,
-    }, before);
+    }, before));
     try {
       await this.app.vault.adapter.remove(textPath);
     } catch (e) {
       /* leave it */
     }
     await this.pruneImages(folder, result);
+    for (const path of await this.listNotes(folder)) {
+      if (!before.has(path)) this.trackArtifact(path);
+    }
+    for (const path of result.paths) this.trackArtifact(path);
     result.issues = await this.auditNotes(folder, result.paths);
     if (!this.closed) {
       this.showAgentDone(result, folder);
@@ -1135,16 +1329,93 @@ class PdfImportModal extends QtModal {
     return (listing.files || []).filter((f) => /\.md$/i.test(f) && !/\/_[^/]*$/.test(f)).sort();
   }
 
-  async pollAgent(sid, folder) {
-    if (this.closed) return;
+  /** POST prompt_async when the server has it, otherwise start send without awaiting it. */
+  async dispatchAgentPrompt(oc, sid, body) {
+    if (typeof oc.promptAsync === "function") {
+      try {
+        await this.awaitCancellable(this.requestWithTimeout(oc.promptAsync(sid, body), 15000, "OpenCode did not accept the prompt."));
+        return;
+      } catch (e) {
+        if (this.isStopError(e)) throw e;
+        const message = e && e.message ? e.message : String(e);
+        // Older OpenCode builds do not have prompt_async. Fall back to the
+        // blocking send, but never wait on it: messages and note files decide
+        // when the file is really finished.
+        if (!/OpenCode returned (404|405)/.test(message)) throw e;
+      }
+    }
+    const pending = oc.send(sid, body);
+    if (pending && typeof pending.catch === "function") {
+      pending.catch((e) => { this.agentSendError = e; });
+    }
+  }
+
+  async requestWithTimeout(promise, ms, message) {
+    let timer = null;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message || "OpenCode did not respond.")), ms);
+      if (timer && typeof timer.unref === "function") timer.unref();
+    });
     try {
-      const msgs = await this.plugin.openCode().messages(sid);
+      return await Promise.race([promise, timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /** Watch the session until the assistant has finished, without relying on send() resolving. */
+  async waitForAgent(sid, folder) {
+    const started = Date.now();
+    let lastChange = started;
+    let lastSignature = "";
+    let sawNotes = false;
+    while (!this.closed) {
+      this.throwIfCancelled();
+      await this.awaitCancellable(sleep(this.agentPollMs));
+      this.throwIfCancelled();
+      if (this.agentSendError) throw new Error(friendlyError(this.agentSendError, this.plugin.openCode().base()));
+      const state = await this.pollAgent(sid, folder);
+      this.throwIfCancelled();
+      const now = Date.now();
+      if (state) {
+        if (state.signature !== lastSignature) {
+          lastSignature = state.signature;
+          lastChange = now;
+        }
+        if (state.noteCount > 0) sawNotes = true;
+        if (state.terminal) return;
+      }
+      if (sawNotes && now - lastChange >= this.agentSettleMs) return;
+      if (now - lastChange >= this.agentIdleMs || now - started >= this.agentMaxMs) {
+        this.status("OpenCode stopped responding. Stopping this file...");
+        this.abortAgent();
+        throw new Error("OpenCode stopped responding while importing this file.");
+      }
+    }
+    throw this.cancelledImportError();
+  }
+
+  async pollAgent(sid, folder) {
+    if (this.closed) return null;
+    try {
+      const client = this.plugin.openCode();
+      const msgs = await this.awaitCancellable(this.requestWithTimeout(client.messages(sid), 8000, "OpenCode did not return its messages."));
+      const assistant = [...(msgs || [])].reverse().find((m) => m && m.info && m.info.role === "assistant");
       const lines = partsToTurns(msgs).flatMap((t) => t.tools).slice(-6);
-      const n = (await this.listNotes(folder)).length;
+      const n = (await this.awaitCancellable(this.listNotes(folder))).length;
       this.status(`The agent is working... ${n} note${n === 1 ? "" : "s"} written so far.`);
       if (this.activityEl) this.activityEl.setText(lines.join("\n"));
+      const parts = (assistant && assistant.parts) || [];
+      const running = parts.some((part) => part && part.type === "tool" && part.state && (part.state.status === "pending" || part.state.status === "running" || part.state.status === "streaming"));
+      const info = (assistant && assistant.info) || {};
+      // A completed assistant step that ends in tool-calls is not the end of the
+      // file: OpenCode will send another assistant message after the tools run.
+      const completed = info.finish !== "tool-calls" && (!!(info.time && info.time.completed !== undefined && info.time.completed !== null) || !!(info.finish && info.finish !== "tool-calls"));
+      const signature = JSON.stringify([msgs ? msgs.length : 0, info.id, info.time && info.time.completed, info.finish, n, lines.slice(-3)]);
+      return { noteCount: n, terminal: completed && !running, signature };
     } catch (e) {
-      /* keep waiting */
+      if (this.isStopError(e)) throw e;
+      return null;
     }
   }
 
@@ -1154,6 +1425,7 @@ class PdfImportModal extends QtModal {
     const meta = Object.assign({}, this.meta, { source });
     const result = { made: 0, ai: 0, noAnswer: 0, skipped: [], images: 0, ids: [], dupes: [], issues: [], paths: [] };
     for (const path of files) {
+      this.throwIfCancelled();
       const text = await this.app.vault.adapter.read(path);
       const parsed = parseNote(text);
       const base = path.replace(/^.*\//, "").replace(/\.md$/i, "");
@@ -1166,7 +1438,7 @@ class PdfImportModal extends QtModal {
       let verification = null;
       if (pre.aiAnswer && parsed.sec.choices.length && typeof this.plugin.verifyDraftQuestions === "function") {
         const draft = { question: parsed.sec.question, choices: parsed.sec.choices, answer: str(parsed.fm.answer) };
-        await this.plugin.verifyDraftQuestions([draft]);
+        await this.awaitCancellable(this.plugin.verifyDraftQuestions([draft]));
         verification = draft.verification;
         if (verification && verification.drop) {
           if (f instanceof TFile) await this.app.vault.delete(f);
@@ -1175,6 +1447,7 @@ class PdfImportModal extends QtModal {
           continue;
         }
       }
+      this.throwIfCancelled();
       const out = finalizeNote(text, meta, base, { ...stamp, verification });
       if (f instanceof TFile) await this.app.vault.modify(f, out);
       else await this.app.vault.adapter.write(path, out);
@@ -1363,17 +1636,20 @@ class PdfImportModal extends QtModal {
       const ch = chunks[i];
       this.status(`Asking the AI to read pages ${ch[0].n}-${ch[ch.length - 1].n} (batch ${i + 1} of ${chunks.length}). ${mergeNotes(blocks).length} questions found so far.`);
       try {
-        blocks.push(...(await extractNotesChunk(client, ch, keyText, carry)));
+        blocks.push(...(await this.awaitCancellable(extractNotesChunk(client, ch, keyText, carry))));
         carry = carryPassages(blocks);
         failures = 0;
       } catch (e) {
+        if (this.isStopError(e)) throw e;
         this.warnings.push(`Pages ${ch[0].n}-${ch[ch.length - 1].n}: ${friendlyApiError(e)}`);
         if (++failures >= 2) break;
       }
     }
     if (this.closed) return;
+    this.throwIfCancelled();
     this.items = mergeNotes(blocks);
-    await this.verifyAiAnswers();
+    await this.awaitCancellable(this.verifyAiAnswers());
+    this.throwIfCancelled();
     if (this.closed) return;
     if (!this.items.length) await this.cleanupArtifacts();
     this.showReview();
@@ -1517,6 +1793,7 @@ class PdfImportModal extends QtModal {
       const existingIds = indexOfficialIds(this.plugin.getQuestions(), folder);
       const seenIds = new Map();
       for (let i = 0; i < chosen.length; i++) {
+        this.throwIfCancelled();
         const q = chosen[i];
         if (q.verification && q.verification.drop) {
           result.skipped.push(`${q.fm.number || i + 1}: answer check failed`);
@@ -1542,6 +1819,7 @@ class PdfImportModal extends QtModal {
         const out = finalizeNote(q.text, meta, qid, { ...stamp, stimId, verification: q.verification });
         this.trackArtifact(path);
         await this.app.vault.create(path, out);
+        this.throwIfCancelled();
         result.paths.push(path);
         if (oid) seenIds.set(oid, path);
         const fin = parseNote(out);
@@ -1558,7 +1836,16 @@ class PdfImportModal extends QtModal {
       this.commitArtifacts();
     } catch (e) {
       await this.cleanupArtifacts();
-      if (!this.closed) this.showError(`Some notes may have been created before this stopped. ${e && e.message ? e.message : e}`);
+      if (this.isStopError(e)) {
+        if (this.batchMode) {
+          this.recordBatchResult({ made: 0, skipped: ["Stopped before this file finished"] }, this.folder);
+          await this.finishBatch("stopped");
+        } else if (!this.closed) {
+          await this.finishSingleStop("Stopped before this file finished");
+        }
+      } else if (!this.closed) {
+        this.showError(`Some notes may have been created before this stopped. ${e && e.message ? e.message : e}`);
+      }
     } finally {
       this.running = false;
       if (this.closed) await this.cleanupArtifacts();
