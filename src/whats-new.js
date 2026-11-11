@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.3",
+    date: "November 11, 2026",
+    title: "Keep a stalled answer check from freezing an import",
+    summary:
+      "Imports now show which imported answer is being checked, and a blind answer check that stops responding is cut off after 60 seconds. The note is kept and the rest of the file continues instead of leaving the import on Checking the notes forever.",
+    highlights: [
+      {
+        title: "A stalled check cannot freeze the import",
+        body: "Each blind answer check has a 60-second limit. A timeout is recorded as a verification error on that note, so the file finishes and the batch moves to the next PDF.",
+      },
+      {
+        title: "See which answer is being checked",
+        body: "The import window and main-window progress now name the note being checked and its position in the file instead of leaving one generic Checking the notes message on screen.",
+      },
+      {
+        title: "The rest of the batch keeps going",
+        body: "A timed-out check no longer holds up the current PDF or the files queued after it. The summary still reports the file as imported, and the note keeps its imported answer for you to review.",
+      },
+      {
+        title: "No format changes",
+        body: "Question notes, review dates, saved settings and provider keys are unchanged. A timeout keeps the imported question rather than deleting it.",
+      },
+    ],
+  },
+  {
     version: "1.301.2",
     date: "November 11, 2026",
     title: "Stop an import cleanly",

@@ -50710,7 +50710,8 @@ class PdfImportModal extends QtModal {
     const files = (await this.listNotes(folder)).filter((path) => !skip.has(path));
     const meta = Object.assign({}, this.meta, { source });
     const result = { made: 0, ai: 0, noAnswer: 0, skipped: [], images: 0, ids: [], dupes: [], issues: [], paths: [] };
-    for (const path of files) {
+    for (let i = 0; i < files.length; i++) {
+      const path = files[i];
       this.throwIfCancelled();
       const text = await this.app.vault.adapter.read(path);
       const parsed = parseNote(text);
@@ -50724,6 +50725,7 @@ class PdfImportModal extends QtModal {
       let verification = null;
       if (pre.aiAnswer && parsed.sec.choices.length && typeof this.plugin.verifyDraftQuestions === "function") {
         const draft = { question: parsed.sec.question, choices: parsed.sec.choices, answer: str(parsed.fm.answer) };
+        this.status(`Checking answer ${i + 1} of ${files.length}: ${base}...`);
         await this.awaitCancellable(this.plugin.verifyDraftQuestions([draft]));
         verification = draft.verification;
         if (verification && verification.drop) {
@@ -71144,6 +71146,22 @@ const { TableControlsView } = require("./table-controls-view");
 const { TableCsvModal } = require("./table-csv-modal");
 const { VIEW_TYPE_TABLE_CONTROLS } = require("./constants");
 
+/**
+ * A blind answer check is a small request. Cap it so a provider that accepts
+ * the connection and then never replies cannot freeze an import forever.
+ */
+const VERIFICATION_TIMEOUT_MS = 60 * 1000;
+
+function withinVerificationTimeout(promise, ms, label) {
+  let timer = null;
+  const limit = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(label + " timed out after " + Math.round(ms / 1000) + "s.")), ms);
+  });
+  return Promise.race([promise, limit]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 class TimeBlocksTourModal extends QtModal {
   constructor(app, steps, onOpenDay) {
     super(app);
@@ -77100,6 +77118,8 @@ class QuestionTrackerPlugin extends Plugin {
     const rawKey = str(data.answer).trim();
     if (!rawKey) throw new Error("This item has no answer to check.");
     const choices = Array.isArray(data.choices) ? data.choices : [];
+    const configuredTimeout = Number(this.verifyTimeoutMs);
+    const timeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : VERIFICATION_TIMEOUT_MS;
     if (choices.length) {
       let keyLetters = parseChoiceSet(rawKey);
       if (!keyLetters.length) {
@@ -77109,7 +77129,11 @@ class QuestionTrackerPlugin extends Plugin {
       if (!keyLetters.length) throw new Error("The stored answer does not match the choices.");
       const multiple = keyLetters.length > 1 || data.multiple === true;
       const prompt = buildBlindVerificationPrompt({ question: data.question, choices, multiple });
-      const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800 });
+      const reply = await withinVerificationTimeout(
+        this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800 }),
+        timeoutMs,
+        "The answer check"
+      );
       if (multiple) {
         const answer = parseBlindVerificationSet(reply);
         if (!answer.length) throw new Error("The AI did not return a usable answer set.");
@@ -77124,7 +77148,11 @@ class QuestionTrackerPlugin extends Plugin {
     const keyNumber = Number(rawKey.replace(/[^0-9+-.eE]/g, ""));
     if (!Number.isFinite(keyNumber)) throw new Error("Only multiple-choice, true/false, multi-select or numeric answers can be checked.");
     const prompt = buildBlindVerificationPrompt({ question: data.question });
-    const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800 });
+    const reply = await withinVerificationTimeout(
+      this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800 }),
+      timeoutMs,
+      "The answer check"
+    );
     const answer = parseBlindVerificationNumber(reply);
     if (answer === null) throw new Error("The AI did not return a usable numeric answer.");
     const tolerance = Math.max(1e-9, Math.abs(keyNumber) * 1e-9);
@@ -133962,6 +133990,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.301.3",
+    date: "November 11, 2026",
+    title: "Keep a stalled answer check from freezing an import",
+    summary:
+      "Imports now show which imported answer is being checked, and a blind answer check that stops responding is cut off after 60 seconds. The note is kept and the rest of the file continues instead of leaving the import on Checking the notes forever.",
+    highlights: [
+      {
+        title: "A stalled check cannot freeze the import",
+        body: "Each blind answer check has a 60-second limit. A timeout is recorded as a verification error on that note, so the file finishes and the batch moves to the next PDF.",
+      },
+      {
+        title: "See which answer is being checked",
+        body: "The import window and main-window progress now name the note being checked and its position in the file instead of leaving one generic Checking the notes message on screen.",
+      },
+      {
+        title: "The rest of the batch keeps going",
+        body: "A timed-out check no longer holds up the current PDF or the files queued after it. The summary still reports the file as imported, and the note keeps its imported answer for you to review.",
+      },
+      {
+        title: "No format changes",
+        body: "Question notes, review dates, saved settings and provider keys are unchanged. A timeout keeps the imported question rather than deleting it.",
+      },
+    ],
+  },
   {
     version: "1.301.2",
     date: "November 11, 2026",

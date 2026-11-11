@@ -786,6 +786,66 @@ test("batch import: Stop ends a hanging OpenCode send and summarizes the batch",
   assert.ok(!state.plugin.importSession, "no session survives the stopped batch");
 });
 
+test("batch import: a stalled answer check times out and the file still finishes", async () => {
+  const state = await setup();
+  state.plugin.settings.ai.backend = "opencode";
+  state.plugin.settings.ai.managed = false;
+  state.plugin.ensureOpenCode = async () => {};
+  const notePath = "Questions/Unit A/Unit A-Q01.md";
+  const aiNote = AGENT_NOTE.replace("answer_source: pdf", "answer_source: ai").replace(
+    "- A. 3\n- B. 4\n",
+    "- A. 3\n- B. 4\n- C. 5\n- D. 6\n"
+  );
+  let sessions = 0;
+  let checks = 0;
+  delete state.plugin.verifyDraftQuestions;
+  const realVerify = state.plugin.verifyDraftQuestions;
+  state.plugin.verifyDraftQuestions = function (items) {
+    checks++;
+    return realVerify.call(this, items);
+  };
+  state.plugin.verifyTimeoutMs = 25;
+  state.plugin.aiChat = () => new Promise(() => {});
+  state.plugin.openCode = () => ({
+    providers: async () => ({ providers: [{}] }),
+    createSession: async () => ({ id: "import-" + ++sessions }),
+    promptAsync: async (id) => {
+      if (id === "import-1") await state.app.vault.create(notePath, aiNote);
+      return {};
+    },
+    messages: async () => agentMessage("done"),
+    abort: async () => ({}),
+  });
+
+  const bytes = await textPdf();
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [file("Unit A.pdf", bytes), file("Unit B.pdf", bytes)] });
+  const dom = attach(modal);
+  modal.onOpen();
+  modal.agentPollMs = 5;
+  modal.agentSettleMs = 20;
+  modal.agentIdleMs = 1000;
+  modal.agentMaxMs = 3000;
+  const statuses = [];
+  const status = modal.status.bind(modal);
+  modal.status = (text, ...args) => {
+    statuses.push(String(text));
+    return status(text, ...args);
+  };
+  const started = modal.startBatch();
+  await started;
+  await waitFor(() => completionModal(modal), "the completion summary after a timed-out check");
+
+  assert.equal(checks, 1, "the real blind check ran once instead of hanging");
+  assert.ok(statuses.some((text) => text.includes("Checking answer 1 of 1")), "the import says which answer it is checking");
+  assert.equal(state.files.has(notePath), true, "a timed-out check keeps the note");
+  const complete = completionModal(modal);
+  const completeDom = attach(complete);
+  complete.onOpen();
+  const summary = completeDom.texts().join("\n");
+  assert.match(summary, /1 question note imported/);
+  assert.ok(summary.includes("Practice these questions"));
+});
+
 test("batch import: an agent finish advances the queue even when send never resolves", async () => {
   const state = await setup();
   state.plugin.settings.ai.backend = "opencode";

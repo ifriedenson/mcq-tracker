@@ -1424,7 +1424,8 @@ class PdfImportModal extends QtModal {
     const files = (await this.listNotes(folder)).filter((path) => !skip.has(path));
     const meta = Object.assign({}, this.meta, { source });
     const result = { made: 0, ai: 0, noAnswer: 0, skipped: [], images: 0, ids: [], dupes: [], issues: [], paths: [] };
-    for (const path of files) {
+    for (let i = 0; i < files.length; i++) {
+      const path = files[i];
       this.throwIfCancelled();
       const text = await this.app.vault.adapter.read(path);
       const parsed = parseNote(text);
@@ -1438,6 +1439,7 @@ class PdfImportModal extends QtModal {
       let verification = null;
       if (pre.aiAnswer && parsed.sec.choices.length && typeof this.plugin.verifyDraftQuestions === "function") {
         const draft = { question: parsed.sec.question, choices: parsed.sec.choices, answer: str(parsed.fm.answer) };
+        this.status(`Checking answer ${i + 1} of ${files.length}: ${base}...`);
         await this.awaitCancellable(this.plugin.verifyDraftQuestions([draft]));
         verification = draft.verification;
         if (verification && verification.drop) {
