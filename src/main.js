@@ -171,7 +171,7 @@ const epub = require("./epub");
 const epubAnnotations = require("./epub-annotations");
 const { EpubReaderModal } = require("./epub-reader-modal");
 const serviceImport = require("./service-import");
-const { MAX_OPENCODE_MAJOR, OpenCodeManager, assertExtractedTree, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, platformTriple } = require("./opencode-manager");
+const { MAX_OPENCODE_MAJOR, OpenCodeManager, assertExtractedTree, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, permissionConfigContent, platformTriple } = require("./opencode-manager");
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, sliceQuestionRange, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
 const { InsightsView } = require("./insights-view");
 const { TestView } = require("./exam-view");
@@ -464,6 +464,7 @@ QuestionTrackerPlugin.__test = {
   EpubReaderModal,
   serviceImport,
   OpenCodeManager,
+  permissionConfigContent,
   MAX_OPENCODE_MAJOR,
   opencodeMajor,
   platformTriple,

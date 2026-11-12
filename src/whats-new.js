@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.6",
+    date: "November 12, 2026",
+    title: "The agent can always write the notes",
+    summary:
+      "The OpenCode server this plugin starts now always allows file edits, so an import can no longer stall waiting for a permission prompt nobody can answer. Reads, bash and every other permission stay exactly as you set them.",
+    highlights: [
+      {
+        title: "Imports never wait on a permission prompt",
+        body: "A stored OpenCode edit permission of ask would leave every note write waiting for an approval that the import window cannot show. The server the plugin runs now starts with edits allowed.",
+      },
+      {
+        title: "Your own OpenCode config is left alone",
+        body: "Only file edits are changed. Reads, bash and other permission rules keep your values, and a config you supply yourself through OPENCODE_CONFIG_CONTENT is never overwritten.",
+      },
+      {
+        title: "The vault stays reachable",
+        body: "Edits are also allowed inside your vault folder when OpenCode treats it as an external directory, so note files can be written wherever the vault lives.",
+      },
+      {
+        title: "No format changes",
+        body: "Question notes, review dates, saved settings, provider keys and network defaults are unchanged.",
+      },
+    ],
+  },
+  {
     version: "1.301.5",
     date: "November 12, 2026",
     title: "Import failures that explain themselves",

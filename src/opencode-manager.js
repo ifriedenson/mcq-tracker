@@ -36,6 +36,23 @@ const OPENCODE_REPO = "anomalyco/opencode";
 /** The newest OpenCode major version this plugin can talk to. OpenCode 2.x removed the 1.x server routes (POST /session now answers 405), so 2.x isn't supported yet. */
 const MAX_OPENCODE_MAJOR = 1;
 
+/**
+ * The inline config the managed server is started with (OpenCode's
+ * OPENCODE_CONFIG_CONTENT, which is loaded last and wins over the user's own
+ * config). Importing questions means the agent must write note files: a stored
+ * `permission: { edit: "ask" }` would leave that write waiting for an approval
+ * nobody can give, so edits are always allowed for the server this plugin runs.
+ * Reads, bash and every other permission are left exactly as the user set them.
+ */
+function permissionConfigContent(vaultPath) {
+  const root = str(vaultPath).trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  const permission = { edit: "allow" };
+  // The server's working directory is normally the vault. When it isn't, the
+  // vault counts as an external directory, so allow edits there as well.
+  if (root) permission.external_directory = { [`${root}/**`]: "allow" };
+  return JSON.stringify({ $schema: "https://opencode.ai/config.json", permission });
+}
+
 /** 2 from "2.2.0" or "v2.2.0"; 0 when the text has no version number. */
 function opencodeMajor(v) {
   const m = /(\d+)\.\d+/.exec(str(v));
@@ -682,6 +699,12 @@ class OpenCodeManager {
           OPENCODE_SERVER_PASSWORD: password,
           OPENCODE_SERVER_USERNAME: "opencode",
           XDG_DATA_HOME: this.dataHome(),
+          // A stored "ask" edit permission would stall every import on a
+          // prompt nobody can answer. An explicit config the user set for
+          // OpenCode itself is left alone.
+          ...(process.env.OPENCODE_CONFIG_CONTENT
+            ? {}
+            : { OPENCODE_CONFIG_CONTENT: permissionConfigContent(this.plugin.vaultPath ? this.plugin.vaultPath() : "") }),
         }),
         windowsHide: true,
         stdio: ["ignore", "pipe", "pipe"],
@@ -822,6 +845,7 @@ module.exports = {
   nodeReq,
   OPENCODE_REPO,
   MAX_OPENCODE_MAJOR,
+  permissionConfigContent,
   opencodeMajor,
   PROVIDERS,
   platformTriple,

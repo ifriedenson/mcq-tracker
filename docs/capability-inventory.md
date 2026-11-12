@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 440 groups, 3061 exports. **Commands:** 232. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 441 groups, 3061 exports. **Commands:** 232. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -52,7 +52,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `NoteReviewModal` | 0 | `tests/spaced-everything.test.js` |
 | `OcrModal` | 0 | `tests/feature-surfaces.test.js`, `tests/import-edge-robustness.test.js` |
 | `OpenCodeClient` | 0 | `tests/chat-stream.test.js`, `tests/opencode-compat.test.js`, `tests/opencode-lifecycle.test.js` |
-| `OpenCodeManager` | 0 | `tests/opencode-compat.test.js`, `tests/opencode-lifecycle.test.js` |
+| `OpenCodeManager` | 0 | `tests/opencode-compat.test.js`, `tests/opencode-lifecycle.test.js`, `tests/opencode-permissions.test.js` |
 | `PdfAnnotationModal` | 0 | `tests/feature-surfaces.test.js` |
 | `PdfImportModal` | 0 | `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/import-batch-window.test.js`, `tests/import-complete-details.test.js`, `tests/import-edge-robustness.test.js`, `tests/import-existing-folder.test.js`, `tests/import-preflight.test.js`, `tests/import-properties.test.js`, `tests/import-real-pdf.test.js`, `tests/import-source.test.js`, `tests/views.test.js` |
 | `PdfInkModal` | 0 | `tests/pdf-backlinks.test.js`, `tests/pdf-ink.test.js` |
@@ -330,6 +330,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `pdfLatex` | 6 | `tests/feature-engines.test.js`, `tests/pdf-latex.test.js` |
 | `pdfPlus` | 8 | `tests/pdf-plus-boot.test.js`, `tests/pdf-plus.test.js`, `tests/settings-navigation.test.js` |
 | `pdfPlusSettings` | 2 | `tests/settings-navigation.test.js` |
+| `permissionConfigContent` | 0 | `tests/opencode-permissions.test.js` |
 | `pickQuestion` | 0 | `tests/mastery-picker.test.js`, `tests/study-status.test.js` |
 | `plainCards` | 6 | `tests/plain-cards.test.js` |
 | `platformTriple` | 0 | `tests/feature-surfaces.test.js` |

@@ -60419,6 +60419,23 @@ const OPENCODE_REPO = "anomalyco/opencode";
 /** The newest OpenCode major version this plugin can talk to. OpenCode 2.x removed the 1.x server routes (POST /session now answers 405), so 2.x isn't supported yet. */
 const MAX_OPENCODE_MAJOR = 1;
 
+/**
+ * The inline config the managed server is started with (OpenCode's
+ * OPENCODE_CONFIG_CONTENT, which is loaded last and wins over the user's own
+ * config). Importing questions means the agent must write note files: a stored
+ * `permission: { edit: "ask" }` would leave that write waiting for an approval
+ * nobody can give, so edits are always allowed for the server this plugin runs.
+ * Reads, bash and every other permission are left exactly as the user set them.
+ */
+function permissionConfigContent(vaultPath) {
+  const root = str(vaultPath).trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  const permission = { edit: "allow" };
+  // The server's working directory is normally the vault. When it isn't, the
+  // vault counts as an external directory, so allow edits there as well.
+  if (root) permission.external_directory = { [`${root}/**`]: "allow" };
+  return JSON.stringify({ $schema: "https://opencode.ai/config.json", permission });
+}
+
 /** 2 from "2.2.0" or "v2.2.0"; 0 when the text has no version number. */
 function opencodeMajor(v) {
   const m = /(\d+)\.\d+/.exec(str(v));
@@ -61065,6 +61082,12 @@ class OpenCodeManager {
           OPENCODE_SERVER_PASSWORD: password,
           OPENCODE_SERVER_USERNAME: "opencode",
           XDG_DATA_HOME: this.dataHome(),
+          // A stored "ask" edit permission would stall every import on a
+          // prompt nobody can answer. An explicit config the user set for
+          // OpenCode itself is left alone.
+          ...(process.env.OPENCODE_CONFIG_CONTENT
+            ? {}
+            : { OPENCODE_CONFIG_CONTENT: permissionConfigContent(this.plugin.vaultPath ? this.plugin.vaultPath() : "") }),
         }),
         windowsHide: true,
         stdio: ["ignore", "pipe", "pipe"],
@@ -61205,6 +61228,7 @@ module.exports = {
   nodeReq,
   OPENCODE_REPO,
   MAX_OPENCODE_MAJOR,
+  permissionConfigContent,
   opencodeMajor,
   PROVIDERS,
   platformTriple,
@@ -134287,6 +134311,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.6",
+    date: "November 12, 2026",
+    title: "The agent can always write the notes",
+    summary:
+      "The OpenCode server this plugin starts now always allows file edits, so an import can no longer stall waiting for a permission prompt nobody can answer. Reads, bash and every other permission stay exactly as you set them.",
+    highlights: [
+      {
+        title: "Imports never wait on a permission prompt",
+        body: "A stored OpenCode edit permission of ask would leave every note write waiting for an approval that the import window cannot show. The server the plugin runs now starts with edits allowed.",
+      },
+      {
+        title: "Your own OpenCode config is left alone",
+        body: "Only file edits are changed. Reads, bash and other permission rules keep your values, and a config you supply yourself through OPENCODE_CONFIG_CONTENT is never overwritten.",
+      },
+      {
+        title: "The vault stays reachable",
+        body: "Edits are also allowed inside your vault folder when OpenCode treats it as an external directory, so note files can be written wherever the vault lives.",
+      },
+      {
+        title: "No format changes",
+        body: "Question notes, review dates, saved settings, provider keys and network defaults are unchanged.",
+      },
+    ],
+  },
+  {
     version: "1.301.5",
     date: "November 12, 2026",
     title: "Import failures that explain themselves",
@@ -135717,7 +135766,7 @@ const epub = require("./epub");
 const epubAnnotations = require("./epub-annotations");
 const { EpubReaderModal } = require("./epub-reader-modal");
 const serviceImport = require("./service-import");
-const { MAX_OPENCODE_MAJOR, OpenCodeManager, assertExtractedTree, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, platformTriple } = require("./opencode-manager");
+const { MAX_OPENCODE_MAJOR, OpenCodeManager, assertExtractedTree, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, permissionConfigContent, platformTriple } = require("./opencode-manager");
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, sliceQuestionRange, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
 const { InsightsView } = require("./insights-view");
 const { TestView } = require("./exam-view");
@@ -136010,6 +136059,7 @@ QuestionTrackerPlugin.__test = {
   EpubReaderModal,
   serviceImport,
   OpenCodeManager,
+  permissionConfigContent,
   MAX_OPENCODE_MAJOR,
   opencodeMajor,
   platformTriple,
