@@ -394,7 +394,7 @@ These are real captures of the shipped views.
 
 <img src="docs/images/practice-view-demo.gif" alt="Demo of answering APW-U3-MCQ-Q01 in Practice: select C, mark Confident, Submit, correct with rationale." width="720">
 
-Practice demo from `APW-U3-MCQ-Q01` (select C, mark Confident, Submit). Reconstructed demo frames — the stimulus image placeholders stand in for `U3-MCQ-S01-img1.png` / `U3-MCQ-S01-img2.png` until the real captures land.
+Practice demo from `APW-U3-MCQ-Q01` (select C, mark Confident, Submit) with the real `U3-MCQ-S01` stimulus images. Reconstructed demo frames, not a pixel-perfect Obsidian capture.
 
 <img src="docs/render/study-agent-ui/obsidian-empty-narrow-light.png" alt="Study agent in a 296 px Obsidian sidebar with a New chat tab, local vault search and a suggested action." width="420">
 
