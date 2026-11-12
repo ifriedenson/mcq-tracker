@@ -58,9 +58,11 @@ Most of MCQ Tracker works with AI turned off. One everyday workflow does not: **
 
 **Mobile:** open the sidebar, go to **Settings → Community plugins**, turn off Restricted mode, then **Browse → `MCQ Tracker` → Install → Enable**. Close Settings when you are done.
 
-Once enabled, **Settings → Community plugins** lists the installed plugin and version:
+Here is the whole desktop install, start to finish (real Obsidian 1.15.1, Primary theme):
 
-<img src="docs/images/install-community-plugin.png" alt="Obsidian's Community plugins page showing the installed plugins list with MCQ Tracker v1.301.1 by Isaac Friedenson, enabled." width="760">
+<img src="docs/images/install-demo.gif" alt="Six real Obsidian screenshots: Settings then Community plugins, Browse with a search for MCQ Tracker, the plugin page with Install, the same page with Enable, and the installed list showing MCQ Tracker switched on." width="980">
+
+On a phone the same pages open full screen, with **Settings** in the sidebar. The six frames are also saved full size in [`docs/images/install-run/`](docs/images/install-run).
 
 <details>
 <summary><strong>Manual install or offline</strong></summary>
@@ -155,6 +157,8 @@ You do not need to know anything about Obsidian, programming or note-taking apps
 3. Click **Exit Restricted mode** and confirm. You should now see **Browse** and **No plugins installed**.
 4. Click **Browse**, search for `MCQ Tracker`, and open the result. You should see a page with an **Install** button.
 5. Click **Install**, then **Enable**. Close **Settings** to return to the main Obsidian window.
+
+The same five clicks are recorded in the [install demo](#install) above.
 
 Once enabled, **Settings → Community plugins** lists the installed plugin and version:
 
