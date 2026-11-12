@@ -61,6 +61,14 @@ class ImportCompleteModal extends QtModal {
                 ? "Stopped"
                 : "No questions found";
         item.createSpan({ cls: row.error ? "qt-import-complete-state is-error" : "qt-import-complete-state", text: state });
+        // The state label alone never explains why a file produced nothing;
+        // keep the per-file reason in the summary so a batch failure is actionable.
+        if (row.error) item.createDiv({ cls: "qt-import-complete-detail", text: String(row.error) });
+        else if (Array.isArray(row.skipped) && row.skipped.length) {
+          for (const reason of row.skipped.slice(0, 5)) {
+            item.createDiv({ cls: "qt-import-complete-detail", text: String(reason) });
+          }
+        }
       }
     }
 

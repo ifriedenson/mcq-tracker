@@ -49261,6 +49261,14 @@ class ImportCompleteModal extends QtModal {
                 ? "Stopped"
                 : "No questions found";
         item.createSpan({ cls: row.error ? "qt-import-complete-state is-error" : "qt-import-complete-state", text: state });
+        // The state label alone never explains why a file produced nothing;
+        // keep the per-file reason in the summary so a batch failure is actionable.
+        if (row.error) item.createDiv({ cls: "qt-import-complete-detail", text: String(row.error) });
+        else if (Array.isArray(row.skipped) && row.skipped.length) {
+          for (const reason of row.skipped.slice(0, 5)) {
+            item.createDiv({ cls: "qt-import-complete-detail", text: String(reason) });
+          }
+        }
       }
     }
 
@@ -49355,6 +49363,13 @@ function moveNoticeToMain(notice, doc) {
   const el = notice.noticeEl;
   if (el.parentNode && el.parentNode !== container) el.parentNode.removeChild(el);
   if (el.parentNode !== container) container.appendChild(el);
+}
+
+/** An error with no message (or a bare "Error") tells the user nothing; name the file instead. */
+function importErrorText(e, fallback) {
+  const m = str(e && e.message ? e.message : e).trim();
+  if (m && !/^error:?$/i.test(m)) return m;
+  return str(fallback).trim() || "Import failed without an error message. Check that OpenCode is running with a connected provider (or switch to Direct AI in Settings > Study agent > AI) and try again.";
 }
 
 /** Notice.hide() is the supported API; remove the moved element as a fallback. */
@@ -50368,7 +50383,7 @@ class PdfImportModal extends QtModal {
     try {
       await this.start();
     } catch (e) {
-      if (!this.closed && !this.finishedBatch) this.showError(e && e.message ? e.message : String(e));
+      if (!this.closed && !this.finishedBatch) this.showError(importErrorText(e));
     }
   }
 
@@ -50414,7 +50429,7 @@ class PdfImportModal extends QtModal {
     if (this.batchIndex + 1 >= this.batchJobs.length) return this.finishBatch();
     this.prepareBatchJob(this.batchIndex + 1);
     this.start().catch((e) => {
-      if (!this.closed && !this.finishedBatch) this.showError(e && e.message ? e.message : String(e));
+      if (!this.closed && !this.finishedBatch) this.showError(importErrorText(e));
     });
   }
 
@@ -50641,7 +50656,7 @@ class PdfImportModal extends QtModal {
         }
         return;
       }
-      if (!this.closed) this.showError(e && e.message ? e.message : String(e));
+      if (!this.closed) this.showError(importErrorText(e));
     } finally {
       this.running = false;
       if (this.closed) await this.cleanupArtifacts();
@@ -50797,7 +50812,9 @@ class PdfImportModal extends QtModal {
     const started = Date.now();
     let lastChange = started;
     let lastSignature = "";
+    let lastLines = [];
     let sawNotes = false;
+    let pollFailures = 0;
     while (!this.closed) {
       this.throwIfCancelled();
       await this.awaitCancellable(sleep(this.agentPollMs));
@@ -50806,19 +50823,31 @@ class PdfImportModal extends QtModal {
       const state = await this.pollAgent(sid, folder);
       this.throwIfCancelled();
       const now = Date.now();
-      if (state) {
-        if (state.signature !== lastSignature) {
-          lastSignature = state.signature;
-          lastChange = now;
+      if (!state) {
+        // The status read itself failed: the server may be wedged, but a
+        // failed read is not proof the agent is idle, so it must not move the
+        // idle verdict. Fail fast instead when contact is repeatedly lost.
+        if (++pollFailures >= 5) {
+          this.status("Lost contact with OpenCode. Stopping this file...");
+          this.abortAgent();
+          throw new Error("Lost contact with OpenCode while importing this file: its messages could not be read. Check that the OpenCode server is still running, then try again.");
         }
-        if (state.noteCount > 0) sawNotes = true;
-        if (state.terminal) return;
+        continue;
       }
+      pollFailures = 0;
+      if (Array.isArray(state.lines) && state.lines.length) lastLines = state.lines.slice(-3);
+      if (state.signature !== lastSignature) {
+        lastSignature = state.signature;
+        lastChange = now;
+      }
+      if (state.noteCount > 0) sawNotes = true;
+      if (state.terminal) return;
       if (sawNotes && now - lastChange >= this.agentSettleMs) return;
       if (now - lastChange >= this.agentIdleMs || now - started >= this.agentMaxMs) {
         this.status("OpenCode stopped responding. Stopping this file...");
         this.abortAgent();
-        throw new Error("OpenCode stopped responding while importing this file.");
+        const doing = lastLines.length ? ` Last seen working on: ${lastLines.join(" | ")}.` : "";
+        throw new Error(`OpenCode stopped responding while importing this file: nothing new for ${Math.round((now - lastChange) / 1000)}s.${doing} If the agent was waiting to be allowed to create files, allow file edits for this vault in your OpenCode permissions and try again. For a long file you can also use Direct AI (you review first) instead of the agent.`);
       }
     }
     throw this.cancelledImportError();
@@ -50841,7 +50870,7 @@ class PdfImportModal extends QtModal {
       // file: OpenCode will send another assistant message after the tools run.
       const completed = info.finish !== "tool-calls" && (!!(info.time && info.time.completed !== undefined && info.time.completed !== null) || !!(info.finish && info.finish !== "tool-calls"));
       const signature = JSON.stringify([msgs ? msgs.length : 0, info.id, info.time && info.time.completed, info.finish, n, lines.slice(-3)]);
-      return { noteCount: n, terminal: completed && !running, signature };
+      return { noteCount: n, terminal: completed && !running, signature, lines };
     } catch (e) {
       if (this.isStopError(e)) throw e;
       return null;
@@ -50924,6 +50953,12 @@ class PdfImportModal extends QtModal {
 
   showAgentDone(r, folder) {
     if (this.batchMode) {
+      if (!r.made && (!r.skipped || !r.skipped.length)) {
+        for (const w of (this.warnings || []).slice(0, 5)) r.skipped.push(w);
+        if (!r.skipped.length) {
+          r.skipped.push("No notes were written. If the agent was waiting to be allowed to create files, allow file edits for this vault in your OpenCode permissions and try again.");
+        }
+      }
       this.commitArtifacts();
       this.recordBatchResult(r, folder);
       if (this.batchStopped) return this.finishBatch("stopped");
@@ -51115,14 +51150,15 @@ class PdfImportModal extends QtModal {
   }
 
   showError(msg) {
+    const text = importErrorText(msg);
     if (this.batchMode) {
       this.recordBatchResult({ made: 0, skipped: [] }, this.folder);
-      this.batchResults[this.batchResults.length - 1].error = msg;
-      if (this.progress) this.progress.update(this.progressLabel, "Skipped: " + msg, this.batchIndex / Math.max(1, this.batchJobs.length));
+      this.batchResults[this.batchResults.length - 1].error = text;
+      if (this.progress) this.progress.update(this.progressLabel, "Skipped: " + text, this.batchIndex / Math.max(1, this.batchJobs.length));
       const el = this.contentEl;
       el.empty();
       el.createEl("h3", { text: "Couldn't import " + this.file.name });
-      el.createDiv({ cls: "qt-error", text: msg });
+      el.createDiv({ cls: "qt-error", text: text });
       el.createEl("p", { cls: "qt-hint", text: "The other files will continue." });
       if (this.batchStopped) this.finishBatch("stopped");
       else if (this.batchIndex + 1 < this.batchJobs.length) this.scheduleNextBatch();
@@ -51132,7 +51168,7 @@ class PdfImportModal extends QtModal {
     const el = this.contentEl;
     el.empty();
     el.createEl("h3", { text: "Couldn't import" });
-    el.createDiv({ cls: "qt-error", text: msg });
+    el.createDiv({ cls: "qt-error", text: text });
     const row = el.createDiv({ cls: "qt-row" });
     row.createEl("button", { text: "Back", cls: "qt-grow" }).addEventListener("click", () => this.showSetup());
     row.createEl("button", { text: "Close", cls: "qt-grow" }).addEventListener("click", () => this.close());
@@ -51287,7 +51323,7 @@ class PdfImportModal extends QtModal {
           await this.finishSingleStop("Stopped before this file finished");
         }
       } else if (!this.closed) {
-        this.showError(`Some notes may have been created before this stopped. ${e && e.message ? e.message : e}`);
+        this.showError(`Some notes may have been created before this stopped. ${importErrorText(e)}`);
       }
     } finally {
       this.running = false;
@@ -60101,6 +60137,10 @@ function friendlyError(e, url) {
     return `Can't reach OpenCode at ${url}. Start it in a terminal with: opencode serve`;
   }
   if (/401|unauthori[sz]ed/i.test(m)) return "OpenCode rejected the username or password. Check the plugin settings.";
+  // An empty Error (or a bare "Error") carries no information; say what failed instead.
+  if (!m || /^error:?$/i.test(m.trim())) {
+    return `OpenCode didn't finish the request at ${url}. Check that OpenCode is running and a provider is connected, then try again.`;
+  }
   return m;
 }
 
@@ -134246,6 +134286,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.301.5",
+    date: "November 12, 2026",
+    title: "Import failures that explain themselves",
+    summary:
+      "A batch summary now keeps each file's reason instead of a bare Could not import, empty errors fall back to an actionable message, and the OpenCode agent watchdog tells lost contact apart from an idle agent while naming its last work and the file-permission fix.",
+    highlights: [
+      {
+        title: "The summary keeps the reason",
+        body: "Every failed file in the end-of-batch summary now shows its error text, and files with no notes show why they produced nothing, so a failed import can be acted on.",
+      },
+      {
+        title: "An agent stall names its cause",
+        body: "Repeatedly unreadable agent status fails fast with Lost contact, while a quiet agent reports how long it was quiet, what it was last seen doing, and the OpenCode file-edit permission to check. Direct AI (you review first) needs no file permission.",
+      },
+      {
+        title: "Covered by new tests",
+        body: "The failure-detail summary, the lost-contact fast path and the idle-agent message are pinned by new tests, and the release inventory is regenerated.",
+      },
+      {
+        title: "No format changes",
+        body: "Question notes, review dates, saved settings, provider keys and network defaults are unchanged.",
+      },
+    ],
+  },
   {
     version: "1.301.4",
     date: "November 12, 2026",

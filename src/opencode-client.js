@@ -34,6 +34,10 @@ function friendlyError(e, url) {
     return `Can't reach OpenCode at ${url}. Start it in a terminal with: opencode serve`;
   }
   if (/401|unauthori[sz]ed/i.test(m)) return "OpenCode rejected the username or password. Check the plugin settings.";
+  // An empty Error (or a bare "Error") carries no information; say what failed instead.
+  if (!m || /^error:?$/i.test(m.trim())) {
+    return `OpenCode didn't finish the request at ${url}. Check that OpenCode is running and a provider is connected, then try again.`;
+  }
   return m;
 }
 

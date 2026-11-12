@@ -54,7 +54,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `OpenCodeClient` | 0 | `tests/chat-stream.test.js`, `tests/opencode-compat.test.js`, `tests/opencode-lifecycle.test.js` |
 | `OpenCodeManager` | 0 | `tests/opencode-compat.test.js`, `tests/opencode-lifecycle.test.js` |
 | `PdfAnnotationModal` | 0 | `tests/feature-surfaces.test.js` |
-| `PdfImportModal` | 0 | `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/import-batch-window.test.js`, `tests/import-edge-robustness.test.js`, `tests/import-existing-folder.test.js`, `tests/import-preflight.test.js`, `tests/import-properties.test.js`, `tests/import-real-pdf.test.js`, `tests/import-source.test.js`, `tests/views.test.js` |
+| `PdfImportModal` | 0 | `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/import-batch-window.test.js`, `tests/import-complete-details.test.js`, `tests/import-edge-robustness.test.js`, `tests/import-existing-folder.test.js`, `tests/import-preflight.test.js`, `tests/import-properties.test.js`, `tests/import-real-pdf.test.js`, `tests/import-source.test.js`, `tests/views.test.js` |
 | `PdfInkModal` | 0 | `tests/pdf-backlinks.test.js`, `tests/pdf-ink.test.js` |
 | `PomodoroView` | 0 | `tests/mobile-module-layout.test.js`, `tests/pomodoro-view.test.js` |
 | `PracticeView` | 0 | `tests/closed-book.test.js`, `tests/empty-state.test.js`, `tests/exam-ready.test.js`, `tests/hints.test.js`, `tests/import-batch-window.test.js`, `tests/import-real-pdf.test.js`, `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/mobile-practice.test.js`, `tests/modules.test.js`, `tests/needs-fixing.test.js`, `tests/practice-chrome.test.js`, `tests/practice-fullscreen.test.js`, `tests/practice-keys.test.js`, `tests/practice-tools.test.js`, `tests/study-modes.test.js`, `tests/study-skin.test.js`, `tests/study-status.test.js`, `tests/views.test.js` |
@@ -456,7 +456,7 @@ the table and fails if a group, export count, command or citing test drifts.
 
 | Command id | Name | Callback | Test |
 | --- | --- | --- | --- |
-| `open-practice-view` | Open practice view | `activateView` | `tests/calendar.test.js`, `tests/cards-extract.test.js`, `tests/daily-quiz.test.js`, `tests/modules.test.js`, `tests/plugin.test.js`, `tests/quick-practice-uri.test.js`, `tests/today.test.js`, `tests/views.test.js` |
+| `open-practice-view` | Open practice view | `activateView` | `tests/calendar.test.js`, `tests/cards-extract.test.js`, `tests/daily-quiz.test.js`, `tests/import-batch-window.test.js`, `tests/modules.test.js`, `tests/plugin.test.js`, `tests/quick-practice-uri.test.js`, `tests/today.test.js`, `tests/views.test.js` |
 | `open-welcome` | Open welcome guide | `openWelcome` | `tests/welcome.test.js` |
 | `open-welcome-note` | Open Start here note | `openWelcomeNote` | `tests/welcome.test.js` |
 | `open-whats-new` | Show what's new | `openWhatsNew` | `tests/whats-new.test.js` |
@@ -655,8 +655,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `copy-learner-digest` | Knowledge record: copy learner digest | `copyLearnerDigest` | `tests/knowledge-commands.test.js`, `tests/knowledge-view.test.js` |
 | `find-question` | Find a question by ID | — | `tests/plugin.test.js` |
 | `rename-source-id` | Rename old source_question_id properties to official_question_id | `migrateOfficialIds` | `tests/plugin.test.js` |
-| `open-ai-assistant` | Open AI assistant (OpenCode) | `activateView` | `tests/calendar.test.js`, `tests/cards-extract.test.js`, `tests/daily-quiz.test.js`, `tests/modules.test.js`, `tests/plugin.test.js`, `tests/quick-practice-uri.test.js`, `tests/today.test.js`, `tests/views.test.js` |
-| `next-question` | Next question (from current filters) | `activateView` | `tests/calendar.test.js`, `tests/cards-extract.test.js`, `tests/daily-quiz.test.js`, `tests/modules.test.js`, `tests/plugin.test.js`, `tests/quick-practice-uri.test.js`, `tests/today.test.js`, `tests/views.test.js` |
+| `open-ai-assistant` | Open AI assistant (OpenCode) | `activateView` | `tests/calendar.test.js`, `tests/cards-extract.test.js`, `tests/daily-quiz.test.js`, `tests/import-batch-window.test.js`, `tests/modules.test.js`, `tests/plugin.test.js`, `tests/quick-practice-uri.test.js`, `tests/today.test.js`, `tests/views.test.js` |
+| `next-question` | Next question (from current filters) | `activateView` | `tests/calendar.test.js`, `tests/cards-extract.test.js`, `tests/daily-quiz.test.js`, `tests/import-batch-window.test.js`, `tests/modules.test.js`, `tests/plugin.test.js`, `tests/quick-practice-uri.test.js`, `tests/today.test.js`, `tests/views.test.js` |
 | `toggle-flag` | Toggle flag on this question | `toggleFlag` | `tests/command-effects.test.js` |
 | `mark-question-fixed` | Mark this question fixed | `markQuestionFixed` | `tests/needs-fixing.test.js` |
 | `add-fields-this-note` | Add missing tracking properties to this note | `addMissingFields` | `tests/command-effects.test.js` |
