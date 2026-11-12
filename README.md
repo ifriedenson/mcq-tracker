@@ -392,6 +392,10 @@ These are real captures of the shipped views.
 | <a href="docs/images/hero-practice.png"><img src="docs/images/hero-practice.png" alt="Practice view." width="400"></a> | <a href="docs/images/answer-review.png"><img src="docs/images/answer-review.png" alt="Answer review." width="400"></a> |
 | <a href="docs/images/cards-review.png"><img src="docs/images/cards-review.png" alt="Cards review." width="400"></a> | <a href="docs/images/insights-overview.png"><img src="docs/images/insights-overview.png" alt="Insights overview." width="400"></a> |
 
+<img src="docs/images/practice-view-demo.gif" alt="Demo of answering APW-U3-MCQ-Q01 in Practice: select C, mark Confident, Submit, correct with rationale." width="720">
+
+Practice demo from `APW-U3-MCQ-Q01` (select C, mark Confident, Submit). Reconstructed demo frames — the stimulus image placeholders stand in for `U3-MCQ-S01-img1.png` / `U3-MCQ-S01-img2.png` until the real captures land.
+
 <img src="docs/render/study-agent-ui/obsidian-empty-narrow-light.png" alt="Study agent in a 296 px Obsidian sidebar with a New chat tab, local vault search and a suggested action." width="420">
 
 The Study agent at a 296 px sidebar width. A physical-phone screenshot is not included because no device was available for this pass; the mobile layout is covered by the layout tests, and no mockup is presented as a phone capture.
