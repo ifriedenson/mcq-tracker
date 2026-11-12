@@ -50780,8 +50780,10 @@ class PdfImportModal extends QtModal {
   async requestWithTimeout(promise, ms, message) {
     let timer = null;
     const timeout = new Promise((_, reject) => {
+      // Keep the timeout referenced: if it is the only pending work (as in a
+      // CLI-style test process), an unref'd timer is dropped and the request
+      // never times out. The timer is cleared as soon as the race settles.
       timer = setTimeout(() => reject(new Error(message || "OpenCode did not respond.")), ms);
-      if (timer && typeof timer.unref === "function") timer.unref();
     });
     try {
       return await Promise.race([promise, timeout]);
