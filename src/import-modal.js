@@ -1371,6 +1371,8 @@ class PdfImportModal extends QtModal {
     const s = await this.awaitCancellable(oc.createSession(`Import ${sourceName}`));
     this.sid = s && s.id;
     if (!this.sid) throw new Error("OpenCode did not return a session id.");
+    // A long file needs a longer silence allowance; see agentIdleBudget.
+    this.agentIdleMs = this.agentIdleBudget(pages.length);
     const ai = p.settings.ai;
     const body = {
       parts: [{ type: "text", text: agentPrompt({ name: sourceName, textPath, docPath: sourcePath, imagesDir, folder, prefix, meta: this.meta, kind }) }],
@@ -1494,6 +1496,18 @@ class PdfImportModal extends QtModal {
     } finally {
       if (timer) clearTimeout(timer);
     }
+  }
+
+  /**
+   * How long the agent may go without visible progress on this file. A long
+   * illustrated document can keep a model thinking silently for minutes, so
+   * patience scales with the page count (capped at 10 minutes) instead of
+   * cutting every file off at the same 3 minutes.
+   */
+  agentIdleBudget(pageCount) {
+    const base = Number(this.agentIdleMs) > 0 ? Number(this.agentIdleMs) : 3 * 60 * 1000;
+    const scaled = 30000 + Math.max(0, Number(pageCount) || 0) * 4000;
+    return Math.min(10 * 60 * 1000, Math.max(base, scaled));
   }
 
   /** Watch the session until the assistant has finished, without relying on send() resolving. */

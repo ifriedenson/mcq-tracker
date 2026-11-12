@@ -106,6 +106,19 @@ test("agent wait: repeated status failures fail fast with lost contact", async (
   await assert.rejects(modal.waitForAgent("sid", "Questions/Unit A"), /Lost contact with OpenCode/);
 });
 
+test("agent wait: patience scales with the page count", async () => {
+  const state = await setup();
+  const bytes = await textPdf();
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [file("Unit A.pdf", bytes)] });
+  modal.agentIdleMs = 3 * 60 * 1000;
+  assert.equal(modal.agentIdleBudget(1), 3 * 60 * 1000, "a tiny file keeps the default patience");
+  assert.equal(modal.agentIdleBudget(100), 30000 + 100 * 4000, "a long file gets proportionally longer");
+  assert.equal(modal.agentIdleBudget(500), 10 * 60 * 1000, "patience is capped at 10 minutes");
+  modal.agentIdleMs = 60000;
+  assert.equal(modal.agentIdleBudget(1), 60000, "an explicit base is respected");
+  assert.equal(modal.agentIdleBudget(100), 30000 + 100 * 4000, "scaling still applies above the base");
+});
+
 test("agent wait: an idle agent names its last work and the permission fix", async () => {
   const state = await setup();
   const bytes = await textPdf();

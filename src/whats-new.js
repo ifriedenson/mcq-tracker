@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.7",
+    date: "November 12, 2026",
+    title: "Long imports get proportional patience",
+    summary:
+      "The OpenCode agent watchdog now scales its silence allowance with the document length instead of cutting every file off at the same 3 minutes, so a long illustrated PDF can think silently for minutes without being stopped.",
+    highlights: [
+      {
+        title: "Patience grows with the page count",
+        body: "A short file keeps the 3-minute allowance; a 100-page file gets over 7 minutes of quiet thinking time, capped at 10 minutes. The timeout message still reports how long the agent was quiet and what it was last seen doing.",
+      },
+      {
+        title: "No format changes",
+        body: "Question notes, review dates, saved settings, provider keys and network defaults are unchanged.",
+      },
+      {
+        title: "Covered by a new test",
+        body: "The page-count scaling, the 10-minute cap and an explicitly configured base are pinned by tests.",
+      },
+      {
+        title: "Pairs with always-allowed edits",
+        body: "Together with 1.301.6, the two watchdog stalls are addressed: the agent is allowed to write, and a slow agent on a long file is allowed the time.",
+      },
+    ],
+  },
+  {
     version: "1.301.6",
     date: "November 12, 2026",
     title: "The agent can always write the notes",
