@@ -6,6 +6,10 @@ MCQ Tracker is the question-first study plugin for Obsidian. Turn notes and PDFs
 
 <img src="docs/images/hero-practice.png" alt="MCQ Tracker Practice view showing a multiple-choice question, four answer choices, confidence buttons, a timer and Submit." width="900">
 
+<img src="docs/images/practice-view-demo.gif" alt="Demo of answering APW-U3-MCQ-Q01 in Practice: select C, mark Confident, Submit, correct with rationale." width="720">
+
+Practice demo from `APW-U3-MCQ-Q01` (select C, mark Confident, Submit) with the real `U3-MCQ-S01` stimulus images. Reconstructed demo frames, not a pixel-perfect Obsidian capture.
+
 ## Where to start
 
 | You are... | Start here |
@@ -391,10 +395,6 @@ These are real captures of the shipped views.
 | --- | --- |
 | <a href="docs/images/hero-practice.png"><img src="docs/images/hero-practice.png" alt="Practice view." width="400"></a> | <a href="docs/images/answer-review.png"><img src="docs/images/answer-review.png" alt="Answer review." width="400"></a> |
 | <a href="docs/images/cards-review.png"><img src="docs/images/cards-review.png" alt="Cards review." width="400"></a> | <a href="docs/images/insights-overview.png"><img src="docs/images/insights-overview.png" alt="Insights overview." width="400"></a> |
-
-<img src="docs/images/practice-view-demo.gif" alt="Demo of answering APW-U3-MCQ-Q01 in Practice: select C, mark Confident, Submit, correct with rationale." width="720">
-
-Practice demo from `APW-U3-MCQ-Q01` (select C, mark Confident, Submit) with the real `U3-MCQ-S01` stimulus images. Reconstructed demo frames, not a pixel-perfect Obsidian capture.
 
 <img src="docs/render/study-agent-ui/obsidian-empty-narrow-light.png" alt="Study agent in a 296 px Obsidian sidebar with a New chat tab, local vault search and a suggested action." width="420">
 
