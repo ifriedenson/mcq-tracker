@@ -36124,13 +36124,27 @@ const { TFile } = require("obsidian");
 const { documentBaseName, documentKind, extensionOf, readDocumentPages } = require("./documents");
 const { readPdfPages } = require("./pdf");
 
+const MAX_SOURCE_BYTES = 80 * 1024 * 1024;
+const MAX_SOURCE_MB = Math.round(MAX_SOURCE_BYTES / 1048576);
+
+function sourceSizeError() {
+  return new Error(`That file is larger than ${MAX_SOURCE_MB} MB. Choose a smaller file or split it before importing.`);
+}
+
+function assertSourceSize(size) {
+  if (Number(size) > MAX_SOURCE_BYTES) throw sourceSizeError();
+}
+
 async function readDocumentSource(app, options) {
   const opts = options || {};
   if (opts.file) {
     const name = opts.file.name || "";
     if (opts.pdfOnly && !/\.pdf$/i.test(name)) throw new Error(opts.notPdfMessage || "Choose a PDF first.");
+    assertSourceSize(opts.file.size);
+    const buf = await opts.file.arrayBuffer();
+    assertSourceSize(buf && buf.byteLength);
     return {
-      buf: await opts.file.arrayBuffer(),
+      buf,
       name: documentBaseName(name),
       ext: extensionOf(name),
       kind: documentKind(name),
@@ -36143,8 +36157,11 @@ async function readDocumentSource(app, options) {
     const file = app.vault.getAbstractFileByPath(opts.vaultDoc);
     if (!(file instanceof TFile)) throw new Error(opts.missingMessage || "I couldn't find that file in your vault.");
     if (opts.pdfOnly && !/\.pdf$/i.test(file.path)) throw new Error(opts.notPdfMessage || "Choose a PDF first.");
+    assertSourceSize(file.stat && file.stat.size);
+    const buf = await app.vault.readBinary(file);
+    assertSourceSize(buf && buf.byteLength);
     return {
-      buf: await app.vault.readBinary(file),
+      buf,
       name: file.basename,
       ext: extensionOf(file.path),
       kind: documentKind(file.path),
@@ -36157,12 +36174,12 @@ async function readDocumentSource(app, options) {
 }
 
 /** Read the selected pages with the PDF reader or the document reader. */
-async function readPagesForSource(src, spec, progress, pdfOptions) {
-  if (src.kind === "pdf") return readPdfPages(src.buf, spec, progress, pdfOptions);
+async function readPagesForSource(src, spec, progress, pdfOptions, password) {
+  if (src.kind === "pdf") return readPdfPages(src.buf, spec, progress, pdfOptions, password);
   return readDocumentPages(src.buf, `${src.name}.${src.ext}`, spec, progress);
 }
 
-module.exports = { readDocumentSource, readPagesForSource };
+module.exports = { MAX_SOURCE_BYTES, MAX_SOURCE_MB, sourceSizeError, readDocumentSource, readPagesForSource };
 };
 
 /* ---- src/documents.js ---- */
@@ -36259,13 +36276,13 @@ function zipEntries(buf) {
       break;
     }
   }
-  if (eocd < 0) throw new Error("This file isn't a valid Office file: its ZIP directory is missing or damaged.");
+  if (eocd < 0) throw new Error("This file isn't a valid Office file: its ZIP directory is missing or damaged. Open it in its original app and save a new copy, or export it as a PDF.");
   const count = dv.getUint16(eocd + 10, true);
   let p = dv.getUint32(eocd + 16, true);
   const entries = new Map();
   for (let i = 0; i < count; i++) {
     if (p + 46 > u8.length || dv.getUint32(p, true) !== 0x02014b50) {
-      throw new Error("This Office file is damaged: its ZIP directory can't be read.");
+      throw new Error("This Office file is damaged: its ZIP directory can't be read. Open it in its original app and save a new copy, or export it as a PDF.");
     }
     const method = dv.getUint16(p + 10, true);
     const compSize = dv.getUint32(p + 20, true);
@@ -36301,7 +36318,7 @@ async function inflateRaw(data) {
     const zlib = require("zlib");
     return new Uint8Array(zlib.inflateRawSync(data));
   } catch (e) {
-    throw new Error("This Office file is compressed in a way this version of Obsidian can't read.");
+    throw new Error("This Office file is damaged or uses a compression method this version of Obsidian can't read. Open it in its original app and save a new copy, or export it as a PDF.");
   }
 }
 
@@ -49292,13 +49309,18 @@ const { FolderSuggest } = require("./modals");
 const { ensureFolder, localDate, sleep, str, uniquePath } = require("./util");
 const { chunkPages, readPdfPages, slugId } = require("./pdf");
 const { DOCUMENT_EXTENSIONS, documentBaseName, documentKind, documentLabel, extensionOf } = require("./documents");
-const { readDocumentSource, readPagesForSource } = require("./document-source");
+const { MAX_SOURCE_BYTES, readDocumentSource, readPagesForSource } = require("./document-source");
 const { AGENT_SYSTEM, agentPrompt, aiFlags, answerKeyText, buildReportMarkdown, carryPassages, ensureProviders, extractNotesChunk, finalizeNote, groupIssues, mergeNotes, modelFromMessages, noteIssues, parseNote } = require("./importer");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { findDuplicateIds, indexOfficialIds, officialIdOf } = require("./filters");
 const { friendlyApiError } = require("./api-client");
 const { checkDocumentText, summaryText } = require("./import-preflight");
 const { ImportCompleteModal } = require("./import-complete-modal");
+
+/** Vault-safe folder segment for a picked file; legal characters and spaces stay as they are. */
+function folderBase(name, fallback) {
+  return str(name).replace(/[\\/:*?"<>|]/g, "-").trim() || fallback || "File";
+}
 
 function importNoticeDocument(app) {
   try {
@@ -49419,6 +49441,8 @@ function pickDocumentFiles(buttonEl, onPicked) {
 /** Copy a picked file's bytes now: its handle belongs to the window that opened the chooser. */
 async function captureFile(file) {
   if (!file || typeof file.arrayBuffer !== "function") return null;
+  // Refuse by metadata before copying a huge buffer; readSource also checks the actual bytes.
+  if (Number(file.size) > MAX_SOURCE_BYTES) return file;
   try {
     const raw = await file.arrayBuffer();
     const copy = new Uint8Array(raw).slice().buffer;
@@ -49518,6 +49542,11 @@ class PdfImportModal extends QtModal {
     this.agentIdleMs = 3 * 60 * 1000;
     this.agentSettleMs = 90 * 1000;
     this.agentMaxMs = 20 * 60 * 1000;
+    this.apiChunkTimeoutMs = 3 * 60 * 1000;
+    this.pdfPasswords = init.pdfPasswords instanceof Map ? new Map(init.pdfPasswords) : new Map();
+    this.pdfFile = this.file || this.vaultDoc || null;
+    this.pdfPassword = this.pdfPasswords.get(this.pdfFile) || "";
+    this.pdfPromptResolve = null;
     const st = plugin.settings;
     this.meta = Object.assign(
       { test: "", course: "", section: "", domain: "", skill: "", unit: "", difficulty: "", prefix: "", start: "1", pages: "" },
@@ -49556,6 +49585,15 @@ class PdfImportModal extends QtModal {
 
   onClose() {
     this.closed = true;
+    // A closed window must also release an in-flight AI/agent wait, not leave
+    // the import promise pending until a provider eventually answers.
+    if (typeof this.cancelRun === "function") this.cancelRun();
+    if (this.pdfPromptResolve) {
+      const done = this.pdfPromptResolve;
+      this.pdfPromptResolve = null;
+      done(null);
+    }
+    this.pdfPassword = "";
     // A closed preview or a closed failed import must not leave a half-made folder behind.
     // While an import is still running, its own finally cleans up after the last
     // write; cleaning now would race the work in flight and miss later files.
@@ -49597,6 +49635,10 @@ class PdfImportModal extends QtModal {
 
   isStopError(e) {
     return (e && e.code === "import-stopped") || this.stop === true;
+  }
+
+  isPdfPasswordError(e) {
+    return !!(e && (e.code === "pdf-password-required" || e.code === "pdf-password-wrong"));
   }
 
   throwIfCancelled() {
@@ -49673,7 +49715,7 @@ class PdfImportModal extends QtModal {
   }
 
   autoFolder(name) {
-    return normalizePath(`${this.parent}/${name}`);
+    return normalizePath(`${this.parent}/${folderBase(name)}`);
   }
 
   /** True when the target is an existing folder that already holds files or subfolders. */
@@ -49739,6 +49781,9 @@ class PdfImportModal extends QtModal {
     this.preflight = null;
     this.preflights = [];
     this.batchMode = list.length > 1;
+    this.pdfPasswords = new Map();
+    this.pdfFile = this.file;
+    this.pdfPassword = "";
     if (picked && typeof picked.setDesc === "function") picked.setDesc(this.fileSummary());
     if (this.preflightStatus && typeof this.preflightStatus.setText === "function") {
       this.preflightStatus.setText(list.length > 1 ? "Ready to check " + list.length + " files." : "Ready to check this file.");
@@ -49795,7 +49840,25 @@ class PdfImportModal extends QtModal {
     try {
       const src = await this.readSource();
       if (!src.kind) throw new Error(`This plugin can't read ${src.ext ? `.${src.ext}` : "that kind of"} files.`);
-      const read = await this.readPages(src, status, null, "");
+      this.pdfFile = this.file || this.vaultDoc || null;
+      this.pdfPassword = this.pdfPasswords.get(this.pdfFile) || "";
+      let read;
+      for (;;) {
+        try {
+          read = await this.readPages(src, status, null, "");
+          break;
+        } catch (e) {
+          if (!this.isPdfPasswordError(e)) throw e;
+          const password = await this.askPdfPassword(e, this.pdfFile);
+          if (this.closed) return;
+          if (password === null) {
+            this.showPreflightError("No password was entered. Nothing was added to your vault.");
+            return;
+          }
+          this.pdfPassword = password;
+          this.pdfPasswords.set(this.pdfFile, password);
+        }
+      }
       const check = checkDocumentText(read.pages, { kind: src.kind, label: documentLabel(`${src.name}.${src.ext}`) });
       if (!check.ok) {
         this.showPreflightError(check.message);
@@ -49826,7 +49889,26 @@ class PdfImportModal extends QtModal {
         try {
           const src = await this.readSourceFor({ file, vaultDoc: "" });
           if (!src.kind) throw new Error("This plugin can't read " + (src.ext ? "." + src.ext : "that kind of") + " files.");
-          const read = await this.readPages(src, status, null, "");
+          this.pdfFile = file;
+          this.pdfPassword = this.pdfPasswords.get(file) || "";
+          let read = null;
+          for (;;) {
+            try {
+              read = await this.readPages(src, status, null, "");
+              break;
+            } catch (e) {
+              if (!this.isPdfPasswordError(e)) throw e;
+              const password = await this.askPdfPassword(e, file);
+              if (this.closed) return;
+              if (password === null) {
+                results.push({ file, name: file.name, ok: false, message: "No password was entered. This file was skipped.", preflight: null });
+                break;
+              }
+              this.pdfPassword = password;
+              this.pdfPasswords.set(file, password);
+            }
+          }
+          if (!read) continue;
           const check = checkDocumentText(read.pages, { kind: src.kind, label: documentLabel(src.name + "." + src.ext) });
           results.push({ file, name: file.name, ok: !!check.ok, message: check.ok ? "" : check.message, preflight: { ...check, sourceName: src.name, sourceKind: src.kind } });
         } catch (e) {
@@ -49844,6 +49926,47 @@ class PdfImportModal extends QtModal {
       this.preflightBusy = false;
       if (button) button.disabled = false;
     }
+  }
+
+  askPdfPassword(error, file) {
+    return new Promise((resolve) => {
+      const el = this.contentEl;
+      el.empty();
+      el.createEl("h3", { text: "This PDF needs a password" });
+      el.createDiv({ cls: "qt-error", text: error && error.message ? error.message : "This PDF is password-protected." });
+      el.createEl("p", {
+        cls: "qt-hint",
+        text: `Enter the password for ${file && file.name ? file.name : "this PDF"}. It is used only while this import is open and is not saved.`,
+      });
+      const input = el.createEl("input", {
+        attr: { type: "password", "aria-label": "PDF password", autocomplete: "off", spellcheck: "false" },
+      });
+      input.type = "password";
+      const hint = el.createDiv({ cls: "qt-hint" });
+      const row = el.createDiv({ cls: "qt-row" });
+      let done = false;
+      const finish = (value) => {
+        if (done) return;
+        done = true;
+        this.pdfPromptResolve = null;
+        resolve(value);
+      };
+      this.pdfPromptResolve = finish;
+      const submit = () => {
+        const password = String(input.value || "");
+        if (!password) {
+          hint.setText("Enter the PDF password first.");
+          return;
+        }
+        finish(password);
+      };
+      row.createEl("button", { text: "Unlock PDF", cls: "mod-cta" }).addEventListener("click", submit);
+      row.createEl("button", { text: this.batchMode ? "Skip this file" : "Cancel", cls: "qt-grow" }).addEventListener("click", () => finish(null));
+      input.addEventListener("keydown", (event) => {
+        if (event && event.key === "Enter") submit();
+      });
+      if (typeof input.focus === "function") input.focus();
+    });
   }
 
   showBatchPreflightReady(results) {
@@ -49902,7 +50025,7 @@ class PdfImportModal extends QtModal {
 
   beginAiSetup() {
     const files = this.files.length ? this.files.slice() : this.file ? [this.file] : [];
-    const source = { file: files.length === 1 ? files[0] : null, files, vaultDoc: files.length ? "" : this.vaultDoc || "", preflight: this.preflight, preflights: this.preflights.slice() };
+    const source = { file: files.length === 1 ? files[0] : null, files, vaultDoc: files.length ? "" : this.vaultDoc || "", preflight: this.preflight, preflights: this.preflights.slice(), pdfPasswords: new Map(this.pdfPasswords) };
     const state = importAiState(this.plugin);
     this.close();
     this.plugin.openAiImportHelp(state, {
@@ -49913,7 +50036,7 @@ class PdfImportModal extends QtModal {
 
   readPages(src, progress, cap, spec) {
     const pages = spec === undefined ? this.meta.pages : spec;
-    return readPagesForSource(src, pages, progress, cap);
+    return readPagesForSource(src, pages, progress, cap, this.pdfPassword);
   }
 
   showSetup() {
@@ -50125,7 +50248,7 @@ class PdfImportModal extends QtModal {
   }
 
   async readSource() {
-    return readDocumentSource(this.app, { file: this.file, vaultDoc: this.vaultDoc });
+    return this.readSourceFor({ file: this.file, vaultDoc: this.vaultDoc });
   }
 
   async captureFiles() {
@@ -50176,7 +50299,7 @@ class PdfImportModal extends QtModal {
     const used = new Set(this.batchJobs.map((job) => String(job.folder || "").toLowerCase()));
     const jobs = [];
     for (const file of chosen) {
-      const base = documentBaseName(file.name) || "File " + (this.batchJobs.length + jobs.length + 1);
+      const base = folderBase(documentBaseName(file.name), "File " + (this.batchJobs.length + jobs.length + 1));
       let folder = normalizePath(parent + "/" + base);
       for (let n = 2; used.has(folder.toLowerCase()); n++) folder = normalizePath(parent + "/" + base + " (" + n + ")");
       used.add(folder.toLowerCase());
@@ -50229,7 +50352,7 @@ class PdfImportModal extends QtModal {
     const capturedFiles = await this.captureFiles();
     const used = new Set();
     this.batchJobs = this.files.map((file, i) => {
-      const base = documentBaseName(file.name) || "File " + (i + 1);
+      const base = folderBase(documentBaseName(file.name), "File " + (i + 1));
       let folder = normalizePath(parent + "/" + base);
       for (let n = 2; used.has(folder.toLowerCase()); n++) folder = normalizePath(parent + "/" + base + " (" + n + ")");
       used.add(folder.toLowerCase());
@@ -50254,6 +50377,8 @@ class PdfImportModal extends QtModal {
     if (!job) return false;
     this.batchIndex = index;
     this.file = job.readFile || job.file;
+    this.pdfFile = job.file;
+    this.pdfPassword = this.pdfPasswords.get(job.file) || "";
     this.vaultDoc = "";
     this.preflight = job.preflight;
     this.folder = job.folder;
@@ -50425,9 +50550,24 @@ class PdfImportModal extends QtModal {
       const src = await this.readSource();
       if (!src.kind) throw new Error(`This plugin can't read ${src.ext ? `.${src.ext}` : "that kind of"} files.`);
       this.source = src.name;
+      this.pdfFile = this.pdfFile || this.file || this.vaultDoc || null;
+      this.pdfPassword = this.pdfPasswords.get(this.pdfFile) || this.pdfPassword || "";
       // Read and check before creating a folder or copying the source. A
       // scanned handout must leave the vault untouched.
-      const precheck = await this.readPages(src, (m) => !this.closed && this.status(m));
+      let precheck;
+      for (;;) {
+        try {
+          precheck = await this.readPages(src, (m) => !this.closed && this.status(m));
+          break;
+        } catch (e) {
+          if (!this.isPdfPasswordError(e)) throw e;
+          const password = await this.askPdfPassword(e, this.pdfFile);
+          if (this.closed) return;
+          if (password === null) throw new Error("No password was entered. Nothing was imported.");
+          this.pdfPassword = password;
+          this.pdfPasswords.set(this.pdfFile, password);
+        }
+      }
       this.warnings.push(...(precheck.warnings || []).slice(0, 5));
       const textCheck = checkDocumentText(precheck.pages, {
         kind: src.kind,
@@ -50481,7 +50621,7 @@ class PdfImportModal extends QtModal {
           },
         };
         this.status("Capturing pictures...");
-        const withPictures = await readPdfPages(src.buf, this.meta.pages, (m) => !this.closed && this.status(m), cap);
+        const withPictures = await readPdfPages(src.buf, this.meta.pages, (m) => !this.closed && this.status(m), cap, this.pdfPassword);
         pages = withPictures.pages;
         figCount = withPictures.figCount;
         this.warnings.push(...(withPictures.warnings || []).slice(0, 5));
@@ -50573,6 +50713,7 @@ class PdfImportModal extends QtModal {
     }
     for (const path of result.paths) this.trackArtifact(path);
     result.issues = await this.auditNotes(folder, result.paths);
+    if (result.made === 0 && !this.closed) await this.cleanupArtifacts();
     if (!this.closed) {
       this.showAgentDone(result, folder);
       this.commitArtifacts();
@@ -50798,7 +50939,11 @@ class PdfImportModal extends QtModal {
     const el = this.contentEl;
     el.empty();
     el.createEl("h3", { text: r.made ? `Created ${r.made} note${r.made === 1 ? "" : "s"}` : "No notes were created" });
-    el.createEl("p", { text: `Saved in ${folder}, together with a copy of the original file${r.images ? ` and ${r.images} picture${r.images === 1 ? "" : "s"} cut from it (in the images folder)` : ""}.` });
+    if (r.made) {
+      el.createEl("p", { text: `Saved in ${folder}, together with a copy of the original file${r.images ? ` and ${r.images} picture${r.images === 1 ? "" : "s"} cut from it (in the images folder)` : ""}.` });
+    } else {
+      el.createEl("p", { cls: "qt-hint", text: "The copied source and any empty folders this attempt created were removed." });
+    }
     if (r.ai) {
       el.createEl("p", {
         cls: "qt-hint",
@@ -50924,7 +51069,14 @@ class PdfImportModal extends QtModal {
       const ch = chunks[i];
       this.status(`Asking the AI to read pages ${ch[0].n}-${ch[ch.length - 1].n} (batch ${i + 1} of ${chunks.length}). ${mergeNotes(blocks).length} questions found so far.`);
       try {
-        blocks.push(...(await this.awaitCancellable(extractNotesChunk(client, ch, keyText, carry))));
+        const chunk = await this.awaitCancellable(
+          this.requestWithTimeout(
+            extractNotesChunk(client, ch, keyText, carry),
+            this.apiChunkTimeoutMs,
+            `The AI took too long to read pages ${ch[0].n}-${ch[ch.length - 1].n}.`
+          )
+        );
+        blocks.push(...chunk);
         carry = carryPassages(blocks);
         failures = 0;
       } catch (e) {
@@ -51120,6 +51272,7 @@ class PdfImportModal extends QtModal {
       await this.pruneImages(folder, result);
       result.issues = await this.auditNotes(folder, result.paths);
       if (this.closed) return;
+      if (result.made === 0) await this.cleanupArtifacts();
       this.showAgentDone(result, folder);
       this.commitArtifacts();
     } catch (e) {
@@ -60445,6 +60598,22 @@ function findBinaryIn(dir) {
   return null;
 }
 
+/** Resolve a saved program path to a real executable; a folder is searched, never spawned. */
+function resolveBinaryPath(candidate) {
+  const fs = nodeReq("fs");
+  const p = str(candidate).trim();
+  if (!p) return "";
+  let stat;
+  try {
+    stat = fs.statSync(p);
+  } catch (e) {
+    return "";
+  }
+  if (stat.isFile()) return p;
+  if (stat.isDirectory()) return findBinaryIn(p) || "";
+  return "";
+}
+
 function freePort() {
   const net = nodeReq("net");
   return new Promise((resolve, reject) => {
@@ -60485,6 +60654,22 @@ class OpenCodeManager {
     return !!(this.proc && this.proc.exitCode === null && !this.proc.killed && this.conn);
   }
 
+  resolveBinary(candidate) {
+    return resolveBinaryPath(candidate);
+  }
+
+  directoryAt(candidate) {
+    try {
+      return nodeReq("fs").statSync(candidate).isDirectory() ? candidate : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  folderPathMessage(folder) {
+    return `The saved OpenCode program is a folder (${folder}), not opencode.exe. Choose the opencode.exe file under "OpenCode program" in settings, or press Download and install.`;
+  }
+
   async version(bin, viaPath, ms) {
     try {
       const out = await runCmd(bin, ["--version"], { timeout: ms || 10000, shell: !!viaPath && process.platform === "win32" });
@@ -60496,15 +60681,21 @@ class OpenCodeManager {
 
   /** Where an existing OpenCode lives, if anywhere. Uses a copy you already have before downloading one. */
   async findBinary() {
-    const fs = nodeReq("fs");
     const path = nodeReq("path");
     const os = nodeReq("os");
     const exe = process.platform === "win32" ? "opencode.exe" : "opencode";
     const tries = [this.ai.binaryPath, this.ai.managedBinary, path.join(os.homedir(), ".opencode", "bin", exe)].filter(Boolean);
     this.stalled = "";
+    this.invalidPath = "";
     this.tooNew = null; // an OpenCode that runs but is a version this plugin can't use yet
-    for (const p of tries) {
-      if (!fs.existsSync(p)) continue;
+    for (const raw of tries) {
+      const p = this.resolveBinary(raw);
+      if (!p) {
+        // A saved install folder (or a folder with no opencode.exe) must never
+        // reach spawn(): Windows reports that as EPERM, Permission denied.
+        if (!this.invalidPath && this.directoryAt(raw)) this.invalidPath = raw;
+        continue;
+      }
       const v = await this.version(p);
       if (v) {
         if (opencodeMajor(v) > MAX_OPENCODE_MAJOR) {
@@ -60543,6 +60734,7 @@ class OpenCodeManager {
       if (!bin && this.stalled) {
         return `Found a program at ${this.stalled}, but it didn't answer in time. Antivirus may be scanning it, so wait a minute and press Check again. If it keeps failing, choose a different copy under "OpenCode program".`;
       }
+      if (!bin && this.invalidPath) return this.folderPathMessage(this.invalidPath);
       if (!bin && this.tooNew) return this.tooNewMessage();
       if (!bin) return "Not installed. Press Download and install, or choose a copy you already have.";
       return `Installed (v${this.lastVersion || "?"}) at ${bin}. Not running; it starts when you use the AI chat.`;
@@ -60555,7 +60747,6 @@ class OpenCodeManager {
 
   /** Cheap, non-blocking look for an OpenCode that's already usable. Only reads the disk; never starts a program. */
   async hasExisting() {
-    const fsp = nodeReq("fs").promises;
     const path = nodeReq("path");
     const os = nodeReq("os");
     const win = process.platform === "win32";
@@ -60564,15 +60755,41 @@ class OpenCodeManager {
     for (const dir of str(process.env.PATH).split(path.delimiter).filter(Boolean)) {
       for (const ext of win ? [".exe", ".cmd", ".bat"] : [""]) cands.push(path.join(dir, "opencode" + ext));
     }
-    for (const p of cands) {
-      try {
-        await fsp.access(p);
-        return p;
-      } catch (e) {
-        /* not here */
-      }
+    for (const candidate of cands) {
+      const found = this.resolveBinary(candidate);
+      if (found) return found;
     }
     return "";
+  }
+
+  /** Recover a folder-valued managed path: reuse another installed 1.x, or reinstall through the normal confirmed installer. */
+  async repairManaged(progress) {
+    const path = nodeReq("path");
+    const saved = str(this.ai.managedBinary).trim();
+    if (!saved || !this.invalidPath || this.ai.managed === false) return "";
+    const same = (a, b) => {
+      const left = path.resolve(a);
+      const right = path.resolve(b);
+      return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
+    };
+    if (!same(saved, this.invalidPath)) return "";
+
+    // A previous version may still be intact beside the incomplete folder.
+    const existing = findBinaryIn(this.installRoot());
+    if (existing) {
+      const v = await this.version(existing);
+      if (v && opencodeMajor(v) <= MAX_OPENCODE_MAJOR) {
+        this.ai.managedBinary = existing;
+        this.ai.installedVersion = v;
+        await this.plugin.save();
+        if (progress) progress("Repaired the OpenCode install...");
+        return existing;
+      }
+    }
+
+    if (progress) progress("Reinstalling OpenCode...");
+    const result = await this.install(progress);
+    return result && result.path ? result.path : "";
   }
 
   /** Sets OpenCode up by itself (once per Obsidian session): uses one that's already there, otherwise downloads it. Never rejects. */
@@ -60652,6 +60869,7 @@ class OpenCodeManager {
       err.cancelled = true;
       throw err;
     }
+    this.stop();
     let lastErr;
     for (const asset of plan.assets) {
       try {
@@ -60668,7 +60886,8 @@ class OpenCodeManager {
     const path = nodeReq("path");
     const os = nodeReq("os");
     const safe = (s) => str(s).replace(/[^\w.\-]/g, "_");
-    const dest = path.join(this.installRoot(), `${safe(tag)}-${safe(asset.name.replace(/\.(zip|tar\.gz)$/, ""))}`);
+    const baseDest = path.join(this.installRoot(), `${safe(tag)}-${safe(asset.name.replace(/\.(zip|tar\.gz)$/, ""))}`);
+    let dest = baseDest;
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "qt-opencode-"));
     try {
       const archive = path.join(tmp, asset.name);
@@ -60687,7 +60906,13 @@ class OpenCodeManager {
       if (digest !== res.sha256) throw new Error("The download failed its SHA-256 check, so it was discarded.");
 
       progress("Unpacking...");
-      fs.rmSync(dest, { recursive: true, force: true });
+      try {
+        fs.rmSync(dest, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+      } catch (e) {
+        // Windows antivirus can hold the previous exe open. Install beside it
+        // rather than failing, and let the best-effort cleanup below try later.
+        dest = `${baseDest}-install-${Date.now().toString(36)}`;
+      }
       await extractArchive(archive, dest);
       const bin = findBinaryIn(dest);
       if (!bin) throw new Error("The download didn't contain an opencode program.");
@@ -60709,10 +60934,17 @@ class OpenCodeManager {
       this.ai.installedVersion = v;
       await this.plugin.save();
 
-      // keep only the current version
+      // Keep only the current version. A locked old folder is not an install
+      // failure: managedBinary already points at the working copy.
       for (const e of fs.readdirSync(this.installRoot(), { withFileTypes: true })) {
         const p = path.join(this.installRoot(), e.name);
-        if (e.isDirectory() && p !== dest) fs.rmSync(p, { recursive: true, force: true });
+        if (e.isDirectory() && p !== dest) {
+          try {
+            fs.rmSync(p, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+          } catch (err) {
+            /* antivirus or a running old copy still holds it */
+          }
+        }
       }
       return { version: v, verified, path: bin };
     } finally {
@@ -60758,8 +60990,13 @@ class OpenCodeManager {
   async start(progress, retried, hooks) {
     progress = progress || (() => {});
     if (this.isRunning()) return;
-    const bin = await this.findBinary();
-    if (!bin) throw new Error("OpenCode isn't installed.");
+    const found = await this.findBinary();
+    const bin = found === "opencode" ? found : this.resolveBinary(found);
+    if (!bin) {
+      const folder = this.invalidPath || this.directoryAt(found);
+      if (folder) throw new Error(this.folderPathMessage(folder));
+      throw new Error("OpenCode isn't installed.");
+    }
     // Tests pass hooks so the readiness/retry decision (including the
     // quarantine-and-retry recovery) can run without real timers or child
     // processes. ensure() and normal callers pass none and get the real ones.
@@ -60778,17 +61015,22 @@ class OpenCodeManager {
       /* ignore */
     }
     this.tail = "";
-    const proc = spawn(bin, ["serve", "--hostname", "127.0.0.1", "--port", String(port)], {
-      cwd: this.plugin.vaultPath() || os.homedir(),
-      env: Object.assign({}, process.env, {
-        OPENCODE_SERVER_PASSWORD: password,
-        OPENCODE_SERVER_USERNAME: "opencode",
-        XDG_DATA_HOME: this.dataHome(),
-      }),
-      windowsHide: true,
-      stdio: ["ignore", "pipe", "pipe"],
-      shell: bin === "opencode" && process.platform === "win32",
-    });
+    let proc;
+    try {
+      proc = spawn(bin, ["serve", "--hostname", "127.0.0.1", "--port", String(port)], {
+        cwd: this.plugin.vaultPath() || os.homedir(),
+        env: Object.assign({}, process.env, {
+          OPENCODE_SERVER_PASSWORD: password,
+          OPENCODE_SERVER_USERNAME: "opencode",
+          XDG_DATA_HOME: this.dataHome(),
+        }),
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+        shell: bin === "opencode" && process.platform === "win32",
+      });
+    } catch (e) {
+      throw new Error(`OpenCode couldn't start from ${bin}: ${str(e && e.message ? e.message : e)}. If that path is a folder, choose the opencode.exe file under "OpenCode program" in settings.`);
+    }
     const keep = (d) => (this.tail = (this.tail + d).slice(-1500));
     proc.stdout.on("data", keep);
     proc.stderr.on("data", keep);
@@ -60882,7 +61124,12 @@ class OpenCodeManager {
       if (!Platform.isDesktopApp) throw new Error("OpenCode auto-setup needs the desktop app (it isn't available on mobile yet).");
       if (!(await this.findBinary())) {
         if (this.tooNew) throw new Error(this.tooNewMessage());
-        throw new Error("OpenCode isn't set up yet. Open Settings > Study agent > AI and the assistant and press Download and install, or choose a copy you already have.");
+        if (this.invalidPath) {
+          const repaired = await this.repairManaged(progress);
+          if (!repaired) throw new Error(this.folderPathMessage(this.invalidPath));
+        } else {
+          throw new Error("OpenCode isn't set up yet. Open Settings > Study agent > AI and the assistant and press Download and install, or choose a copy you already have.");
+        }
       }
       await this.start(progress);
     })().finally(() => {
@@ -62284,14 +62531,21 @@ function cropToPng(canvas, box) {
  * Reads the chosen pages. When `cap` is given, every page is also drawn so pictures can be cut out
  * and saved: cap = { prefix, scale, pages, save(name, arrayBuffer) -> vault path }.
  */
-async function readPdfPages(buf, spec, progress, cap) {
+async function readPdfPages(buf, spec, progress, cap, password) {
   if (typeof loadPdfJs !== "function") throw new Error("This version of Obsidian can't read PDFs from plugins.");
+  if (!buf || !buf.byteLength) throw new Error("That PDF is empty. Choose a PDF with selectable text, or paste the questions instead.");
   const pdfjs = await loadPdfJs();
   let doc;
   try {
-    doc = await pdfjs.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise;
+    doc = await pdfjs.getDocument({ data: new Uint8Array(buf.slice(0)), password: password || undefined }).promise;
   } catch (e) {
-    throw new Error("I couldn't open that PDF. It may be damaged or password protected.");
+    if (e && (e.name === "PasswordException" || Number(e.code) === 1 || Number(e.code) === 2)) {
+      const wrong = Number(e.code) === 2;
+      const err = new Error(wrong ? "That PDF password didn't work. Try again." : "This PDF is password-protected. Enter its password to continue.");
+      err.code = wrong ? "pdf-password-wrong" : "pdf-password-required";
+      throw err;
+    }
+    throw new Error("I couldn't open that PDF. It may be damaged or password-protected. Remove its password or export a new PDF with selectable text, then try again.");
   }
   try {
     const wanted = parsePageRange(spec, doc.numPages);
@@ -133990,6 +134244,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.301.4",
+    date: "November 12, 2026",
+    title: "Recover locked installs and protected imports",
+    summary:
+      "Password-protected PDFs can now ask for their password inside the import window, unreadable files carry a clear next step, and a saved OpenCode install folder is repaired instead of failing to start. Closing an import also stops its outstanding AI wait.",
+    highlights: [
+      {
+        title: "Unlock a protected PDF",
+        body: "The import window asks for the password, tries it without saving it, and can retry a wrong one. A batch asks once per file; skipping one protected file leaves the rest of the batch running.",
+      },
+      {
+        title: "Readable failures",
+        body: "Empty PDFs, zero-byte documents, corrupt Office files and files over 80 MB now explain what to do next before anything is copied into the vault.",
+      },
+      {
+        title: "Repair a saved OpenCode folder",
+        body: "If the saved OpenCode path is its install folder, the app finds the executable inside it. A missing executable is repaired from another installed copy or a confirmed reinstall, and a locked old folder no longer blocks the new copy.",
+      },
+      {
+        title: "No format changes",
+        body: "Question notes, review dates, saved settings, provider keys and network defaults are unchanged. PDF passwords stay in memory for this import only.",
+      },
+    ],
+  },
   {
     version: "1.301.3",
     date: "November 11, 2026",

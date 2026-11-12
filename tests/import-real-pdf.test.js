@@ -207,6 +207,24 @@ test("Direct AI: the real extracted text reaches the review list and then a note
 
 /* ------------------------------------------------- cleanup after the check */
 
+test("Direct AI: a page request that never settles times out and removes the attempt", async () => {
+  const state = await setup([]);
+  enableAi(state.plugin);
+  state.plugin.verifyDraftQuestions = async () => {};
+  state.plugin.aiChat = () => new Promise(() => {});
+
+  const bytes = await textPdf();
+  const { modal, dom } = openImport(state.plugin, bytes);
+  modal.apiChunkTimeoutMs = 25;
+  await modal.start();
+
+  const text = dom.texts().join("\n");
+  assert.match(text, /No questions found/);
+  assert.match(text, /The AI took too long to read pages 1-1/);
+  assert.equal(state.files.size, 0, "the timed-out attempt removes its source copy");
+  assert.equal(state.dirs.size, 0, "the timed-out attempt removes its folder");
+});
+
 test("cleanup: a failure copying the source after the text check removes the folder it made", async () => {
   const state = await setup([]);
   enableAi(state.plugin);

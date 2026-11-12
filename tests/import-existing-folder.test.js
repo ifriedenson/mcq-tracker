@@ -3,6 +3,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { load } = require("./helpers/load");
 const { makeApp, makeDom } = require("./helpers/fake");
+const { makeTrackedApp } = require("./helpers/real-pdf");
 
 const { T, obsidian } = load();
 
@@ -151,6 +152,31 @@ test("import: a question whose note name exists gets a free name instead of repl
 
   assert.ok(app.created.some((c) => c.path === "Questions/Unit 1/TEST-Q01-2.md"), "the new note takes a free name");
   assert.equal(existing.text, "keep me", "the existing question note is untouched");
+});
+
+test("import: choosing only duplicate notes removes the copied source and empty folder", async () => {
+  const existingPath = "Questions/Unit 1/EXIST-Q01.md";
+  const state = makeTrackedApp([
+    { path: existingPath, fm: { question_id: "EXIST-Q01", official_question_id: "dup" } },
+  ]);
+  const app = state.app;
+  const plugin = makePlugin(app, { getQuestions: () => [...state.files.values()] });
+  const modal = makeModal(app, plugin, "Unit 1.txt");
+  const dom = makeDom();
+  modal.contentEl = dom.root;
+  modal.runApi = async () => {
+    const text = noteText("TEST-Q01").replace("question_id: TEST-Q01", "question_id: TEST-Q01\nofficial_question_id: dup");
+    modal.ctx = { folder: "Questions/Unit 1", prefix: "TEST", sourcePath: "Questions/Unit 1/Unit 1.txt", kind: "txt" };
+    modal.items = [Object.assign({ text, include: true }, T.parseNote(text))];
+    modal.showReview();
+  };
+
+  await modal.start();
+  await dom.click("Create 1 note");
+
+  assert.equal(state.files.size, 1, "the pre-existing note is the only file left");
+  assert.equal(state.files.has(existingPath), true);
+  assert.ok(![...state.files.keys()].some((path) => /\.txt$/.test(path)), "the copied source is removed");
 });
 
 test("import: the agent finalizer leaves notes that already existed in the folder alone", async () => {

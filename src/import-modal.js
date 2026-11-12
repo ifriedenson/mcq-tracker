@@ -6,13 +6,18 @@ const { FolderSuggest } = require("./modals");
 const { ensureFolder, localDate, sleep, str, uniquePath } = require("./util");
 const { chunkPages, readPdfPages, slugId } = require("./pdf");
 const { DOCUMENT_EXTENSIONS, documentBaseName, documentKind, documentLabel, extensionOf } = require("./documents");
-const { readDocumentSource, readPagesForSource } = require("./document-source");
+const { MAX_SOURCE_BYTES, readDocumentSource, readPagesForSource } = require("./document-source");
 const { AGENT_SYSTEM, agentPrompt, aiFlags, answerKeyText, buildReportMarkdown, carryPassages, ensureProviders, extractNotesChunk, finalizeNote, groupIssues, mergeNotes, modelFromMessages, noteIssues, parseNote } = require("./importer");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { findDuplicateIds, indexOfficialIds, officialIdOf } = require("./filters");
 const { friendlyApiError } = require("./api-client");
 const { checkDocumentText, summaryText } = require("./import-preflight");
 const { ImportCompleteModal } = require("./import-complete-modal");
+
+/** Vault-safe folder segment for a picked file; legal characters and spaces stay as they are. */
+function folderBase(name, fallback) {
+  return str(name).replace(/[\\/:*?"<>|]/g, "-").trim() || fallback || "File";
+}
 
 function importNoticeDocument(app) {
   try {
@@ -133,6 +138,8 @@ function pickDocumentFiles(buttonEl, onPicked) {
 /** Copy a picked file's bytes now: its handle belongs to the window that opened the chooser. */
 async function captureFile(file) {
   if (!file || typeof file.arrayBuffer !== "function") return null;
+  // Refuse by metadata before copying a huge buffer; readSource also checks the actual bytes.
+  if (Number(file.size) > MAX_SOURCE_BYTES) return file;
   try {
     const raw = await file.arrayBuffer();
     const copy = new Uint8Array(raw).slice().buffer;
@@ -232,6 +239,11 @@ class PdfImportModal extends QtModal {
     this.agentIdleMs = 3 * 60 * 1000;
     this.agentSettleMs = 90 * 1000;
     this.agentMaxMs = 20 * 60 * 1000;
+    this.apiChunkTimeoutMs = 3 * 60 * 1000;
+    this.pdfPasswords = init.pdfPasswords instanceof Map ? new Map(init.pdfPasswords) : new Map();
+    this.pdfFile = this.file || this.vaultDoc || null;
+    this.pdfPassword = this.pdfPasswords.get(this.pdfFile) || "";
+    this.pdfPromptResolve = null;
     const st = plugin.settings;
     this.meta = Object.assign(
       { test: "", course: "", section: "", domain: "", skill: "", unit: "", difficulty: "", prefix: "", start: "1", pages: "" },
@@ -270,6 +282,15 @@ class PdfImportModal extends QtModal {
 
   onClose() {
     this.closed = true;
+    // A closed window must also release an in-flight AI/agent wait, not leave
+    // the import promise pending until a provider eventually answers.
+    if (typeof this.cancelRun === "function") this.cancelRun();
+    if (this.pdfPromptResolve) {
+      const done = this.pdfPromptResolve;
+      this.pdfPromptResolve = null;
+      done(null);
+    }
+    this.pdfPassword = "";
     // A closed preview or a closed failed import must not leave a half-made folder behind.
     // While an import is still running, its own finally cleans up after the last
     // write; cleaning now would race the work in flight and miss later files.
@@ -311,6 +332,10 @@ class PdfImportModal extends QtModal {
 
   isStopError(e) {
     return (e && e.code === "import-stopped") || this.stop === true;
+  }
+
+  isPdfPasswordError(e) {
+    return !!(e && (e.code === "pdf-password-required" || e.code === "pdf-password-wrong"));
   }
 
   throwIfCancelled() {
@@ -387,7 +412,7 @@ class PdfImportModal extends QtModal {
   }
 
   autoFolder(name) {
-    return normalizePath(`${this.parent}/${name}`);
+    return normalizePath(`${this.parent}/${folderBase(name)}`);
   }
 
   /** True when the target is an existing folder that already holds files or subfolders. */
@@ -453,6 +478,9 @@ class PdfImportModal extends QtModal {
     this.preflight = null;
     this.preflights = [];
     this.batchMode = list.length > 1;
+    this.pdfPasswords = new Map();
+    this.pdfFile = this.file;
+    this.pdfPassword = "";
     if (picked && typeof picked.setDesc === "function") picked.setDesc(this.fileSummary());
     if (this.preflightStatus && typeof this.preflightStatus.setText === "function") {
       this.preflightStatus.setText(list.length > 1 ? "Ready to check " + list.length + " files." : "Ready to check this file.");
@@ -509,7 +537,25 @@ class PdfImportModal extends QtModal {
     try {
       const src = await this.readSource();
       if (!src.kind) throw new Error(`This plugin can't read ${src.ext ? `.${src.ext}` : "that kind of"} files.`);
-      const read = await this.readPages(src, status, null, "");
+      this.pdfFile = this.file || this.vaultDoc || null;
+      this.pdfPassword = this.pdfPasswords.get(this.pdfFile) || "";
+      let read;
+      for (;;) {
+        try {
+          read = await this.readPages(src, status, null, "");
+          break;
+        } catch (e) {
+          if (!this.isPdfPasswordError(e)) throw e;
+          const password = await this.askPdfPassword(e, this.pdfFile);
+          if (this.closed) return;
+          if (password === null) {
+            this.showPreflightError("No password was entered. Nothing was added to your vault.");
+            return;
+          }
+          this.pdfPassword = password;
+          this.pdfPasswords.set(this.pdfFile, password);
+        }
+      }
       const check = checkDocumentText(read.pages, { kind: src.kind, label: documentLabel(`${src.name}.${src.ext}`) });
       if (!check.ok) {
         this.showPreflightError(check.message);
@@ -540,7 +586,26 @@ class PdfImportModal extends QtModal {
         try {
           const src = await this.readSourceFor({ file, vaultDoc: "" });
           if (!src.kind) throw new Error("This plugin can't read " + (src.ext ? "." + src.ext : "that kind of") + " files.");
-          const read = await this.readPages(src, status, null, "");
+          this.pdfFile = file;
+          this.pdfPassword = this.pdfPasswords.get(file) || "";
+          let read = null;
+          for (;;) {
+            try {
+              read = await this.readPages(src, status, null, "");
+              break;
+            } catch (e) {
+              if (!this.isPdfPasswordError(e)) throw e;
+              const password = await this.askPdfPassword(e, file);
+              if (this.closed) return;
+              if (password === null) {
+                results.push({ file, name: file.name, ok: false, message: "No password was entered. This file was skipped.", preflight: null });
+                break;
+              }
+              this.pdfPassword = password;
+              this.pdfPasswords.set(file, password);
+            }
+          }
+          if (!read) continue;
           const check = checkDocumentText(read.pages, { kind: src.kind, label: documentLabel(src.name + "." + src.ext) });
           results.push({ file, name: file.name, ok: !!check.ok, message: check.ok ? "" : check.message, preflight: { ...check, sourceName: src.name, sourceKind: src.kind } });
         } catch (e) {
@@ -558,6 +623,47 @@ class PdfImportModal extends QtModal {
       this.preflightBusy = false;
       if (button) button.disabled = false;
     }
+  }
+
+  askPdfPassword(error, file) {
+    return new Promise((resolve) => {
+      const el = this.contentEl;
+      el.empty();
+      el.createEl("h3", { text: "This PDF needs a password" });
+      el.createDiv({ cls: "qt-error", text: error && error.message ? error.message : "This PDF is password-protected." });
+      el.createEl("p", {
+        cls: "qt-hint",
+        text: `Enter the password for ${file && file.name ? file.name : "this PDF"}. It is used only while this import is open and is not saved.`,
+      });
+      const input = el.createEl("input", {
+        attr: { type: "password", "aria-label": "PDF password", autocomplete: "off", spellcheck: "false" },
+      });
+      input.type = "password";
+      const hint = el.createDiv({ cls: "qt-hint" });
+      const row = el.createDiv({ cls: "qt-row" });
+      let done = false;
+      const finish = (value) => {
+        if (done) return;
+        done = true;
+        this.pdfPromptResolve = null;
+        resolve(value);
+      };
+      this.pdfPromptResolve = finish;
+      const submit = () => {
+        const password = String(input.value || "");
+        if (!password) {
+          hint.setText("Enter the PDF password first.");
+          return;
+        }
+        finish(password);
+      };
+      row.createEl("button", { text: "Unlock PDF", cls: "mod-cta" }).addEventListener("click", submit);
+      row.createEl("button", { text: this.batchMode ? "Skip this file" : "Cancel", cls: "qt-grow" }).addEventListener("click", () => finish(null));
+      input.addEventListener("keydown", (event) => {
+        if (event && event.key === "Enter") submit();
+      });
+      if (typeof input.focus === "function") input.focus();
+    });
   }
 
   showBatchPreflightReady(results) {
@@ -616,7 +722,7 @@ class PdfImportModal extends QtModal {
 
   beginAiSetup() {
     const files = this.files.length ? this.files.slice() : this.file ? [this.file] : [];
-    const source = { file: files.length === 1 ? files[0] : null, files, vaultDoc: files.length ? "" : this.vaultDoc || "", preflight: this.preflight, preflights: this.preflights.slice() };
+    const source = { file: files.length === 1 ? files[0] : null, files, vaultDoc: files.length ? "" : this.vaultDoc || "", preflight: this.preflight, preflights: this.preflights.slice(), pdfPasswords: new Map(this.pdfPasswords) };
     const state = importAiState(this.plugin);
     this.close();
     this.plugin.openAiImportHelp(state, {
@@ -627,7 +733,7 @@ class PdfImportModal extends QtModal {
 
   readPages(src, progress, cap, spec) {
     const pages = spec === undefined ? this.meta.pages : spec;
-    return readPagesForSource(src, pages, progress, cap);
+    return readPagesForSource(src, pages, progress, cap, this.pdfPassword);
   }
 
   showSetup() {
@@ -839,7 +945,7 @@ class PdfImportModal extends QtModal {
   }
 
   async readSource() {
-    return readDocumentSource(this.app, { file: this.file, vaultDoc: this.vaultDoc });
+    return this.readSourceFor({ file: this.file, vaultDoc: this.vaultDoc });
   }
 
   async captureFiles() {
@@ -890,7 +996,7 @@ class PdfImportModal extends QtModal {
     const used = new Set(this.batchJobs.map((job) => String(job.folder || "").toLowerCase()));
     const jobs = [];
     for (const file of chosen) {
-      const base = documentBaseName(file.name) || "File " + (this.batchJobs.length + jobs.length + 1);
+      const base = folderBase(documentBaseName(file.name), "File " + (this.batchJobs.length + jobs.length + 1));
       let folder = normalizePath(parent + "/" + base);
       for (let n = 2; used.has(folder.toLowerCase()); n++) folder = normalizePath(parent + "/" + base + " (" + n + ")");
       used.add(folder.toLowerCase());
@@ -943,7 +1049,7 @@ class PdfImportModal extends QtModal {
     const capturedFiles = await this.captureFiles();
     const used = new Set();
     this.batchJobs = this.files.map((file, i) => {
-      const base = documentBaseName(file.name) || "File " + (i + 1);
+      const base = folderBase(documentBaseName(file.name), "File " + (i + 1));
       let folder = normalizePath(parent + "/" + base);
       for (let n = 2; used.has(folder.toLowerCase()); n++) folder = normalizePath(parent + "/" + base + " (" + n + ")");
       used.add(folder.toLowerCase());
@@ -968,6 +1074,8 @@ class PdfImportModal extends QtModal {
     if (!job) return false;
     this.batchIndex = index;
     this.file = job.readFile || job.file;
+    this.pdfFile = job.file;
+    this.pdfPassword = this.pdfPasswords.get(job.file) || "";
     this.vaultDoc = "";
     this.preflight = job.preflight;
     this.folder = job.folder;
@@ -1139,9 +1247,24 @@ class PdfImportModal extends QtModal {
       const src = await this.readSource();
       if (!src.kind) throw new Error(`This plugin can't read ${src.ext ? `.${src.ext}` : "that kind of"} files.`);
       this.source = src.name;
+      this.pdfFile = this.pdfFile || this.file || this.vaultDoc || null;
+      this.pdfPassword = this.pdfPasswords.get(this.pdfFile) || this.pdfPassword || "";
       // Read and check before creating a folder or copying the source. A
       // scanned handout must leave the vault untouched.
-      const precheck = await this.readPages(src, (m) => !this.closed && this.status(m));
+      let precheck;
+      for (;;) {
+        try {
+          precheck = await this.readPages(src, (m) => !this.closed && this.status(m));
+          break;
+        } catch (e) {
+          if (!this.isPdfPasswordError(e)) throw e;
+          const password = await this.askPdfPassword(e, this.pdfFile);
+          if (this.closed) return;
+          if (password === null) throw new Error("No password was entered. Nothing was imported.");
+          this.pdfPassword = password;
+          this.pdfPasswords.set(this.pdfFile, password);
+        }
+      }
       this.warnings.push(...(precheck.warnings || []).slice(0, 5));
       const textCheck = checkDocumentText(precheck.pages, {
         kind: src.kind,
@@ -1195,7 +1318,7 @@ class PdfImportModal extends QtModal {
           },
         };
         this.status("Capturing pictures...");
-        const withPictures = await readPdfPages(src.buf, this.meta.pages, (m) => !this.closed && this.status(m), cap);
+        const withPictures = await readPdfPages(src.buf, this.meta.pages, (m) => !this.closed && this.status(m), cap, this.pdfPassword);
         pages = withPictures.pages;
         figCount = withPictures.figCount;
         this.warnings.push(...(withPictures.warnings || []).slice(0, 5));
@@ -1287,6 +1410,7 @@ class PdfImportModal extends QtModal {
     }
     for (const path of result.paths) this.trackArtifact(path);
     result.issues = await this.auditNotes(folder, result.paths);
+    if (result.made === 0 && !this.closed) await this.cleanupArtifacts();
     if (!this.closed) {
       this.showAgentDone(result, folder);
       this.commitArtifacts();
@@ -1512,7 +1636,11 @@ class PdfImportModal extends QtModal {
     const el = this.contentEl;
     el.empty();
     el.createEl("h3", { text: r.made ? `Created ${r.made} note${r.made === 1 ? "" : "s"}` : "No notes were created" });
-    el.createEl("p", { text: `Saved in ${folder}, together with a copy of the original file${r.images ? ` and ${r.images} picture${r.images === 1 ? "" : "s"} cut from it (in the images folder)` : ""}.` });
+    if (r.made) {
+      el.createEl("p", { text: `Saved in ${folder}, together with a copy of the original file${r.images ? ` and ${r.images} picture${r.images === 1 ? "" : "s"} cut from it (in the images folder)` : ""}.` });
+    } else {
+      el.createEl("p", { cls: "qt-hint", text: "The copied source and any empty folders this attempt created were removed." });
+    }
     if (r.ai) {
       el.createEl("p", {
         cls: "qt-hint",
@@ -1638,7 +1766,14 @@ class PdfImportModal extends QtModal {
       const ch = chunks[i];
       this.status(`Asking the AI to read pages ${ch[0].n}-${ch[ch.length - 1].n} (batch ${i + 1} of ${chunks.length}). ${mergeNotes(blocks).length} questions found so far.`);
       try {
-        blocks.push(...(await this.awaitCancellable(extractNotesChunk(client, ch, keyText, carry))));
+        const chunk = await this.awaitCancellable(
+          this.requestWithTimeout(
+            extractNotesChunk(client, ch, keyText, carry),
+            this.apiChunkTimeoutMs,
+            `The AI took too long to read pages ${ch[0].n}-${ch[ch.length - 1].n}.`
+          )
+        );
+        blocks.push(...chunk);
         carry = carryPassages(blocks);
         failures = 0;
       } catch (e) {
@@ -1834,6 +1969,7 @@ class PdfImportModal extends QtModal {
       await this.pruneImages(folder, result);
       result.issues = await this.auditNotes(folder, result.paths);
       if (this.closed) return;
+      if (result.made === 0) await this.cleanupArtifacts();
       this.showAgentDone(result, folder);
       this.commitArtifacts();
     } catch (e) {

@@ -15,7 +15,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `API_SYSTEM` | 0 | `tests/ai-write-guard.test.js` |
 | `ASSIGNMENTS_TABS` | 3 | `tests/modules.test.js` |
 | `AgentEditReviewModal` | 0 | `tests/feature-surfaces.test.js` |
-| `AiImportHelpModal` | 0 | `tests/ai-beginner-wizard.test.js`, `tests/ai-import-help.test.js`, `tests/import-real-pdf.test.js` |
+| `AiImportHelpModal` | 0 | `tests/ai-beginner-wizard.test.js`, `tests/ai-import-help.test.js`, `tests/import-edge-robustness.test.js`, `tests/import-real-pdf.test.js` |
 | `ApiClient` | 0 | `tests/chat-stream.test.js`, `tests/local-models.test.js`, `tests/model-discovery.test.js`, `tests/ocr.test.js`, `tests/qwen-preset.test.js`, `tests/secret-keys.test.js` |
 | `AssignmentModal` | 0 | `tests/feature-surfaces.test.js` |
 | `AssignmentsView` | 0 | `tests/assignments.test.js`, `tests/mobile-module-layout.test.js` |
@@ -30,7 +30,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/chat-branches.test.js`, `tests/chat-panel-copilot.test.js`, `tests/chat-panel-mentions.test.js`, `tests/diagnostics-gauge.test.js`, `tests/memory-export.test.js`, `tests/note-context.test.js`, `tests/quick-ask.test.js`, `tests/security-hardening.test.js`, `tests/skills-pricing.test.js`, `tests/think-first.test.js` |
 | `CourseOverviewModal` | 0 | `tests/core-values.test.js` |
 | `DEFAULT_SETTINGS` | 118 | `tests/grading.test.js` |
-| `DocumentReviewModal` | 0 | `tests/feature-surfaces.test.js` |
+| `DocumentReviewModal` | 0 | `tests/feature-surfaces.test.js`, `tests/import-edge-robustness.test.js` |
 | `DueQueueModal` | 0 | `tests/feature-surfaces.test.js` |
 | `EpubReaderModal` | 0 | `tests/epub.test.js` |
 | `FindQuestionModal` | 0 | `tests/views.test.js` |
@@ -50,11 +50,11 @@ the table and fails if a group, export count, command or citing test drifts.
 | `NewFrqNoteModal` | 0 | `tests/frq.test.js` |
 | `NoteReviewDock` | 0 | `tests/feature-surfaces.test.js` |
 | `NoteReviewModal` | 0 | `tests/spaced-everything.test.js` |
-| `OcrModal` | 0 | `tests/feature-surfaces.test.js` |
-| `OpenCodeClient` | 0 | `tests/chat-stream.test.js`, `tests/opencode-compat.test.js` |
-| `OpenCodeManager` | 0 | `tests/opencode-compat.test.js` |
+| `OcrModal` | 0 | `tests/feature-surfaces.test.js`, `tests/import-edge-robustness.test.js` |
+| `OpenCodeClient` | 0 | `tests/chat-stream.test.js`, `tests/opencode-compat.test.js`, `tests/opencode-lifecycle.test.js` |
+| `OpenCodeManager` | 0 | `tests/opencode-compat.test.js`, `tests/opencode-lifecycle.test.js` |
 | `PdfAnnotationModal` | 0 | `tests/feature-surfaces.test.js` |
-| `PdfImportModal` | 0 | `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/import-batch-window.test.js`, `tests/import-existing-folder.test.js`, `tests/import-preflight.test.js`, `tests/import-properties.test.js`, `tests/import-real-pdf.test.js`, `tests/import-source.test.js`, `tests/views.test.js` |
+| `PdfImportModal` | 0 | `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/import-batch-window.test.js`, `tests/import-edge-robustness.test.js`, `tests/import-existing-folder.test.js`, `tests/import-preflight.test.js`, `tests/import-properties.test.js`, `tests/import-real-pdf.test.js`, `tests/import-source.test.js`, `tests/views.test.js` |
 | `PdfInkModal` | 0 | `tests/pdf-backlinks.test.js`, `tests/pdf-ink.test.js` |
 | `PomodoroView` | 0 | `tests/mobile-module-layout.test.js`, `tests/pomodoro-view.test.js` |
 | `PracticeView` | 0 | `tests/closed-book.test.js`, `tests/empty-state.test.js`, `tests/exam-ready.test.js`, `tests/hints.test.js`, `tests/import-batch-window.test.js`, `tests/import-real-pdf.test.js`, `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/mobile-practice.test.js`, `tests/modules.test.js`, `tests/needs-fixing.test.js`, `tests/practice-chrome.test.js`, `tests/practice-fullscreen.test.js`, `tests/practice-keys.test.js`, `tests/practice-tools.test.js`, `tests/study-modes.test.js`, `tests/study-skin.test.js`, `tests/study-status.test.js`, `tests/views.test.js` |
@@ -193,7 +193,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `cornell` | 5 | `tests/cornell-margins.test.js`, `tests/study-tools.test.js` |
 | `couchdbSync` | 15 | `tests/couchdb-sync.test.js` |
 | `courseHealth` | 5 | `tests/core-values.test.js`, `tests/study-modules-2.test.js`, `tests/study-workspace-health.test.js` |
-| `courseNotes` | 11 | `tests/course-notes.test.js` |
+| `courseNotes` | 11 | `tests/course-notes.test.js`, `tests/import-edge-robustness.test.js` |
 | `courseTemplates` | 12 | `tests/course-templates.test.js` |
 | `cram` | 9 | `tests/card-cram.test.js`, `tests/card-mother-cram.test.js` |
 | `createQuickSession` | 0 | `tests/feature-surfaces.test.js` |
@@ -450,7 +450,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `whatsNew` | 10 | `tests/feature-surfaces.test.js`, `tests/whats-new.test.js` |
 | `wordnet` | 18 | `tests/wordnet.test.js` |
 | `writingSessions` | 11 | `tests/writing-sessions.test.js` |
-| `zipWrite` | 2 | `tests/epub.test.js`, `tests/study-bundle-import.test.js` |
+| `zipWrite` | 2 | `tests/epub.test.js`, `tests/opencode-lifecycle.test.js`, `tests/study-bundle-import.test.js` |
 
 ## Commands
 

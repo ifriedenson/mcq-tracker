@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.4",
+    date: "November 12, 2026",
+    title: "Recover locked installs and protected imports",
+    summary:
+      "Password-protected PDFs can now ask for their password inside the import window, unreadable files carry a clear next step, and a saved OpenCode install folder is repaired instead of failing to start. Closing an import also stops its outstanding AI wait.",
+    highlights: [
+      {
+        title: "Unlock a protected PDF",
+        body: "The import window asks for the password, tries it without saving it, and can retry a wrong one. A batch asks once per file; skipping one protected file leaves the rest of the batch running.",
+      },
+      {
+        title: "Readable failures",
+        body: "Empty PDFs, zero-byte documents, corrupt Office files and files over 80 MB now explain what to do next before anything is copied into the vault.",
+      },
+      {
+        title: "Repair a saved OpenCode folder",
+        body: "If the saved OpenCode path is its install folder, the app finds the executable inside it. A missing executable is repaired from another installed copy or a confirmed reinstall, and a locked old folder no longer blocks the new copy.",
+      },
+      {
+        title: "No format changes",
+        body: "Question notes, review dates, saved settings, provider keys and network defaults are unchanged. PDF passwords stay in memory for this import only.",
+      },
+    ],
+  },
+  {
     version: "1.301.3",
     date: "November 11, 2026",
     title: "Keep a stalled answer check from freezing an import",

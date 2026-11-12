@@ -195,6 +195,83 @@ test("findBinary does not apply the limit to an OpenCode that is not installed",
   assert.match(await mgr.describe(), /Not installed/);
 });
 
+test("a saved install folder resolves to the opencode program inside it", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qt-opencode-folder-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const exe = path.join(dir, process.platform === "win32" ? "opencode.exe" : "opencode");
+  fs.writeFileSync(exe, "");
+  const mgr = manager({ managedBinary: dir }, { [exe]: "1.19.5" });
+
+  assert.equal(await mgr.findBinary(), exe, "the executable is returned, not its folder");
+  assert.equal(mgr.invalidPath, "", "a folder that contains the program is valid");
+  assert.equal(await mgr.hasExisting(), exe, "startup detection also returns the executable");
+});
+
+test("a manually chosen folder without a program is named, never spawned, and never EPERM", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qt-opencode-empty-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const mgr = manager({ binaryPath: dir }, {});
+
+  assert.equal(await mgr.findBinary(), null);
+  assert.equal(mgr.invalidPath, dir, "the folder is remembered for an actionable message");
+  assert.notEqual(await mgr.hasExisting(), dir, "startup detection never reports a folder as the program");
+  await assert.rejects(() => mgr.ensure(), /folder.*opencode\.exe/i);
+});
+
+test("start resolves a saved install folder before spawning", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qt-opencode-start-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const exe = path.join(dir, process.platform === "win32" ? "opencode.exe" : "opencode");
+  fs.writeFileSync(exe, "");
+  const mgr = manager({ managedBinary: dir }, { [exe]: "1.19.5" });
+  mgr.plugin.vaultPath = () => dir;
+  mgr.dataHome = () => path.join(dir, "data");
+  const spawns = [];
+  const hooks = {
+    spawn(bin, args, opts) {
+      spawns.push({ bin, args, opts });
+      return {
+        exitCode: null,
+        killed: false,
+        stdout: { on() {}, destroy() {} },
+        stderr: { on() {}, destroy() {} },
+        on() {},
+        kill() {},
+      };
+    },
+    freePort: async () => 53123,
+    client: () => ({ providers: async () => ({ providers: [{ id: "anthropic" }] }) }),
+    now: () => 0,
+    sleep: async () => {},
+  };
+
+  await mgr.start(null, false, hooks);
+  assert.equal(spawns.length, 1);
+  assert.equal(spawns[0].bin, exe, "spawn receives the executable, not the folder");
+  assert.equal(spawns[0].args[0], "serve");
+  mgr.stop();
+});
+
+test("start refuses a folder even if a stale finder returns it", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qt-opencode-guard-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const mgr = manager({}, {});
+  mgr.findBinary = async () => dir;
+  let spawned = 0;
+  const hooks = {
+    spawn() {
+      spawned++;
+      throw new Error("spawn should not be called for a folder");
+    },
+    freePort: async () => 53124,
+    now: () => 0,
+    sleep: async () => {},
+  };
+
+  await assert.rejects(() => mgr.start(null, false, hooks), /folder.*opencode\.exe/i);
+  assert.equal(spawned, 0, "a directory never reaches spawn()");
+});
+
 /* -------- managed-start recovery: real quarantineDb() and files, fake process/clock -------- */
 
 const DB_FILES = ["opencode.db", "opencode.db-wal", "opencode.db-shm"];
@@ -202,6 +279,10 @@ const DB_FILES = ["opencode.db", "opencode.db-wal", "opencode.db-shm"];
 /** Drives OpenCodeManager.start() with a fake clock, child process, port and client; the database files it quarantines are real. A spawn behavior can make a child print a line and exit. */
 function managedStartHarness(t, clientResults, spawnBehaviors) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qt-opencode-start-"));
+  const binDir = path.join(dir, "bin");
+  fs.mkdirSync(binDir);
+  const fakeBin = path.join(binDir, process.platform === "win32" ? "opencode.exe" : "opencode");
+  fs.writeFileSync(fakeBin, "");
   const dbDir = path.join(dir, "opencode");
   fs.mkdirSync(dbDir, { recursive: true });
   const original = {};
@@ -259,7 +340,7 @@ function managedStartHarness(t, clientResults, spawnBehaviors) {
   };
 
   const mgr = new T.OpenCodeManager({ settings: { ai: {} }, vaultPath: () => dir, save: async () => {} });
-  mgr.findBinary = async () => "/fake/opencode";
+  mgr.findBinary = async () => fakeBin;
   mgr.dataHome = () => dir;
   t.after(() => mgr.stop());
   return { dir, dbDir, original, hooks, spawns, children, mgr };

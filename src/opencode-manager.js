@@ -257,6 +257,22 @@ function findBinaryIn(dir) {
   return null;
 }
 
+/** Resolve a saved program path to a real executable; a folder is searched, never spawned. */
+function resolveBinaryPath(candidate) {
+  const fs = nodeReq("fs");
+  const p = str(candidate).trim();
+  if (!p) return "";
+  let stat;
+  try {
+    stat = fs.statSync(p);
+  } catch (e) {
+    return "";
+  }
+  if (stat.isFile()) return p;
+  if (stat.isDirectory()) return findBinaryIn(p) || "";
+  return "";
+}
+
 function freePort() {
   const net = nodeReq("net");
   return new Promise((resolve, reject) => {
@@ -297,6 +313,22 @@ class OpenCodeManager {
     return !!(this.proc && this.proc.exitCode === null && !this.proc.killed && this.conn);
   }
 
+  resolveBinary(candidate) {
+    return resolveBinaryPath(candidate);
+  }
+
+  directoryAt(candidate) {
+    try {
+      return nodeReq("fs").statSync(candidate).isDirectory() ? candidate : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  folderPathMessage(folder) {
+    return `The saved OpenCode program is a folder (${folder}), not opencode.exe. Choose the opencode.exe file under "OpenCode program" in settings, or press Download and install.`;
+  }
+
   async version(bin, viaPath, ms) {
     try {
       const out = await runCmd(bin, ["--version"], { timeout: ms || 10000, shell: !!viaPath && process.platform === "win32" });
@@ -308,15 +340,21 @@ class OpenCodeManager {
 
   /** Where an existing OpenCode lives, if anywhere. Uses a copy you already have before downloading one. */
   async findBinary() {
-    const fs = nodeReq("fs");
     const path = nodeReq("path");
     const os = nodeReq("os");
     const exe = process.platform === "win32" ? "opencode.exe" : "opencode";
     const tries = [this.ai.binaryPath, this.ai.managedBinary, path.join(os.homedir(), ".opencode", "bin", exe)].filter(Boolean);
     this.stalled = "";
+    this.invalidPath = "";
     this.tooNew = null; // an OpenCode that runs but is a version this plugin can't use yet
-    for (const p of tries) {
-      if (!fs.existsSync(p)) continue;
+    for (const raw of tries) {
+      const p = this.resolveBinary(raw);
+      if (!p) {
+        // A saved install folder (or a folder with no opencode.exe) must never
+        // reach spawn(): Windows reports that as EPERM, Permission denied.
+        if (!this.invalidPath && this.directoryAt(raw)) this.invalidPath = raw;
+        continue;
+      }
       const v = await this.version(p);
       if (v) {
         if (opencodeMajor(v) > MAX_OPENCODE_MAJOR) {
@@ -355,6 +393,7 @@ class OpenCodeManager {
       if (!bin && this.stalled) {
         return `Found a program at ${this.stalled}, but it didn't answer in time. Antivirus may be scanning it, so wait a minute and press Check again. If it keeps failing, choose a different copy under "OpenCode program".`;
       }
+      if (!bin && this.invalidPath) return this.folderPathMessage(this.invalidPath);
       if (!bin && this.tooNew) return this.tooNewMessage();
       if (!bin) return "Not installed. Press Download and install, or choose a copy you already have.";
       return `Installed (v${this.lastVersion || "?"}) at ${bin}. Not running; it starts when you use the AI chat.`;
@@ -367,7 +406,6 @@ class OpenCodeManager {
 
   /** Cheap, non-blocking look for an OpenCode that's already usable. Only reads the disk; never starts a program. */
   async hasExisting() {
-    const fsp = nodeReq("fs").promises;
     const path = nodeReq("path");
     const os = nodeReq("os");
     const win = process.platform === "win32";
@@ -376,15 +414,41 @@ class OpenCodeManager {
     for (const dir of str(process.env.PATH).split(path.delimiter).filter(Boolean)) {
       for (const ext of win ? [".exe", ".cmd", ".bat"] : [""]) cands.push(path.join(dir, "opencode" + ext));
     }
-    for (const p of cands) {
-      try {
-        await fsp.access(p);
-        return p;
-      } catch (e) {
-        /* not here */
-      }
+    for (const candidate of cands) {
+      const found = this.resolveBinary(candidate);
+      if (found) return found;
     }
     return "";
+  }
+
+  /** Recover a folder-valued managed path: reuse another installed 1.x, or reinstall through the normal confirmed installer. */
+  async repairManaged(progress) {
+    const path = nodeReq("path");
+    const saved = str(this.ai.managedBinary).trim();
+    if (!saved || !this.invalidPath || this.ai.managed === false) return "";
+    const same = (a, b) => {
+      const left = path.resolve(a);
+      const right = path.resolve(b);
+      return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
+    };
+    if (!same(saved, this.invalidPath)) return "";
+
+    // A previous version may still be intact beside the incomplete folder.
+    const existing = findBinaryIn(this.installRoot());
+    if (existing) {
+      const v = await this.version(existing);
+      if (v && opencodeMajor(v) <= MAX_OPENCODE_MAJOR) {
+        this.ai.managedBinary = existing;
+        this.ai.installedVersion = v;
+        await this.plugin.save();
+        if (progress) progress("Repaired the OpenCode install...");
+        return existing;
+      }
+    }
+
+    if (progress) progress("Reinstalling OpenCode...");
+    const result = await this.install(progress);
+    return result && result.path ? result.path : "";
   }
 
   /** Sets OpenCode up by itself (once per Obsidian session): uses one that's already there, otherwise downloads it. Never rejects. */
@@ -464,6 +528,7 @@ class OpenCodeManager {
       err.cancelled = true;
       throw err;
     }
+    this.stop();
     let lastErr;
     for (const asset of plan.assets) {
       try {
@@ -480,7 +545,8 @@ class OpenCodeManager {
     const path = nodeReq("path");
     const os = nodeReq("os");
     const safe = (s) => str(s).replace(/[^\w.\-]/g, "_");
-    const dest = path.join(this.installRoot(), `${safe(tag)}-${safe(asset.name.replace(/\.(zip|tar\.gz)$/, ""))}`);
+    const baseDest = path.join(this.installRoot(), `${safe(tag)}-${safe(asset.name.replace(/\.(zip|tar\.gz)$/, ""))}`);
+    let dest = baseDest;
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "qt-opencode-"));
     try {
       const archive = path.join(tmp, asset.name);
@@ -499,7 +565,13 @@ class OpenCodeManager {
       if (digest !== res.sha256) throw new Error("The download failed its SHA-256 check, so it was discarded.");
 
       progress("Unpacking...");
-      fs.rmSync(dest, { recursive: true, force: true });
+      try {
+        fs.rmSync(dest, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+      } catch (e) {
+        // Windows antivirus can hold the previous exe open. Install beside it
+        // rather than failing, and let the best-effort cleanup below try later.
+        dest = `${baseDest}-install-${Date.now().toString(36)}`;
+      }
       await extractArchive(archive, dest);
       const bin = findBinaryIn(dest);
       if (!bin) throw new Error("The download didn't contain an opencode program.");
@@ -521,10 +593,17 @@ class OpenCodeManager {
       this.ai.installedVersion = v;
       await this.plugin.save();
 
-      // keep only the current version
+      // Keep only the current version. A locked old folder is not an install
+      // failure: managedBinary already points at the working copy.
       for (const e of fs.readdirSync(this.installRoot(), { withFileTypes: true })) {
         const p = path.join(this.installRoot(), e.name);
-        if (e.isDirectory() && p !== dest) fs.rmSync(p, { recursive: true, force: true });
+        if (e.isDirectory() && p !== dest) {
+          try {
+            fs.rmSync(p, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+          } catch (err) {
+            /* antivirus or a running old copy still holds it */
+          }
+        }
       }
       return { version: v, verified, path: bin };
     } finally {
@@ -570,8 +649,13 @@ class OpenCodeManager {
   async start(progress, retried, hooks) {
     progress = progress || (() => {});
     if (this.isRunning()) return;
-    const bin = await this.findBinary();
-    if (!bin) throw new Error("OpenCode isn't installed.");
+    const found = await this.findBinary();
+    const bin = found === "opencode" ? found : this.resolveBinary(found);
+    if (!bin) {
+      const folder = this.invalidPath || this.directoryAt(found);
+      if (folder) throw new Error(this.folderPathMessage(folder));
+      throw new Error("OpenCode isn't installed.");
+    }
     // Tests pass hooks so the readiness/retry decision (including the
     // quarantine-and-retry recovery) can run without real timers or child
     // processes. ensure() and normal callers pass none and get the real ones.
@@ -590,17 +674,22 @@ class OpenCodeManager {
       /* ignore */
     }
     this.tail = "";
-    const proc = spawn(bin, ["serve", "--hostname", "127.0.0.1", "--port", String(port)], {
-      cwd: this.plugin.vaultPath() || os.homedir(),
-      env: Object.assign({}, process.env, {
-        OPENCODE_SERVER_PASSWORD: password,
-        OPENCODE_SERVER_USERNAME: "opencode",
-        XDG_DATA_HOME: this.dataHome(),
-      }),
-      windowsHide: true,
-      stdio: ["ignore", "pipe", "pipe"],
-      shell: bin === "opencode" && process.platform === "win32",
-    });
+    let proc;
+    try {
+      proc = spawn(bin, ["serve", "--hostname", "127.0.0.1", "--port", String(port)], {
+        cwd: this.plugin.vaultPath() || os.homedir(),
+        env: Object.assign({}, process.env, {
+          OPENCODE_SERVER_PASSWORD: password,
+          OPENCODE_SERVER_USERNAME: "opencode",
+          XDG_DATA_HOME: this.dataHome(),
+        }),
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+        shell: bin === "opencode" && process.platform === "win32",
+      });
+    } catch (e) {
+      throw new Error(`OpenCode couldn't start from ${bin}: ${str(e && e.message ? e.message : e)}. If that path is a folder, choose the opencode.exe file under "OpenCode program" in settings.`);
+    }
     const keep = (d) => (this.tail = (this.tail + d).slice(-1500));
     proc.stdout.on("data", keep);
     proc.stderr.on("data", keep);
@@ -694,7 +783,12 @@ class OpenCodeManager {
       if (!Platform.isDesktopApp) throw new Error("OpenCode auto-setup needs the desktop app (it isn't available on mobile yet).");
       if (!(await this.findBinary())) {
         if (this.tooNew) throw new Error(this.tooNewMessage());
-        throw new Error("OpenCode isn't set up yet. Open Settings > Study agent > AI and the assistant and press Download and install, or choose a copy you already have.");
+        if (this.invalidPath) {
+          const repaired = await this.repairManaged(progress);
+          if (!repaired) throw new Error(this.folderPathMessage(this.invalidPath));
+        } else {
+          throw new Error("OpenCode isn't set up yet. Open Settings > Study agent > AI and the assistant and press Download and install, or choose a copy you already have.");
+        }
       }
       await this.start(progress);
     })().finally(() => {

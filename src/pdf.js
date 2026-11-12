@@ -299,14 +299,21 @@ function cropToPng(canvas, box) {
  * Reads the chosen pages. When `cap` is given, every page is also drawn so pictures can be cut out
  * and saved: cap = { prefix, scale, pages, save(name, arrayBuffer) -> vault path }.
  */
-async function readPdfPages(buf, spec, progress, cap) {
+async function readPdfPages(buf, spec, progress, cap, password) {
   if (typeof loadPdfJs !== "function") throw new Error("This version of Obsidian can't read PDFs from plugins.");
+  if (!buf || !buf.byteLength) throw new Error("That PDF is empty. Choose a PDF with selectable text, or paste the questions instead.");
   const pdfjs = await loadPdfJs();
   let doc;
   try {
-    doc = await pdfjs.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise;
+    doc = await pdfjs.getDocument({ data: new Uint8Array(buf.slice(0)), password: password || undefined }).promise;
   } catch (e) {
-    throw new Error("I couldn't open that PDF. It may be damaged or password protected.");
+    if (e && (e.name === "PasswordException" || Number(e.code) === 1 || Number(e.code) === 2)) {
+      const wrong = Number(e.code) === 2;
+      const err = new Error(wrong ? "That PDF password didn't work. Try again." : "This PDF is password-protected. Enter its password to continue.");
+      err.code = wrong ? "pdf-password-wrong" : "pdf-password-required";
+      throw err;
+    }
+    throw new Error("I couldn't open that PDF. It may be damaged or password-protected. Remove its password or export a new PDF with selectable text, then try again.");
   }
   try {
     const wanted = parsePageRange(spec, doc.numPages);

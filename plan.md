@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status: v1.301.3 (Nov 11, 2026).** One MIT, dependency-free Obsidian plugin
+**Status: v1.301.4 (Nov 12, 2026).** One MIT, dependency-free Obsidian plugin
 (`mcq-tracker`) covering exam practice, cards and vocabulary, courses and
 calendars, study planning, document ingestion, reference/STEM tools and an
 optional BYOK/OpenCode AI layer.
@@ -13,9 +13,9 @@ surfaces, so unfinished ideas are not disguised as checked work.
 §3.9.6 is the gate table, §3.10 is the licence allow-list, and
 [docs/plan-decisions.md](docs/plan-decisions.md) is the owner decision sheet.
 
-**Verified at this commit:** `node --test` → 2,655 tests pass, 0 fail;
+**Verified at this commit:** `node --test` → 2,684 tests pass, 0 fail;
 `npm run check` clean (no dynamic code across 360 source files, vendor guard,
-bundle up to date); `main.js` generated from 363 modules at 7,187,933 bytes.
+bundle up to date); `main.js` generated from 363 modules at 7,200,289 bytes.
 Re-run both before quoting these numbers.
 
 **Maintainability pass (Nov 10, 2026):** the duplicate `onTableEditorToggled` is merged into one method that updates the ribbon and repaints open reading views; question and card reads use path indexes with path/type-scoped invalidation; the PDF editor/reader stack loads only when a PDF is opened; the four document importers share `src/document-source.js`; and `npm run check` now rejects duplicate class members and export keys and enforces an eager module-load budget that keeps the PDF editor stack and the vendored PDF engines lazy. Measured in a real Obsidian 1.15.0 desktop under Xvfb, three launches per build: module evaluation fell from a median **63 ms** (57/63/64 ms) to **41 ms** (38/41/48 ms), while `onload` stayed at 16 ms versus 20 ms medians and parse was about 1 ms in both; launch-to-plugin-complete was about 0.9-1.0 s for both and is dominated by Obsidian's own boot, not the plugin. The module-registry/plugin split was assessed and deliberately deferred to a separate maintainability project: all 361 modules are reachable, the bundle remains dependency-free, and a split needs boundary ownership, a migration path and an external test harness first.
@@ -2818,7 +2818,7 @@ The mission asked for every remaining plan item to be implemented. These cannot 
 
 **Sweep result (Nov 1, 2026).** `plan.md` has **122 checked `[x]` task items, 10 `[~]` partial/blocked items and 0 unchecked `[ ]` task items** (the literal `[ ]` in historical prose is an example, not a task). The 10 partials are the three manual visual/device/screenshot checks, the five OCR/audio/pronunciation rows and the two AP FRQ calibration rows; each is gated in §3.9.6. The 17 recommended defaults are recorded above; the minimal keyboard map, the Qwen preset and the local chemistry/biology/circuit renderers are shipped. No bundled provider credential, OCR/PDF engine, OAuth, code execution, web lookup, bundled STEM library or paid tier is added. Qwen is a BYOK preset and the STEM renderers are original local code. No new version or release was made.
 
-**Sweep result (Nov 11, 2026).** `plan.md` has **98 checked `[x]` roadmap rows, 3 `[~]` partial/blocked rows and 0 unchecked `[ ]` rows**. A further ~112 checked rows were release-log bullets at the top of the file; they now live in `docs/release-notes/` and `AGENTS.md` rather than being duplicated here. Four owner-decision rows closed on Nov 6, 2026 (TTS/audio, pronunciation, FRQ accuracy, pilot thresholds); the remaining three are the owner-manual visual, device and screenshot passes in [docs/plan-decisions.md](docs/plan-decisions.md). No implementation row is open: PDF→FRQ import shipped in §5.20.5. A Nov 7, 2026 pass corrected the stale diagnostics entry to ✅, shipped plan proposals/plan-then-act and general PDF attachments, recorded inline diff as ◐ and verified PDF passage Q&A in `src/reading-companion.js`; Miyo remains ⛔ because it needs an embedding model and index, and no ○ row remains.
+**Sweep result (Nov 12, 2026).** `plan.md` has **98 checked `[x]` roadmap rows, 3 `[~]` partial/blocked rows and 0 unchecked `[ ]` rows**. A further ~112 checked rows were release-log bullets at the top of the file; they now live in `docs/release-notes/` and `AGENTS.md` rather than being duplicated here. Four owner-decision rows closed on Nov 6, 2026 (TTS/audio, pronunciation, FRQ accuracy, pilot thresholds); the remaining three are the owner-manual visual, device and screenshot passes in [docs/plan-decisions.md](docs/plan-decisions.md). No implementation row is open: PDF→FRQ import shipped in §5.20.5. A Nov 7, 2026 pass corrected the stale diagnostics entry to ✅, shipped plan proposals/plan-then-act and general PDF attachments, recorded inline diff as ◐ and verified PDF passage Q&A in `src/reading-companion.js`; Miyo remains ⛔ because it needs an embedding model and index, and no ○ row remains.
 
 **The approved local implementation batch is complete.** The local study modules and the Quizzable slice shipped. The remaining provider/credential/fixture/security rows are explicitly gated by the §11 decisions above or by owner manual checks; no wave approval is pending.
 

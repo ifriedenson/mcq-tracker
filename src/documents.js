@@ -91,13 +91,13 @@ function zipEntries(buf) {
       break;
     }
   }
-  if (eocd < 0) throw new Error("This file isn't a valid Office file: its ZIP directory is missing or damaged.");
+  if (eocd < 0) throw new Error("This file isn't a valid Office file: its ZIP directory is missing or damaged. Open it in its original app and save a new copy, or export it as a PDF.");
   const count = dv.getUint16(eocd + 10, true);
   let p = dv.getUint32(eocd + 16, true);
   const entries = new Map();
   for (let i = 0; i < count; i++) {
     if (p + 46 > u8.length || dv.getUint32(p, true) !== 0x02014b50) {
-      throw new Error("This Office file is damaged: its ZIP directory can't be read.");
+      throw new Error("This Office file is damaged: its ZIP directory can't be read. Open it in its original app and save a new copy, or export it as a PDF.");
     }
     const method = dv.getUint16(p + 10, true);
     const compSize = dv.getUint32(p + 20, true);
@@ -133,7 +133,7 @@ async function inflateRaw(data) {
     const zlib = require("zlib");
     return new Uint8Array(zlib.inflateRawSync(data));
   } catch (e) {
-    throw new Error("This Office file is compressed in a way this version of Obsidian can't read.");
+    throw new Error("This Office file is damaged or uses a compression method this version of Obsidian can't read. Open it in its original app and save a new copy, or export it as a PDF.");
   }
 }
 

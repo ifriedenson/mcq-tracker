@@ -846,6 +846,37 @@ test("batch import: a stalled answer check times out and the file still finishes
   assert.ok(summary.includes("Practice these questions"));
 });
 
+test("agent import: no notes removes the source copy and the empty folder", async () => {
+  const state = await setup();
+  state.plugin.settings.ai.backend = "opencode";
+  state.plugin.settings.ai.managed = false;
+  state.plugin.ensureOpenCode = async () => {};
+  state.plugin.openCode = () => ({
+    providers: async () => ({ providers: [{}] }),
+    createSession: async () => ({ id: "import-empty" }),
+    promptAsync: async () => ({}),
+    messages: async () => agentMessage("done"),
+    abort: async () => ({}),
+  });
+
+  const bytes = await textPdf();
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [file("Unit A.pdf", bytes)] });
+  const dom = attach(modal);
+  modal.onOpen();
+  modal.folder = "Questions/Unit A";
+  modal.agentPollMs = 5;
+  modal.agentSettleMs = 20;
+  modal.agentIdleMs = 1000;
+  modal.agentMaxMs = 3000;
+  await modal.start();
+
+  assert.equal(state.files.size, 0, "a no-notes agent run leaves no source copy");
+  assert.equal(state.dirs.size, 0, "a no-notes agent run leaves no empty folders");
+  assert.ok(dom.texts().includes("No notes were created"));
+  assert.ok(dom.texts().some((text) => /copied source and any empty folders/.test(text)));
+  assert.ok(!dom.texts().some((text) => /^Saved in /.test(text)), "the UI does not claim it saved a folder");
+});
+
 test("batch import: an agent finish advances the queue even when send never resolves", async () => {
   const state = await setup();
   state.plugin.settings.ai.backend = "opencode";
