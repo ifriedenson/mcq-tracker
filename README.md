@@ -6,9 +6,9 @@ MCQ Tracker is the question-first study plugin for Obsidian. Turn notes and PDFs
 
 <img src="docs/images/hero-practice.png" alt="MCQ Tracker Practice view showing a multiple-choice question, four answer choices, confidence buttons, a timer and Submit." width="900">
 
-<img src="docs/images/practice-view-demo.gif" alt="Demo of answering APW-U3-MCQ-Q01 in Practice: select C, mark Confident, Submit, correct with rationale." width="720">
+<img src="docs/images/practice-view-demo.gif" alt="Demo walkthrough of five Practice questions, each answered and marked correct, starting with APW-U3-MCQ-Q01." width="1280">
 
-Practice demo from `APW-U3-MCQ-Q01` (select C, mark Confident, Submit) with the real `U3-MCQ-S01` stimulus images. Reconstructed demo frames, not a pixel-perfect Obsidian capture.
+Practice demo: a full-window walkthrough of five questions, each answered and marked correct, starting with `APW-U3-MCQ-Q01` and its real `U3-MCQ-S01` stimulus images. Reconstructed demo frames, not a pixel-perfect Obsidian capture.
 
 ## Where to start
 
