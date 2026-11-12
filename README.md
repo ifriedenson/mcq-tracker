@@ -8,7 +8,7 @@ MCQ Tracker is the question-first study plugin for Obsidian. Turn notes and PDFs
 
 <img src="docs/images/practice-view-demo.gif" alt="Ten real Obsidian Practice screenshots answering AP World History questions, each with the correct choice selected and Confident set." width="1440">
 
-Practice demo: ten real Obsidian screenshots (app 1.15.1, 1440×900, Default theme in light mode, both sidebars hidden) stepping through AP World History questions in the full-width left/right split, each with the correct answer selected and **Confident** set before **Submit**. The passage or stimulus image sits on the left and the question on the right, exactly as it does in the plugin. The full-size PNGs are in [`docs/images/practice-run/`](docs/images/practice-run).
+Practice demo: ten real Obsidian screenshots (app 1.15.1, 1440×900, the [Primary](https://github.com/primary-theme/obsidian) community theme, both sidebars hidden) stepping through AP World History questions in the full-width left/right split, each with the correct answer selected and **Confident** set before **Submit**. The passage or stimulus image sits on the left and the question on the right, exactly as it does in the plugin. The full-size PNGs are in [`docs/images/practice-run/`](docs/images/practice-run).
 
 ## Where to start
 
