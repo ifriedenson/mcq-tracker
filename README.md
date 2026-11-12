@@ -181,6 +181,12 @@ Open Obsidian and click **Today**. It lists the questions that are due for revie
 
 ### Getting your own questions in
 
+The no-AI route, start to finish: Practice, then **Paste questions (offline)**, then paste one question per block.
+
+<img src="docs/images/quick-add-demo.gif" alt="Five real Obsidian screenshots: the Paste questions (offline) button, the Quick add box with two pasted questions and a two-question preview, the Created 2 questions notice, the new biology question in Practice, and the note the plugin wrote with its properties, question, choices and answer." width="1440">
+
+The five frames are also saved full size in [`docs/images/quick-add-run/`](docs/images/quick-add-run).
+
 - **Import a document.** This turns a PDF, PowerPoint, Word/OpenDocument, HTML, RTF, Markdown, CSV or text file into question notes, but **it needs AI features plus either a provider key or the OpenCode desktop agent, and there is no offline converter.** The file's text is sent to that provider, which may charge for long files.
 - **Import ready-made cards.** This route is local and separate from document import: Quizlet, Kahoot, Moodle XML, QTI, GIFT, CSV, Markdown, `.apkg`, CrowdAnki JSON, Mochi Markdown and Anki text.
 - **Write your own.** Each question is a short note. The [sample vault](samples/README.md) has working examples to copy.
@@ -277,6 +283,12 @@ The sections below are the full reference. The two paths above are enough to sta
 ### Practice, tests and feedback
 
 Practice is one note per question by default, which keeps each attempt, explanation and review date attached to the material it belongs to. Quick add can turn a pasted block into several notes at once, and the importers can bring in a whole question bank.
+
+A three-question timed test, end to end: the section setup, the test with its own clock and the finished score.
+
+<img src="docs/images/timed-test-demo.gif" alt="Three real Obsidian screenshots: the Timed test setup with a three-question, five-minute section and a Start the test button, the running test with a stimulus image, a question, a section clock and Finish test, and the finished score screen with 2 of 3 correct and each question ready to review." width="1440">
+
+The three frames are also saved full size in [`docs/images/timed-test-run/`](docs/images/timed-test-run).
 
 - **Question types:** MCQ, SPR, fill-in, matching, true/false, select-all and FRQ.
 - **Feedback:** the correct answer, the explanation, your confidence, an optional reason for a miss, mistake tags and the next review date.
