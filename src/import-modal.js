@@ -11,6 +11,7 @@ const { AGENT_SYSTEM, agentPrompt, aiFlags, answerKeyText, buildReportMarkdown, 
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { findDuplicateIds, indexOfficialIds, officialIdOf } = require("./filters");
 const { friendlyApiError } = require("./api-client");
+const { findAnswerKey } = require("./notes");
 const { checkDocumentText, summaryText } = require("./import-preflight");
 const { ImportCompleteModal } = require("./import-complete-modal");
 
@@ -1587,10 +1588,14 @@ class PdfImportModal extends QtModal {
         continue;
       }
       const f = this.app.vault.getAbstractFileByPath(path);
-      const pre = aiFlags(parsed.fm, parsed.sec);
+      // The key can be written only under "## Answer". Resolve it the way
+      // practice and the audit do, or the blind check silently never runs and
+      // the note stays unverified for no good reason.
+      const preKey = findAnswerKey(parsed.fm, parsed.sec);
+      const preFromDocument = str(parsed.fm.answer_source).toLowerCase() === "pdf";
       let verification = null;
-      if (pre.aiAnswer && parsed.sec.choices.length && typeof this.plugin.verifyDraftQuestions === "function") {
-        const draft = { question: parsed.sec.question, choices: parsed.sec.choices, answer: str(parsed.fm.answer) };
+      if (preKey && !preFromDocument && parsed.sec.choices.length && typeof this.plugin.verifyDraftQuestions === "function") {
+        const draft = { question: parsed.sec.question, choices: parsed.sec.choices, answer: preKey };
         this.status(`Checking answer ${i + 1} of ${files.length}: ${base}...`);
         await this.awaitCancellable(this.plugin.verifyDraftQuestions([draft]));
         verification = draft.verification;

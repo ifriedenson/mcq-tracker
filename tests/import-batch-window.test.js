@@ -1036,3 +1036,41 @@ test("batch import: Finish this file, then stop saves the current file and leave
   assert.match(summary, /1 question note imported/);
   assert.ok(summary.includes("Practice these questions"));
 });
+
+test("agent import: a key only in the Answer section is still verified", async () => {
+  const state = await setup();
+  state.plugin.settings.ai.backend = "opencode";
+  state.plugin.settings.ai.managed = false;
+  state.plugin.ensureOpenCode = async () => {};
+  const notePath = "Questions/Unit A/Unit A-Q01.md";
+  // What opencode/big-pickle actually wrote for the AP World PDFs: no answer
+  // property, the key only in the reveal callout.
+  const sectionOnly = `---\nnumber: 1\n---\n\n## Question\nWhat is 2 + 2?\n\n## Answer Choices\n- A. 3\n- B. 4\n- C. 5\n- D. 6\n\n## Answer\n> [!answer]- Reveal answer\n> **Correct Answer: B**\n>\n> Four.\n`;
+  state.plugin.openCode = () => ({
+    providers: async () => ({ providers: [{}] }),
+    createSession: async () => ({ id: "import-check" }),
+    promptAsync: async () => {
+      await state.app.vault.create(notePath, sectionOnly);
+      return {};
+    },
+    messages: async () => agentMessage("done"),
+    abort: async () => ({}),
+  });
+  const checked = [];
+  state.plugin.verifyDraftQuestions = async (items) => {
+    checked.push(items[0].answer);
+    items[0].verification = { status: "match", match: true, answer: "B", key: items[0].answer, model: "test", date: "2026-11-13" };
+  };
+
+  const bytes = await textPdf();
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [file("Unit A.pdf", bytes)] });
+  attach(modal);
+  modal.onOpen();
+  await modal.start();
+
+  assert.deepEqual(checked, ["B"], "the blind check runs against the section key instead of being skipped");
+  const saved = state.files.get(notePath).text;
+  assert.match(saved, /^answer: B$/m, "the key becomes the answer property");
+  assert.match(saved, /verification: match/, "the check result is written to the note");
+  assert.match(saved, /verified: true/, "the note is no longer left unverified");
+});

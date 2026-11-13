@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.11",
+    date: "November 13, 2026",
+    title: "The answer check now runs on section-only keys",
+    summary:
+      "An agent note whose key is written only under Answer used to skip the independent answer check and stay marked unverified. The check now reads that key, so a finished import is verified the same way whichever place the key was written.",
+    highlights: [
+      {
+        title: "Verification was skipped, not failed",
+        body: "The check only ran when a note had an answer property to compare against, so a key written under Answer silently skipped it. Now that key is read, checked, and the result saved.",
+      },
+      {
+        title: "Same reader everywhere",
+        body: "Practice, the import audit and the answer check all resolve the key through one function, so they cannot disagree about whether a note has an answer.",
+      },
+      {
+        title: "Notes say what was checked",
+        body: "The result is saved on the note (verified, verified by, verified on, verification: match), so you can see that an answer was independently confirmed.",
+      },
+      {
+        title: "No format changes",
+        body: "Existing notes stay valid; already-imported notes do not need re-importing. Review dates, settings, provider keys and network defaults are unchanged.",
+      },
+    ],
+  },
+  {
     version: "1.301.10",
     date: "November 13, 2026",
     title: "Answers written in the Answer section count",

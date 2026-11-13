@@ -49394,6 +49394,7 @@ const { AGENT_SYSTEM, agentPrompt, aiFlags, answerKeyText, buildReportMarkdown, 
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { findDuplicateIds, indexOfficialIds, officialIdOf } = require("./filters");
 const { friendlyApiError } = require("./api-client");
+const { findAnswerKey } = require("./notes");
 const { checkDocumentText, summaryText } = require("./import-preflight");
 const { ImportCompleteModal } = require("./import-complete-modal");
 
@@ -50970,10 +50971,14 @@ class PdfImportModal extends QtModal {
         continue;
       }
       const f = this.app.vault.getAbstractFileByPath(path);
-      const pre = aiFlags(parsed.fm, parsed.sec);
+      // The key can be written only under "## Answer". Resolve it the way
+      // practice and the audit do, or the blind check silently never runs and
+      // the note stays unverified for no good reason.
+      const preKey = findAnswerKey(parsed.fm, parsed.sec);
+      const preFromDocument = str(parsed.fm.answer_source).toLowerCase() === "pdf";
       let verification = null;
-      if (pre.aiAnswer && parsed.sec.choices.length && typeof this.plugin.verifyDraftQuestions === "function") {
-        const draft = { question: parsed.sec.question, choices: parsed.sec.choices, answer: str(parsed.fm.answer) };
+      if (preKey && !preFromDocument && parsed.sec.choices.length && typeof this.plugin.verifyDraftQuestions === "function") {
+        const draft = { question: parsed.sec.question, choices: parsed.sec.choices, answer: preKey };
         this.status(`Checking answer ${i + 1} of ${files.length}: ${base}...`);
         await this.awaitCancellable(this.plugin.verifyDraftQuestions([draft]));
         verification = draft.verification;
@@ -134439,6 +134444,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.301.11",
+    date: "November 13, 2026",
+    title: "The answer check now runs on section-only keys",
+    summary:
+      "An agent note whose key is written only under Answer used to skip the independent answer check and stay marked unverified. The check now reads that key, so a finished import is verified the same way whichever place the key was written.",
+    highlights: [
+      {
+        title: "Verification was skipped, not failed",
+        body: "The check only ran when a note had an answer property to compare against, so a key written under Answer silently skipped it. Now that key is read, checked, and the result saved.",
+      },
+      {
+        title: "Same reader everywhere",
+        body: "Practice, the import audit and the answer check all resolve the key through one function, so they cannot disagree about whether a note has an answer.",
+      },
+      {
+        title: "Notes say what was checked",
+        body: "The result is saved on the note (verified, verified by, verified on, verification: match), so you can see that an answer was independently confirmed.",
+      },
+      {
+        title: "No format changes",
+        body: "Existing notes stay valid; already-imported notes do not need re-importing. Review dates, settings, provider keys and network defaults are unchanged.",
+      },
+    ],
+  },
   {
     version: "1.301.10",
     date: "November 13, 2026",
