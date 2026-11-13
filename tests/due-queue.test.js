@@ -86,6 +86,42 @@ test("due queue: a daily cap holds overflow without dropping or rescheduling it"
   assert.equal(T.normalizeDailyCap(999), 500);
 });
 
+test("due queue: practice starts in smart mode so never-attempted questions are not dropped", async () => {
+  const calls = [];
+  const modal = Object.create(T.DueQueueModal.prototype);
+  modal.plugin = {
+    async startQuickPractice(opts) {
+      calls.push(opts);
+    },
+    async reviewCard(source) {
+      calls.push({ card: source });
+    },
+  };
+  modal.onDone = () => {};
+  modal.close = () => {};
+  const newQuestion = { file: { path: "Questions/new.md" } };
+  const dueQuestion = { file: { path: "Questions/due.md" } };
+  const card = { file: { path: "Cards/c.md" } };
+
+  await modal.start({ type: "question", source: newQuestion });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].mode, "smart", "due mode would drop a question with no attempts");
+  assert.equal(calls[0].label, "the due queue");
+  assert.deepEqual(calls[0].pool, [newQuestion]);
+
+  await modal.startQuestions([
+    { type: "question", source: newQuestion },
+    { type: "card", source: card },
+    { type: "question", source: dueQuestion },
+  ]);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].mode, "smart");
+  assert.deepEqual(calls[1].pool, [newQuestion, dueQuestion]);
+
+  await modal.start({ type: "card", source: card });
+  assert.deepEqual(calls[2].card, card);
+});
+
 test("mixed review honors the same daily cap", () => {
   const questions = [1, 2].map((n) => ({ file: { path: `Questions/m${n}.md`, basename: `m${n}` }, fm: { question_id: `m${n}`, attempts: 1, next_review: `2020-01-0${n}` } }));
   const cards = [

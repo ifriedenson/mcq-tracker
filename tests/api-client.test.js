@@ -30,6 +30,13 @@ test("AI request: a missing key, base URL or model names the setting to fix", as
   await assert.rejects(() => client({}, noModel).chat("sys", messages), /Add a model name in the plugin settings/);
 });
 
+test("AI errors: a rejected key is reported as a key problem, not a network problem", () => {
+  const message = friendlyApiError(new Error("HTTP 401: Incorrect API key provided: sk-test."));
+  assert.match(message, /rejected the API key/);
+  assert.match(message, /Incorrect API key provided/);
+  assert.doesNotMatch(message, /Couldn't reach the provider/);
+});
+
 test("AI request: a local provider that needs no key still works without one", async () => {
   const restore = stubRequest(async () => ({
     status: 200,

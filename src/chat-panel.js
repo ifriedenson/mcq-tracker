@@ -228,10 +228,13 @@ class ChatPanel {
     this.sig = "";
     root.addClass("qt-agent-panel");
     if (!this.ai.enabled) {
-      root.createDiv({
-        cls: "qt-hint",
-        text: "OpenCode is turned off. Enable it in Settings > Study agent > AI and the assistant.",
+      const off = root.createDiv({ cls: "qt-hint qt-agent-off" });
+      off.createDiv({
+        text: "AI is turned off. Turn it on in Settings → Study agent → AI and the assistant.",
       });
+      if (typeof this.view.plugin.openSettings === "function") {
+        off.createEl("button", { text: "Open settings", cls: "mod-cta" }).addEventListener("click", () => this.view.plugin.openSettings("mcq-ai"));
+      }
       return;
     }
 

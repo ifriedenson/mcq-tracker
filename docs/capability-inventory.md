@@ -31,7 +31,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `CourseOverviewModal` | 0 | `tests/core-values.test.js` |
 | `DEFAULT_SETTINGS` | 118 | `tests/grading.test.js` |
 | `DocumentReviewModal` | 0 | `tests/feature-surfaces.test.js`, `tests/import-edge-robustness.test.js` |
-| `DueQueueModal` | 0 | `tests/feature-surfaces.test.js` |
+| `DueQueueModal` | 0 | `tests/due-queue.test.js`, `tests/feature-surfaces.test.js` |
 | `EpubReaderModal` | 0 | `tests/epub.test.js` |
 | `FindQuestionModal` | 0 | `tests/views.test.js` |
 | `FocusLogModal` | 0 | `tests/feature-surfaces.test.js` |

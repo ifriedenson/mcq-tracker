@@ -279,3 +279,18 @@ test("study agent phone layout: Escape exits full screen from the controls strip
   assert.equal(dom.root.classes.has("qt-agent-fullscreen"), false);
   assert.equal(panel.fullscreenBtn.getAttr("aria-label"), "Open the chat full screen");
 });
+
+test("study agent off state: names the setting and draws a working settings button", async () => {
+  const { panel, plugin, dom } = await apiPanel();
+  const opened = [];
+  plugin.openSettings = (page) => {
+    opened.push(page || "");
+  };
+  panel.ai.enabled = false;
+  panel.build();
+
+  assert.ok(dom.texts().some((text) => text.includes("AI is turned off")));
+  assert.ok(dom.texts().some((text) => text.includes("Settings → Study agent → AI and the assistant")));
+  await dom.click("Open settings");
+  assert.deepEqual(opened, ["mcq-ai"], "the off state opens the AI settings page directly");
+});

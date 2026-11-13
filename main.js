@@ -27238,10 +27238,13 @@ class ChatPanel {
     this.sig = "";
     root.addClass("qt-agent-panel");
     if (!this.ai.enabled) {
-      root.createDiv({
-        cls: "qt-hint",
-        text: "OpenCode is turned off. Enable it in Settings > Study agent > AI and the assistant.",
+      const off = root.createDiv({ cls: "qt-hint qt-agent-off" });
+      off.createDiv({
+        text: "AI is turned off. Turn it on in Settings → Study agent → AI and the assistant.",
       });
+      if (typeof this.view.plugin.openSettings === "function") {
+        off.createEl("button", { text: "Open settings", cls: "mod-cta" }).addEventListener("click", () => this.view.plugin.openSettings("mcq-ai"));
+      }
       return;
     }
 
@@ -135158,6 +135161,35 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.301.22",
+    date: "November 13, 2026",
+    title: "AI failures tell you what to fix",
+    summary:
+      "The assistant was driven live with an unreachable provider, a rejected key, a cancelled reply, no key and AI turned off. Every failure names the next step, Retry recovers once the provider is back, and the AI-off panel now has a settings button.",
+    highlights: [
+      {
+        title: "The AI-off panel has a way forward",
+        body: "It used to name a settings path in a paragraph with no control and call every setup OpenCode. It now says AI is turned off and draws Open settings, which opens the right settings tab.",
+      },
+      {
+        title: "A rejected key is not a network failure",
+        body: "HTTP 401 now says the provider rejected the API key or cannot use the model, and keeps the provider's reason. An unreachable server keeps its own connection and base-URL message.",
+      },
+      {
+        title: "Stop ends the wait cleanly",
+        body: "While a provider holds the request open, Stop is present; pressing it clears the spinner and says the reply was stopped, with Retry still available. No spinner is left behind.",
+      },
+      {
+        title: "The import preflight explains both outcomes",
+        body: "A damaged PDF says why it cannot be read and offers another file or offline paste; a readable one shows its page count and opens the AI connection dialog when AI is off.",
+      },
+      {
+        title: "Recovery was observed, not assumed",
+        body: "After the provider was restored, Retry sent the same question and the reply rendered with its usual actions. No note format, setting key, review schedule or network default changed.",
+      },
+    ],
+  },
   {
     version: "1.301.21",
     date: "November 13, 2026",
