@@ -37,6 +37,12 @@ const { DEFAULT_THINK_FIRST_SECONDS, MAX_THINK_FIRST_SECONDS, MIN_THINK_FIRST_SE
 const { normalizeAiContext } = require("./ai-context");
 const { AI_FEATURES, CAPABILITY_LABELS } = require("./ai-service");
 const { normalizeVerificationMode } = require("./answer-verification");
+
+/** The saved panel size as 2 or 3; an install from 1.301.12 defaults to three. */
+function savedPanelSize(ai) {
+  const size = Number(ai && ai.verifyPanelSize);
+  return size === 2 ? 2 : 3;
+}
 const { SAME_DAY_NOTE } = require("./fsrs");
 const { hasSecretStorage, readSecretValue, selectApiSecret, selectPasswordSecret, storeSecretValue, OPENCODE_PASSWORD_SECRET } = require("./secret-keys");
 
@@ -952,16 +958,26 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           })
       );
     new Setting(section)
-      .setName("Ask two more checks when they disagree")
+      .setName("Extra checks after a disagreement")
       .setDesc(
-        "On by default. The first check runs once per AI-written multiple-choice answer. If it disagrees with the stored answer, two more independent blind checks run and the answer counts as verified only when at least two of the three agree with it; a panel that settles on one other answer is flagged with that answer named. Extra requests happen only for answers that disagree, and switching this off flags a disagreement immediately."
+        "The first check runs once per AI-written multiple-choice answer. If it disagrees with the stored answer, two or three more independent blind checks look the question over and the answer counts as verified only when most passes agree with it; a panel that settles on one other answer is flagged with that answer named, and a split keeps the note flagged. Extra requests happen only for answers that disagree."
       )
-      .addToggle((t) =>
-        t.setValue(ai.verifyPanel !== false).onChange(async (v) => {
-          ai.verifyPanel = v;
-          await this.plugin.save();
-          this.plugin.refreshViews();
-        })
+      .addDropdown((d) =>
+        d
+          .addOption("off", "Off: flag the first disagreement")
+          .addOption("2", "Two more checks (three passes)")
+          .addOption("3", "Three more checks (four passes)")
+          .setValue(ai.verifyPanel === false ? "off" : String(savedPanelSize(ai)))
+          .onChange(async (v) => {
+            if (v === "off") {
+              ai.verifyPanel = false;
+            } else {
+              ai.verifyPanel = true;
+              ai.verifyPanelSize = Number(v) === 2 ? 2 : 3;
+            }
+            await this.plugin.save();
+            this.plugin.refreshViews();
+          })
       );
     section = card("Context and privacy", "Choose which aggregate study signals the assistant may see. Nothing here includes note text, question text or answers.");
     section.createEl("p", {

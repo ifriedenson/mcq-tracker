@@ -77747,7 +77747,7 @@ class QuestionTrackerPlugin extends Plugin {
     const ai = this.settings.ai || {};
     if (ai.verifyPanel === false) return 0;
     const wanted = Number(ai.verifyPanelSize);
-    return Number.isFinite(wanted) ? Math.max(0, Math.min(3, Math.round(wanted))) : 2;
+    return Number.isFinite(wanted) ? Math.max(0, Math.min(3, Math.round(wanted))) : 3;
   }
 
   /**
@@ -107408,6 +107408,12 @@ const { DEFAULT_THINK_FIRST_SECONDS, MAX_THINK_FIRST_SECONDS, MIN_THINK_FIRST_SE
 const { normalizeAiContext } = require("./ai-context");
 const { AI_FEATURES, CAPABILITY_LABELS } = require("./ai-service");
 const { normalizeVerificationMode } = require("./answer-verification");
+
+/** The saved panel size as 2 or 3; an install from 1.301.12 defaults to three. */
+function savedPanelSize(ai) {
+  const size = Number(ai && ai.verifyPanelSize);
+  return size === 2 ? 2 : 3;
+}
 const { SAME_DAY_NOTE } = require("./fsrs");
 const { hasSecretStorage, readSecretValue, selectApiSecret, selectPasswordSecret, storeSecretValue, OPENCODE_PASSWORD_SECRET } = require("./secret-keys");
 
@@ -108323,16 +108329,26 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           })
       );
     new Setting(section)
-      .setName("Ask two more checks when they disagree")
+      .setName("Extra checks after a disagreement")
       .setDesc(
-        "On by default. The first check runs once per AI-written multiple-choice answer. If it disagrees with the stored answer, two more independent blind checks run and the answer counts as verified only when at least two of the three agree with it; a panel that settles on one other answer is flagged with that answer named. Extra requests happen only for answers that disagree, and switching this off flags a disagreement immediately."
+        "The first check runs once per AI-written multiple-choice answer. If it disagrees with the stored answer, two or three more independent blind checks look the question over and the answer counts as verified only when most passes agree with it; a panel that settles on one other answer is flagged with that answer named, and a split keeps the note flagged. Extra requests happen only for answers that disagree."
       )
-      .addToggle((t) =>
-        t.setValue(ai.verifyPanel !== false).onChange(async (v) => {
-          ai.verifyPanel = v;
-          await this.plugin.save();
-          this.plugin.refreshViews();
-        })
+      .addDropdown((d) =>
+        d
+          .addOption("off", "Off: flag the first disagreement")
+          .addOption("2", "Two more checks (three passes)")
+          .addOption("3", "Three more checks (four passes)")
+          .setValue(ai.verifyPanel === false ? "off" : String(savedPanelSize(ai)))
+          .onChange(async (v) => {
+            if (v === "off") {
+              ai.verifyPanel = false;
+            } else {
+              ai.verifyPanel = true;
+              ai.verifyPanelSize = Number(v) === 2 ? 2 : 3;
+            }
+            await this.plugin.save();
+            this.plugin.refreshViews();
+          })
       );
     section = card("Context and privacy", "Choose which aggregate study signals the assistant may see. Nothing here includes note text, question text or answers.");
     section.createEl("p", {
@@ -134525,6 +134541,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.301.13",
+    date: "November 13, 2026",
+    title: "Three more checks by default, or two",
+    summary:
+      "A disputed answer now goes to three more independent checks by default, so four passes in total vote on it, and Settings offers two more instead. The stored answer needs a majority of those passes; a split keeps the note flagged.",
+    highlights: [
+      {
+        title: "Three extra passes by default",
+        body: "The first check, then three more blind passes look over any answer that disagrees, so a single odd reply is very unlikely to decide the outcome.",
+      },
+      {
+        title: "Two or three, your choice",
+        body: "Settings, AI, Session pacing and checks lists Off, Two more checks (three passes) and Three more checks (four passes) in one dropdown.",
+      },
+      {
+        title: "A split still flags",
+        body: "The stored answer counts as verified only when most passes agree with it. Half of the passes, or a panel that settles on another answer, keeps the note flagged with that answer named.",
+      },
+      {
+        title: "No format changes",
+        body: "Existing notes stay valid and need no re-import. Review dates, saved settings, provider keys and network defaults are unchanged.",
+      },
+    ],
+  },
   {
     version: "1.301.12",
     date: "November 13, 2026",

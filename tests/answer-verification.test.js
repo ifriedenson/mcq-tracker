@@ -197,6 +197,7 @@ test("consensus: a disagreement is put to two more checks and can be verified", 
   const plugin = new QT(makeApp([]));
   await plugin.onload();
   plugin.settings.ai.enabled = true;
+  plugin.settings.ai.verifyPanelSize = 2;
   // The first check disagrees, then both extra checks side with the key.
   const replies = ['{"answer":"A"}', '{"answer":"B"}', '{"answer":"B"}'];
   let calls = 0;
@@ -208,6 +209,28 @@ test("consensus: a disagreement is put to two more checks and can be verified", 
   assert.equal(item.verification.status, "match");
   assert.equal(item.verification.method, "consensus");
   assert.equal(item.verification.drop, false);
+});
+
+test("consensus: three extra checks are the default, and a 2-of-4 split stays a mismatch", async () => {
+  const plugin = new QT(makeApp([]));
+  await plugin.onload();
+  plugin.settings.ai.enabled = true;
+  assert.equal(plugin.verificationPanelSize(), 3, "three more checks unless the install asks for two");
+  // First says A; of the three extras, two back the key and one does not.
+  const replies = ['{"answer":"A"}', '{"answer":"B"}', '{"answer":"B"}', '{"answer":"A"}'];
+  let calls = 0;
+  plugin.aiComplete = async () => replies[Math.min(calls++, replies.length - 1)];
+  const item = { question: "Two?", choices: ["a", "b", "c", "d"], answer: "B" };
+  await plugin.verifyDraftQuestions([item]);
+  assert.equal(calls, 4, "one check plus three more");
+  assert.equal(item.verification.status, "mismatch", "half the passes backing the key is not a majority");
+  assert.equal(item.verification.votes, 4);
+
+  calls = 0;
+  plugin.aiComplete = async () => (calls++ === 0 ? '{"answer":"A"}' : '{"answer":"B"}');
+  const clear = { question: "Two?", choices: ["a", "b", "c", "d"], answer: "B" };
+  await plugin.verifyDraftQuestions([clear]);
+  assert.equal(clear.verification.status, "match", "three of four backing the key verifies");
 });
 
 test("consensus: turning the panel off flags the first disagreement immediately", async () => {

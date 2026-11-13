@@ -6205,7 +6205,7 @@ class QuestionTrackerPlugin extends Plugin {
     const ai = this.settings.ai || {};
     if (ai.verifyPanel === false) return 0;
     const wanted = Number(ai.verifyPanelSize);
-    return Number.isFinite(wanted) ? Math.max(0, Math.min(3, Math.round(wanted))) : 2;
+    return Number.isFinite(wanted) ? Math.max(0, Math.min(3, Math.round(wanted))) : 3;
   }
 
   /**

@@ -98,7 +98,7 @@ test("plugin: chat-created questions get the blind check before they are written
   const result = await plugin.applyByokToolProposals([
     { tool: "create_question", question: "What is 2 + 2?", choices: ["3", "4"], answer: "A", explanation: "Two and two make four." },
   ]);
-  assert.equal(asked, 3, "the blind verifier runs before writing, and twice more because it disagreed");
+  assert.equal(asked, 4, "the blind verifier runs before writing, and three more times because it disagreed");
   assert.equal(result.verification.checked, 1);
   assert.equal(result.created, 1);
   assert.match(app.created[0].text, /verification: mismatch/);

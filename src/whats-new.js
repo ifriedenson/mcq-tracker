@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.13",
+    date: "November 13, 2026",
+    title: "Three more checks by default, or two",
+    summary:
+      "A disputed answer now goes to three more independent checks by default, so four passes in total vote on it, and Settings offers two more instead. The stored answer needs a majority of those passes; a split keeps the note flagged.",
+    highlights: [
+      {
+        title: "Three extra passes by default",
+        body: "The first check, then three more blind passes look over any answer that disagrees, so a single odd reply is very unlikely to decide the outcome.",
+      },
+      {
+        title: "Two or three, your choice",
+        body: "Settings, AI, Session pacing and checks lists Off, Two more checks (three passes) and Three more checks (four passes) in one dropdown.",
+      },
+      {
+        title: "A split still flags",
+        body: "The stored answer counts as verified only when most passes agree with it. Half of the passes, or a panel that settles on another answer, keeps the note flagged with that answer named.",
+      },
+      {
+        title: "No format changes",
+        body: "Existing notes stay valid and need no re-import. Review dates, saved settings, provider keys and network defaults are unchanged.",
+      },
+    ],
+  },
+  {
     version: "1.301.12",
     date: "November 13, 2026",
     title: "A disagreement is checked again before it is believed",
