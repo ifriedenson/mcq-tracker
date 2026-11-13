@@ -66,10 +66,10 @@ test("RecentFilesView renders Obsidian recents, opens a note and persists a pin"
   view.togglePin("Biology/Cells.md");
   assert.deepEqual(plugin.settings.recentFiles.pinned, []);
 
-  await view.open("Math/Proofs.md");
+  await view.openRow("Math/Proofs.md");
   assert.ok(app.opened.includes("Math/Proofs.md"));
 
-  await view.open("Not/There.md");
+  await view.openRow("Not/There.md");
   assert.ok(require("./helpers/load").obsidian.notices.some((text) => text.includes("Could not find")));
 });
 
@@ -77,6 +77,7 @@ test("the open-recent-files command delegates to this.openRecentFiles", () => {
   // Keep the command id and callback named here so the capability inventory
   // requires a real registered command with a real method behind it.
   assert.equal(typeof RecentFilesView, "function");
+  assert.equal(Object.prototype.hasOwnProperty.call(RecentFilesView.prototype, "open"), false, "open() belongs to View; a row opener must use another name");
   const source = require("fs").readFileSync(require("path").join(__dirname, "..", "src", "plugin.js"), "utf8");
   assert.ok(source.includes("open-recent-files"));
   assert.ok(source.includes("openRecentFiles"));

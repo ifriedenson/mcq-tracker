@@ -570,7 +570,13 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({
       id: "practice-folder",
       name: "Practice a folder...",
-      callback: () => new QuestionFolderModal(this.app, this, (f) => this.practiceFolder(f)).open(),
+      callback: () => {
+        if (!this.getQuestions().length) {
+          new Notice("There are no question notes yet. Import questions from a file, or paste some with Quick add questions.");
+          return;
+        }
+        new QuestionFolderModal(this.app, this, (f) => this.practiceFolder(f)).open();
+      },
     });
     this.addCommand({
       id: "practice-current-folder",
@@ -1064,7 +1070,17 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "knowledge-record", name: "Open the knowledge record", callback: () => this.activateInsights("concepts") });
     this.addCommand({ id: "rebuild-knowledge-record", name: "Knowledge record: rebuild from notes", callback: () => this.rebuildKnowledgeRecord() });
     this.addCommand({ id: "copy-learner-digest", name: "Knowledge record: copy learner digest", callback: () => this.copyLearnerDigest() });
-    this.addCommand({ id: "find-question", name: "Find a question by ID", callback: () => new FindQuestionModal(this.app, this).open() });
+    this.addCommand({
+      id: "find-question",
+      name: "Find a question by ID",
+      callback: () => {
+        if (!this.getQuestions().length) {
+          new Notice("There are no question notes to find yet. Import questions from a file, or paste some with Quick add questions.");
+          return;
+        }
+        new FindQuestionModal(this.app, this).open();
+      },
+    });
     this.addCommand({
       id: "rename-source-id",
       name: "Rename old source_question_id properties to official_question_id",
@@ -1608,7 +1624,10 @@ class QuestionTrackerPlugin extends Plugin {
     if (mode) st.mode = mode;
     await this.save();
     const view = await this.activateView();
-    if (!view) return;
+    if (!view) {
+      new Notice("Could not open the Practice view. Check that MCQ Tracker is turned on under Settings, Global, Modules, then try again.");
+      return;
+    }
     view.filtersOpen = true;
     if (view.next) await view.next();
     else this.refreshViews();

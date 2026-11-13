@@ -29,10 +29,8 @@ class RecentFilesView extends ItemView {
   }
 
   /**
-   * Obsidian asks a view for its state when the leaf is restored or loaded.
-   * ItemView's default state carries `this.file`, which this view never sets, and
-   * Obsidian then calls getExternalFile(undefined) and logs "Failed to open view".
-   * This view keeps no per-leaf state, so an empty state is the honest answer.
+   * This view keeps no per-leaf state. ItemView's default state names a `file`
+   * the view never sets, so an empty state is the honest answer.
    */
   getState() {
     return {};
@@ -142,12 +140,13 @@ class RecentFilesView extends ItemView {
         text: row.pinned ? "Unpin" : "Pin",
         attr: { "aria-label": `${row.pinned ? "Unpin" : "Pin"} ${row.name}` },
       });
-      open.addEventListener("click", () => this.open(row.path));
+      open.addEventListener("click", () => this.openRow(row.path));
       pin.addEventListener("click", () => this.togglePin(row.path));
     }
   }
 
-  open(path) {
+  /** Named openRow, not open: View.open() is Obsidian's own lifecycle method. */
+  openRow(path) {
     const app = this.app || {};
     const file = app.vault && typeof app.vault.getAbstractFileByPath === "function" ? app.vault.getAbstractFileByPath(path) : null;
     if (!file) {

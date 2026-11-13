@@ -36975,7 +36975,8 @@ class DueQueueModal extends QtModal {
   async start(item) {
     this.close();
     if (item.type === "question") {
-      await this.plugin.startQuickPractice({ minutes: 5, pool: [item.source], mode: "due", label: "due question" });
+      // The queue already chose due and new items; the "due" mode would drop the new ones.
+      await this.plugin.startQuickPractice({ minutes: 5, pool: [item.source], mode: "smart", label: "the due queue" });
     } else {
       await this.plugin.reviewCard(item.source);
     }
@@ -36986,7 +36987,8 @@ class DueQueueModal extends QtModal {
     const questions = items.filter((item) => item.type === "question").map((item) => item.source);
     if (!questions.length) return;
     this.close();
-    await this.plugin.startQuickPractice({ minutes: 5, pool: questions, mode: "due", label: "questions due today" });
+    // Same reason: never-attempted questions are in this queue but not "due" by date.
+    await this.plugin.startQuickPractice({ minutes: 5, pool: questions, mode: "smart", label: "the due queue" });
     this.onDone();
   }
 
@@ -72473,7 +72475,13 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({
       id: "practice-folder",
       name: "Practice a folder...",
-      callback: () => new QuestionFolderModal(this.app, this, (f) => this.practiceFolder(f)).open(),
+      callback: () => {
+        if (!this.getQuestions().length) {
+          new Notice("There are no question notes yet. Import questions from a file, or paste some with Quick add questions.");
+          return;
+        }
+        new QuestionFolderModal(this.app, this, (f) => this.practiceFolder(f)).open();
+      },
     });
     this.addCommand({
       id: "practice-current-folder",
@@ -72967,7 +72975,17 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "knowledge-record", name: "Open the knowledge record", callback: () => this.activateInsights("concepts") });
     this.addCommand({ id: "rebuild-knowledge-record", name: "Knowledge record: rebuild from notes", callback: () => this.rebuildKnowledgeRecord() });
     this.addCommand({ id: "copy-learner-digest", name: "Knowledge record: copy learner digest", callback: () => this.copyLearnerDigest() });
-    this.addCommand({ id: "find-question", name: "Find a question by ID", callback: () => new FindQuestionModal(this.app, this).open() });
+    this.addCommand({
+      id: "find-question",
+      name: "Find a question by ID",
+      callback: () => {
+        if (!this.getQuestions().length) {
+          new Notice("There are no question notes to find yet. Import questions from a file, or paste some with Quick add questions.");
+          return;
+        }
+        new FindQuestionModal(this.app, this).open();
+      },
+    });
     this.addCommand({
       id: "rename-source-id",
       name: "Rename old source_question_id properties to official_question_id",
@@ -73511,7 +73529,10 @@ class QuestionTrackerPlugin extends Plugin {
     if (mode) st.mode = mode;
     await this.save();
     const view = await this.activateView();
-    if (!view) return;
+    if (!view) {
+      new Notice("Could not open the Practice view. Check that MCQ Tracker is turned on under Settings, Global, Modules, then try again.");
+      return;
+    }
     view.filtersOpen = true;
     if (view.next) await view.next();
     else this.refreshViews();
@@ -87430,8 +87451,13 @@ function zoomLabel(value) {
 const TIMER_WARNING_SECONDS = 300;
 
 /** True once, when a countdown first reaches the five-minute mark. */
-function shouldWarnFive(secondsLeft, warned) {
+function shouldWarnFive(secondsLeft, warned, totalSeconds) {
   const left = Number(secondsLeft);
+  // A session that is only five minutes long starts at this warning and needs no "five minutes left" line.
+  if (totalSeconds !== undefined) {
+    const total = Number(totalSeconds);
+    if (!Number.isFinite(total) || total <= TIMER_WARNING_SECONDS) return false;
+  }
   return warned !== true && Number.isFinite(left) && left > 0 && left <= TIMER_WARNING_SECONDS;
 }
 
@@ -87897,7 +87923,8 @@ class PracticeView extends ItemView {
     if (!this.timerEl || this.state !== "question") return;
     const countdown = this.quickSession && this.quickSession.kind === "time" ? quickRemainingSeconds(this.quickSession) : null;
     const s = countdown === null ? Math.floor(this.plugin.elapsedMs() / 1000) : this.quickSession.value * 60 - countdown;
-    if (countdown !== null && practiceTools.shouldWarnFive(countdown, this.timerWarned)) {
+    const sessionSeconds = this.quickSession && this.quickSession.kind === "time" ? this.quickSession.value * 60 : 0;
+    if (countdown !== null && practiceTools.shouldWarnFive(countdown, this.timerWarned, sessionSeconds)) {
       this.timerWarned = true;
       this.timerHidden = false;
       new Notice("Five minutes remaining in Quick Practice.", 6000);
@@ -96460,10 +96487,8 @@ class RecentFilesView extends ItemView {
   }
 
   /**
-   * Obsidian asks a view for its state when the leaf is restored or loaded.
-   * ItemView's default state carries `this.file`, which this view never sets, and
-   * Obsidian then calls getExternalFile(undefined) and logs "Failed to open view".
-   * This view keeps no per-leaf state, so an empty state is the honest answer.
+   * This view keeps no per-leaf state. ItemView's default state names a `file`
+   * the view never sets, so an empty state is the honest answer.
    */
   getState() {
     return {};
@@ -96573,12 +96598,13 @@ class RecentFilesView extends ItemView {
         text: row.pinned ? "Unpin" : "Pin",
         attr: { "aria-label": `${row.pinned ? "Unpin" : "Pin"} ${row.name}` },
       });
-      open.addEventListener("click", () => this.open(row.path));
+      open.addEventListener("click", () => this.openRow(row.path));
       pin.addEventListener("click", () => this.togglePin(row.path));
     }
   }
 
-  open(path) {
+  /** Named openRow, not open: View.open() is Obsidian's own lifecycle method. */
+  openRow(path) {
     const app = this.app || {};
     const file = app.vault && typeof app.vault.getAbstractFileByPath === "function" ? app.vault.getAbstractFileByPath(path) : null;
     if (!file) {
@@ -135132,6 +135158,35 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.301.21",
+    date: "November 13, 2026",
+    title: "Every dialog works with real content",
+    summary:
+      "The five dialogs that had nothing to show on an empty vault were driven with real PDFs, questions and a due note. Recent files' real cause is fixed, the due queue's Practice button starts a session, and a five-minute session no longer announces five minutes remaining.",
+    highlights: [
+      {
+        title: "Recent files opens for real",
+        body: "Its row opener was named open, which is Obsidian's own lifecycle method, so attaching the leaf called it with no path. Renamed, and the live window now draws the list with no error in the log.",
+      },
+      {
+        title: "Practice N due questions practises them",
+        body: "New questions were listed as due and then filtered out by the due mode. The due queue now starts exactly the items it shows, from the row button and the bulk button.",
+      },
+      {
+        title: "No five-minute notice at the start",
+        body: "A five-minute session begins at the warning threshold, so it used to announce five minutes remaining immediately. Only longer sessions warn now.",
+      },
+      {
+        title: "Empty and failed dialogs explain themselves",
+        body: "Find a question and Practice a folder say to add questions first, and a Practice view that cannot open says what to check.",
+      },
+      {
+        title: "Notices were read, not guessed",
+        body: "This pass captured rendered notice text in every window, including annotation saved, invalid deep link, import review and damaged-PDF messages. No note format, setting key, review schedule or network default changed.",
+      },
+    ],
+  },
   {
     version: "1.301.20",
     date: "November 13, 2026",

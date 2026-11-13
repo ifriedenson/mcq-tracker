@@ -174,7 +174,8 @@ class DueQueueModal extends QtModal {
   async start(item) {
     this.close();
     if (item.type === "question") {
-      await this.plugin.startQuickPractice({ minutes: 5, pool: [item.source], mode: "due", label: "due question" });
+      // The queue already chose due and new items; the "due" mode would drop the new ones.
+      await this.plugin.startQuickPractice({ minutes: 5, pool: [item.source], mode: "smart", label: "the due queue" });
     } else {
       await this.plugin.reviewCard(item.source);
     }
@@ -185,7 +186,8 @@ class DueQueueModal extends QtModal {
     const questions = items.filter((item) => item.type === "question").map((item) => item.source);
     if (!questions.length) return;
     this.close();
-    await this.plugin.startQuickPractice({ minutes: 5, pool: questions, mode: "due", label: "questions due today" });
+    // Same reason: never-attempted questions are in this queue but not "due" by date.
+    await this.plugin.startQuickPractice({ minutes: 5, pool: questions, mode: "smart", label: "the due queue" });
     this.onDone();
   }
 

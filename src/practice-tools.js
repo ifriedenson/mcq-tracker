@@ -190,8 +190,13 @@ function zoomLabel(value) {
 const TIMER_WARNING_SECONDS = 300;
 
 /** True once, when a countdown first reaches the five-minute mark. */
-function shouldWarnFive(secondsLeft, warned) {
+function shouldWarnFive(secondsLeft, warned, totalSeconds) {
   const left = Number(secondsLeft);
+  // A session that is only five minutes long starts at this warning and needs no "five minutes left" line.
+  if (totalSeconds !== undefined) {
+    const total = Number(totalSeconds);
+    if (!Number.isFinite(total) || total <= TIMER_WARNING_SECONDS) return false;
+  }
   return warned !== true && Number.isFinite(left) && left > 0 && left <= TIMER_WARNING_SECONDS;
 }
 

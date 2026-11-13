@@ -1,6 +1,6 @@
 {
   "name": "mcq-tracker",
-  "version": "1.301.20",
+  "version": "1.301.21",
   "private": true,
   "license": "MIT",
   "description": "Turn notes and PDFs into exam-style practice: seven question formats, spaced review, timed tests and cards. Every attempt stays on its note. Free, local-first, no telemetry.",

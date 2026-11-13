@@ -136,6 +136,9 @@ test("practice tools: zoom snaps to whole levels and the timer returns at five m
   assert.equal(pt.shouldWarnFive(300, false), true);
   assert.equal(pt.shouldWarnFive(300, true), false, "the warning fires once");
   assert.equal(pt.shouldWarnFive(0, false), false);
+  assert.equal(pt.shouldWarnFive(300, false, 300), false, "a five-minute session needs no five-minutes-left line");
+  assert.equal(pt.shouldWarnFive(299, false, 360), true, "a longer session still warns once");
+  assert.equal(pt.shouldWarnFive(300, true, 600), false, "the warning fires once");
   assert.equal(pt.timerVisible(true, 600), false, "a hidden timer stays hidden");
   assert.equal(pt.timerVisible(true, 200), true, "and returns for the last five minutes");
   assert.equal(pt.timerVisible(false, 600), true);

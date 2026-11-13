@@ -6,6 +6,35 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.21",
+    date: "November 13, 2026",
+    title: "Every dialog works with real content",
+    summary:
+      "The five dialogs that had nothing to show on an empty vault were driven with real PDFs, questions and a due note. Recent files' real cause is fixed, the due queue's Practice button starts a session, and a five-minute session no longer announces five minutes remaining.",
+    highlights: [
+      {
+        title: "Recent files opens for real",
+        body: "Its row opener was named open, which is Obsidian's own lifecycle method, so attaching the leaf called it with no path. Renamed, and the live window now draws the list with no error in the log.",
+      },
+      {
+        title: "Practice N due questions practises them",
+        body: "New questions were listed as due and then filtered out by the due mode. The due queue now starts exactly the items it shows, from the row button and the bulk button.",
+      },
+      {
+        title: "No five-minute notice at the start",
+        body: "A five-minute session begins at the warning threshold, so it used to announce five minutes remaining immediately. Only longer sessions warn now.",
+      },
+      {
+        title: "Empty and failed dialogs explain themselves",
+        body: "Find a question and Practice a folder say to add questions first, and a Practice view that cannot open says what to check.",
+      },
+      {
+        title: "Notices were read, not guessed",
+        body: "This pass captured rendered notice text in every window, including annotation saved, invalid deep link, import review and damaged-PDF messages. No note format, setting key, review schedule or network default changed.",
+      },
+    ],
+  },
+  {
     version: "1.301.20",
     date: "November 13, 2026",
     title: "Recent files opens cleanly",

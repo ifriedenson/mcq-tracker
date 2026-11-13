@@ -140,7 +140,8 @@ class PracticeView extends ItemView {
     if (!this.timerEl || this.state !== "question") return;
     const countdown = this.quickSession && this.quickSession.kind === "time" ? quickRemainingSeconds(this.quickSession) : null;
     const s = countdown === null ? Math.floor(this.plugin.elapsedMs() / 1000) : this.quickSession.value * 60 - countdown;
-    if (countdown !== null && practiceTools.shouldWarnFive(countdown, this.timerWarned)) {
+    const sessionSeconds = this.quickSession && this.quickSession.kind === "time" ? this.quickSession.value * 60 : 0;
+    if (countdown !== null && practiceTools.shouldWarnFive(countdown, this.timerWarned, sessionSeconds)) {
       this.timerWarned = true;
       this.timerHidden = false;
       new Notice("Five minutes remaining in Quick Practice.", 6000);
