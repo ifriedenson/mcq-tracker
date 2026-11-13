@@ -106,21 +106,46 @@ test("agent wait: repeated status failures fail fast with lost contact", async (
   await assert.rejects(modal.waitForAgent("sid", "Questions/Unit A"), /Lost contact with OpenCode/);
 });
 
-test("agent wait: silence alone never stops the file, only the absolute backstop does", async () => {
+test("agent wait: there is no time limit, so a quiet agent runs until it finishes", async () => {
   const state = await setup();
   const bytes = await textPdf();
   const modal = new T.PdfImportModal(state.app, state.plugin, { files: [file("Unit A.pdf", bytes)] });
   attach(modal);
   modal.agentPollMs = 2;
-  modal.agentMaxMs = 150;
   modal.agentSettleMs = 10000;
-  modal.pollAgent = async () => ({ noteCount: 0, terminal: false, signature: "static", lines: ["write · running · Unit A-Q01.md"] });
+  // Silent for far longer than any old cutoff, then finished: the wait must
+  // still be running in the middle and return normally at the end.
+  let polls = 0;
+  modal.pollAgent = async () => {
+    polls++;
+    return polls < 60
+      ? { noteCount: 0, terminal: false, signature: "static", lines: ["write · running · Unit A-Q01.md"] }
+      : { noteCount: 3, terminal: true, signature: "done", lines: ["write · completed · Unit A-Q03.md"] };
+  };
+  await modal.waitForAgent("sid", "Questions/Unit A");
+  assert.equal(polls, 60, "the silent agent was polled all the way to its finish");
+});
+
+test("agent wait: a 100-page file has no time limit either", async () => {
+  const state = await setup();
+  const bytes = await textPdf();
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [file("Unit Big.pdf", bytes)] });
+  attach(modal);
+  assert.equal(modal.agentMaxMs, undefined, "no total-time cutoff is configured");
+});
+
+test("lost contact points at the one-press OpenCode check", async () => {
+  const state = await setup();
+  const bytes = await textPdf();
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [file("Unit A.pdf", bytes)] });
+  attach(modal);
+  modal.agentPollMs = 2;
+  modal.pollAgent = async () => null;
   await assert.rejects(
     modal.waitForAgent("sid", "Questions/Unit A"),
     (error) =>
-      /without finishing/.test(error.message) &&
-      !/stopped responding/.test(error.message) &&
-      /Unit A-Q01/.test(error.message) &&
-      /file edits/.test(error.message)
+      /Lost contact with OpenCode/.test(error.message) &&
+      /Check OpenCode/.test(error.message) &&
+      /already imported are kept/.test(error.message)
   );
 });

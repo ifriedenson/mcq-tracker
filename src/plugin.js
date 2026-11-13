@@ -511,6 +511,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "export-practice-sheet", name: "Export an answer-free practice sheet", callback: () => this.exportPracticeSheet() });
     this.addCommand({ id: "export-review-sheet", name: "Export an error-log review sheet", callback: () => this.exportReviewSheet() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
+    this.addCommand({ id: "check-opencode", name: "Check that OpenCode is running", callback: () => this.checkOpenCodeServer() });
     this.addCommand({ id: "import-service-export", name: "Import notes from an export (Airtable, Notion, Evernote, Keep, Bear, Roam)", callback: () => this.importActiveServiceExport() });
     this.addCommand({ id: "import-service-clipboard", name: "Import notes from a pasted export", callback: () => this.importServiceClipboard() });
     this.addCommand({ id: "quick-add", name: "Quick add questions from pasted text", callback: () => this.openQuickAdd() });
@@ -6377,6 +6378,29 @@ class QuestionTrackerPlugin extends Plugin {
   /** One short request that confirms the key and model work, shared by every surface. */
   async testAiConnection() {
     return aiConnection.testConnection(this);
+  }
+
+  /**
+   * "Is OpenCode still running?" answered in plain words, with a restart when it
+   * stopped. Also the button behind a lost-contact import error, so nobody has
+   * to know what a local server is or find a log to check it.
+   */
+  async checkOpenCodeServer() {
+    const note = new Notice("Checking whether OpenCode is running...", 0);
+    let status;
+    try {
+      status = await aiConnection.openCodeStatus(this);
+    } catch (e) {
+      status = { running: false, text: `OpenCode could not be checked: ${str(e && e.message ? e.message : e)}` };
+    } finally {
+      note.hide();
+    }
+    new Notice(status.text, 12000);
+    if (!status.running) {
+      const open = await this.askConfirm("OpenCode is not running", status.text, "Open AI settings");
+      if (open) this.openSettings("mcq-ai");
+    }
+    return status;
   }
 
   /** Save one model chosen from the fetched list, or typed by hand. */

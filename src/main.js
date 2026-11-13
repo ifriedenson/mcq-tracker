@@ -204,6 +204,7 @@ const { StudyStatusModal } = require("./study-status-modal");
 const { renderSettingsTabs } = require("./settings-ui");
 const { FindQuestionModal, FolderFilterSuggest, QuestionFolderModal } = require("./modals");
 const { PdfImportModal } = require("./import-modal");
+const { ImportCompleteModal } = require("./import-complete-modal");
 const { AiImportHelpModal, importAiState } = require("./ai-import-modal");
 const aiConnection = require("./ai-connection");
 const { renderAiConnectionForm } = require("./ai-connection-form");
@@ -656,6 +657,7 @@ QuestionTrackerPlugin.__test = {
   QuestionFolderModal,
   FindQuestionModal,
   PdfImportModal,
+  ImportCompleteModal,
   moveNoticeToMain: require("./import-modal").moveNoticeToMain,
   AiImportHelpModal,
   importAiState,

@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.9",
+    date: "November 13, 2026",
+    title: "No time limit, and a one-press OpenCode check",
+    summary:
+      "A file is never stopped for taking a long time, so a 100-page PDF can finish on its own. When OpenCode stops answering, the import summary offers a Check OpenCode button that says in plain words whether it is running and restarts it.",
+    highlights: [
+      {
+        title: "No time limit at all",
+        body: "The 20-minute cap is gone too. A file now runs until the agent finishes it, you press Stop, Undo everything or Discard this file, or OpenCode stops answering.",
+      },
+      {
+        title: "Check OpenCode, in one press",
+        body: "A lost-contact failure now shows a Check OpenCode button under the file list. It restarts the plugin's own server and tells you plainly, for example OpenCode is running 1.19.5 and answering normally.",
+      },
+      {
+        title: "Also a command",
+        body: "Run Check that OpenCode is running from the command palette at any time, whether or not an import is open.",
+      },
+      {
+        title: "No format changes",
+        body: "Question notes, review dates, saved settings, provider keys and network defaults are unchanged.",
+      },
+    ],
+  },
+  {
     version: "1.301.8",
     date: "November 12, 2026",
     title: "No more silence cutoff on the agent",

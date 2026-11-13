@@ -72,12 +72,46 @@ class ImportCompleteModal extends QtModal {
       }
     }
 
+    // A lost-contact failure tells the user to press this, so it has to be
+    // here: one press says whether OpenCode is running and restarts it.
+    const openCodeTrouble = results.some((row) => /OpenCode/i.test(String(row.error || "")));
+    this.checkEl = null;
+    if (openCodeTrouble) {
+      const check = root.createEl("button", { text: "Check OpenCode", cls: "qt-grow" });
+      check.addEventListener("click", () => this.checkOpenCode(check));
+      this.checkEl = root.createDiv({ cls: "qt-hint" });
+    }
+
     const row = root.createDiv({ cls: "qt-row qt-import-complete-actions" });
     if (made > 0 && folder && !undo) {
       const practice = row.createEl("button", { text: "Practice these questions", cls: "mod-cta qt-grow" });
       practice.addEventListener("click", () => this.practice(practice, folder, made));
     }
     row.createEl("button", { text: "Close", cls: "qt-grow" }).addEventListener("click", () => this.close());
+  }
+
+  async checkOpenCode(button) {
+    if (this.busy) return;
+    if (!this.plugin || typeof this.plugin.checkOpenCodeServer !== "function") {
+      new Notice("OpenCode cannot be checked from this window. Run the command Check that OpenCode is running.", 10000);
+      return;
+    }
+    this.busy = true;
+    if (button) {
+      button.setDisabled(true);
+      button.setText("Checking...");
+    }
+    if (this.checkEl) this.checkEl.setText("Checking whether OpenCode is running...");
+    try {
+      const status = await this.plugin.checkOpenCodeServer();
+      if (this.checkEl) this.checkEl.setText(String(status && status.text ? status.text : "OpenCode did not answer the check."));
+      if (button) button.setText(status && status.running ? "OpenCode is running" : "Check OpenCode again");
+    } catch (e) {
+      if (this.checkEl) this.checkEl.setText(`OpenCode could not be checked: ${String(e && e.message ? e.message : e)}`);
+    } finally {
+      this.busy = false;
+      if (button) button.setDisabled(false);
+    }
   }
 
   async practice(button, folder, made) {

@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 441 groups, 3061 exports. **Commands:** 232. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 442 groups, 3062 exports. **Commands:** 233. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -41,6 +41,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `FrqPdfPickerModal` | 0 | `tests/frq-import.test.js` |
 | `GLOBAL_TABS` | 3 | `tests/modules.test.js` |
 | `HotkeyAuditModal` | 0 | `tests/hotkey-audit.test.js` |
+| `ImportCompleteModal` | 0 | `tests/opencode-status.test.js` |
 | `InsightsView` | 0 | `tests/knowledge-record-scenario.test.js`, `tests/knowledge-view.test.js`, `tests/study-plan.test.js`, `tests/views.test.js` |
 | `LocalEventModal` | 0 | `tests/feature-surfaces.test.js` |
 | `LocalEventsView` | 0 | `tests/mobile-calendar-agenda.test.js` |
@@ -94,7 +95,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `agentRetrieval` | 14 | `tests/agent-retrieval.test.js` |
 | `agentView` | 5 | `tests/agent-view.test.js`, `tests/chat-branches.test.js`, `tests/chat-pdf.test.js`, `tests/chat-plan.test.js`, `tests/chat-tabs-queue.test.js`, `tests/memory-export.test.js`, `tests/projects-cost.test.js`, `tests/quick-chat-bookmarks.test.js` |
 | `agentWriteGuard` | 3 | `tests/agent-write-guard.test.js` |
-| `aiConnection` | 19 | `tests/ai-beginner-wizard.test.js`, `tests/opencode-compat.test.js` |
+| `aiConnection` | 20 | `tests/ai-beginner-wizard.test.js`, `tests/opencode-compat.test.js`, `tests/opencode-status.test.js` |
 | `aiContext` | 5 | `tests/ai-context.test.js`, `tests/knowledge-record-scenario.test.js` |
 | `aiReady` | 0 | `tests/empty-state.test.js` |
 | `aiService` | 27 | `tests/ai-service.test.js`, `tests/frq-handwriting.test.js` |
@@ -472,6 +473,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `export-practice-sheet` | Export an answer-free practice sheet | `exportPracticeSheet` | `tests/practice-sheet.test.js` |
 | `export-review-sheet` | Export an error-log review sheet | `exportReviewSheet` | `tests/practice-sheet.test.js`, `tests/views.test.js` |
 | `import-pdf` | Import questions from a file (PDF, PowerPoint, Word) | `openPdfImport` | `tests/ai-beginner-wizard.test.js`, `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/import-batch-window.test.js`, `tests/import-preflight.test.js`, `tests/import-real-pdf.test.js`, `tests/modules.test.js`, `tests/plugin.test.js` |
+| `check-opencode` | Check that OpenCode is running | `checkOpenCodeServer` | `tests/opencode-status.test.js` |
 | `import-service-export` | Import notes from an export (Airtable, Notion, Evernote, Keep, Bear, Roam) | `importActiveServiceExport` | `tests/service-import.test.js` |
 | `import-service-clipboard` | Import notes from a pasted export | `importServiceClipboard` | `tests/service-import.test.js` |
 | `quick-add` | Quick add questions from pasted text | `openQuickAdd` | `tests/a11y-labels.test.js`, `tests/ai-import-help.test.js`, `tests/hotkey-audit.test.js`, `tests/import-preflight.test.js`, `tests/note-quiz-clipboard.test.js`, `tests/plugin.test.js`, `tests/quick-add.test.js`, `tests/quiz-generator.test.js` |
@@ -498,7 +500,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `pdf-edit` | PDF: open the editor (pages and forms) | `openActivePdfEditor` | `tests/a11y-labels.test.js`, `tests/pdf-editor-history.test.js`, `tests/pdf-editor-record.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-editor.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/security-inventory.test.js`, `tests/ui-layout.test.js` |
 | `pdf-export-notes` | PDF: export annotations to Markdown | `exportActivePdfAnnotations` | `tests/pdf-annotator.test.js` |
 | `pdf-open-annotations` | PDF: open annotations | `openPdfAnnotations` | `tests/command-effects.test.js` |
-| `practice-folder` | Practice a folder... | `practiceFolder` | `tests/import-batch-window.test.js`, `tests/plugin.test.js` |
+| `practice-folder` | Practice a folder... | `practiceFolder` | `tests/import-batch-window.test.js`, `tests/opencode-status.test.js`, `tests/plugin.test.js` |
 | `practice-current-folder` | Practice the folder of this note | `folderHasQuestions` | `tests/plugin.test.js` |
 | `timed-test` | Start a timed test | `activateTest` | `tests/modules.test.js`, `tests/plugin.test.js`, `tests/views.test.js` |
 | `open-today` | Open Today | `activateToday` | `tests/plugin.test.js` |

@@ -100,6 +100,43 @@ function saveOpenCodeProviderKey(plugin, providerId, key) {
   return plugin.manager.saveProviderKey(id, value);
 }
 
+/**
+ * Plain-language answer to "is OpenCode still running?" for someone who does
+ * not know what a server is. Starts the plugin's own server when it is down,
+ * then asks it to answer once, so the result is a fact rather than a guess.
+ * Never throws: the caller shows the sentence and the next click.
+ */
+async function openCodeStatus(plugin) {
+  const ai = (plugin && plugin.settings && plugin.settings.ai) || {};
+  const version = str(ai.installedVersion).trim();
+  const managed = ai.managed !== false;
+  try {
+    const oc = await ensureOpenCodeClient(plugin);
+    let providers = null;
+    try {
+      const found = await oc.providers(HEALTH_TIMEOUT_MS);
+      if (found && Array.isArray(found.providers)) providers = found.providers;
+    } catch (e) {
+      if (/no AI provider connected/i.test(str(e && e.message))) throw e;
+      await oc.health(HEALTH_TIMEOUT_MS);
+    }
+    const running = `OpenCode is running${version ? " " + version : ""}`;
+    if (providers && providers.length === 0) {
+      return { running: true, text: `${running}, but no AI provider is connected yet. Add a provider key in Settings > Study agent > AI, then import again.` };
+    }
+    return { running: true, text: `${running} and answering normally. Import the file again whenever you are ready.` };
+  } catch (e) {
+    const why = openCodeProblem(e, plugin);
+    const where = managed
+      ? "OpenCode is the small program this plugin starts for you; it is not answering right now."
+      : "OpenCode is the program this plugin talks to, and it is not answering right now.";
+    return {
+      running: false,
+      text: `${where} ${why}`.trim(),
+    };
+  }
+}
+
 /** Turn an OpenCode failure into the next click a beginner can take. */
 function openCodeProblem(error, plugin, url) {
   const raw = str(error && error.message ? error.message : error);
@@ -277,6 +314,7 @@ module.exports = {
   keyPageHost,
   keyPageUrl,
   ensureOpenCodeClient,
+  openCodeStatus,
   openCodeInstalled,
   openCodeProblem,
   preferredPatterns,

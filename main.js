@@ -3066,6 +3066,43 @@ function saveOpenCodeProviderKey(plugin, providerId, key) {
   return plugin.manager.saveProviderKey(id, value);
 }
 
+/**
+ * Plain-language answer to "is OpenCode still running?" for someone who does
+ * not know what a server is. Starts the plugin's own server when it is down,
+ * then asks it to answer once, so the result is a fact rather than a guess.
+ * Never throws: the caller shows the sentence and the next click.
+ */
+async function openCodeStatus(plugin) {
+  const ai = (plugin && plugin.settings && plugin.settings.ai) || {};
+  const version = str(ai.installedVersion).trim();
+  const managed = ai.managed !== false;
+  try {
+    const oc = await ensureOpenCodeClient(plugin);
+    let providers = null;
+    try {
+      const found = await oc.providers(HEALTH_TIMEOUT_MS);
+      if (found && Array.isArray(found.providers)) providers = found.providers;
+    } catch (e) {
+      if (/no AI provider connected/i.test(str(e && e.message))) throw e;
+      await oc.health(HEALTH_TIMEOUT_MS);
+    }
+    const running = `OpenCode is running${version ? " " + version : ""}`;
+    if (providers && providers.length === 0) {
+      return { running: true, text: `${running}, but no AI provider is connected yet. Add a provider key in Settings > Study agent > AI, then import again.` };
+    }
+    return { running: true, text: `${running} and answering normally. Import the file again whenever you are ready.` };
+  } catch (e) {
+    const why = openCodeProblem(e, plugin);
+    const where = managed
+      ? "OpenCode is the small program this plugin starts for you; it is not answering right now."
+      : "OpenCode is the program this plugin talks to, and it is not answering right now.";
+    return {
+      running: false,
+      text: `${where} ${why}`.trim(),
+    };
+  }
+}
+
 /** Turn an OpenCode failure into the next click a beginner can take. */
 function openCodeProblem(error, plugin, url) {
   const raw = str(error && error.message ? error.message : error);
@@ -3243,6 +3280,7 @@ module.exports = {
   keyPageHost,
   keyPageUrl,
   ensureOpenCodeClient,
+  openCodeStatus,
   openCodeInstalled,
   openCodeProblem,
   preferredPatterns,
@@ -49272,12 +49310,46 @@ class ImportCompleteModal extends QtModal {
       }
     }
 
+    // A lost-contact failure tells the user to press this, so it has to be
+    // here: one press says whether OpenCode is running and restarts it.
+    const openCodeTrouble = results.some((row) => /OpenCode/i.test(String(row.error || "")));
+    this.checkEl = null;
+    if (openCodeTrouble) {
+      const check = root.createEl("button", { text: "Check OpenCode", cls: "qt-grow" });
+      check.addEventListener("click", () => this.checkOpenCode(check));
+      this.checkEl = root.createDiv({ cls: "qt-hint" });
+    }
+
     const row = root.createDiv({ cls: "qt-row qt-import-complete-actions" });
     if (made > 0 && folder && !undo) {
       const practice = row.createEl("button", { text: "Practice these questions", cls: "mod-cta qt-grow" });
       practice.addEventListener("click", () => this.practice(practice, folder, made));
     }
     row.createEl("button", { text: "Close", cls: "qt-grow" }).addEventListener("click", () => this.close());
+  }
+
+  async checkOpenCode(button) {
+    if (this.busy) return;
+    if (!this.plugin || typeof this.plugin.checkOpenCodeServer !== "function") {
+      new Notice("OpenCode cannot be checked from this window. Run the command Check that OpenCode is running.", 10000);
+      return;
+    }
+    this.busy = true;
+    if (button) {
+      button.setDisabled(true);
+      button.setText("Checking...");
+    }
+    if (this.checkEl) this.checkEl.setText("Checking whether OpenCode is running...");
+    try {
+      const status = await this.plugin.checkOpenCodeServer();
+      if (this.checkEl) this.checkEl.setText(String(status && status.text ? status.text : "OpenCode did not answer the check."));
+      if (button) button.setText(status && status.running ? "OpenCode is running" : "Check OpenCode again");
+    } catch (e) {
+      if (this.checkEl) this.checkEl.setText(`OpenCode could not be checked: ${String(e && e.message ? e.message : e)}`);
+    } finally {
+      this.busy = false;
+      if (button) button.setDisabled(false);
+    }
   }
 
   async practice(button, folder, made) {
@@ -49555,7 +49627,6 @@ class PdfImportModal extends QtModal {
     this.agentSendError = null;
     this.agentPollMs = 1500;
     this.agentSettleMs = 90 * 1000;
-    this.agentMaxMs = 20 * 60 * 1000;
     this.apiChunkTimeoutMs = 3 * 60 * 1000;
     this.pdfPasswords = init.pdfPasswords instanceof Map ? new Map(init.pdfPasswords) : new Map();
     this.pdfFile = this.file || this.vaultDoc || null;
@@ -49645,6 +49716,16 @@ class PdfImportModal extends QtModal {
     const error = new Error("Import stopped.");
     error.code = "import-stopped";
     return error;
+  }
+
+  /** Why a file stopped when OpenCode itself went away, in steps anyone can follow. */
+  lostContactText() {
+    return (
+      "Lost contact with OpenCode while importing this file: the program that writes the notes stopped answering. " +
+      "Nothing is broken in your vault, and the files already imported are kept. " +
+      "Press Check OpenCode below (or run the command Check that OpenCode is running) and it will tell you in plain words whether OpenCode is running and restart it for you if it stopped. " +
+      "Then import this file again."
+    );
   }
 
   isStopError(e) {
@@ -50829,7 +50910,7 @@ class PdfImportModal extends QtModal {
         if (++pollFailures >= 5) {
           this.status("Lost contact with OpenCode. Stopping this file...");
           this.abortAgent();
-          throw new Error("Lost contact with OpenCode while importing this file: its messages could not be read. Check that the OpenCode server is still running, then try again.");
+          throw new Error(this.lostContactText());
         }
         continue;
       }
@@ -50842,16 +50923,9 @@ class PdfImportModal extends QtModal {
       if (state.noteCount > 0) sawNotes = true;
       if (state.terminal) return;
       if (sawNotes && now - lastChange >= this.agentSettleMs) return;
-      // No silence cutoff: a slow model may think quietly for a long time,
-      // and stopping it would throw away that work. Only the absolute
-      // backstop below ends the file; Stop/Undo/Discard end it any sooner.
-      if (now - started >= this.agentMaxMs) {
-        this.status("OpenCode took too long. Stopping this file...");
-        this.abortAgent();
-        const doing = lastLines.length ? ` Last seen working on: ${lastLines.join(" | ")}.` : "";
-        const mins = Math.max(1, Math.round((now - started) / 60000));
-        throw new Error(`OpenCode worked on this file for over ${mins} minute${mins === 1 ? "" : "s"} without finishing it.${doing} If the agent was waiting to be allowed to create files, allow file edits for this vault in your OpenCode permissions (the server this plugin starts already allows them after an Obsidian restart) and try again. For a long file you can also use Direct AI (you review first) instead of the agent.`);
-      }
+      // No time limit of any kind: a 100-page illustrated document can take
+      // as long as it takes, and a quiet model is not a stalled one. Only a
+      // server we cannot reach, or Stop/Undo/Discard, ends this file.
     }
     throw this.cancelledImportError();
   }
@@ -71910,6 +71984,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "export-practice-sheet", name: "Export an answer-free practice sheet", callback: () => this.exportPracticeSheet() });
     this.addCommand({ id: "export-review-sheet", name: "Export an error-log review sheet", callback: () => this.exportReviewSheet() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
+    this.addCommand({ id: "check-opencode", name: "Check that OpenCode is running", callback: () => this.checkOpenCodeServer() });
     this.addCommand({ id: "import-service-export", name: "Import notes from an export (Airtable, Notion, Evernote, Keep, Bear, Roam)", callback: () => this.importActiveServiceExport() });
     this.addCommand({ id: "import-service-clipboard", name: "Import notes from a pasted export", callback: () => this.importServiceClipboard() });
     this.addCommand({ id: "quick-add", name: "Quick add questions from pasted text", callback: () => this.openQuickAdd() });
@@ -77776,6 +77851,29 @@ class QuestionTrackerPlugin extends Plugin {
   /** One short request that confirms the key and model work, shared by every surface. */
   async testAiConnection() {
     return aiConnection.testConnection(this);
+  }
+
+  /**
+   * "Is OpenCode still running?" answered in plain words, with a restart when it
+   * stopped. Also the button behind a lost-contact import error, so nobody has
+   * to know what a local server is or find a log to check it.
+   */
+  async checkOpenCodeServer() {
+    const note = new Notice("Checking whether OpenCode is running...", 0);
+    let status;
+    try {
+      status = await aiConnection.openCodeStatus(this);
+    } catch (e) {
+      status = { running: false, text: `OpenCode could not be checked: ${str(e && e.message ? e.message : e)}` };
+    } finally {
+      note.hide();
+    }
+    new Notice(status.text, 12000);
+    if (!status.running) {
+      const open = await this.askConfirm("OpenCode is not running", status.text, "Open AI settings");
+      if (open) this.openSettings("mcq-ai");
+    }
+    return status;
   }
 
   /** Save one model chosen from the fetched list, or typed by hand. */
@@ -134314,6 +134412,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.9",
+    date: "November 13, 2026",
+    title: "No time limit, and a one-press OpenCode check",
+    summary:
+      "A file is never stopped for taking a long time, so a 100-page PDF can finish on its own. When OpenCode stops answering, the import summary offers a Check OpenCode button that says in plain words whether it is running and restarts it.",
+    highlights: [
+      {
+        title: "No time limit at all",
+        body: "The 20-minute cap is gone too. A file now runs until the agent finishes it, you press Stop, Undo everything or Discard this file, or OpenCode stops answering.",
+      },
+      {
+        title: "Check OpenCode, in one press",
+        body: "A lost-contact failure now shows a Check OpenCode button under the file list. It restarts the plugin's own server and tells you plainly, for example OpenCode is running 1.19.5 and answering normally.",
+      },
+      {
+        title: "Also a command",
+        body: "Run Check that OpenCode is running from the command palette at any time, whether or not an import is open.",
+      },
+      {
+        title: "No format changes",
+        body: "Question notes, review dates, saved settings, provider keys and network defaults are unchanged.",
+      },
+    ],
+  },
+  {
     version: "1.301.8",
     date: "November 12, 2026",
     title: "No more silence cutoff on the agent",
@@ -135852,6 +135975,7 @@ const { StudyStatusModal } = require("./study-status-modal");
 const { renderSettingsTabs } = require("./settings-ui");
 const { FindQuestionModal, FolderFilterSuggest, QuestionFolderModal } = require("./modals");
 const { PdfImportModal } = require("./import-modal");
+const { ImportCompleteModal } = require("./import-complete-modal");
 const { AiImportHelpModal, importAiState } = require("./ai-import-modal");
 const aiConnection = require("./ai-connection");
 const { renderAiConnectionForm } = require("./ai-connection-form");
@@ -136304,6 +136428,7 @@ QuestionTrackerPlugin.__test = {
   QuestionFolderModal,
   FindQuestionModal,
   PdfImportModal,
+  ImportCompleteModal,
   moveNoticeToMain: require("./import-modal").moveNoticeToMain,
   AiImportHelpModal,
   importAiState,

@@ -244,7 +244,6 @@ class PdfImportModal extends QtModal {
     this.agentSendError = null;
     this.agentPollMs = 1500;
     this.agentSettleMs = 90 * 1000;
-    this.agentMaxMs = 20 * 60 * 1000;
     this.apiChunkTimeoutMs = 3 * 60 * 1000;
     this.pdfPasswords = init.pdfPasswords instanceof Map ? new Map(init.pdfPasswords) : new Map();
     this.pdfFile = this.file || this.vaultDoc || null;
@@ -334,6 +333,16 @@ class PdfImportModal extends QtModal {
     const error = new Error("Import stopped.");
     error.code = "import-stopped";
     return error;
+  }
+
+  /** Why a file stopped when OpenCode itself went away, in steps anyone can follow. */
+  lostContactText() {
+    return (
+      "Lost contact with OpenCode while importing this file: the program that writes the notes stopped answering. " +
+      "Nothing is broken in your vault, and the files already imported are kept. " +
+      "Press Check OpenCode below (or run the command Check that OpenCode is running) and it will tell you in plain words whether OpenCode is running and restart it for you if it stopped. " +
+      "Then import this file again."
+    );
   }
 
   isStopError(e) {
@@ -1518,7 +1527,7 @@ class PdfImportModal extends QtModal {
         if (++pollFailures >= 5) {
           this.status("Lost contact with OpenCode. Stopping this file...");
           this.abortAgent();
-          throw new Error("Lost contact with OpenCode while importing this file: its messages could not be read. Check that the OpenCode server is still running, then try again.");
+          throw new Error(this.lostContactText());
         }
         continue;
       }
@@ -1531,16 +1540,9 @@ class PdfImportModal extends QtModal {
       if (state.noteCount > 0) sawNotes = true;
       if (state.terminal) return;
       if (sawNotes && now - lastChange >= this.agentSettleMs) return;
-      // No silence cutoff: a slow model may think quietly for a long time,
-      // and stopping it would throw away that work. Only the absolute
-      // backstop below ends the file; Stop/Undo/Discard end it any sooner.
-      if (now - started >= this.agentMaxMs) {
-        this.status("OpenCode took too long. Stopping this file...");
-        this.abortAgent();
-        const doing = lastLines.length ? ` Last seen working on: ${lastLines.join(" | ")}.` : "";
-        const mins = Math.max(1, Math.round((now - started) / 60000));
-        throw new Error(`OpenCode worked on this file for over ${mins} minute${mins === 1 ? "" : "s"} without finishing it.${doing} If the agent was waiting to be allowed to create files, allow file edits for this vault in your OpenCode permissions (the server this plugin starts already allows them after an Obsidian restart) and try again. For a long file you can also use Direct AI (you review first) instead of the agent.`);
-      }
+      // No time limit of any kind: a 100-page illustrated document can take
+      // as long as it takes, and a quiet model is not a stalled one. Only a
+      // server we cannot reach, or Stop/Undo/Discard, ends this file.
     }
     throw this.cancelledImportError();
   }

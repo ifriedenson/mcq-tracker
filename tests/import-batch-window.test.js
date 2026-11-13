@@ -823,8 +823,6 @@ test("batch import: a stalled answer check times out and the file still finishes
   modal.onOpen();
   modal.agentPollMs = 5;
   modal.agentSettleMs = 20;
-  modal.agentIdleMs = 1000;
-  modal.agentMaxMs = 3000;
   const statuses = [];
   const status = modal.status.bind(modal);
   modal.status = (text, ...args) => {
@@ -866,8 +864,6 @@ test("agent import: no notes removes the source copy and the empty folder", asyn
   modal.folder = "Questions/Unit A";
   modal.agentPollMs = 5;
   modal.agentSettleMs = 20;
-  modal.agentIdleMs = 1000;
-  modal.agentMaxMs = 3000;
   await modal.start();
 
   assert.equal(state.files.size, 0, "a no-notes agent run leaves no source copy");
@@ -901,8 +897,6 @@ test("batch import: an agent finish advances the queue even when send never reso
   modal.onOpen();
   modal.agentPollMs = 5;
   modal.agentSettleMs = 20;
-  modal.agentIdleMs = 200;
-  modal.agentMaxMs = 1000;
   const started = modal.startBatch();
   await started;
   await waitFor(() => completionModal(modal), "the completion summary after both files");
@@ -935,8 +929,6 @@ test("batch import: Undo everything removes the notes from files that already fi
   modal.onOpen();
   modal.agentPollMs = 5;
   modal.agentSettleMs = 20;
-  modal.agentIdleMs = 5000;
-  modal.agentMaxMs = 10000;
   const started = modal.startBatch();
   await started;
   await waitFor(() => dom.texts().join("\n").includes("Importing 2 of 2"), "the second file to start");
@@ -980,8 +972,6 @@ test("batch import: Discard this file keeps earlier files and removes only the c
   modal.onOpen();
   modal.agentPollMs = 5;
   modal.agentSettleMs = 20;
-  modal.agentIdleMs = 5000;
-  modal.agentMaxMs = 10000;
   const started = modal.startBatch();
   await started;
   await waitFor(() => dom.texts().join("\n").includes("Importing 2 of 2"), "the second file to start");
@@ -1029,8 +1019,6 @@ test("batch import: Finish this file, then stop saves the current file and leave
   modal.onOpen();
   modal.agentPollMs = 5;
   modal.agentSettleMs = 20;
-  modal.agentIdleMs = 5000;
-  modal.agentMaxMs = 10000;
   const started = modal.startBatch();
   await waitFor(() => dom.texts().includes("Finish this file, then stop"), "the stop choices");
   await dom.click("Finish this file, then stop");

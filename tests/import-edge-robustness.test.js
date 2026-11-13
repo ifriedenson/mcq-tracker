@@ -359,8 +359,6 @@ test("import edge: same-name files get separate folders, a copied source gets a 
   modal.method = "agent";
   modal.agentPollMs = 5;
   modal.agentSettleMs = 20;
-  modal.agentIdleMs = 1000;
-  modal.agentMaxMs = 10000;
   await modal.startBatch();
   await waitFor(() => completionModal(modal), "the same-name batch summary");
 
@@ -416,8 +414,6 @@ test("import edge: a mid-batch Discard after the first file is committed keeps t
   modal.method = "agent";
   modal.agentPollMs = 5;
   modal.agentSettleMs = 20;
-  modal.agentIdleMs = 5000;
-  modal.agentMaxMs = 10000;
   const started = modal.startBatch();
   await waitFor(() => dom.texts().join("\n").includes("Importing 2 of 2"), "the second file to start");
   assert.equal(state.files.has(firstNote), true, "the first file is committed before Discard");
