@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.29",
+    date: "November 13, 2026",
+    title: "An import cannot sit on a silent agent forever",
+    summary:
+      "If the OpenCode agent stops writing notes, the import now says so, restarts OpenCode once and starts that file again instead of waiting indefinitely.",
+    highlights: [
+      {
+        title: "Silence is measured",
+        body: "Six minutes with no note written and no tool call started or finished is a stalled file. A slow document is untouched: every note, tool call and finished step resets the clock, so a 100-page PDF can still take as long as it takes.",
+      },
+      {
+        title: "Restart, then start the file again",
+        body: "Nothing was written, so the file is started again in a fresh OpenCode session after the server is restarted. No note is duplicated and no work is lost.",
+      },
+      {
+        title: "A plain reason when it cannot recover",
+        body: "If the restarted agent stays silent, the file ends with a sentence naming how long it was quiet, what it was last doing, and whether any notes were already written, and the batch moves on.",
+      },
+      {
+        title: "Stop still wins",
+        body: "Stop, Undo, Discard and closing the window still cancel immediately, and an agent with notes already written is never silently re-prompted. No note format or setting changed.",
+      },
+    ],
+  },
+  {
     version: "1.301.28",
     date: "November 13, 2026",
     title: "A frozen check recovers on every OpenCode setup",

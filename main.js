@@ -49957,6 +49957,11 @@ class PdfImportModal extends QtModal {
     this.agentSendError = null;
     this.agentPollMs = 1500;
     this.agentSettleMs = 90 * 1000;
+    // How long the agent may write nothing at all (no note, no tool call, no
+    // finished step) before the file is treated as stalled. This is the same
+    // allowance a blocking send gets, and it is not a deadline on a working
+    // agent: any real action resets it.
+    this.agentSilenceMs = 6 * 60 * 1000;
     this.apiChunkTimeoutMs = 3 * 60 * 1000;
     this.pdfPasswords = init.pdfPasswords instanceof Map ? new Map(init.pdfPasswords) : new Map();
     this.pdfFile = this.file || this.vaultDoc || null;
@@ -50072,6 +50077,25 @@ class PdfImportModal extends QtModal {
   }
 
   /** Why a file stopped when OpenCode itself went away, in steps anyone can follow. */
+  /** A plain reason for a file whose agent wrote nothing for the whole allowance. */
+  agentStalledError(state, since, now, lastLines) {
+    const quiet = Math.max(1, Math.round((now - since) / 60000));
+    const seen = Array.isArray(lastLines) && lastLines.length ? ` It was last seen: ${str(lastLines[lastLines.length - 1]).slice(0, 160)}.` : "";
+    const written = Number(state && state.noteCount) || 0;
+    if (!written) {
+      const error = new Error(
+        `OpenCode stopped answering while it was writing this file: nothing was written for ${quiet} minutes.${seen} ` +
+          "The plugin will restart OpenCode and start this file again once. If it cannot, press Check OpenCode below and import the file again."
+      );
+      error.agentStalled = true;
+      return error;
+    }
+    return new Error(
+      `OpenCode stopped answering while it was writing this file: no new note or action for ${quiet} minutes, with ${written} note${written === 1 ? "" : "s"} already written.${seen} ` +
+        "Press Discard this file and import it again, or press Check OpenCode below first."
+    );
+  }
+
   lostContactText() {
     return (
       "Lost contact with OpenCode while importing this file: the program that writes the notes stopped answering. " +
@@ -51124,18 +51148,39 @@ class PdfImportModal extends QtModal {
     if (model) body.model = model;
     if (str(ai.agent).trim()) body.agent = ai.agent.trim();
 
-    const mySid = this.sid;
+    let mySid = this.sid;
     let msgs = null;
     this.agentSendError = null;
-    try {
-      await this.dispatchAgentPrompt(oc, mySid, body);
-      await this.waitForAgent(mySid, folder);
-    } catch (e) {
-      if (this.isStopError(e)) throw e;
-      throw new Error(friendlyError(e, oc.base()));
+    let client = oc;
+    let restarted = false;
+    for (;;) {
+      try {
+        await this.dispatchAgentPrompt(client, mySid, body);
+        await this.waitForAgent(mySid, folder);
+        break;
+      } catch (e) {
+        if (this.isStopError(e)) throw e;
+        // A stalled agent that wrote nothing can safely be started again: no
+        // notes exist yet, so nothing is duplicated. One restart per file.
+        if (e && e.agentStalled && !restarted && !this.closed && typeof p.recoverAiConnection === "function") {
+          restarted = true;
+          this.status("The agent stopped answering, so OpenCode is being restarted, and this file is being started again...");
+          const recovered = await this.awaitCancellable(p.recoverAiConnection(e, { onNotice: (m) => !this.closed && this.status(m) }));
+          if (recovered) {
+            this.agentSendError = null;
+            client = p.openCode();
+            const fresh = await this.awaitCancellable(client.createSession(`Import ${sourceName}`));
+            mySid = fresh && fresh.id;
+            this.sid = mySid;
+            if (!mySid) throw new Error("OpenCode did not return a session id.");
+            continue;
+          }
+        }
+        throw new Error(friendlyError(e, client.base()));
+      }
     }
     try {
-      msgs = await this.awaitCancellable(oc.messages(mySid));
+      msgs = await this.awaitCancellable(client.messages(mySid));
     } catch (e) {
       if (this.isStopError(e)) throw e;
       /* the model name is only for the label */
@@ -51248,6 +51293,7 @@ class PdfImportModal extends QtModal {
     let lastLines = [];
     let sawNotes = false;
     let pollFailures = 0;
+    let lastProgress = "";
     while (!this.closed) {
       this.throwIfCancelled();
       await this.awaitCancellable(sleep(this.agentPollMs));
@@ -51273,12 +51319,19 @@ class PdfImportModal extends QtModal {
         lastSignature = state.signature;
         lastChange = now;
       }
+      if (state.progress && state.progress !== lastProgress) {
+        lastProgress = state.progress;
+        lastChange = now;
+      }
       if (state.noteCount > 0) sawNotes = true;
       if (state.terminal) return;
       if (sawNotes && now - lastChange >= this.agentSettleMs) return;
-      // No time limit of any kind: a 100-page illustrated document can take
-      // as long as it takes, and a quiet model is not a stalled one. Only a
-      // server we cannot reach, or Stop/Undo/Discard, ends this file.
+      // No deadline on a working agent: a 100-page document can take as long as
+      // it takes, and every note or tool call resets this. But an agent that
+      // writes nothing at all for the whole allowance is stalled, usually on a
+      // frozen model request, and leaving it there forever is what the owner
+      // saw as an import that never finished.
+      if (now - lastChange >= this.agentSilenceMs) throw this.agentStalledError(state, lastChange, now, lastLines);
     }
     throw this.cancelledImportError();
   }
@@ -51300,7 +51353,12 @@ class PdfImportModal extends QtModal {
       // file: OpenCode will send another assistant message after the tools run.
       const completed = info.finish !== "tool-calls" && (!!(info.time && info.time.completed !== undefined && info.time.completed !== null) || !!(info.finish && info.finish !== "tool-calls"));
       const signature = JSON.stringify([msgs ? msgs.length : 0, info.id, info.time && info.time.completed, info.finish, n, lines.slice(-3)]);
-      return { noteCount: n, terminal: completed && !running, signature, lines };
+      // Real progress: a note written, or a tool call started or finished. A
+      // model retry inside OpenCode changes none of these, so a server that
+      // silently retries a frozen request cannot look busy forever.
+      const toolParts = parts.filter((part) => part && part.type === "tool");
+      const progress = JSON.stringify([n, toolParts.length, toolParts.map((part) => (part.state && part.state.status) || "").join(","), info.finish || ""]);
+      return { noteCount: n, terminal: completed && !running, signature, progress, lines };
     } catch (e) {
       if (this.isStopError(e)) throw e;
       return null;
@@ -135383,6 +135441,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.301.29",
+    date: "November 13, 2026",
+    title: "An import cannot sit on a silent agent forever",
+    summary:
+      "If the OpenCode agent stops writing notes, the import now says so, restarts OpenCode once and starts that file again instead of waiting indefinitely.",
+    highlights: [
+      {
+        title: "Silence is measured",
+        body: "Six minutes with no note written and no tool call started or finished is a stalled file. A slow document is untouched: every note, tool call and finished step resets the clock, so a 100-page PDF can still take as long as it takes.",
+      },
+      {
+        title: "Restart, then start the file again",
+        body: "Nothing was written, so the file is started again in a fresh OpenCode session after the server is restarted. No note is duplicated and no work is lost.",
+      },
+      {
+        title: "A plain reason when it cannot recover",
+        body: "If the restarted agent stays silent, the file ends with a sentence naming how long it was quiet, what it was last doing, and whether any notes were already written, and the batch moves on.",
+      },
+      {
+        title: "Stop still wins",
+        body: "Stop, Undo, Discard and closing the window still cancel immediately, and an agent with notes already written is never silently re-prompted. No note format or setting changed.",
+      },
+    ],
+  },
   {
     version: "1.301.28",
     date: "November 13, 2026",

@@ -864,6 +864,100 @@ test("batch import: a long answer check shows how long it has been waiting", asy
   assert.equal(text, kept, "stopping the clock leaves the last line on screen");
 });
 
+test("batch import: a silent agent is restarted once and the file is written on the retry", async () => {
+  const state = await setup();
+  state.plugin.settings.ai.backend = "opencode";
+  state.plugin.settings.ai.managed = true;
+  state.plugin.settings.ai.enabled = true;
+  state.plugin.settings.ai.binaryPath = require.resolve("./answer-verification.test.js");
+  state.plugin.settings.ai.verifyPanel = false;
+  let starts = 0;
+  let restarts = 0;
+  state.plugin.ensureOpenCode = async () => {
+    starts++;
+  };
+  const notePath = "Questions/Unit A/Unit A-Q01.md";
+  const aiNote = AGENT_NOTE.replace("answer_source: pdf", "answer_source: ai").replace(
+    "- A. 3\n- B. 4\n",
+    "- A. 3\n- B. 4\n- C. 5\n- D. 6\n"
+  );
+  let sessions = 0;
+  state.plugin.openCode = () => ({
+    providers: async () => ({ providers: [{}] }),
+    createSession: async () => ({ id: "silent-" + ++sessions }),
+    promptAsync: async (id) => {
+      // The first session is frozen on its model call and writes nothing; the
+      // session created after the restart writes the note.
+      if (id === "silent-2") await state.app.vault.create(notePath, aiNote);
+      return {};
+    },
+    messages: async (id) => (id === "silent-2" ? agentMessage("done") : []),
+    abort: async () => ({}),
+  });
+  state.plugin.recoverAiConnection = async (reason, options) => {
+    restarts++;
+    if (options && typeof options.onNotice === "function") options.onNotice("Starting OpenCode...");
+    return true;
+  };
+
+  const bytes = await textPdf();
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [file("Unit A.pdf", bytes), file("Unit B.pdf", bytes)] });
+  const dom = attach(modal);
+  modal.onOpen();
+  modal.agentPollMs = 5;
+  modal.agentSettleMs = 20;
+  modal.agentSilenceMs = 120;
+  const statuses = [];
+  const status = modal.status.bind(modal);
+  modal.status = (text, ...args) => {
+    statuses.push(String(text));
+    return status(text, ...args);
+  };
+  await modal.startBatch();
+  await waitFor(() => completionModal(modal), "the completion summary after a restarted agent", 20000);
+
+  assert.equal(restarts, 2, "each silent file is restarted once");
+  assert.equal(sessions, 4, "each file is started again in a fresh session");
+  assert.ok(
+    statuses.some((text) => /The agent stopped answering, so OpenCode is being restarted/i.test(text)),
+    "the window says why the file is starting again"
+  );
+  assert.equal(state.files.has("Questions/Unit A/Unit A-Q01.md"), true, "the retried agent writes the note");
+});
+
+test("batch import: an agent that stays silent twice ends with a plain reason", async () => {
+  const state = await setup();
+  state.plugin.settings.ai.backend = "opencode";
+  state.plugin.settings.ai.managed = true;
+  state.plugin.settings.ai.enabled = true;
+  state.plugin.settings.ai.binaryPath = require.resolve("./answer-verification.test.js");
+  let restarts = 0;
+  state.plugin.ensureOpenCode = async () => {};
+  state.plugin.openCode = () => ({
+    providers: async () => ({ providers: [{}] }),
+    createSession: async () => ({ id: "silent" }),
+    promptAsync: async () => ({}),
+    messages: async () => [],
+    abort: async () => ({}),
+  });
+  state.plugin.recoverAiConnection = async () => {
+    restarts++;
+    return true;
+  };
+
+  const bytes = await textPdf();
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [file("Unit A.pdf", bytes), file("Unit B.pdf", bytes)] });
+  const dom = attach(modal);
+  modal.onOpen();
+  modal.agentPollMs = 5;
+  modal.agentSilenceMs = 80;
+  await modal.startBatch();
+  await waitFor(() => completionModal(modal), "the batch summary after two stalled files", 20000);
+
+  assert.equal(restarts, 2, "only one restart is attempted per file");
+  assert.equal([...state.files.keys()].filter((k) => k.endsWith(".md")).length, 0, "no notes are left behind");
+});
+
 test("batch import: a frozen answer check restarts OpenCode and verifies the same note", async () => {
   const state = await setup();
   state.plugin.settings.ai.backend = "opencode";
