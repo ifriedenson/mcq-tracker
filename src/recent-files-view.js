@@ -28,6 +28,18 @@ class RecentFilesView extends ItemView {
     return "history";
   }
 
+  /**
+   * Obsidian asks a view for its state when the leaf is restored or loaded.
+   * ItemView's default state carries `this.file`, which this view never sets, and
+   * Obsidian then calls getExternalFile(undefined) and logs "Failed to open view".
+   * This view keeps no per-leaf state, so an empty state is the honest answer.
+   */
+  getState() {
+    return {};
+  }
+
+  setState() {}
+
   async onOpen() {
     this.contentEl.addClass("qt-root");
     this.render();

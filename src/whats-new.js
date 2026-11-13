@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.20",
+    date: "November 13, 2026",
+    title: "Recent files opens cleanly",
+    summary:
+      "Opening Recent files no longer writes a failed-to-open error to the log while it draws the list. Nothing else changed.",
+    highlights: [
+      {
+        title: "No error in the log",
+        body: "The view no longer claims a file it does not have, so Obsidian's leaf restore cannot fail on an empty path.",
+      },
+      {
+        title: "The same list",
+        body: "Rows, pins, the search filter and the files it opens are unchanged.",
+      },
+      {
+        title: "Why it happened",
+        body: "The view claimed a file it never had, so Obsidian's restore step looked up an empty path. It now reports no state at all.",
+      },
+      {
+        title: "Nothing else moved",
+        body: "No note format, setting key, review schedule or network default changed.",
+      },
+    ],
+  },
+  {
     version: "1.301.19",
     date: "November 13, 2026",
     title: "Three dead ends removed",

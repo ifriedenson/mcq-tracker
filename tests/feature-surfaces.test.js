@@ -316,3 +316,11 @@ test("adding the open note to whole-note review marks it instead of throwing", a
   assert.ok(file.fm.next_review, "a first review date is set");
   assert.equal(plugin.settings.noteReview.enabled, true, "whole-note review turns on");
 });
+
+test("the recent files view reports an empty state so Obsidian can restore the leaf", async () => {
+  const { plugin } = await boot();
+  const { RecentFilesView } = require("../src/recent-files-view");
+  const view = new RecentFilesView({}, plugin);
+  assert.deepEqual(view.getState(), {}, "no file is claimed, so no getExternalFile(undefined)");
+  view.setState({ anything: true });
+});
