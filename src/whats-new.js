@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.19",
+    date: "November 13, 2026",
+    title: "Three dead ends removed",
+    summary:
+      "Every command, view and settings page was driven in a real Obsidian window. Adding a note to review, the assignment dialog and a vault file handed to the importer now work.",
+    highlights: [
+      {
+        title: "Add to review works",
+        body: "The palette command, the file menu and the review sidebar's plus button now add the open note to whole-note review instead of failing with an error.",
+      },
+      {
+        title: "The assignment dialog opens",
+        body: "Points, points earned, weight and time estimate render as number fields instead of stopping the dialog before it draws.",
+      },
+      {
+        title: "Files already in the vault import",
+        body: "A PDF that is already in your vault is read by its path, and a file with no readable bytes explains how to pick it again.",
+      },
+      {
+        title: "Nothing else moved",
+        body: "No note format, setting key, review schedule or network default changed. The release also records what the live window could not reach.",
+      },
+    ],
+  },
+  {
     version: "1.301.18",
     date: "November 13, 2026",
     title: "Stop is answered at once",

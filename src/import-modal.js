@@ -206,8 +206,14 @@ class PdfImportModal extends QtModal {
     const init = options || {};
     this.files = Array.isArray(init.files) ? init.files.filter(Boolean) : init.file ? [init.file] : [];
     if (!this.files.length && init.file) this.files = [init.file];
-    this.file = this.files[0] || init.file || null;
-    this.vaultDoc = init.vaultDoc || "";
+    const pickedFile = this.files[0] || init.file || null;
+    // A vault TFile has a path but no arrayBuffer(); callers that pass one mean
+    // "this file is already in the vault", so route it through the vault reader
+    // instead of failing later with "arrayBuffer is not a function".
+    const fromVault = !init.vaultDoc && pickedFile && pickedFile.path && typeof pickedFile.arrayBuffer !== "function";
+    this.vaultDoc = init.vaultDoc || (fromVault ? pickedFile.path : "");
+    this.file = fromVault ? null : pickedFile;
+    if (fromVault) this.files = [];
     this.preflight = init.preflight || null;
     this.preflights = Array.isArray(init.preflights) ? init.preflights : [];
     this.preflightBusy = false;

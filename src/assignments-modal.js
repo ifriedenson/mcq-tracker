@@ -56,19 +56,19 @@ class AssignmentModal extends QtModal {
     status.value = a ? a.status : "todo";
 
     const points = field("Points possible", "100");
-    points.inputEl.type = "number";
+    points.type = "number";
     points.value = a && a.points !== null && a.points !== undefined ? String(a.points) : "100";
 
     const score = field("Points earned (when graded)", "e.g. 87");
-    score.inputEl.type = "number";
+    score.type = "number";
     score.value = a && a.earned !== null && a.earned !== undefined ? String(a.earned) : "";
 
     const weight = field("Weight inside its category", "1");
-    weight.inputEl.type = "number";
+    weight.type = "number";
     weight.value = a ? String(a.weight) : "1";
 
     const estimate = field("Time estimate (minutes)", "e.g. 45");
-    estimate.inputEl.type = "number";
+    estimate.type = "number";
     estimate.value = a && a.estimate ? String(a.estimate) : "";
     const hint = contentEl.createDiv({ cls: "qt-hint" });
     hint.setText("Category weights (homework, quizzes, tests, exams) are under Settings, Assignments, Grading. Weight here only orders assignments within one category. A time estimate is optional; 0 or blank means no estimate.");

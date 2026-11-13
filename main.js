@@ -9960,19 +9960,19 @@ class AssignmentModal extends QtModal {
     status.value = a ? a.status : "todo";
 
     const points = field("Points possible", "100");
-    points.inputEl.type = "number";
+    points.type = "number";
     points.value = a && a.points !== null && a.points !== undefined ? String(a.points) : "100";
 
     const score = field("Points earned (when graded)", "e.g. 87");
-    score.inputEl.type = "number";
+    score.type = "number";
     score.value = a && a.earned !== null && a.earned !== undefined ? String(a.earned) : "";
 
     const weight = field("Weight inside its category", "1");
-    weight.inputEl.type = "number";
+    weight.type = "number";
     weight.value = a ? String(a.weight) : "1";
 
     const estimate = field("Time estimate (minutes)", "e.g. 45");
-    estimate.inputEl.type = "number";
+    estimate.type = "number";
     estimate.value = a && a.estimate ? String(a.estimate) : "";
     const hint = contentEl.createDiv({ cls: "qt-hint" });
     hint.setText("Category weights (homework, quizzes, tests, exams) are under Settings, Assignments, Grading. Weight here only orders assignments within one category. A time estimate is optional; 0 or blank means no estimate.");
@@ -36399,6 +36399,9 @@ async function readDocumentSource(app, options) {
   const opts = options || {};
   if (opts.file) {
     const name = opts.file.name || "";
+    if (typeof opts.file.arrayBuffer !== "function") {
+      throw new Error("That file has to be chosen from this device again. Files already in your vault are imported by path.");
+    }
     if (opts.pdfOnly && !/\.pdf$/i.test(name)) throw new Error(opts.notPdfMessage || "Choose a PDF first.");
     assertSourceSize(opts.file.size);
     const buf = await opts.file.arrayBuffer();
@@ -49813,8 +49816,14 @@ class PdfImportModal extends QtModal {
     const init = options || {};
     this.files = Array.isArray(init.files) ? init.files.filter(Boolean) : init.file ? [init.file] : [];
     if (!this.files.length && init.file) this.files = [init.file];
-    this.file = this.files[0] || init.file || null;
-    this.vaultDoc = init.vaultDoc || "";
+    const pickedFile = this.files[0] || init.file || null;
+    // A vault TFile has a path but no arrayBuffer(); callers that pass one mean
+    // "this file is already in the vault", so route it through the vault reader
+    // instead of failing later with "arrayBuffer is not a function".
+    const fromVault = !init.vaultDoc && pickedFile && pickedFile.path && typeof pickedFile.arrayBuffer !== "function";
+    this.vaultDoc = init.vaultDoc || (fromVault ? pickedFile.path : "");
+    this.file = fromVault ? null : pickedFile;
+    if (fromVault) this.files = [];
     this.preflight = init.preflight || null;
     this.preflights = Array.isArray(init.preflights) ? init.preflights : [];
     this.preflightBusy = false;
@@ -72181,7 +72190,7 @@ const fsrsFit = require("./fsrs-fit");
 const { normalizeStudyMapSettings, renderStudyMapBlock: renderStudyMap } = require("./study-map");
 const { normalizeVaultSearchSettings, renderVaultSearchBlock: renderVaultSearch } = require("./vault-search");
 const { buildSourceRecall, findQuoteRange } = require("./source-recall");
-const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
+const { buildNoteQueue, isNoteCandidate, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
 const { NoteReviewModal } = require("./note-review-modal");
 const reviewCalendar = require("./review-calendar");
 const studyStats = require("./study-stats");
@@ -80398,7 +80407,7 @@ ${body}
       return null;
     }
     const fm = this.app.metadataCache.getFileCache(target)?.frontmatter || {};
-    if (!noteReview.isNoteCandidate({ file: target, fm })) {
+    if (!isNoteCandidate({ file: target, fm })) {
       if (!opts.silent) new Notice("Question and card notes are already reviewed by their own queues.");
       return null;
     }
@@ -135111,6 +135120,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.301.19",
+    date: "November 13, 2026",
+    title: "Three dead ends removed",
+    summary:
+      "Every command, view and settings page was driven in a real Obsidian window. Adding a note to review, the assignment dialog and a vault file handed to the importer now work.",
+    highlights: [
+      {
+        title: "Add to review works",
+        body: "The palette command, the file menu and the review sidebar's plus button now add the open note to whole-note review instead of failing with an error.",
+      },
+      {
+        title: "The assignment dialog opens",
+        body: "Points, points earned, weight and time estimate render as number fields instead of stopping the dialog before it draws.",
+      },
+      {
+        title: "Files already in the vault import",
+        body: "A PDF that is already in your vault is read by its path, and a file with no readable bytes explains how to pick it again.",
+      },
+      {
+        title: "Nothing else moved",
+        body: "No note format, setting key, review schedule or network default changed. The release also records what the live window could not reach.",
+      },
+    ],
+  },
   {
     version: "1.301.18",
     date: "November 13, 2026",

@@ -287,7 +287,7 @@ const fsrsFit = require("./fsrs-fit");
 const { normalizeStudyMapSettings, renderStudyMapBlock: renderStudyMap } = require("./study-map");
 const { normalizeVaultSearchSettings, renderVaultSearchBlock: renderVaultSearch } = require("./vault-search");
 const { buildSourceRecall, findQuoteRange } = require("./source-recall");
-const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
+const { buildNoteQueue, isNoteCandidate, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
 const { NoteReviewModal } = require("./note-review-modal");
 const reviewCalendar = require("./review-calendar");
 const studyStats = require("./study-stats");
@@ -8504,7 +8504,7 @@ ${body}
       return null;
     }
     const fm = this.app.metadataCache.getFileCache(target)?.frontmatter || {};
-    if (!noteReview.isNoteCandidate({ file: target, fm })) {
+    if (!isNoteCandidate({ file: target, fm })) {
       if (!opts.silent) new Notice("Question and card notes are already reviewed by their own queues.");
       return null;
     }

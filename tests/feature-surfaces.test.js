@@ -281,3 +281,38 @@ test("the dashboard embed parses its block options", () => {
   const fallback = T.analyticsEmbed.parseDashboardBlock("metric: nonsense");
   assert.equal(fallback.metric, "overview", "an unknown metric falls back to the overview");
 });
+
+test("the assignment dialog's numeric fields are number inputs on the element itself", async () => {
+  const { app, plugin } = await boot();
+  const modal = new T.AssignmentModal(app, plugin, {}, () => {});
+  modal.containerEl = el();
+  modal.modalEl = el();
+  modal.contentEl = el();
+  modal.titleEl = el();
+  modal.open();
+  const found = [];
+  const walk = (own) => {
+    const label = own.meta && own.meta.attrs && own.meta.attrs["aria-label"];
+    if (label) found.push({ label, own });
+    (own.children || []).forEach(walk);
+  };
+  walk(modal.contentEl.__own);
+  for (const label of ["Points possible", "Points earned (when graded)", "Weight inside its category", "Time estimate (minutes)"]) {
+    const field = found.find((f) => f.label === label);
+    assert.ok(field, `${label} is rendered`);
+    assert.equal(field.own.type, "number", `${label} is a number input`);
+  }
+  modal.close();
+});
+
+test("adding the open note to whole-note review marks it instead of throwing", async () => {
+  const { app, plugin } = await boot([{ path: "Notes/Lecture.md", noFm: true, text: "# Lecture\n\nNotes.\n" }]);
+  plugin.save = async () => {};
+  const file = app.files[0];
+  const added = await plugin.addNoteToReview(file);
+  assert.equal(added, "Notes/Lecture.md", "the note is accepted");
+  assert.equal(file.fm.note_review, true, "the note is flagged for review");
+  assert.equal(file.fm.note_review_excluded, false, "a previously hidden note is restored");
+  assert.ok(file.fm.next_review, "a first review date is set");
+  assert.equal(plugin.settings.noteReview.enabled, true, "whole-note review turns on");
+});

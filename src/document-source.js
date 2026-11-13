@@ -23,6 +23,9 @@ async function readDocumentSource(app, options) {
   const opts = options || {};
   if (opts.file) {
     const name = opts.file.name || "";
+    if (typeof opts.file.arrayBuffer !== "function") {
+      throw new Error("That file has to be chosen from this device again. Files already in your vault are imported by path.");
+    }
     if (opts.pdfOnly && !/\.pdf$/i.test(name)) throw new Error(opts.notPdfMessage || "Choose a PDF first.");
     assertSourceSize(opts.file.size);
     const buf = await opts.file.arrayBuffer();
