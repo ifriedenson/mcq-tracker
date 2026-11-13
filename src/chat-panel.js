@@ -334,7 +334,7 @@ class ChatPanel {
     chats.addEventListener("click", () => this.toggleLibrary());
     if (typeof this.view.plugin.openSettings === "function") {
       const settings = controlButton("Settings", "⚙");
-      settings.addEventListener("click", () => this.view.plugin.openSettings());
+      settings.addEventListener("click", () => this.view.plugin.openSettings("mcq-ai"));
     }
     if (this.opts.onSaveChat) {
       const save = controlButton("Save chat", "↓");

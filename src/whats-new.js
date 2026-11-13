@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.25",
+    date: "November 13, 2026",
+    title: "The gear goes straight to AI settings",
+    summary:
+      "The Study agent's Settings gear now opens AI and the assistant directly instead of whichever plugin page was last open. The final three audit rows are closed, with the math and screenshot passes checked in a real window and the mobile layout verified by its focused tests.",
+    highlights: [
+      {
+        title: "Settings no longer depends on your last visit",
+        body: "The gear used to open the plugin's default or previously active page, so a fresh install landed on Global instead of the AI controls. It now opens AI and the assistant directly, just like the error card's Open settings action.",
+      },
+      {
+        title: "Math and chemistry checked in the real app",
+        body: "Practice, the four choices, review, explanation, a timed test, card front and back, and chat all rendered fractions, a matrix, an integral and simple chemistry formulas in light, dark and a narrow pane. No renderer bug was found.",
+      },
+      {
+        title: "The screenshot row is real",
+        body: "The README links 16 real-window PNGs plus 26 full-size frames under docs/images; every referenced file exists, and no mock capture is presented as a screenshot.",
+      },
+      {
+        title: "Mobile audited at code level",
+        body: "All 18 focused mobile-layout tests pass and a narrow live render was checked. No physical iOS or Android device was available, so no device result is claimed and the optional owner checklist stays in the docs.",
+      },
+    ],
+  },
+  {
     version: "1.301.24",
     date: "November 13, 2026",
     title: "Every settings error shows the fix",

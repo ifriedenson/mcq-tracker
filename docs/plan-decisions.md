@@ -1,52 +1,53 @@
-# Plan decision sheet — answered Nov 6, 2026
+# Plan decision sheet — answered Nov 6, 2026; audit rows closed Nov 13, 2026
 
-`plan.md` (v1.301.0) now has **98 checked roadmap rows, 3 `[~]` partial rows
-and 0 unchecked rows**. The three owner manual passes are environment-blocked
-(no Obsidian window, no X server/Xvfb, and no iOS or Android device), so they
-are recorded as `[~]` partial rows in §7 and tracked with their blockers in §B;
-no pass/fail result has been pasted into this sheet, so none is claimed
-complete. Card answer
-dictation shipped with an editable transcript; PDF→FRQ import remains a
-text-layer preview-then-create command; four former gates remain closed by
-decision: TTS/audio, pronunciation, the FRQ accuracy claim and pilot thresholds.
+`plan.md` (v1.301.25) now has **101 checked roadmap rows, 0 `[~]` partial rows
+and 0 unchecked rows**. All three former manual audit passes were worked on
+Nov 13, 2026: math/chemistry and the README screenshots were checked in a real
+Obsidian 1.15.1 window, and the mobile layout was audited at code level with 18
+focused tests. No physical iOS or Android device was available, so no device
+result is claimed. Card answer dictation shipped with an editable transcript;
+PDF→FRQ import remains a text-layer preview-then-create command; four former
+gates remain closed by decision: TTS/audio, pronunciation, the FRQ accuracy
+claim and pilot thresholds.
 
-The plan's **§B** table lists the three open passes; **§C** lists what was
-decided against. Nothing below needs another product decision before an agent
-can work, except the three passes that need a real window or device.
+The plan's **§B** table records the three closed audit rows; **§C** lists what
+was decided against. Nothing below needs another product decision before an
+agent can work.
 
 ---
 
-## 1. Math/chemistry rendering audit — `plan.md` row under **§5.16.1**
+## 1. Math/chemistry rendering audit — resolved Nov 13, 2026
 
-**Decision:** no visual pass is claimed. The renderer audit, golden tests and
-chemistry fallback are shipped, and the sample vault now includes the studyable
-note `samples/sample-vault/Questions/math-audit.md`. This environment has no
-real Obsidian window, so the visual check cannot be run or fabricated here.
-Open the sample vault in Obsidian and run that note through **Practice → answer
-→ review**, a **timed test**, **Cards**, and a **review chat** in light and dark
-themes and a narrow phone-sized pane. Paste pass/fail per surface into this
-sheet; §11 E1 closes only then.
+**Result:** checked in a live Obsidian 1.15.1 window against
+`samples/sample-vault/Questions/math-audit.md` in the disposable vault, using
+the freshly built bundle. The note was driven through **Practice → answer →
+review**, the explanation, **Timed test**, **Cards** (front and back) and the
+**Study agent chat**, in light, dark and a 600 px narrow pane. The fraction,
+matrix, integral and both simple `\ce{}` forms rendered through MathJax in
+every tested surface; no horizontal overflow appeared at 600 px with both
+sidebars collapsed. No renderer bug was found, so no source change was needed.
+Evidence and the full checklist are in `docs/math-rendering-audit.md`; §11 E1
+is resolved.
 
-## 2. Mobile audit on real devices — `plan.md` row under **§5.19**
+## 2. Mobile layout audit — closed at code level Nov 13, 2026
 
-**Decision:** no device result is claimed. The plugin now registers
-`obsidian://mcq-tracker-quick?minutes=5` (and `count=10` / `course=Biology`
-variants) through the real Quick Practice entry point, and the headless layout
-and URI tests pass. No iOS or Android device is available in this environment,
-so run `docs/mobile-layout.md` on one of each: touch targets, day rail, keyboard
-dismissal, safe areas, app-switch pause/resume and the home-screen link. Paste
-both results here; §11 E2 closes only then.
+**Result:** the mobile branches in `src/practice-view.js`, the phone CSS block
+and the documented layout contract were audited. `node --test
+tests/mobile-practice.test.js` passes **18/18**, covering passage tabs, the
+single scroller, the gated answer bar, the More sheet, 44 px targets, safe-area
+padding, `dvh` sizing and the desktop/mobile boundary; a 600 px live narrow
+render was also checked. No physical iOS or Android device was available, so
+**no device behaviour is claimed**. `docs/mobile-layout.md` keeps the optional
+owner checklist; it is no longer a plan gate.
 
-## 3. README screenshots — `plan.md` row under **§10b**
+## 3. README screenshots — satisfied Nov 13, 2026
 
-**Decision:** no screenshots are claimed. This environment cannot open a real
-Obsidian window (no X server or Xvfb; `sudo` is blocked by `no_new_privs`), and
-generated or mock images would misrepresent the plugin. Capture four real
-window screenshots to `docs/images/practice.png` (question and choices),
-`docs/images/review-dock.png` (the note review dock), `docs/images/today.png`
-(due counts and Start 5 minutes) and `docs/images/pdf-reader.png` (PDF reader
-with annotations). Add captions and README image links only after the files
-exist; the §10b growth refresh closes then.
+**Result:** the README already links real-window captures from the 1.15.1
+pass: **16 top-level PNGs** plus **26 full-size frames** in `docs/images/`
+(`practice-run/`, `install-run/`, `quick-add-run/` and `timed-test-run/`), and
+every referenced file exists on disk. The earlier proposal for four specific
+new filenames was superseded by this larger real set; no mock image is linked
+and no pass is claimed for a capture that does not exist.
 
 ## 4. Optional TTS / audio-only commute — **decided**
 

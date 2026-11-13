@@ -160,6 +160,7 @@ Run the focused check with:
 node --test tests/mobile-practice.test.js
 ```
 
-The real iOS/Android device audit is still a manual gate recorded in
-`plan.md`; the automated tests prove the code and CSS boundary, not device
-behaviour.
+The mobile layout audit is closed at code level on Nov 13, 2026: all 18 focused
+tests pass and a 600 px live narrow render was checked. No physical iOS or
+Android device was available, so **no device behaviour is claimed**; the
+checklist above remains an optional owner follow-up and is no longer a plan gate.

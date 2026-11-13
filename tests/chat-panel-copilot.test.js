@@ -215,6 +215,17 @@ test("study agent layout: mode and history/settings controls sit below the trans
   assert.equal(dom.all.some((element) => element.classes && element.classes.has("qt-agent-avatar")), false);
 });
 
+test("study agent controls: the Settings gear opens AI settings directly", async () => {
+  const { plugin, dom } = await apiPanel();
+  const opened = [];
+  plugin.openSettings = (page) => opened.push(page || "");
+  const settings = dom.all.find((element) => (element.meta.attr || {})["aria-label"] === "Settings");
+  assert.ok(settings, "the gear is rendered");
+
+  for (const handler of settings.handlers.filter((entry) => entry.ev === "click")) await handler.fn({});
+  assert.deepEqual(opened, ["mcq-ai"], "the gear does not depend on whichever settings page was open last");
+});
+
 test("study agent transcript: reasoning and vault citations render as compact disclosure blocks", async () => {
   const { panel, dom, app } = await apiPanel();
   panel.turns = [

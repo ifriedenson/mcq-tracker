@@ -1,6 +1,6 @@
 # Math and chemistry rendering audit
 
-**Scope:** §5.16.1 of `plan.md`. This page records what was checked, what changed in 1.80.0, and the visual check that still needs a real Obsidian window.
+**Scope:** §5.16.1 of `plan.md`. This page records what was checked, what changed in 1.80.0, and the visual pass completed on Nov 13, 2026.
 
 ## Renderer path
 
@@ -33,9 +33,11 @@ Every learner-facing text surface goes through `renderMarkdownInto()` in `src/vi
 
 No MathJax, mhchem, KaTeX or other third-party renderer code is bundled. The converter is original code in this MIT-licensed repository.
 
-## Visual check still needed
+## Visual check completed Nov 13, 2026
 
-The automated audit cannot see Obsidian's rendered output. The sample vault now ships a studyable note at `samples/sample-vault/Questions/math-audit.md`; open the sample vault and run that note through **Practice → answer → review**, **Timed test**, **Cards**, and a **review chat**. Check light and dark themes and a narrow phone-sized pane. The body is:
+The automated audit cannot see Obsidian's rendered output. The visual pass was run in Obsidian 1.15.1 against the same `samples/sample-vault/Questions/math-audit.md` note copied into the disposable vault, using the freshly built bundle and the remote-debugging harness. It covered **Practice → answer → review**, the explanation, **Timed test**, **Cards** front and back, and the **Study agent chat**, at 1440 px and in a 600 px narrow pane, in both light and dark themes.
+
+Observed: the fraction, matrix and integral rendered through MathJax; both simple `\ce{}` choices (`2H2 + O2 -> 2H2O` and `Ca(OH)2`) were converted and rendered; the same formulas rendered in the review, explanation, timed-test choices, card back and chat transcript. No horizontal overflow appeared at 600 px with both sidebars collapsed. No renderer bug was found, so no source change was needed. The body is:
 
 ```md
 ---
@@ -71,6 +73,6 @@ Which choice is equivalent to $\frac{3}{4}-\frac{1}{2}$?
 
 The note's correct answer is A: `3/4 - 1/2 = 1/4`. The integral is a display-math check in the explanation, not part of the answer. Options B-D deliberately exercise a matrix and the two supported chemistry forms, so one miss records which renderer path failed.
 
-Also check one note with complex chemistry such as `$\ce{[Cu(NH3)4]^2+}$`. It needs an mhchem-enabled MathJax setup; the plugin intentionally leaves it untouched rather than producing a wrong structure.
+One note with complex chemistry such as `$\ce{[Cu(NH3)4]^2+}$` still needs an mhchem-enabled MathJax setup; the plugin intentionally leaves it untouched rather than producing a wrong structure. The visual pass used the supported simple forms in the sample note.
 
 If a formula still appears raw, record the surface, theme, platform and the exact source line in the issue tracker. Do not paste copyrighted exam content; use a minimal formula instead.

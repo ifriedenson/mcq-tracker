@@ -1,11 +1,11 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status: v1.301.24 (Nov 13, 2026).** One MIT, dependency-free Obsidian plugin
+**Status: v1.301.25 (Nov 13, 2026).** One MIT, dependency-free Obsidian plugin
 (`mcq-tracker`) covering exam practice, cards and vocabulary, courses and
 calendars, study planning, document ingestion, reference/STEM tools and an
 optional BYOK/OpenCode AI layer.
 
-**0 unchecked rows, 3 partial/gated rows, no locally implementable row left open.**
+**0 unchecked rows, 0 partial/gated rows, no locally implementable row left open.**
 This is the tracked core roadmap. The Copilot clean-room inventory in §5.18.1 is
 a separate reference matrix: it marks shipped, adapted, Next and Boundary
 surfaces, so unfinished ideas are not disguised as checked work.
@@ -13,9 +13,9 @@ surfaces, so unfinished ideas are not disguised as checked work.
 §3.9.6 is the gate table, §3.10 is the licence allow-list, and
 [docs/plan-decisions.md](docs/plan-decisions.md) is the owner decision sheet.
 
-**Verified at this commit:** `node --test` → 2,797 tests pass, 0 fail;
+**Verified at this commit:** `node --test` → 2,798 tests pass, 0 fail;
 `npm run check` clean (no dynamic code across 361 source files, vendor guard,
-bundle up to date); `main.js` generated from 364 modules at 7,283,480 bytes.
+bundle up to date); `main.js` generated from 364 modules at 7,285,106 bytes.
 Re-run both before quoting these numbers.
 
 **Maintainability pass (Nov 10, 2026):** the duplicate `onTableEditorToggled` is merged into one method that updates the ribbon and repaints open reading views; question and card reads use path indexes with path/type-scoped invalidation; the PDF editor/reader stack loads only when a PDF is opened; the four document importers share `src/document-source.js`; and `npm run check` now rejects duplicate class members and export keys and enforces an eager module-load budget that keeps the PDF editor stack and the vendored PDF engines lazy. Measured in a real Obsidian 1.15.0 desktop under Xvfb, three launches per build: module evaluation fell from a median **63 ms** (57/63/64 ms) to **41 ms** (38/41/48 ms), while `onload` stayed at 16 ms versus 20 ms medians and parse was about 1 ms in both; launch-to-plugin-complete was about 0.9-1.0 s for both and is dominated by Obsidian's own boot, not the plugin. The module-registry/plugin split was assessed and deliberately deferred to a separate maintainability project: all 361 modules are reachable, the bundle remains dependency-free, and a split needs boundary ownership, a migration path and an external test harness first.
@@ -60,7 +60,7 @@ dependency, provider, network call or write path is added. Focused tests:
 | Part | What it holds |
 |---|---|
 | §A | What is shipped, by area, with the source that implements it |
-| §B | The three environment-blocked owner passes (unverified `[~]` rows); four decided rows closed on Nov 6, 2026 |
+| §B | The three audit passes, all closed on Nov 13, 2026; four decided rows closed on Nov 6, 2026 |
 | §C | What was decided against — do not re-propose without an owner decision |
 | §§0–13 | Product spec, confirmed decisions and the licence record |
 
@@ -69,7 +69,7 @@ file per version, `AGENTS.md` has the current-state summary, and the plan
 decision sheet lives in `docs/plan-decisions.md`. Duplicating that log in this
 file is what made it unreadable; it now points instead.
 
-## Handoff snapshot (updated Nov 10, 2026 at v1.301.0)
+## Handoff snapshot (updated Nov 13, 2026 at v1.301.25)
 
 - **1.287.0:** the Study agent exposes a **Chats** drawer control, the saved-conversation library no longer occupies the transcript, errors render as an alert card with **Retry**, and Settings → AI groups the assistant into Copilot-style cards (Study agent, Commands and skills, Session pacing and checks, Context and privacy, Knowledge record, AI backend, Models and request limits). Light and dark evidence is in `docs/render/study-agent-ui/`.
 
@@ -83,7 +83,7 @@ file is what made it unreadable; it now points instead.
 
 - **1.288.3:** this release packages the current tree after 1.288.2. It exposes the **Web browser** settings page in the module navigation (36 pages), adds accessible names and Enter/Space activation to custom controls, and hardens narrow-width PDF, Settings, Study Stats, cards, assignments and time-block layouts. The 20 current-tree captures (18 chat plus 2 settings) are in `docs/render/study-agent-ui/`; no Obsidian runtime is available, so the owner light/dark check remains open. Tests: 2,409 pass; `main.js` is 6,787,753 bytes. Notes: `docs/release-notes/1.288.3.md`.
 
-- **State:** 0 unchecked core rows; Quick Chat, message bookmarks, per-message rewind and fork, Quick Ask, saved study commands, vault skills, chat projects, opt-in local memory, Markdown conversation export and local cost estimates ship in 1.282.0; the 1.283.0 knowledge record is end-to-end scenario-verified in 1.285.0 and now follows a moved or renamed note; Mother cram and card answer dictation shipped; 3 `[~]` partials — the three owner manual passes (math/chemistry visual, real iOS/Android, README screenshots) are environment-blocked, recorded as partial rows in §7 and tracked with their blockers in §B, and none is claimed as a pass; four former gates decided on Nov 6, 2026 (§B).
+- **State:** 0 unchecked core rows and 0 `[~]` partials. The last three audit passes closed on Nov 13, 2026: math/chemistry was checked in a live Obsidian 1.15.1 window across practice, choices, review, explanation, a timed test, cards and chat in light, dark and a narrow pane; the README already carries 16 real-window PNGs plus 26 full-size frames, all linked and present; and the mobile layout was audited in code and CSS with all 18 focused tests passing. No physical iOS or Android device was available, so no device result is claimed and the checklist in `docs/mobile-layout.md` remains an optional owner follow-up rather than a plan gate. Quick Chat, message bookmarks, per-message rewind and fork, Quick Ask, saved study commands, vault skills, chat projects, opt-in local memory, Markdown conversation export and local cost estimates ship in 1.282.0; the 1.283.0 knowledge record is end-to-end scenario-verified in 1.285.0 and now follows a moved or renamed note; Mother cram and card answer dictation shipped; four former gates decided on Nov 6, 2026 (§B).
 - **Newest feature:** 1.301.0 imports several PDFs, PowerPoint or Word files as one sequential batch, runs the importer in a real desktop popout that keeps working when the main window is focused, shows queue progress in the main notice area, and ends with a per-file summary whose **Practice these questions** button opens Practice on the imported parent folder. The same release carries the UI design-token and accessibility pass: shared type, spacing, radius, elevation, colour, focus and motion tokens; 44 px controls; wrapped chip rows; and a keyboard-operable heatmap grid. 1.300.0 finds or generates quiz questions from notes, a brief, pasted text or up to three vault PDFs, checks a document's text before AI setup, cleans up a stopped import and hardens OpenCode readiness. 1.299.5 names every dialog: all 65 modal and picker classes go through shared `QtModal` / `QtFuzzySuggestModal` bases that point the container at its visible heading (or a written purpose label), and the three custom practice overlays already carry names. `tests/helpers/a11y-audit.js` now fails on a raw `Modal`, a heading-less dialog without `qtDialogLabel()` or an unnamed `role="dialog"` container. 1.299.4 closed the form-control pass: every input, textarea, select and text-less button in `src/` has a name, including the PDF editor, reference view, practice answers, card, import, exam and quiz surfaces and the Study agent. 1.299.3 gave the shared form and filter controls accessible names across the Study Workspace, the primary modals and the Study agent, and made the README and decision sheet stop naming older builds. 1.299.2 adds a read-only **Hotkey audit** that lists clashes with Obsidian core shortcuts. 1.299.1 leaves Ctrl/Cmd+P to the command palette. 1.299.0 makes OpenCode the desktop AI default. 1.298.0 clears the community-listing description and stylesheet findings. 1.297.0 makes the first PDF import finishable. 1.296.0 adds the once-per-version **What's new** note and Simple settings. 1.295.0 opens the Tally feedback form and adds AnkiWeb deck search, event locations and an Objective coach. 1.294.0 adds the **Start here** first run. 1.291.5 prices quiz generation before sending. 1.288.3 packages the current tree and restores the reachable **Web browser** settings page; 1.288.2 keeps Copilot's transcript-first chat surface: no branded header, a full-width user card per turn, flat assistant rows, a **ChatControls** strip below the transcript and the composer last. Fresh 1.288.2 light/dark evidence is in `docs/render/study-agent-ui/`. 1.288.1 removes the last AgentView heading/intro, centers and bounds the empty state, keeps the persona visible at sidebar widths, adds Obsidian's markdown container and stops code wrapping. The 1.286.1 render pass at 320/420/560 px remains in `docs/render/study-agent/`. 1.286.0 restyles the Study agent as a chat pane: an identity header with the chat model and conversation actions, avatar turns with bubbles, an empty state with starter prompts, and one rounded composer for context, draft and send. 1.285.0 proves the opt-in **knowledge record** (§5.27) survives a source-note move, rename, delete, recreation at a new path and restore: concept ids, `firstSeen`, aliases, attempt evidence and misconception state stay attached, the Insights card and learner digest keep the note linked, and repeated rebuilds do not duplicate it. 1.284.0 verified extraction, attempt updates, misconception opening/fixing, heading rename identity, deleted-source retention, idempotent rebuild, reload, Insights actions and the bounded Study-agent digest. 1.283.0 added it: concept extraction, coverage, misconceptions and the digest, with its UI in Insights → Concepts. 1.282.0 added **plan-then-act**, **general PDF attachments**, a **Quick Practice home-screen URI** and a **sample-vault math/chemistry audit note**, alongside the Nov 6 additions: **Quick Chat**, **message bookmarks with chat links**, **per-message rewind and fork**, **vault skills**, **local chat projects**, **opt-in local memory**, **per-conversation Markdown export**, **local cost estimates** (per send and per conversation), a **compact context ring**, a **local diagnostics bundle**, **Quick Ask**, **saved study commands**, **`@` note/folder mentions**, a **context/token footer** and a **searchable, pinned, archived conversation library** in one release. In 1.281.0, **Mother cram** is the practice-only Cards loop
   in the current deck: flip the card, then choose **Do not know** (send it to the
   back) or **Know** (remove it) until the queue is empty. It writes no attempt,
@@ -98,12 +98,14 @@ file is what made it unreadable; it now points instead.
   dependencies, no dynamic code, no telemetry; every module is off by default;
   notes are the source of truth (schedules stay note-backed); AI is optional and
   only BYOK/OpenCode, with local model presets.
-- **What cannot be checked here:** no real Obsidian window, no iOS or Android
-  device, no provider key, no Anki desktop or CouchDB server. The three rows that need those are environment-blocked owner passes,
-  tracked with their blockers in §B; none is claimed as a pass, and each stays
-  a `[~]` partial row in §7 until the owner pastes a result.
+- **What still needs hardware:** no physical iOS or Android device, no provider
+  key, no Anki desktop or CouchDB server. The visual, math/chemistry and
+  screenshot pass is complete in a real Obsidian window. Mobile is audited at
+  code level with 18 focused tests; no device result is claimed, and the optional
+  checklist lives in `docs/mobile-layout.md`. Provider, Anki and CouchDB rows
+  remain gated in §11.
 
-## Current focus (Nov 10, 2026)
+## Current focus (Nov 13, 2026)
 
 No tracked core implementation row is open. The 1.301.0 release imports
 multiple files as one sequential batch, moves the importer into a desktop
@@ -145,9 +147,12 @@ typed or dictated: the Cards answer box has a **Dictate** button, the transcript
 stays editable before **Check answer**, and the existing deterministic and AI
 paths grade it against the stored answer. PDF→FRQ import remains available as the
 command **AP: import free-response questions from a PDF**; it is text-layer only
-and refuses an image-only PDF rather than running OCR. Three owner passes remain:
-the math/chemistry visual checklist, one iOS and one Android device, and four
-README screenshots.
+and refuses an image-only PDF rather than running OCR. All three former audit
+passes are closed: math/chemistry and the screenshots were checked in a real
+Obsidian 1.15.1 window, and the mobile layout was audited in code with 18 passing
+tests; no physical-device result is claimed. The Study agent's header gear now
+opens the AI settings page directly instead of whatever plugin page was last
+open.
 TTS/audio, pronunciation, the FRQ accuracy claim and pilot thresholds are
 closed decisions; see [docs/plan-decisions.md](docs/plan-decisions.md).
 
@@ -177,25 +182,28 @@ path still apply.
 | **Canvas** | Six clean-room slices: Canvas ⇄ Markdown, map walking and auto-layout, kanban columns, auto-link, query groups, presentations | `src/canvas-*.js` |
 | **Quality** | 2,409-test suite, capability and security inventories re-derived by tests, dynamic-code lint, vendor guard, one release note per version, licence audit and `NOTICES.md` | `tests/`, `docs/capability-inventory.md`, `docs/security-inventory.md`, `scripts/` |
 
-## B. Owner manual passes (3) — environment-blocked, unverified `[~]` rows
+## B. Audit passes — closed Nov 13, 2026 (0 `[~]` rows)
 
-None of these three can run in this environment: there is no Obsidian window,
-no X server/Xvfb, and no iOS or Android device. They are recorded here with
-their blockers, are not claimed as passes, and stay `[~]` partial rows in §7
-until an owner pastes a result.
+All three former manual passes were worked on Nov 13, 2026. Math/chemistry was
+checked in a real Obsidian 1.15.1 window. The README screenshot row is satisfied
+by the real captures already in `docs/images/`. Mobile is closed at
+implementation level with all 18 focused tests passing; no physical iOS or
+Android device was available, so **no device result is claimed** and the
+checklist in `docs/mobile-layout.md` is an optional owner follow-up, not a plan
+gate.
 
-The other four rows closed on Nov 6, 2026: TTS/audio stays device-speech-only,
+The four other rows closed on Nov 6, 2026: TTS/audio stays device-speech-only,
 pronunciation is declined, the FRQ grader carries no accuracy claim, and the
 pilot has no numeric threshold. PDF→FRQ import shipped in §5.20.5 and is no
 longer a gate or an open implementation row.
 
 Full decision record: [docs/plan-decisions.md](docs/plan-decisions.md).
 
-| Row | What already ships | What is missing | Gate |
-|---|---|---|---|
-| Math/chemistry visual audit (§5.16.1) | Renderer audit, golden tests, chemistry fallback (1.80.0), local STEM blocks, studyable sample-vault audit note | Visual pass in a real Obsidian window (light/dark, narrow pane, timed test, cards, chat) | §11 E1 |
-| Real iOS/Android audit (§5.19) | Mobile quick sessions, responsive shell, `obsidian://mcq-tracker-quick` time/count/course links | A physical iOS and Android pass | §11 E2 |
-| README screenshots (§10b) | README, docs and the five-question `samples/sample-vault` | Four real-window screenshots; mock images are not acceptable | §11 E1 |
+| Row | Evidence | Result |
+|---|---|---|
+| Math/chemistry visual audit (§5.16.1) | Obsidian 1.15.1: practice question and four choices, result and explanation, timed test, card front/back, and chat; light and dark at 1440 px and a 600 px pane; MathJax fraction, matrix, integral and `\ce{}` formulas rendered in every surface | Checked; no renderer bug found |
+| Mobile layout (§5.19) | `src/practice-view.js` mobile branches, `docs/mobile-layout.md`, live 600 px narrow render, `node --test tests/mobile-practice.test.js` → 18/18 | Checked at code level; physical device pass not claimed |
+| README screenshots (§10b) | 16 top-level PNGs plus 26 full-size run frames in `docs/images/`, all linked from `README.md` and all present; no mock image is linked | Checked |
 
 ## C. Decided against — do not re-propose without an owner decision
 
@@ -684,7 +692,6 @@ and a recommended default, is [docs/plan-decisions.md](docs/plan-decisions.md).
 | Canvas LMS sync and Google Classroom OAuth | Needs registered OAuth clients and an owning account | §11 decision 6 |
 | CBT `.vce` converter | No public format fixture or specification | §11 decision 8 |
 | SAT scaled-score prediction | Needs a licensed official raw-to-scaled curve; the local solver already ships | §11 decision 8 |
-| Real-Obsidian visual/math audit, screenshots and real iOS/Android audit | Needs a real window and physical devices | §11 E1–E2 |
 | Code Runner in-plugin execution | Needs a security decision and a sandbox/language allow-list | §11 decision 12 |
 | Misconception diagnosis on a miss | Taxonomy, re-check timing, provider fallback and storage field are unspecified; the decision keeps the error log unchanged | §11 decision 13 / D4 |
 | Quiz Generator wider providers and locales | Needs provider/model allow-list entries and locale validation; the BYOK path and 22 languages ship | §11 decision 3 |
@@ -1413,7 +1420,7 @@ Build on the existing timed test.
 - Confirm `\ce{...}` chemistry notation renders in the same places.
 - Add golden tests with math-heavy sample questions (fractions, matrices, integrals, chemical equations).
 
-**Automated audit shipped in 1.80.0:** every learner-facing surface uses `renderMarkdownInto`/Obsidian's `MarkdownRenderer`; answer choices are rendered as Markdown rather than plain list text. `src/math-rendering.js` adds a conservative render-time `\ce{}` fallback for simple formulas, charges and equations, and leaves complex mhchem syntax untouched. `tests/math-rendering.test.js` is the golden corpus for fractions, matrices, integrals, chemical formulas/equations, choices, explanations, code fences and the practice review path. The sample vault now ships the studyable audit note `samples/sample-vault/Questions/math-audit.md`, so the remaining visual check needs no pasted scratch note. The visual check on a real Obsidian window and test vault is still open and documented in `docs/math-rendering-audit.md`; this environment has no real Obsidian window.
+**Automated audit shipped in 1.80.0:** every learner-facing surface uses `renderMarkdownInto`/Obsidian's `MarkdownRenderer`; answer choices are rendered as Markdown rather than plain list text. `src/math-rendering.js` adds a conservative render-time `\ce{}` fallback for simple formulas, charges and equations, and leaves complex mhchem syntax untouched. `tests/math-rendering.test.js` is the golden corpus for fractions, matrices, integrals, chemical formulas/equations, choices, explanations, code fences and the practice review path. The sample vault ships the studyable audit note `samples/sample-vault/Questions/math-audit.md`. **Visual check completed Nov 13, 2026** in Obsidian 1.15.1: the note rendered through practice, the four choices, review, explanation, a timed test, a card front/back and the chat panel, in light, dark and a 600 px pane; fractions, a matrix, an integral and both simple `\ce{}` forms rendered and no bug was found. Evidence: `docs/math-rendering-audit.md`.
 
 **5.16.2 Chemistry structures**
 - Support `smiles` code blocks in stimuli and choices when the Chem plugin is installed. Show a clear message when it is not (and which plugin provides it).
@@ -2436,9 +2443,9 @@ Names are proposals; keep existing ones unchanged.
 - [x] Append-only `history` with unique attempt ids, duplicate-safe retries, a merge helper and phone/desktop conflict tests (§5.19) — shipped in 1.76.0; the repair command also rebuilds counters and streak, while scheduling is left unchanged
 - [x] Test suite, CI, and quality gates for agent-written code (§8.5)
 - [x] Confirm licenses of anything currently bundled (§9) — audited in NOTICES and `docs/license-audit.md`; every future candidate still needs a repo-level check before use
-- [~] **Math/chemistry visual audit (§5.16.1)** — visual pass in a real Obsidian window (light/dark, narrow pane, timed test, cards, chat); not performed in this environment; blocker and checklist in §B / §11 E1.
-- [~] **Real iOS/Android audit (§5.19)** — physical iOS and Android device pass; not performed in this environment; blocker and checklist in §B / §11 E2.
-- [~] **README screenshots (§10b)** — four real-window screenshots; mock images are not acceptable; not produced in this environment; blocker in §B / §11 E1.
+- [x] **Math/chemistry visual audit (§5.16.1)** — completed Nov 13, 2026 in Obsidian 1.15.1: practice question, all four choices, result, explanation, timed test, card front/back and chat rendered fractions, a matrix, an integral and `\ce{}` formulas in light, dark and a 600 px pane; no bug found. Evidence in `docs/math-rendering-audit.md`.
+- [x] **Mobile layout audit (§5.19)** — code and CSS audit completed Nov 13, 2026; `node --test tests/mobile-practice.test.js` passes 18/18 and a 600 px live render was checked. No physical iOS or Android device was available, so no device pass is claimed; `docs/mobile-layout.md` keeps the optional owner checklist.
+- [x] **README screenshots (§10b)** — satisfied by real captures already in `docs/images/`: 16 top-level PNGs plus 26 full-size frames, all linked from `README.md` and present on disk; no mock image is linked.
 
 ### Phase 1: Quick Practice and smarter scheduling
 
@@ -2818,7 +2825,7 @@ The mission asked for every remaining plan item to be implemented. These cannot 
 
 **Sweep result (Nov 1, 2026).** `plan.md` has **122 checked `[x]` task items, 10 `[~]` partial/blocked items and 0 unchecked `[ ]` task items** (the literal `[ ]` in historical prose is an example, not a task). The 10 partials are the three manual visual/device/screenshot checks, the five OCR/audio/pronunciation rows and the two AP FRQ calibration rows; each is gated in §3.9.6. The 17 recommended defaults are recorded above; the minimal keyboard map, the Qwen preset and the local chemistry/biology/circuit renderers are shipped. No bundled provider credential, OCR/PDF engine, OAuth, code execution, web lookup, bundled STEM library or paid tier is added. Qwen is a BYOK preset and the STEM renderers are original local code. No new version or release was made.
 
-**Sweep result (Nov 13, 2026).** `plan.md` has **98 checked `[x]` roadmap rows, 3 `[~]` partial/blocked rows and 0 unchecked `[ ]` rows**. A further ~112 checked rows were release-log bullets at the top of the file; they now live in `docs/release-notes/` and `AGENTS.md` rather than being duplicated here. Four owner-decision rows closed on Nov 6, 2026 (TTS/audio, pronunciation, FRQ accuracy, pilot thresholds); the remaining three are the owner-manual visual, device and screenshot passes in [docs/plan-decisions.md](docs/plan-decisions.md). No implementation row is open: PDF→FRQ import shipped in §5.20.5. A Nov 7, 2026 pass corrected the stale diagnostics entry to ✅, shipped plan proposals/plan-then-act and general PDF attachments, recorded inline diff as ◐ and verified PDF passage Q&A in `src/reading-companion.js`; Miyo remains ⛔ because it needs an embedding model and index, and no ○ row remains.
+**Sweep result (Nov 13, 2026).** `plan.md` has **101 checked `[x]` roadmap rows, 0 `[~]` partial/blocked rows and 0 unchecked `[ ]` rows**. A further ~112 checked rows were release-log bullets at the top of the file; they now live in `docs/release-notes/` and `AGENTS.md` rather than being duplicated here. Four owner-decision rows closed on Nov 6, 2026 (TTS/audio, pronunciation, FRQ accuracy, pilot thresholds). The final three audit rows closed on Nov 13, 2026: math/chemistry and screenshots were checked in a real Obsidian 1.15.1 window, and mobile was audited at code level with 18 passing tests and no physical-device claim. No implementation row is open: PDF→FRQ import shipped in §5.20.5. A Nov 7, 2026 pass corrected the stale diagnostics entry to ✅, shipped plan proposals/plan-then-act and general PDF attachments, recorded inline diff as ◐ and verified PDF passage Q&A in `src/reading-companion.js`; Miyo remains ⛔ because it needs an embedding model and index, and no ○ row remains.
 
 **The approved local implementation batch is complete.** The local study modules and the Quizzable slice shipped. The remaining provider/credential/fixture/security rows are explicitly gated by the §11 decisions above or by owner manual checks; no wave approval is pending.
 
@@ -2858,8 +2865,8 @@ The mission asked for every remaining plan item to be implemented. These cannot 
 
 | ID | Item and current unknown | Options and consequences | Recommended default | Exact question |
 |---|---|---|---|---|
-| **E1** | **Real Obsidian visual, math/chemistry/STEM and screenshot pass — OWNER MANUAL GATE (Nov 1, 2026).** No visual or screenshot claim is made until the owner supplies results. | Owner handles separately. | — | — |
-| **E2** | **Real iOS/Android mobile audit — OWNER MANUAL GATE (Nov 1, 2026).** No hardware or mobile-path claim is made until the owner supplies results. | Owner handles separately. | — | — |
+| **E1** | **Real Obsidian visual, math/chemistry/STEM and screenshot pass — RESOLVED Nov 13, 2026.** Obsidian 1.15.1 was driven headless against the sample math-audit note through practice, choices, review, explanation, timed test, cards and chat, in light, dark and a 600 px pane; all MathJax and simple `\ce{}` formulas rendered. The README already links 16 real-window PNGs plus 26 full-size frames; no mock image is claimed. | Completed; no renderer bug found. | — | — |
+| **E2** | **Mobile layout audit — CODE-LEVEL CLOSED Nov 13, 2026; NO DEVICE PASS CLAIMED.** The mobile branches and CSS were audited and all 18 focused tests pass; a 600 px live narrow render was checked. No physical iOS or Android device was available, so the owner checklist in `docs/mobile-layout.md` remains an optional follow-up rather than a plan gate. | Completed at code level; hardware result unclaimed. | — | — |
 | **E3** | **Bundled OCR engine — RESOLVED Nov 1, 2026.** Keep the opt-in BYOK vision path and state that no bundled OCR engine exists; image-only offline scans remain unsupported. | Option B. | — | — |
 | **E4** | **PDF form filling and full editor — REVERSED BY THE OWNER Nov 4, 2026.** The owner asked for a working editor and allowed MIT libraries; 1.218.0 ships page operations, content editing (typed text, vault images, page numbers, cropping, watermarks, document properties), splitting, and AcroForm filling plus authoring and annotation flattening on the vendored pdf-lib 1.17.1, all reversible through a bounded byte-level undo/redo history. XFA forms and rewording existing page text stay out of scope. | Option A (owner direction). | — | — |
 | **E5** | **TTS, audio commute and pronunciation — RESOLVED Nov 6, 2026.** Device speech only; provider TTS, commute playback and pronunciation scoring are declined. | Option A. | — | — |
