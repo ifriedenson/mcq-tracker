@@ -33,7 +33,7 @@ const { PracticeView } = require("./practice-view");
 const practiceKeys = require("./practice-keys");
 const practiceFullscreen = require("./practice-fullscreen");
 const practiceTools = require("./practice-tools");
-const { API_PRESETS, ApiClient, apiTurns, friendlyApiError } = require("./api-client");
+const { API_PRESETS, ApiClient, apiTurns, friendlyApiError, REQUEST_TIMEOUT_MS } = require("./api-client");
 const modelDiscovery = require("./model-discovery");
 const reading = require("./reading");
 const tagTimer = require("./tag-timer");
@@ -278,21 +278,76 @@ const support = require("./support");
 module.exports = QuestionTrackerPlugin;
 QuestionTrackerPlugin.__test = {
   makeKeyboardClickable,
-  graphExport: require("./graph-export"),
-  studyBlocks: require("./study-blocks"),
-  recentFiles: require("./recent-files"),
-  recentFilesView: require("./recent-files-view"),
-  graphExamples: require("./graph-examples"),
-  statistics: require("./statistics"),
-  calculus: require("./calculus"),
-  graphAccessibility: require("./graph-accessibility"),
-  graphFolders: require("./graph-folders"),
-  graphTable: require("./graph-table"),
-  graphPrint: require("./graph-print"),
-  graphImage: require("./graph-image"),
-  graphHistory: require("./graph-history"),
-  graphPaper: require("./graph-paper"),
-  graphSummation: require("./graph-summation"),
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get util() {
+    return require("./util");
+  },
+  get calendarSettings() {
+    return require("./calendar-settings");
+  },
+  get graphExport() {
+    return require("./graph-export");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get studyBlocks() {
+    return require("./study-blocks");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get recentFiles() {
+    return require("./recent-files");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get recentFilesView() {
+    return require("./recent-files-view");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get uiErrors() {
+    return require("./ui-errors");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get graphExamples() {
+    return require("./graph-examples");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get statistics() {
+    return require("./statistics");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get calculus() {
+    return require("./calculus");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get graphAccessibility() {
+    return require("./graph-accessibility");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get graphFolders() {
+    return require("./graph-folders");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get graphTable() {
+    return require("./graph-table");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get graphPrint() {
+    return require("./graph-print");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get graphImage() {
+    return require("./graph-image");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get graphHistory() {
+    return require("./graph-history");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get graphPaper() {
+    return require("./graph-paper");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get graphSummation() {
+    return require("./graph-summation");
+  },
   DEFAULT_SETTINGS,
   finalizeNote,
   API_SYSTEM,
@@ -303,7 +358,10 @@ QuestionTrackerPlugin.__test = {
   weightOf,
   adaptiveWeight,
   adaptiveTargetRank,
-  masteryPicker: require("./mastery-picker"),
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get masteryPicker() {
+    return require("./mastery-picker");
+  },
   matchFilters,
   filterOptions,
   matchSets,
@@ -331,34 +389,101 @@ QuestionTrackerPlugin.__test = {
   ApiClient,
   friendlyApiError,
   apiTurns,
+  REQUEST_TIMEOUT_MS,
   modelDiscovery,
   reading,
   tagTimer,
   tally,
   textTimer,
   ChatPanel,
-  agentRetrieval: require("./agent-retrieval"),
-  chatHistory: require("./chat-history"),
-  chatStream: require("./chat-stream"),
-  chatSessions: require("./chat-sessions"),
-  chatBudget: require("./chat-budget"),
-  chatSkills: require("./chat-skills"),
-  chatProjects: require("./chat-projects"),
-  chatMemory: require("./chat-memory"),
-  chatExport: require("./chat-export"),
-  chatBranches: require("./chat-branches"),
-  chatPlan: require("./chat-plan"),
-  chatPdf: require("./chat-pdf"),
-  chatPdfModal: require("./chat-pdf-modal"),
-  aiToolReviewModal: require("./ai-tool-review-modal"),
-  chatPricing: require("./chat-pricing"),
-  chatMentions: require("./chat-mentions"),
-  chatBookmarks: require("./chat-bookmarks"),
-  chatModels: require("./chat-models"),
-  chatCompact: require("./chat-compact"),
-  diagnostics: require("./diagnostics"),
-  localModels: require("./local-models"),
-  readingCompanion: require("./reading-companion"),
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get agentRetrieval() {
+    return require("./agent-retrieval");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatHistory() {
+    return require("./chat-history");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatStream() {
+    return require("./chat-stream");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatSessions() {
+    return require("./chat-sessions");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatBudget() {
+    return require("./chat-budget");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatSkills() {
+    return require("./chat-skills");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatProjects() {
+    return require("./chat-projects");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatMemory() {
+    return require("./chat-memory");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatExport() {
+    return require("./chat-export");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatBranches() {
+    return require("./chat-branches");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatPlan() {
+    return require("./chat-plan");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatPdf() {
+    return require("./chat-pdf");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatPdfModal() {
+    return require("./chat-pdf-modal");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get aiToolReviewModal() {
+    return require("./ai-tool-review-modal");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatPricing() {
+    return require("./chat-pricing");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatMentions() {
+    return require("./chat-mentions");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatBookmarks() {
+    return require("./chat-bookmarks");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatModels() {
+    return require("./chat-models");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatCompact() {
+    return require("./chat-compact");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get diagnostics() {
+    return require("./diagnostics");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get localModels() {
+    return require("./local-models");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get readingCompanion() {
+    return require("./reading-companion");
+  },
   tutorPresets,
   aiContext,
   aiService,
@@ -397,7 +522,10 @@ QuestionTrackerPlugin.__test = {
   mindmap,
   pdfDeepLink,
   pdfBacklinks,
-  pdfPlus: require("./pdf-plus"),
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get pdfPlus() {
+    return require("./pdf-plus");
+  },
   pdfLatex,
   graph3d,
   graph3dPanel,
@@ -433,8 +561,14 @@ QuestionTrackerPlugin.__test = {
   noteReview,
   reviewCalendar,
   studyStats,
-  snapshotCache: require("./snapshot-cache"),
-  quizDedup: require("./quiz-dedup"),
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get snapshotCache() {
+    return require("./snapshot-cache");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get quizDedup() {
+    return require("./quiz-dedup");
+  },
   localEvents,
   noteReviewDock,
   sessionReport,
@@ -546,7 +680,10 @@ QuestionTrackerPlugin.__test = {
   apExamResources,
   pdfAnnotations,
   pdfInk,
-  pdfAnnotatorSidebar: require("./pdf-annotator-sidebar"),
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get pdfAnnotatorSidebar() {
+    return require("./pdf-annotator-sidebar");
+  },
   get pdfInkModal() { return require("./pdf-ink-modal"); },
   get pdfEditor() { return require("./pdf-editor"); },
   get pdfEditorModal() { return require("./pdf-editor-modal"); },
@@ -595,7 +732,10 @@ QuestionTrackerPlugin.__test = {
   TranscriptPracticeModal,
   resultsExport,
   support,
-  thinkFirst: require("./think-first"),
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get thinkFirst() {
+    return require("./think-first");
+  },
   AssignmentsView,
   AssignmentModal,
   renderAssignmentsSettings,
@@ -603,7 +743,10 @@ QuestionTrackerPlugin.__test = {
   cards,
   plainCards,
   cardsImport,
-  pdf: require("./pdf"),
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get pdf() {
+    return require("./pdf");
+  },
   ankiConnect,
   apkg,
   cardsExtract,
@@ -626,8 +769,14 @@ QuestionTrackerPlugin.__test = {
   studyTools,
   studyToolSettings,
   settingsGlobal,
-  settingsCategories: require("./settings-categories"),
-  pdfPlusSettings: require("./pdf-plus-settings"),
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get settingsCategories() {
+    return require("./settings-categories");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get pdfPlusSettings() {
+    return require("./pdf-plus-settings");
+  },
   readingLibrary,
   studyWorkspace,
   timeBlocks,
@@ -645,8 +794,14 @@ QuestionTrackerPlugin.__test = {
   glossary,
   wordnet,
   tableEditor,
-  tableControls: require("./table-controls-view"),
-  tableCsvModal: require("./table-csv-modal"),
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get tableControls() {
+    return require("./table-controls-view");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get tableCsvModal() {
+    return require("./table-csv-modal");
+  },
   writingSessions,
   voiceMemo,
   cornell,

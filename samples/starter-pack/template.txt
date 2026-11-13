@@ -1,0 +1,47 @@
+MCQ Tracker paste template — copy one block per question, paste with Ctrl/Cmd+P, "Quick add questions from pasted text".
+Rules the importer follows (see src/quick-add.js):
+- A new question starts at a line beginning "Q:" or "Question:".
+- Anything before the first "Q:" line is ignored, so notes at the top are safe.
+- A line of three or more dashes separates blocks and is ignored.
+- Choice lines look like "A. text", "A) text" or "- A. text", letters A to H.
+- Leave the choices out and the block becomes a short-answer (SPR) item, keyed by "Answer:".
+- "Answer: A, C" makes a select-all item. "Answer: B" or the choice's full text both work.
+- Unknown field names are ignored rather than breaking the block.
+
+Q: Write the question here.
+Stimulus: Optional passage, source or setup. Multi-line text continues on the next line.
+A. First choice
+B. Second choice
+C. Third choice
+D. Fourth choice
+Answer: B
+Why: Two sentences: why B is right and why the most tempting wrong choice is wrong.
+Hint: Optional nudge shown before answering.
+Course: Course or unit name
+Unit: 1
+Skill: Skill or topic
+Difficulty: easy
+Test: Optional section name, used when you build a timed test
+
+---
+
+Q: Write a short-answer question here with no choices.
+Answer: 12.5
+Accepted answers: 12.5 | 12.50 | 25/2
+Why: Show the working, so a student can check the key without trusting it.
+Course: Course or unit name
+Skill: Skill or topic
+Difficulty: medium
+
+---
+
+Q: Which of these are correct? Select all that apply.
+A. First statement
+B. Second statement
+C. Third statement
+D. Fourth statement
+Answer: A, C
+Why: Say why each selected statement is correct and why each unselected one is not.
+Course: Course or unit name
+Skill: Skill or topic
+Difficulty: hard

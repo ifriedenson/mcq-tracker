@@ -7,7 +7,7 @@ const { QtModal } = require("./a11y");
  * unless the user turns the feature on.
  */
 const { Modal, Notice, requestUrl } = require("obsidian");
-const { hashString, str } = require("./util");
+const { deadlineLabel, hashString, str, withDeadline } = require("./util");
 
 const DEFAULT_ANKI_CONNECT = {
   enabled: false, // no request is made until this is explicit
@@ -563,25 +563,41 @@ function responseData(response) {
   }
 }
 
+/**
+ * AnkiConnect is a local add-on on localhost; it answers in milliseconds. 20s is
+ * a stuck add-on (a modal dialog in Anki, or a hung Java process), not a slow one.
+ */
+const REQUEST_TIMEOUT_MS = 20 * 1000;
+
 class AnkiConnectClient {
   constructor(options) {
     const opts = options || {};
     this.url = normalizeAnkiConnect({ url: opts.url }).url;
     this.request = opts.request || requestUrl;
+    this.timeoutMs = Number(opts.timeoutMs) > 0 ? Number(opts.timeoutMs) : REQUEST_TIMEOUT_MS;
   }
 
   async call(action, params) {
     let response;
     try {
-      response = await this.request({
-        url: this.url,
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        contentType: "application/json",
-        body: JSON.stringify({ action, version: ANKI_VERSION, params: params || {} }),
-        throw: false,
-      });
+      response = await withDeadline(
+        this.request({
+          url: this.url,
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          contentType: "application/json",
+          body: JSON.stringify({ action, version: ANKI_VERSION, params: params || {} }),
+          throw: false,
+        }),
+        this.timeoutMs,
+        `AnkiConnect (${action})`
+      );
     } catch (e) {
+      if (e && e.timedOut) {
+        throw new Error(
+          `AnkiConnect at ${this.url} did not answer within ${deadlineLabel(this.timeoutMs)}. Check that Anki is open with the AnkiConnect add-on installed, close any dialog in Anki, then try again.`
+        );
+      }
       throw new Error(`Could not reach AnkiConnect at ${this.url}. Open Anki with AnkiConnect installed and check the address.`);
     }
     if (response && Number(response.status) >= 400) {

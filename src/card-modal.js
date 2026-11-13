@@ -1,7 +1,7 @@
 "use strict";
 const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
-const { str } = require("./util");
+const { errorDetail, str } = require("./util");
 const { CARD_TYPES } = require("./cards");
 
 /** Create a basic, reversed, cloze, or vocabulary note in a chosen deck. */
@@ -211,7 +211,7 @@ class CardModal extends QtModal {
         this.onDone(result);
       } catch (e) {
         save.disabled = false;
-        new Notice(str(e && e.message) || "Could not create the card.");
+        new Notice(`Could not create the card: ${errorDetail(e)}. Your fields are still filled in; fix anything it asks for, then try again.`, 9000);
       }
     });
   }

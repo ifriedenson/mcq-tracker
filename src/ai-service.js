@@ -240,7 +240,7 @@ function isRetryableError(error) {
   const m = str(error && error.message ? error.message : error);
   if (/HTTP 40[0134]|HTTP 422/.test(m)) return false;
   if (/HTTP 408|HTTP 409|HTTP 425|HTTP 429|HTTP 5\d\d/.test(m)) return true;
-  return /ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|Failed to fetch|net::|network/i.test(m);
+  return /ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|Failed to fetch|net::|network|Couldn't reach the provider/i.test(m);
 }
 
 /**

@@ -1,6 +1,6 @@
 "use strict";
 const { Platform, requestUrl } = require("obsidian");
-const { fmtMB, sleep, str } = require("./util");
+const { fmtMB, sleep, str, withDeadline } = require("./util");
 const { HEALTH_TIMEOUT_MS, OpenCodeClient } = require("./opencode-client");
 
 /*
@@ -32,6 +32,9 @@ function nodeReq(name) {
 /* ------------------------------------------- OpenCode: install + local server */
 
 const OPENCODE_REPO = "anomalyco/opencode";
+
+/** The GitHub release page is a short lookup; 30s of silence is a stuck request, not a big page. */
+const RELEASE_LOOKUP_TIMEOUT_MS = 30 * 1000;
 
 /** The newest OpenCode major version this plugin can talk to. OpenCode 2.x removed the 1.x server routes (POST /session now answers 405), so 2.x isn't supported yet. */
 const MAX_OPENCODE_MAJOR = 1;
@@ -511,17 +514,32 @@ class OpenCodeManager {
 
   async plan() {
     if (!Platform.isDesktopApp) throw new Error("OpenCode auto-setup needs the desktop app (it isn't available on mobile yet).");
+    const lookupMs = Number(this.releaseTimeoutMs) > 0 ? Number(this.releaseTimeoutMs) : RELEASE_LOOKUP_TIMEOUT_MS;
     const fs = nodeReq("fs");
     const tr = platformTriple(process.platform, process.arch, process.platform === "linux" && fs.existsSync("/etc/alpine-release"));
     if (!tr) throw new Error(`Auto-install isn't available for ${process.platform}/${process.arch}. Install OpenCode yourself (npm i -g opencode-ai) and it will be found automatically.`);
     // newest first; page on until a release this plugin supports turns up (the latest ones may all be a newer major version)
     let pick = null;
     for (let page = 1; page <= 5 && !pick; page++) {
-      const r = await requestUrl({
-        url: `https://api.github.com/repos/${OPENCODE_REPO}/releases?per_page=100&page=${page}`,
-        headers: { Accept: "application/vnd.github+json" },
-        throw: false,
-      });
+      let r;
+      try {
+        r = await withDeadline(
+          requestUrl({
+            url: `https://api.github.com/repos/${OPENCODE_REPO}/releases?per_page=100&page=${page}`,
+            headers: { Accept: "application/vnd.github+json" },
+            throw: false,
+          }),
+          lookupMs,
+          "The OpenCode release list"
+        );
+      } catch (e) {
+        if (e && e.timedOut) {
+          throw new Error(
+            `Couldn't look up OpenCode releases: GitHub did not answer within ${lookupMs >= 1000 ? Math.round(lookupMs / 1000) + "s" : lookupMs + "ms"}. Check your internet connection and press Download and install again, or install OpenCode yourself (npm i -g opencode-ai@${MAX_OPENCODE_MAJOR}).`
+          );
+        }
+        throw new Error(`Couldn't look up OpenCode releases (${str(e && e.message ? e.message : e)}). Try again later, or install OpenCode yourself (npm i -g opencode-ai@${MAX_OPENCODE_MAJOR}).`);
+      }
       if (r.status !== 200) throw new Error(`Couldn't look up OpenCode releases (GitHub returned ${r.status}). Try again later, or install OpenCode yourself (npm i -g opencode-ai@${MAX_OPENCODE_MAJOR}).`);
       if (!Array.isArray(r.json) || !r.json.length) break;
       pick = chooseRelease(r.json, candidateAssetNames(tr), MAX_OPENCODE_MAJOR);

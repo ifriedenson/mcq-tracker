@@ -10,7 +10,7 @@ const { QtModal } = require("./a11y");
  */
 const { ItemView, Modal, Notice, Setting, setIcon } = require("obsidian");
 const { VIEW_TYPE_CALENDAR } = require("./constants");
-const { addDays, str } = require("./util");
+const { addDays, errorDetail, str } = require("./util");
 const { dateKey } = require("./calendar-ics");
 const {
   classColor,
@@ -273,7 +273,7 @@ function renderEventCard(plugin, timeline, event, key, options) {
     plugin
       .openClassNote(event, key)
       .then(() => plugin.refreshCalendarViews())
-      .catch((err) => new Notice(str(err && err.message) || "Could not open the note."));
+      .catch((err) => new Notice(`Could not open the class note: ${errorDetail(err)}. Check the note still exists in this vault, then try again.`, 9000));
   };
   const onKey = (e) => {
     if (e.key !== "Enter" && e.key !== " ") return;
@@ -687,7 +687,7 @@ class CalendarView extends ItemView {
         this.plugin
           .openClassNote(exam, exam.dateKey)
           .then(() => this.plugin.refreshCalendarViews())
-          .catch((err) => new Notice(str(err && err.message) || "Could not open the note."));
+          .catch((err) => new Notice(`Could not open the class note: ${errorDetail(err)}. Check the note still exists in this vault, then try again.`, 9000));
       });
       const resource = this.attachedResource(exam);
       if (!resource) continue;
@@ -701,7 +701,7 @@ class CalendarView extends ItemView {
       add.addEventListener("click", () =>
         this.plugin
           .addApResourceToClassNote(exam, exam.dateKey, resource)
-          .catch((err) => new Notice(str(err && err.message) || "Could not add the resource to the note.")),
+          .catch((err) => new Notice(`Could not add the resource to the class note: ${errorDetail(err)}. Check the resource is still attached, then try again.`, 9000)),
       );
     }
   }
@@ -790,15 +790,26 @@ class CalendarView extends ItemView {
 
   async sync(button) {
     if (button) button.addClass("is-syncing");
+    const failures = [];
+    let attempted = 0;
     try {
       for (const source of this.plugin.calendarSources()) {
-        if (!source.hidden) await this.plugin.syncCalendarSource(source.id);
+        if (source.hidden) continue;
+        attempted++;
+        // One dead feed must not stop the others: report it and keep going.
+        try {
+          await this.plugin.syncCalendarSource(source.id);
+        } catch (e) {
+          failures.push({ name: str(source.name).trim() || "a feed", message: str(e && e.message) || "could not be read." });
+        }
       }
       this.plugin.invalidateCalendar();
-      new Notice("Schedule updated.");
+      if (!failures.length) new Notice("Schedule updated.");
+      else {
+        const head = failures.length === attempted ? "Could not refresh any calendar feed." : `Schedule updated, but ${failures.length} of ${attempted} feeds could not refresh.`;
+        new Notice(`${head} ${failures[0].name}: ${failures[0].message}`, 9000);
+      }
       this.render();
-    } catch (e) {
-      new Notice(str(e && e.message) || "Could not refresh the schedule.");
     } finally {
       if (button) button.removeClass("is-syncing");
     }
@@ -1058,7 +1069,7 @@ class CalendarImportModal extends QtModal {
           this.close();
           this.onDone();
         } catch (e) {
-          new Notice(str(e && e.message) || "Could not read that file.");
+          new Notice(`Could not add that .ics file: ${errorDetail(e)}. Check the file is a calendar export, then try again.`, 9000);
         }
       })
     );

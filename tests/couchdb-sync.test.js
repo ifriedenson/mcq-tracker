@@ -201,3 +201,37 @@ test("cards: the dialog preview shows both sides and flags reverse review", () =
   assert.match(T.cardPreview({ front: "A", back: "B", cardType: "reversed", kind: "card" }), /reverse/);
   assert.match(T.cardPreview({ front: "hablar", back: "to speak", kind: "vocab" }), /Term/);
 });
+
+test("CouchDB: an unreachable server names the address and what to check", async () => {
+  // Regression: a thrown transport error reached the user as "Failed to fetch".
+  const client = new sync.CouchDbClient(
+    { url: "https://couch.example.com", database: "mcq-tracker" },
+    {
+      request: async () => {
+        throw new Error("Failed to fetch");
+      },
+    }
+  );
+  await assert.rejects(() => client.ensureDatabase(), (e) => {
+    assert.match(e.message, /Could not reach the CouchDB server at https:\/\/couch\.example\.com\/mcq-tracker/);
+    assert.match(e.message, /Check the server URL, that CouchDB is running, and your connection/);
+    return true;
+  });
+  await assert.rejects(() => client.call("GET", "/_all_docs"), /Could not reach the CouchDB server/);
+});
+
+test("CouchDB: a server that accepts the connection and never answers times out", async () => {
+  // Regression: there was no deadline, so a stalled server left the sync spinner running.
+  const client = new sync.CouchDbClient(
+    { url: "https://couch.example.com", database: "mcq-tracker" },
+    { timeoutMs: 40, request: () => new Promise(() => {}) }
+  );
+  const started = Date.now();
+  await assert.rejects(() => client.ensureDatabase(), (e) => {
+    assert.match(e.message, /Could not reach the CouchDB server at https:\/\/couch\.example\.com\/mcq-tracker: it did not answer within 40ms\./);
+    assert.match(e.message, /Check the server URL, that CouchDB is running, and your connection/);
+    return true;
+  });
+  await assert.rejects(() => client.call("GET", "/_all_docs"), /it did not answer within 40ms/);
+  assert.ok(Date.now() - started < 2000, "both calls returned within their bound");
+});

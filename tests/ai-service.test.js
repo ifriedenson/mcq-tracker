@@ -251,3 +251,22 @@ test("plugin: a fresh install gets finite non-zero AI caps and keeps an explicit
   assert.equal(plugin.settings.ai.limits.dailyRequests, 0);
   assert.equal(plugin.settings.ai.limits.runRequests, 5);
 });
+
+test("AI retry: the friendly offline message is still retried, not treated as fatal", async () => {
+  // The wrapped network error used to lose the "net::"/"network" text the retry policy looks for.
+  const friendly = new Error("Couldn't reach the provider. Check your internet connection and the base URL in settings.");
+  assert.equal(ai.isRetryableError(friendly), true);
+  let attempts = 0;
+  await assert.rejects(
+    () =>
+      ai.withRetry(
+        async () => {
+          attempts++;
+          throw friendly;
+        },
+        { attempts: 3, baseDelayMs: 0, sleep: async () => {} }
+      ),
+    /Couldn't reach the provider/
+  );
+  assert.equal(attempts, 3, "all three attempts were used");
+});

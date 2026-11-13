@@ -2,7 +2,7 @@
 const { ItemView, Notice, Platform, TFile, setIcon } = require("obsidian");
 const { FILTER_FIELDS, MODES, VIEW_TYPE } = require("./constants");
 const { loadQuestionData, makeKeyboardClickable, renderMarkdownInto, renderMatchPicker } = require("./view-helpers");
-const { fmtClock, fmtDate, str } = require("./util");
+const { errorDetail, fmtClock, fmtDate, str } = require("./util");
 const { MODE_PRED, filterOptionCounts, folderLabel, fvals, hasFilters, isDue, pickQuestion } = require("./filters");
 const { extractRationale } = require("./notes");
 const { gradeAnswerDetailed } = require("./numeric-grading");
@@ -370,7 +370,7 @@ class PracticeView extends ItemView {
       }
       this.render();
     } catch (e) {
-      new Notice(str(e && e.message) || "Could not save this review.", 6000);
+      new Notice(`Could not save this review: ${errorDetail(e)}. The review was not recorded; press the grade again.`, 7000);
     }
   }
 
@@ -429,7 +429,7 @@ class PracticeView extends ItemView {
     const byPath = new Map(p.getQuestions().map((q) => [q.file.path, q]));
     const queue = list.map((path) => byPath.get(path)).filter(Boolean);
     if (!queue.length) {
-      new Notice("Today's daily quiz questions are no longer available.");
+      new Notice("Today's daily quiz questions are no longer available — they may have been edited or deleted. Open Today and start the quiz again.", 8000);
       return;
     }
     this.quickSession = null;
@@ -482,7 +482,7 @@ class PracticeView extends ItemView {
       p.notifyStudyStatusChange(summary, file, summary && summary.previous);
       await this.next();
     } catch (e) {
-      new Notice(str(e && e.message) || "Could not update this item.", 6000);
+      new Notice(`Could not update this item: ${errorDetail(e)}. Nothing was changed; try again.`, 7000);
     }
   }
 
@@ -1373,7 +1373,7 @@ class PracticeView extends ItemView {
         new Notice(summary.nextReview ? `Logged a skip. Next review ${summary.nextReview}.` : "Logged a skip.", 5000);
         await this.next();
       } catch (e) {
-        new Notice(str(e && e.message ? e.message : e) || "Could not log this skip.", 6000);
+        new Notice(`Could not log this skip: ${errorDetail(e)}. Nothing was changed; try Skip again.`, 7000);
       } finally {
         this.busy = false;
       }

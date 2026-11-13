@@ -1,7 +1,7 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { load } = require("./helpers/load");
+const { load, obsidian } = require("./helpers/load");
 const { makeDom } = require("./helpers/fake");
 
 const { T } = load();
@@ -68,4 +68,27 @@ test("knowledge record: the off state offers the opt-in build button", () => {
   const dom = makeDom();
   viewWith(kr.emptyRecord(), false).renderKnowledgeRecord(dom.root);
   assert.ok(dom.texts().includes("Build my knowledge record"));
+});
+
+test("knowledge record: a failed build leaves the button usable and says what to do", async () => {
+  for (const [enabled, label, method] of [
+    [false, "Build my knowledge record", "enableKnowledgeRecord"],
+    [true, "Build now", "rebuildKnowledgeRecord"],
+  ]) {
+    const dom = makeDom();
+    const view = viewWith(kr.emptyRecord(), enabled);
+    view.plugin[method] = async () => {
+      throw new Error("vault not ready");
+    };
+    obsidian.notices.length = 0;
+    view.renderKnowledgeRecord(dom.root);
+    await dom.click(label);
+    const button = dom.find(label).at(-1);
+    assert.equal(button.disabled, false, `"${label}" is clickable again after a failure`);
+    assert.ok(
+      obsidian.notices.some((m) => m.includes("could not be built: vault not ready")),
+      `the notice names the real error: ${obsidian.notices.join(" | ")}`,
+    );
+    assert.ok(obsidian.notices.some((m) => /try again/i.test(m)), "the notice says what to do next");
+  }
 });

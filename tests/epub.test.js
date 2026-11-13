@@ -2,7 +2,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { load } = require("./helpers/load");
-const { T, Plugin: QT } = load();
+const { T, Plugin: QT, obsidian } = load();
 const epub = T.epub;
 const notes = T.epubAnnotations;
 const { zipStore } = T.zipWrite;
@@ -240,7 +240,20 @@ test("epub reader: the modal marks, annotates and removes through the plugin", a
   assert.deepEqual(modal.annotationsFor(1), []);
 
   const failing = new T.EpubReaderModal({}, { ...plugin, addEpubHighlight: async () => { throw new Error("no anchor"); } }, { path: "B.epub" });
+  obsidian.notices.length = 0;
   assert.equal(await failing.mark(row), false, "a failed highlight is reported, not thrown");
+  assert.match(obsidian.notices[0], /^Could not save the highlight beside the book: no anchor\./);
+  assert.match(obsidian.notices[0], /The book and its annotations are unchanged; try again\./);
+
+  obsidian.notices.length = 0;
+  assert.equal(await failing.annotate(row, "Exam"), false);
+  assert.match(obsidian.notices[0], /^Could not save the note beside the book: no anchor\./);
+
+  const failingRemove = new T.EpubReaderModal({}, { ...plugin, deleteEpubAnnotation: async () => { throw new Error("the sidecar is read-only"); } }, { path: "B.epub" });
+  obsidian.notices.length = 0;
+  assert.equal(await failingRemove.remove("ann-1"), false);
+  assert.match(obsidian.notices[0], /^Could not remove that annotation: the sidecar is read-only\./);
+  assert.match(obsidian.notices[0], /Nothing was changed; try again\./);
 });
 
 test("epub: the reader and annotation commands are registered", async () => {

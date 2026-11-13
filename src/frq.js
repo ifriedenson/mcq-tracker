@@ -7,7 +7,7 @@
  * A rubric preset is an editable starting point written for this MIT-licensed
  * project, not an official College Board rubric.
  */
-const { localDate, str } = require("./util");
+const { localDate, str, AI_REPLY_CUT_OFF_HINT } = require("./util");
 const { AP_PROFILES, profileById } = require("./ap-score");
 
 const FRQ_NOTE_TYPE = "ap_frq";
@@ -507,12 +507,12 @@ function parseFrqGradeReply(reply, rubric) {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start < 0) throw new Error("The AI grader did not return JSON.");
-  if (end <= start) throw new Error("The AI grader returned malformed JSON.");
+  if (end <= start) throw new Error("The AI grader returned malformed JSON, or the reply was cut off before it finished." + AI_REPLY_CUT_OFF_HINT);
   let data;
   try {
     data = JSON.parse(text.slice(start, end + 1));
   } catch (e) {
-    throw new Error("The AI grader returned malformed JSON.");
+    throw new Error("The AI grader returned malformed JSON, or the reply was cut off before it finished." + AI_REPLY_CUT_OFF_HINT);
   }
   const list = data && Array.isArray(data.criteria) ? data.criteria : null;
   if (!list) throw new Error("The AI grader did not score the rubric criteria.");

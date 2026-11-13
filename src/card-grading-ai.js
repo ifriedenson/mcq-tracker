@@ -6,7 +6,7 @@
  * is confident. This module is only reached when that grader cannot decide, so
  * easy matches stay local and free.
  */
-const { str } = require("./util");
+const { str, AI_REPLY_CUT_OFF_HINT } = require("./util");
 
 const VERDICTS = ["correct", "partial", "incorrect"];
 const MIN_AI_CONFIDENCE = 0.6;
@@ -49,12 +49,12 @@ function parseGradeReply(reply) {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start < 0) throw new Error("The AI grader did not return JSON.");
-  if (end <= start) throw new Error("The AI grader returned malformed JSON.");
+  if (end <= start) throw new Error("The AI grader returned malformed JSON, or the reply was cut off before it finished." + AI_REPLY_CUT_OFF_HINT);
   let data;
   try {
     data = JSON.parse(text.slice(start, end + 1));
   } catch (e) {
-    throw new Error("The AI grader returned malformed JSON.");
+    throw new Error("The AI grader returned malformed JSON, or the reply was cut off before it finished." + AI_REPLY_CUT_OFF_HINT);
   }
   const verdict = str(data && data.verdict).trim().toLowerCase();
   if (!VERDICTS.includes(verdict)) throw new Error("The AI grader returned an unknown verdict.");

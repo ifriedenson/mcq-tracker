@@ -25,8 +25,12 @@ const timeBlocks = require("./time-blocks");
 const webBrowser = require("./web-browser");
 const canvasMarkdown = require("./canvas-markdown");
 const mindmap = require("./mindmap");
-const pdfDeepLink = require("./pdf-deep-link");
-const pdfBacklinks = require("./pdf-backlinks");
+let _pdfDeepLink = null;
+// Lazy: this feature is only needed when used, not at plugin startup.
+const pdfDeepLink = () => (_pdfDeepLink || (_pdfDeepLink = require("./pdf-deep-link")));
+let _pdfBacklinks = null;
+// Lazy: this feature is only needed when used, not at plugin startup.
+const pdfBacklinks = () => (_pdfBacklinks || (_pdfBacklinks = require("./pdf-backlinks")));
 const pdfPlus = require("./pdf-plus");
 const pdfLatex = require("./pdf-latex");
 const epub = require("./epub");
@@ -39,10 +43,8 @@ const { KanbanReportModal } = require("./canvas-kanban-view");
 const canvasAutoLink = require("./canvas-auto-link");
 const { LinkReportModal } = require("./canvas-auto-link-view");
 const canvasPresentations = require("./canvas-presentations");
-const { PresentationModal, PresentationPlanModal } = require("./canvas-presentations-view");
 const canvasQuery = require("./canvas-query");
 const { QueryGroupsModal } = require("./canvas-query-view");
-const { WebBrowserView } = require("./web-browser-view");
 const { RecentFilesView } = require("./recent-files-view");
 const recentFiles = require("./recent-files");
 const studyBlocks = require("./study-blocks");
@@ -60,7 +62,9 @@ const readingLibrary = require("./reading-library");
 const courseHealth = require("./course-health");
 const feynmanAi = require("./feynman-ai");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
-const readingCompanion = require("./reading-companion");
+let _readingCompanion = null;
+// Lazy: this feature is only needed when used, not at plugin startup.
+const readingCompanion = () => (_readingCompanion || (_readingCompanion = require("./reading-companion")));
 const vaultTaskIndex = require("./vault-task-index");
 const taskTags = require("./task-tags");
 const glossary = require("./glossary");
@@ -76,6 +80,19 @@ const { VIEW_TYPE_TABLE_CONTROLS } = require("./constants");
  * unverified. Stopping the import still cancels the wait, and a check that
  * errors simply does not vote.
  */
+/** A calendar server that accepts the connection and never answers must not spin forever. */
+const CALENDAR_FETCH_TIMEOUT_MS = 45 * 1000;
+
+function withinDeadline(promise, ms, label) {
+  let timer = null;
+  const limit = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(label + " timed out after " + Math.round(ms / 1000) + "s.")), ms);
+  });
+  return Promise.race([promise, limit]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 class TimeBlocksTourModal extends QtModal {
   constructor(app, steps, onOpenDay) {
     super(app);
@@ -136,7 +153,6 @@ const TABLE_COMMANDS = [
 const writingSessions = require("./writing-sessions");
 const voiceMemo = require("./voice-memo");
 const { buildCornellNote } = require("./cornell");
-const { renderCornellBlock } = require("./cornell-view");
 const studyTools = require("./study-tools");
 const { AssignmentModal } = require("./assignments-modal");
 const { assignmentId, assignmentMarkdown, assignmentStats, categoryFor, estimateMinutes, isAssignmentNote, normalizeAssignmentSettings, normalizeStatus, parseAssignment, safeName, typeId, uniquePath, updateTaskCheckbox, updateTaskDue, updateTaskEstimate, updateTaskTitle } = require("./assignments");
@@ -148,10 +164,9 @@ const readingModel = require("./reading");
 const { normalizeReadingSettings } = readingModel;
 const { normalizeTagTimerSettings, stopRunningTagTimers } = require("./tag-timer");
 const { normalizeTallySettings } = require("./tally");
-const { renderTallyBlock } = require("./tally-view");
 const { normalizeTextTimerSettings } = require("./text-timer");
 const { renderTextTimerBlock } = require("./text-timer-view");
-const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
+const { sleep, hashString, localDate, ensureFolder, errorDetail, str } = require("./util");
 const diagnostics = require("./diagnostics");
 const chatSkills = require("./chat-skills");
 const chatPricing = require("./chat-pricing");
@@ -235,10 +250,8 @@ const { adaptiveDailyCount, normalizeQuickAdaptive } = require("./adaptive-sessi
 const { dismissReminder, markReminderShown, normalizeReminder, reminderState: computeReminderState } = require("./reminder");
 const { requestOsPermission, showReminderNotification } = require("./os-notifications");
 const { extractSimpleQuizBlocks, legacyQuizJsNotice, normalizeSimpleQuiz, parseSimpleQuizCards, parseSimpleQuizOptions, recordSimpleQuizSession, simpleQuizChartSeries, simpleQuizDaySummary } = require("./simple-quiz");
-const { renderQuizPortBlock } = require("./quizport-view");
 const { renderSimpleFlashcardsBlock } = require("./simple-flashcards-view");
 const { renderReadingPlanBlock } = require("./reading-view");
-const { renderTagTimerBlock } = require("./tag-timer-view");
 const { applySimpleNoteQuizMarks, clearSimpleNoteQuizMarks, normalizeSimpleNoteQuiz, parseSimpleNoteQuiz } = require("./simple-note-quiz");
 const { SimpleNoteQuizModal } = require("./simple-note-quiz-modal");
 const { normalizeTutorRole } = require("./tutor-presets");
@@ -253,7 +266,9 @@ const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const { QuickAskModal } = require("./quick-ask-modal");
 const { QuickChatModal } = require("./quick-chat-modal");
-const chatBookmarks = require("./chat-bookmarks");
+let _chatBookmarks = null;
+// Lazy: this feature is only needed when used, not at plugin startup.
+const chatBookmarks = () => (_chatBookmarks || (_chatBookmarks = require("./chat-bookmarks")));
 const studyCommands = require("./study-commands");
 const { quickAddNote, quickAddTitle } = require("./quick-add");
 const { noteQuizToQuickAdd } = require("./quiz-clipboard");
@@ -290,21 +305,21 @@ const linkHierarchy = require("./link-hierarchy");
 const utcDates = require("./utc-dates");
 const { StudyStatsView } = require("./study-stats-view");
 const { LocalEventModal, LocalEventsView } = require("./local-events-view");
-const reviewSession = require("./review-session");
+let _reviewSession = null;
+// Lazy: this feature is only needed when used, not at plugin startup.
+const reviewSession = () => (_reviewSession || (_reviewSession = require("./review-session")));
 const durability = require("./durability");
 const studyCounters = require("./study-counters");
 const pomodoro = require("./pomodoro");
 const { PomodoroView } = require("./pomodoro-view");
 const { applySpacedReview, buildSpacedQueue, normalizeSpacedEverything, renderSpacedTemplate, spacedCaptureText } = require("./spaced-everything");
 const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
-const { CardGeneratorModal } = require("./card-generator-modal");
 const { AutoAnkiModal } = require("./auto-anki-modal");
 const { autoAnkiBatchPaths, autoAnkiCardInputs, autoAnkiSourceKey, chooseAutoAnkiSource, normalizeAutoAnki } = require("./auto-anki");
 const { chooseText2AnkiSource, normalizeText2Anki, text2AnkiNotice } = require("./text2anki");
 const { appendPrefix, buildCardBlock, buildCardGeneratorPrompt, normalizeCardGenerator, verifyCardDrafts } = require("./card-generator");
 const { buildSpacedQuizNote, spacedQuizFileName, spacedQuizSourceKey } = require("./spaced-quiz");
 const { readActiveNoteContext } = require("./note-context");
-const { QuizGeneratorModal } = require("./quiz-generator-modal");
 const { MAX_SOURCE_CHARS, buildQuizGeneratorPrompt, collectGeneratorSources, folderMatches, normalizeQuizGenerator, parseGeneratorQuestions } = require("./quiz-generator");
 const { buildStudyBundle, bundleFileName } = require("./study-bundle");
 const { parseStudyBundle, planStudyBundleRestore } = require("./study-bundle-import");
@@ -318,6 +333,7 @@ const fileExplorer = require("./file-explorer");
 const { NEEDS_FIXING_DAYS, hasAttemptId, markNeedsFixingFixed, normalizeHistoryLimit, repairHistoryCounters } = require("./history");
 const { checkDistractorQuality } = require("./distractor-quality");
 const { normalizeBlueprint, normalizePassScore } = require("./exam-sections");
+const uiErrors = require("./ui-errors");
 
 function noteBodyText(text) {
   const close = str(text).indexOf("\n---\n", 3);
@@ -437,7 +453,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_LOCAL_EVENTS, (leaf) => new LocalEventsView(leaf, this));
     this.registerView(VIEW_TYPE_POMODORO, (leaf) => new PomodoroView(leaf, this));
     this.registerView(VIEW_TYPE_TASK_LIST, (leaf) => new TaskListView(leaf, this));
-    this.registerView(VIEW_TYPE_WEB_BROWSER, (leaf) => new WebBrowserView(leaf, this));
+    this.registerView(VIEW_TYPE_WEB_BROWSER, (leaf) => new (require("./web-browser-view").WebBrowserView)(leaf, this));
     this.registerView(VIEW_TYPE_RECENT_FILES, (leaf) => new RecentFilesView(leaf, this));
     const { AgentView: StudyAgentView } = require("./agent-view");
     this.registerView(VIEW_TYPE_AGENT, (leaf) => new StudyAgentView(leaf, this));
@@ -796,7 +812,7 @@ class QuestionTrackerPlugin extends Plugin {
                 );
               }
             })
-            .catch((e) => new Notice(str(e && e.message ? e.message : e) || "Could not check that answer by calculation.", 7000));
+            .catch((e) => new Notice(`Could not check that answer by calculation: ${errorDetail(e)}. The note was not changed; try again.`, 7000));
         }
         return true;
       },
@@ -954,12 +970,12 @@ class QuestionTrackerPlugin extends Plugin {
         if (this.moduleOff("mcq")) return false;
         const file = this.app.workspace.getActiveFile();
         if (!file || !/\.md$/i.test(file.path)) return false;
-        if (!checking) this.openSimpleNoteQuiz().catch((e) => new Notice(str(e && e.message ? e.message : e) || "Could not start the note quiz.", 6000));
+        if (!checking) this.openSimpleNoteQuiz().catch((e) => new Notice(`Could not start the note quiz: ${errorDetail(e)}. Check the note has a quiz block, then try again.`, 7000));
         return true;
       },
     });
     this.addCommand({ id: "generate-quiz", name: "Find or generate quiz questions", callback: () => this.openQuizGenerator() });
-    this.addCommand({ id: "cards-export-archive", name: "Cards: export a portable archive", callback: () => this.exportCardArchive().catch((e) => new Notice(str(e && e.message ? e.message : e) || "Could not export the archive.", 6000)) });
+    this.addCommand({ id: "cards-export-archive", name: "Cards: export a portable archive", callback: () => this.exportCardArchive().catch((e) => new Notice(`Could not export the archive: ${errorDetail(e)}. Check the destination folder is writable, then try again.`, 7000)) });
     this.addCommand({ id: "cards-import-archive", name: "Cards: import a portable archive", callback: () => this.openCardArchiveImport() });
     this.addCommand({ id: "study-nudge-show", name: "Show today's study nudge", callback: () => this.maybeShowStudyNudge(new Date()) });
     this.addCommand({ id: "course-note-from-template", name: "Course notes: create a note from a template", callback: () => this.openCourseNoteBuilder() });
@@ -996,7 +1012,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor("grill", (source, el, ctx) => studyBlocks.renderGrillBlock(this, source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("deadlines", (source, el) => studyBlocks.renderDeadlinesBlock(this, source, el));
     this.registerMarkdownCodeBlockProcessor("text-timer", (source, el, ctx) => this.renderTextTimerBlock(source, el, ctx));
-    this.registerMarkdownCodeBlockProcessor("cornell-note", (source, el) => renderCornellBlock(this, source, el));
+    this.registerMarkdownCodeBlockProcessor("cornell-note", (source, el) => require("./cornell-view").renderCornellBlock(this, source, el));
     this.registerMarkdownCodeBlockProcessor("quiz", (source, el, ctx) => this.renderSimpleQuizBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quizjson", (source, el) => this.renderSimpleQuizDataBlock(source, el, "json"));
     this.registerMarkdownCodeBlockProcessor("quizjs", (source, el) => this.renderSimpleQuizDataBlock(source, el, "js"));
@@ -1262,6 +1278,14 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerInterval(activeWindow.setInterval(() => this.flushPendingAttempts().catch(() => {}), 60000));
     this.registerDomEvent(window, "online", () => this.flushPendingAttempts().catch(() => {}));
 
+    // Most buttons call an async plugin method without a try/catch. Without this
+    // net a rejection leaves a dead control and no message, so report every
+    // unhandled rejection once, deduplicated by the shared reporter.
+    const reportRejection = uiErrors.makeRejectionReporter();
+    this.registerDomEvent(window, "unhandledrejection", (event) => {
+      reportRejection(event && (event.reason || event.detail));
+    });
+
     this.registerDomEvent(activeDocument, "visibilitychange", () => {
       if (activeDocument.hidden && Platform.isMobile && this.settings.autoPauseOnMobile && this.isRunning()) {
         this.pauseSession();
@@ -1367,7 +1391,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.ai.verification = normalizeVerificationMode(this.settings.ai.verification);
     aiService.normalizeAiService(this.settings.ai);
     this.settings.ai.studyCommands = studyCommands.normalizeStudyCommands(this.settings.ai.studyCommands);
-    this.settings.ai.studyChatBookmarks = chatBookmarks.normalizeBookmarks(this.settings.ai.studyChatBookmarks);
+    this.settings.ai.studyChatBookmarks = chatBookmarks().normalizeBookmarks(this.settings.ai.studyChatBookmarks);
     // 0.2.0 saved settings had no `managed` flag: move those users to the automatic setup.
     if (saved.explanationDefault === undefined && saved.showRationale === false) this.settings.explanationDefault = "hide";
     delete this.settings.showRationale;
@@ -1741,7 +1765,7 @@ class QuestionTrackerPlugin extends Plugin {
       if (!quiet) {
         new Notice(`Knowledge record: ${summary.concepts} concepts from ${summary.notes} notes (${summary.known} known, ${summary.due} due).`, 7000);
       }
-      if (failed) new Notice(`${failed} note${failed === 1 ? "" : "s"} could not be read and were skipped.`, 5000);
+      if (failed) new Notice(`${failed} note${failed === 1 ? "" : "s"} could not be read and were skipped. Open them once, then build the record again.`, 7000);
       this.refreshViews();
       return Object.assign({ read, failed }, summary);
     })();
@@ -2413,7 +2437,7 @@ class QuestionTrackerPlugin extends Plugin {
   /** Opens a PDF deep link in the reader on its page, with its rectangle ringed. */
   openPdfDeepLink(link) {
     if (this.moduleOff("mcq")) return null;
-    const parsed = pdfDeepLink.parsePdfDeepLink(link);
+    const parsed = pdfDeepLink().parsePdfDeepLink(link);
     if (!parsed.valid) {
       new Notice("That is not a PDF deep link. Copy one from an annotation or the reader.");
       return null;
@@ -2582,7 +2606,7 @@ class QuestionTrackerPlugin extends Plugin {
       }
       if (chars >= 4000000) break;
     }
-    return pdfBacklinks.collectPdfBacklinks(notes, source);
+    return pdfBacklinks().collectPdfBacklinks(notes, source);
   }
 
   /** Opens the Markdown note behind a backlink highlight. */
@@ -2657,7 +2681,7 @@ class QuestionTrackerPlugin extends Plugin {
       new Notice("Turn on AI under Settings > Study agent > AI and the assistant to ask about a passage.");
       return false;
     }
-    const prompt = readingCompanion.passagePrompt(source, row, question);
+    const prompt = readingCompanion().passagePrompt(source, row, question);
     if (!prompt) {
       new Notice("That annotation has no quote or note to ask about.");
       return false;
@@ -3354,7 +3378,7 @@ class QuestionTrackerPlugin extends Plugin {
       new Notice(report.message);
       return report;
     }
-    new PresentationPlanModal(this.app, report).open();
+    new (require("./canvas-presentations-view").PresentationPlanModal)(this.app, report).open();
     new Notice(report.summary);
     return report;
   }
@@ -3371,7 +3395,7 @@ class QuestionTrackerPlugin extends Plugin {
       new Notice(plan.message);
       return plan;
     }
-    const modal = new PresentationModal(this.app, plan, (step) => {
+    const modal = new (require("./canvas-presentations-view").PresentationModal)(this.app, plan, (step) => {
       new Notice("Slide " + (step.index + 1) + " of " + step.total + ": " + step.slide.title);
     });
     modal.open();
@@ -3970,11 +3994,35 @@ class QuestionTrackerPlugin extends Plugin {
     new Notice(`Added ${name}.`);
   }
 
+  /**
+   * One GET for a calendar feed. requestUrl throws on a network or HTTP failure
+   * unless asked not to, and a raw throw used to stop a whole multi-feed sync.
+   */
+  async fetchCalendarFeedText(rawUrl, label, timeoutMs) {
+    const what = str(label).trim() || "that calendar feed";
+    const url = safeCalendarFeedUrl(rawUrl);
+    const limit = Number(this.calendarFetchTimeoutMs) > 0 ? Number(this.calendarFetchTimeoutMs) : Number(timeoutMs) > 0 ? Number(timeoutMs) : CALENDAR_FETCH_TIMEOUT_MS;
+    const allowance = limit >= 1000 ? Math.round(limit / 1000) + "s" : limit + "ms";
+    let response = null;
+    try {
+      response = await withinDeadline(requestUrl({ url, method: "GET", throw: false }), limit, what);
+    } catch (e) {
+      const detail = str(e && e.message ? e.message : e).slice(0, 160);
+      if (/timed out/i.test(detail)) {
+        throw new Error(`Couldn't reach ${what} within ${allowance}. Check the address and your internet connection, then try again.`);
+      }
+      throw new Error(`Couldn't reach ${what}. Check the address and your internet connection, then try again.${detail ? ` (${detail})` : ""}`);
+    }
+    if (!response) throw new Error(`${what} returned no response. Check the address, then try again.`);
+    if (response.status >= 400) {
+      throw new Error(`${what} answered HTTP ${response.status}. Check the calendar URL is still shared publicly, then try again.`);
+    }
+    return { url, text: calendarText(response) };
+  }
+
   async addCalendarUrlSource(rawUrl) {
-    const url = safeCalendarFeedUrl(normalizeCalendarUrl(rawUrl));
-    const response = await requestUrl({ url, method: "GET" });
-    const text = calendarText(response);
-    if (!icsLooksValid(text)) throw new Error("That address did not return an iCalendar feed.");
+    const { url, text } = await this.fetchCalendarFeedText(normalizeCalendarUrl(rawUrl), "that calendar address");
+    if (!icsLooksValid(text)) throw new Error("That address did not return an iCalendar feed. Use the public .ics link from the calendar's share menu.");
     const cal = this.settings.calendar;
     const name = deriveSourceLabel(url, text);
     const existing = cal.sources.find((s) => s.type === "url" && s.url === url);
@@ -3999,10 +4047,8 @@ class QuestionTrackerPlugin extends Plugin {
       this.refreshCalendarViews();
       return;
     }
-    const url = safeCalendarFeedUrl(source.url);
-    const response = await requestUrl({ url, method: "GET" });
-    const text = calendarText(response);
-    if (!icsLooksValid(text)) throw new Error("That calendar did not return an iCalendar feed.");
+    const { text } = await this.fetchCalendarFeedText(source.url, "that calendar feed");
+    if (!icsLooksValid(text)) throw new Error("That calendar did not return an iCalendar feed. Check the share link is still public, then add it again.");
     source.content = text;
     source.lastSync = Date.now();
     this.invalidateCalendar();
@@ -7350,12 +7396,12 @@ class QuestionTrackerPlugin extends Plugin {
 
   /** Render a `tag-timer` block with local timer state and per-tag analytics. */
   async renderTagTimerBlock(source, el, ctx) {
-    return renderTagTimerBlock(this, source, el, ctx);
+    return require("./tag-timer-view").renderTagTimerBlock(this, source, el, ctx);
   }
 
   /** Render a `tally` block with local correct/incorrect counters. */
   async renderTallyBlock(source, el, ctx) {
-    return renderTallyBlock(this, source, el, ctx);
+    return require("./tally-view").renderTallyBlock(this, source, el, ctx);
   }
 
   /** Render a `text-timer` block with a local count-up clock. */
@@ -7376,7 +7422,7 @@ class QuestionTrackerPlugin extends Plugin {
 
   /** Render a `quizport` block with the local QuizPort player. */
   async renderQuizPortBlock(source, el, ctx) {
-    return renderQuizPortBlock(this, source, el, ctx);
+    return require("./quizport-view").renderQuizPortBlock(this, source, el, ctx);
   }
 
   /** Write one completed inline-quiz result into the source note's frontmatter. */
@@ -7532,7 +7578,13 @@ class QuestionTrackerPlugin extends Plugin {
     };
     const renderCard = () => {
       if (index >= cards.length) {
-        finish().catch((e) => new Notice(str(e && e.message ? e.message : e)));
+        finish().catch((e) => {
+          console.error("MCQ Tracker: couldn't save the simple-quiz result", e);
+          new Notice(
+            `Could not save the simple-quiz result: ${errorDetail(e)}. Your score is still on screen; check that the plugin can write its settings, then try again.`,
+            9000
+          );
+        });
         return;
       }
       const card = cards[index];
@@ -7771,7 +7823,7 @@ class QuestionTrackerPlugin extends Plugin {
       return null;
     }
     if (this.moduleOff("mcq")) return null;
-    const modal = new QuizGeneratorModal(this.app, this, onDone || (() => this.refreshViews()));
+    const modal = new (require("./quiz-generator-modal").QuizGeneratorModal)(this.app, this, onDone || (() => this.refreshViews()));
     modal.open();
     return modal;
   }
@@ -7934,7 +7986,7 @@ class QuestionTrackerPlugin extends Plugin {
       new Notice("Turn on Cards under Settings, Global, Modules to generate flashcards.");
       return null;
     }
-    const modal = new CardGeneratorModal(this.app, this, onDone || (() => this.refreshViews()), options);
+    const modal = new (require("./card-generator-modal").CardGeneratorModal)(this.app, this, onDone || (() => this.refreshViews()), options);
     modal.open();
     return modal;
   }
@@ -8364,7 +8416,7 @@ ${body}
       new Notice("Finish a docked review session first, then save its report.", 6000);
       return null;
     }
-    const status = session ? reviewSession.sessionStatus(session) : { completed: list.length, missed: [], requeued: 0 };
+    const status = session ? reviewSession().sessionStatus(session) : { completed: list.length, missed: [], requeued: 0 };
     const date = localDate();
     const markdown = sessionReport.sessionReportMarkdown({ status, items: list, date });
     const existing = this.app.vault.getMarkdownFiles().map((file) => file.path);
@@ -9093,7 +9145,7 @@ ${body}
     if (this.moduleOff("calendar")) return;
     const status = nextClassStatus(this.calendarEvents(), new Date());
     if (!status.event) {
-      new Notice("No class found in the calendar.");
+      new Notice('No class on the calendar yet. Run "Open calendar" to add one, or "Calendar: add an .ics schedule" to import your timetable.', 8000);
       return;
     }
     await this.openClassNote(status.event, status.event.dateKey);
@@ -9625,7 +9677,7 @@ ${body}
       }
     }
     if (!records.length) {
-      new Notice("Could not read any of the filtered questions.");
+      new Notice("Could not read any of the filtered questions. Check the notes still exist and are readable, then export again.", 8000);
       return null;
     }
     const today = localDate();
@@ -9664,7 +9716,7 @@ ${body}
       }
     }
     if (!records.length) {
-      new Notice("Could not read any of the due questions.");
+      new Notice("Could not read any of the due questions. Check the notes still exist and are readable, then export again.", 8000);
       return null;
     }
     const base = reviewSheetFileName(today);
@@ -10595,7 +10647,7 @@ ${body}
     try {
       return await this.importServiceExport({ path: active.path });
     } catch (e) {
-      new Notice(str(e && e.message ? e.message : e), 10000);
+      new Notice(`Could not import that export: ${errorDetail(e)}. Check the open file is the export you meant, then try again.`, 10000);
       return null;
     }
   }
@@ -10612,7 +10664,7 @@ ${body}
     try {
       return await this.importServiceExport({ text }, { folder: "" });
     } catch (e) {
-      new Notice(str(e && e.message ? e.message : e), 10000);
+      new Notice(`Could not import the pasted export: ${errorDetail(e)}. Check the text is a complete export, then try again.`, 10000);
       return null;
     }
   }
@@ -11778,7 +11830,7 @@ ${body}
         await this.restoreStudyStatusSnapshot(file, previous);
         new Notice("Restored the previous study status.", 4000);
       } catch (e) {
-        new Notice(str(e && e.message) || "Could not undo that change.", 6000);
+        new Notice(`Could not undo that change: ${errorDetail(e)}. Nothing was changed; try again.`, 7000);
       } finally {
         notice.hide();
       }

@@ -60,10 +60,10 @@ test("only the four documented files touch a network transport", () => {
   assert.ok(source["api-client.js"].includes("safeApiBase("), "api-client validates its base URL");
   assert.ok(source["opencode-client.js"].includes("safeApiBase("), "opencode-client validates its base URL");
   assert.match(read("opencode-manager.js"), /https:\/\/api\.github\.com\/repos\/\$\{OPENCODE_REPO\}/, "the installer only asks GitHub for its own repository");
-  // Both plugin.js calls are calendar feeds and both are sanitised first.
+  // plugin.js has one calendar-feed request, and the helper that sends it sanitises the URL first.
   const plugin = source["plugin.js"];
   const calls = [...plugin.matchAll(/requestUrl\s*\(/g)].map((m) => m.index);
-  assert.equal(calls.length, 2, "plugin.js makes exactly the two calendar requests");
+  assert.equal(calls.length, 1, "plugin.js makes exactly one calendar request");
   for (const at of calls) {
     const before = plugin.slice(Math.max(0, at - 400), at);
     assert.ok(before.includes("safeCalendarFeedUrl("), "a calendar request is sanitised before it is sent");

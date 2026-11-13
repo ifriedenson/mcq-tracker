@@ -11,7 +11,7 @@ const { QtModal } = require("./a11y");
 const { Modal, Notice, Setting } = require("obsidian");
 const epub = require("./epub");
 const epubAnnotations = require("./epub-annotations");
-const { str } = require("./util");
+const { errorDetail, str } = require("./util");
 
 class EpubReaderModal extends QtModal {
   qtDialogLabel() {
@@ -128,7 +128,7 @@ class EpubReaderModal extends QtModal {
       new Notice("Highlight saved beside the book.");
       return true;
     } catch (e) {
-      new Notice(str(e && e.message ? e.message : e));
+      new Notice(`Could not save the highlight beside the book: ${errorDetail(e)}. The book and its annotations are unchanged; try again.`, 9000);
       return false;
     }
   }
@@ -147,7 +147,7 @@ class EpubReaderModal extends QtModal {
       await this.load();
       return true;
     } catch (e) {
-      new Notice(str(e && e.message ? e.message : e));
+      new Notice(`Could not save the note beside the book: ${errorDetail(e)}. The book and its annotations are unchanged; try again.`, 9000);
       return false;
     }
   }
@@ -159,7 +159,7 @@ class EpubReaderModal extends QtModal {
       if (!removed) new Notice(`There is no annotation ${str(id)} in this book.`);
       return removed;
     } catch (e) {
-      new Notice(str(e && e.message ? e.message : e));
+      new Notice(`Could not remove that annotation: ${errorDetail(e)}. Nothing was changed; try again.`, 9000);
       return false;
     }
   }

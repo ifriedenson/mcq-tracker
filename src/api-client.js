@@ -32,6 +32,24 @@ function friendlyApiError(e) {
   return m;
 }
 
+/** No provider reply should spin forever; a request that hangs is a dead end for the user. */
+const REQUEST_TIMEOUT_MS = 120 * 1000;
+
+function timeoutLabel(ms) {
+  return ms >= 1000 ? Math.round(ms / 1000) + "s" : ms + "ms";
+}
+
+/** Reject with an actionable message when `promise` is still pending after `ms`. */
+function withinTimeout(promise, ms, label) {
+  let timer = null;
+  const limit = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(label + " took longer than " + timeoutLabel(ms) + ". Check your connection, then try again.")), ms);
+  });
+  return Promise.race([promise, limit]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 function apiTurns(history) {
   return (history || []).map((m) => ({ role: m.role === "user" ? "user" : "assistant", texts: [m.content], tools: [] }));
 }
@@ -48,6 +66,7 @@ class ApiClient {
     const a = this.ai.api || {};
     const preset = API_PRESETS[a.provider] || API_PRESETS.custom;
     return {
+      timeoutMs: Number(this.opts.timeoutMs) > 0 ? Number(this.opts.timeoutMs) : REQUEST_TIMEOUT_MS,
       preset,
       base: (str(a.baseUrl).trim() || preset.base).replace(/\/+$/, "") ? safeApiBase((str(a.baseUrl).trim() || preset.base).replace(/\/+$/, "")) : "",
       key: resolveApiKey(this.app, a),
@@ -55,7 +74,7 @@ class ApiClient {
     };
   }
   async vision(system, prompt, images, opts) {
-    const { preset, base, key, model } = this.cfg();
+    const { preset, base, key, model, timeoutMs } = this.cfg();
     if (!base) throw new Error("Add a base URL in the plugin settings.");
     if (!model) throw new Error("Add a model name in the plugin settings.");
     if (!key && !preset.noKey) throw new Error("Add your API key in the plugin settings.");
@@ -98,7 +117,17 @@ class ApiClient {
         ],
       };
     }
-    const r = await requestUrl({ url, method: "POST", headers, contentType: "application/json", body: JSON.stringify(body), throw: false });
+    let r;
+    try {
+      r = await withinTimeout(
+        requestUrl({ url, method: "POST", headers, contentType: "application/json", body: JSON.stringify(body), throw: false }),
+        timeoutMs,
+        "The image request"
+      );
+    } catch (e) {
+      throw new Error(friendlyApiError(e));
+    }
+    if (!r) throw new Error("The provider returned no response.");
     let data = null;
     try {
       data = r.json;
@@ -107,7 +136,8 @@ class ApiClient {
     }
     if (r.status >= 400) {
       const em = data && data.error ? data.error.message || data.error : r.text;
-      throw new Error(`HTTP ${r.status}: ${str(typeof em === "string" ? em : JSON.stringify(em)).slice(0, 300)}`);
+      const detail = `HTTP ${r.status}: ${str(typeof em === "string" ? em : JSON.stringify(em)).slice(0, 300)}`;
+      throw new Error(friendlyApiError(new Error(detail)));
     }
     let text = "";
     if (preset.kind === "anthropic") {
@@ -122,7 +152,7 @@ class ApiClient {
 
   /** Read the provider's current model list. This never sends a prompt or spends a generation request. */
   async listModels() {
-    const { preset, base, key } = this.cfg();
+    const { preset, base, key, timeoutMs } = this.cfg();
     if (!base) throw new Error("Add a base URL in the plugin settings.");
     if (!key && !preset.noKey) throw new Error("Add your API key in the plugin settings.");
     const anthropic = preset.kind === "anthropic";
@@ -134,7 +164,7 @@ class ApiClient {
         : {};
     let response;
     try {
-      response = await requestUrl({ url, method: "GET", headers, throw: false });
+      response = await withinTimeout(requestUrl({ url, method: "GET", headers, throw: false }), timeoutMs, "The model list request");
     } catch (e) {
       throw new Error(friendlyApiError(e));
     }
@@ -169,7 +199,7 @@ class ApiClient {
     if (typeof fetch !== "function" || typeof AbortController === "undefined" || typeof o.onDelta !== "function") {
       return this.chat(system, messages, o);
     }
-    const { preset, base, key, model } = this.cfg();
+    const { preset, base, key, model, timeoutMs } = this.cfg();
     if (!base) throw new Error("Add a base URL in the plugin settings.");
     if (!model) throw new Error("Add a model name in the plugin settings.");
     if (!key && !preset.noKey) throw new Error("Add your API key in the plugin settings.");
@@ -183,12 +213,23 @@ class ApiClient {
       preset.kind === "anthropic"
         ? { model, max_tokens: o.maxTokens || 1500, system, messages: msgs, stream: true }
         : { model, max_tokens: o.maxTokens || 1500, messages: [{ role: "system", content: system }, ...msgs], stream: true };
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { ...headers, "content-type": "application/json", accept: "text/event-stream" },
-      body: JSON.stringify(body),
-      signal: o.signal,
-    });
+    let response;
+    try {
+      response = await withinTimeout(
+        fetch(url, {
+          method: "POST",
+          headers: { ...headers, "content-type": "application/json", accept: "text/event-stream" },
+          body: JSON.stringify(body),
+          signal: o.signal,
+        }),
+        timeoutMs,
+        "The provider"
+      );
+    } catch (e) {
+      // A cancel is the user's own action; callers detect it by error name, so keep it unwrapped.
+      if (e && (e.name === "AbortError" || (o.signal && o.signal.aborted))) throw e;
+      throw new Error(friendlyApiError(e));
+    }
     if (!response || !response.ok) {
       let detail = response ? `HTTP ${response.status}` : "no response";
       try {
@@ -217,7 +258,7 @@ class ApiClient {
   }
 
   async chat(system, messages, opts) {
-    const { preset, base, key, model } = this.cfg();
+    const { preset, base, key, model, timeoutMs } = this.cfg();
     if (!base) throw new Error("Add a base URL in the plugin settings.");
     if (!model) throw new Error("Add a model name in the plugin settings.");
     if (!key && !preset.noKey) throw new Error("Add your API key in the plugin settings.");
@@ -234,16 +275,27 @@ class ApiClient {
       headers = key ? { Authorization: `Bearer ${key}` } : {};
       body = { model, max_tokens: (opts && opts.maxTokens) || 1500, messages: [{ role: "system", content: system }, ...msgs] };
     }
-    const r = await requestUrl({ url, method: "POST", headers, contentType: "application/json", body: JSON.stringify(body), throw: false });
+    let r;
+    try {
+      r = await withinTimeout(
+        requestUrl({ url, method: "POST", headers, contentType: "application/json", body: JSON.stringify(body), throw: false }),
+        timeoutMs,
+        "The provider"
+      );
+    } catch (e) {
+      throw new Error(friendlyApiError(e));
+    }
     let data = null;
     try {
-      data = r.json;
+      data = r && r.json;
     } catch (e) {
       /* not JSON */
     }
+    if (!r) throw new Error("The provider returned no response.");
     if (r.status >= 400) {
       const em = data && data.error ? data.error.message || data.error : r.text;
-      throw new Error(`HTTP ${r.status}: ${str(typeof em === "string" ? em : JSON.stringify(em)).slice(0, 300)}`);
+      const detail = `HTTP ${r.status}: ${str(typeof em === "string" ? em : JSON.stringify(em)).slice(0, 300)}`;
+      throw new Error(friendlyApiError(new Error(detail)));
     }
     let text = "";
     if (preset.kind === "anthropic") {
@@ -262,4 +314,6 @@ module.exports = {
   friendlyApiError,
   apiTurns,
   ApiClient,
+  REQUEST_TIMEOUT_MS,
+  withinTimeout,
 };

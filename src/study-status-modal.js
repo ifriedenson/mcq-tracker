@@ -1,7 +1,7 @@
 "use strict";
 const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
-const { str } = require("./util");
+const { errorDetail, str } = require("./util");
 
 class StudyStatusModal extends QtModal {
   constructor(app, plugin) {
@@ -134,7 +134,7 @@ class StudyStatusModal extends QtModal {
       this.renderRows();
     } catch (e) {
       if (button) button.disabled = false;
-      new Notice(str(e && e.message) || "Could not restore that item.");
+      new Notice(`Could not restore that item: ${errorDetail(e)}. Nothing was changed; try again.`, 9000);
     }
   }
 

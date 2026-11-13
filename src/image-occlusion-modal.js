@@ -1,7 +1,7 @@
 "use strict";
 const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
-const { str } = require("./util");
+const { errorDetail, str } = require("./util");
 const { parseMaskRows } = require("./cards");
 
 /** Create one card per mask on an already-saved vault image. */
@@ -90,7 +90,7 @@ class ImageOcclusionModal extends QtModal {
         this.onDone(result);
       } catch (e) {
         save.disabled = false;
-        new Notice(str(e && e.message) || "Could not create the image occlusion cards.");
+        new Notice(`Could not create the image occlusion cards: ${errorDetail(e)}. The image and masks are unchanged; try again.`, 9000);
       }
     });
   }

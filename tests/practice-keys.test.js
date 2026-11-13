@@ -1,7 +1,7 @@
 "use strict";
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { load } = require("./helpers/load");
+const { load, obsidian } = require("./helpers/load");
 const { makeApp, makeDom } = require("./helpers/fake");
 
 const { T, Plugin: QT } = load();
@@ -64,4 +64,34 @@ test("practice keys: the Practice view handles the active question and Esc retur
   assert.equal(view.handlePracticeKey(key("Escape")), "end");
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(view.state, "idle", "Esc returns to the filter screen");
+});
+
+test("practice: a review that cannot be saved says so and leaves the card unrecorded", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  const view = new T.PracticeView({ app }, plugin);
+  view.contentEl = makeDom().root;
+  plugin.recordAttempt = async () => {
+    throw new Error("EACCES: permission denied, open 'Questions/q.md'");
+  };
+  view.study = {
+    card: { file: { path: "Questions/q.md", basename: "q" }, key: "A", mode: "flip" },
+    startedAt: Date.now(),
+    sel: null,
+    recorded: false,
+    revealed: false,
+    reviewed: 0,
+    recalled: 0,
+    mode: "study",
+    results: [],
+    repeats: [],
+    queue: [],
+  };
+  obsidian.notices.length = 0;
+  await view.recordStudy("known");
+  assert.equal(obsidian.notices.length, 1, JSON.stringify(obsidian.notices));
+  assert.match(obsidian.notices[0], /^Could not save this review: EACCES: permission denied, open 'Questions\/q\.md'\./);
+  assert.match(obsidian.notices[0], /The review was not recorded; press the grade again\.$/);
+  assert.equal(view.study.recorded, false, "a failed save does not mark the card done");
 });

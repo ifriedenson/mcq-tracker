@@ -858,7 +858,7 @@ class CardView extends ItemView {
       this.pendingGradeId = queued ? queued.id : "";
       this.gradeAttemptId = queued ? queued.id : "";
     } catch (e) {
-      new Notice(`Could not read ${card.file.path}.`);
+      new Notice(`Could not read ${card.file.path}. It was skipped for this session; check the note still exists, then reopen Cards.`, 8000);
       this.queue.splice(this.index, 1);
       return this.showCard();
     }
@@ -1006,7 +1006,7 @@ class CardView extends ItemView {
       await this.showCard();
     } catch (e) {
       this.busy = false;
-      new Notice(str(e && e.message) || "Could not save this review.");
+      new Notice(`Could not save this review: ${errorDetail(e)}. The review was not recorded; press the grade again.`, 7000);
     }
   }
 
@@ -1055,7 +1055,7 @@ class CardView extends ItemView {
       this.index = Math.min(this.index, this.queue.length - 1);
       await this.showCard();
     } catch (e) {
-      new Notice(str(e && e.message) || "Could not update this card.", 6000);
+      new Notice(`Could not update this card: ${errorDetail(e)}. Nothing was changed; try again.`, 7000);
     }
   }
 

@@ -168,3 +168,31 @@ test("simple quiz: data blocks show a count, and legacy quizjs blocks stay visib
   plugin.renderSimpleQuizDataBlock('fc.addCard({question:{left:["Q"],right:["A"]}});fc.commit();', dom.root, "js");
   assert.ok(dom.texts().some((text) => text.includes("disabled") && text.includes("quizjson")), JSON.stringify(dom.texts()));
 });
+
+test("simple quiz: a result that cannot be saved says so instead of showing the raw error", async () => {
+  const source = [
+    "```quizjson",
+    '[{"question":{"left":["Capital of France?"],"right":["Paris"]},"notReversible":true}]',
+    "```",
+  ].join("\n");
+  const app = makeApp([{ path: "Quiz.md", noFm: true, text: source }]);
+  app.files[0].fm = {};
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.simpleQuiz = S.normalizeSimpleQuiz({});
+  plugin.save = async () => {
+    throw new Error("EACCES: permission denied, open data.json");
+  };
+
+  const dom = makeDom();
+  await plugin.renderSimpleQuizBlock(JSON.stringify({ sources: ["Quiz.md"] }), dom.root, { sourcePath: "Quiz.md" });
+  await dom.click("Start simple quiz");
+  await dom.click("Show answer");
+  obsidian.notices.length = 0;
+  await dom.click("Got it");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(obsidian.notices.length, 1, JSON.stringify(obsidian.notices));
+  assert.match(obsidian.notices[0], /^Could not save the simple-quiz result: EACCES: permission denied, open data\.json\./);
+  assert.match(obsidian.notices[0], /check that the plugin can write its settings, then try again\.$/);
+});

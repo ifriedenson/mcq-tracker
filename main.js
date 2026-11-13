@@ -1595,7 +1595,7 @@ __defs["agent-view"] = function (module, exports, require) {
  * Obsidian Copilot code is used.
  */
 const { ItemView, Notice } = require("obsidian");
-const { str } = require("./util");
+const { errorDetail, str } = require("./util");
 const { ChatPanel } = require("./chat-panel");
 const { readActiveNoteContext } = require("./note-context");
 const { buildGeneralContext } = require("./opencode-client");
@@ -2882,7 +2882,7 @@ class AgentView extends ItemView {
           : `Inserted the reply into ${result.path}.`
       );
     } catch (error) {
-      new Notice(str(error && error.message ? error.message : error) || "Could not insert the reply.", 8000);
+      new Notice(`Could not insert the reply: ${errorDetail(error)}. The note was not changed; open it and try again.`, 8000);
     }
   }
 }
@@ -4337,7 +4337,7 @@ function isRetryableError(error) {
   const m = str(error && error.message ? error.message : error);
   if (/HTTP 40[0134]|HTTP 422/.test(m)) return false;
   if (/HTTP 408|HTTP 409|HTTP 425|HTTP 429|HTTP 5\d\d/.test(m)) return true;
-  return /ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|Failed to fetch|net::|network/i.test(m);
+  return /ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|Failed to fetch|net::|network|Couldn't reach the provider/i.test(m);
 }
 
 /**
@@ -5588,7 +5588,7 @@ const { QtModal } = require("./a11y");
  * unless the user turns the feature on.
  */
 const { Modal, Notice, requestUrl } = require("obsidian");
-const { hashString, str } = require("./util");
+const { deadlineLabel, hashString, str, withDeadline } = require("./util");
 
 const DEFAULT_ANKI_CONNECT = {
   enabled: false, // no request is made until this is explicit
@@ -6144,25 +6144,41 @@ function responseData(response) {
   }
 }
 
+/**
+ * AnkiConnect is a local add-on on localhost; it answers in milliseconds. 20s is
+ * a stuck add-on (a modal dialog in Anki, or a hung Java process), not a slow one.
+ */
+const REQUEST_TIMEOUT_MS = 20 * 1000;
+
 class AnkiConnectClient {
   constructor(options) {
     const opts = options || {};
     this.url = normalizeAnkiConnect({ url: opts.url }).url;
     this.request = opts.request || requestUrl;
+    this.timeoutMs = Number(opts.timeoutMs) > 0 ? Number(opts.timeoutMs) : REQUEST_TIMEOUT_MS;
   }
 
   async call(action, params) {
     let response;
     try {
-      response = await this.request({
-        url: this.url,
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        contentType: "application/json",
-        body: JSON.stringify({ action, version: ANKI_VERSION, params: params || {} }),
-        throw: false,
-      });
+      response = await withDeadline(
+        this.request({
+          url: this.url,
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          contentType: "application/json",
+          body: JSON.stringify({ action, version: ANKI_VERSION, params: params || {} }),
+          throw: false,
+        }),
+        this.timeoutMs,
+        `AnkiConnect (${action})`
+      );
     } catch (e) {
+      if (e && e.timedOut) {
+        throw new Error(
+          `AnkiConnect at ${this.url} did not answer within ${deadlineLabel(this.timeoutMs)}. Check that Anki is open with the AnkiConnect add-on installed, close any dialog in Anki, then try again.`
+        );
+      }
       throw new Error(`Could not reach AnkiConnect at ${this.url}. Open Anki with AnkiConnect installed and check the address.`);
     }
     if (response && Number(response.status) >= 400) {
@@ -8022,6 +8038,24 @@ function friendlyApiError(e) {
   return m;
 }
 
+/** No provider reply should spin forever; a request that hangs is a dead end for the user. */
+const REQUEST_TIMEOUT_MS = 120 * 1000;
+
+function timeoutLabel(ms) {
+  return ms >= 1000 ? Math.round(ms / 1000) + "s" : ms + "ms";
+}
+
+/** Reject with an actionable message when `promise` is still pending after `ms`. */
+function withinTimeout(promise, ms, label) {
+  let timer = null;
+  const limit = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(label + " took longer than " + timeoutLabel(ms) + ". Check your connection, then try again.")), ms);
+  });
+  return Promise.race([promise, limit]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 function apiTurns(history) {
   return (history || []).map((m) => ({ role: m.role === "user" ? "user" : "assistant", texts: [m.content], tools: [] }));
 }
@@ -8038,6 +8072,7 @@ class ApiClient {
     const a = this.ai.api || {};
     const preset = API_PRESETS[a.provider] || API_PRESETS.custom;
     return {
+      timeoutMs: Number(this.opts.timeoutMs) > 0 ? Number(this.opts.timeoutMs) : REQUEST_TIMEOUT_MS,
       preset,
       base: (str(a.baseUrl).trim() || preset.base).replace(/\/+$/, "") ? safeApiBase((str(a.baseUrl).trim() || preset.base).replace(/\/+$/, "")) : "",
       key: resolveApiKey(this.app, a),
@@ -8045,7 +8080,7 @@ class ApiClient {
     };
   }
   async vision(system, prompt, images, opts) {
-    const { preset, base, key, model } = this.cfg();
+    const { preset, base, key, model, timeoutMs } = this.cfg();
     if (!base) throw new Error("Add a base URL in the plugin settings.");
     if (!model) throw new Error("Add a model name in the plugin settings.");
     if (!key && !preset.noKey) throw new Error("Add your API key in the plugin settings.");
@@ -8088,7 +8123,17 @@ class ApiClient {
         ],
       };
     }
-    const r = await requestUrl({ url, method: "POST", headers, contentType: "application/json", body: JSON.stringify(body), throw: false });
+    let r;
+    try {
+      r = await withinTimeout(
+        requestUrl({ url, method: "POST", headers, contentType: "application/json", body: JSON.stringify(body), throw: false }),
+        timeoutMs,
+        "The image request"
+      );
+    } catch (e) {
+      throw new Error(friendlyApiError(e));
+    }
+    if (!r) throw new Error("The provider returned no response.");
     let data = null;
     try {
       data = r.json;
@@ -8097,7 +8142,8 @@ class ApiClient {
     }
     if (r.status >= 400) {
       const em = data && data.error ? data.error.message || data.error : r.text;
-      throw new Error(`HTTP ${r.status}: ${str(typeof em === "string" ? em : JSON.stringify(em)).slice(0, 300)}`);
+      const detail = `HTTP ${r.status}: ${str(typeof em === "string" ? em : JSON.stringify(em)).slice(0, 300)}`;
+      throw new Error(friendlyApiError(new Error(detail)));
     }
     let text = "";
     if (preset.kind === "anthropic") {
@@ -8112,7 +8158,7 @@ class ApiClient {
 
   /** Read the provider's current model list. This never sends a prompt or spends a generation request. */
   async listModels() {
-    const { preset, base, key } = this.cfg();
+    const { preset, base, key, timeoutMs } = this.cfg();
     if (!base) throw new Error("Add a base URL in the plugin settings.");
     if (!key && !preset.noKey) throw new Error("Add your API key in the plugin settings.");
     const anthropic = preset.kind === "anthropic";
@@ -8124,7 +8170,7 @@ class ApiClient {
         : {};
     let response;
     try {
-      response = await requestUrl({ url, method: "GET", headers, throw: false });
+      response = await withinTimeout(requestUrl({ url, method: "GET", headers, throw: false }), timeoutMs, "The model list request");
     } catch (e) {
       throw new Error(friendlyApiError(e));
     }
@@ -8159,7 +8205,7 @@ class ApiClient {
     if (typeof fetch !== "function" || typeof AbortController === "undefined" || typeof o.onDelta !== "function") {
       return this.chat(system, messages, o);
     }
-    const { preset, base, key, model } = this.cfg();
+    const { preset, base, key, model, timeoutMs } = this.cfg();
     if (!base) throw new Error("Add a base URL in the plugin settings.");
     if (!model) throw new Error("Add a model name in the plugin settings.");
     if (!key && !preset.noKey) throw new Error("Add your API key in the plugin settings.");
@@ -8173,12 +8219,23 @@ class ApiClient {
       preset.kind === "anthropic"
         ? { model, max_tokens: o.maxTokens || 1500, system, messages: msgs, stream: true }
         : { model, max_tokens: o.maxTokens || 1500, messages: [{ role: "system", content: system }, ...msgs], stream: true };
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { ...headers, "content-type": "application/json", accept: "text/event-stream" },
-      body: JSON.stringify(body),
-      signal: o.signal,
-    });
+    let response;
+    try {
+      response = await withinTimeout(
+        fetch(url, {
+          method: "POST",
+          headers: { ...headers, "content-type": "application/json", accept: "text/event-stream" },
+          body: JSON.stringify(body),
+          signal: o.signal,
+        }),
+        timeoutMs,
+        "The provider"
+      );
+    } catch (e) {
+      // A cancel is the user's own action; callers detect it by error name, so keep it unwrapped.
+      if (e && (e.name === "AbortError" || (o.signal && o.signal.aborted))) throw e;
+      throw new Error(friendlyApiError(e));
+    }
     if (!response || !response.ok) {
       let detail = response ? `HTTP ${response.status}` : "no response";
       try {
@@ -8207,7 +8264,7 @@ class ApiClient {
   }
 
   async chat(system, messages, opts) {
-    const { preset, base, key, model } = this.cfg();
+    const { preset, base, key, model, timeoutMs } = this.cfg();
     if (!base) throw new Error("Add a base URL in the plugin settings.");
     if (!model) throw new Error("Add a model name in the plugin settings.");
     if (!key && !preset.noKey) throw new Error("Add your API key in the plugin settings.");
@@ -8224,16 +8281,27 @@ class ApiClient {
       headers = key ? { Authorization: `Bearer ${key}` } : {};
       body = { model, max_tokens: (opts && opts.maxTokens) || 1500, messages: [{ role: "system", content: system }, ...msgs] };
     }
-    const r = await requestUrl({ url, method: "POST", headers, contentType: "application/json", body: JSON.stringify(body), throw: false });
+    let r;
+    try {
+      r = await withinTimeout(
+        requestUrl({ url, method: "POST", headers, contentType: "application/json", body: JSON.stringify(body), throw: false }),
+        timeoutMs,
+        "The provider"
+      );
+    } catch (e) {
+      throw new Error(friendlyApiError(e));
+    }
     let data = null;
     try {
-      data = r.json;
+      data = r && r.json;
     } catch (e) {
       /* not JSON */
     }
+    if (!r) throw new Error("The provider returned no response.");
     if (r.status >= 400) {
       const em = data && data.error ? data.error.message || data.error : r.text;
-      throw new Error(`HTTP ${r.status}: ${str(typeof em === "string" ? em : JSON.stringify(em)).slice(0, 300)}`);
+      const detail = `HTTP ${r.status}: ${str(typeof em === "string" ? em : JSON.stringify(em)).slice(0, 300)}`;
+      throw new Error(friendlyApiError(new Error(detail)));
     }
     let text = "";
     if (preset.kind === "anthropic") {
@@ -8252,6 +8320,8 @@ module.exports = {
   friendlyApiError,
   apiTurns,
   ApiClient,
+  REQUEST_TIMEOUT_MS,
+  withinTimeout,
 };
 };
 
@@ -9835,7 +9905,7 @@ module.exports = {
 __defs["assignments-modal"] = function (module, exports, require) {
 const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
-const { localDate, str } = require("./util");
+const { errorDetail, localDate, str } = require("./util");
 const { ASSIGNMENT_STATUSES, ASSIGNMENT_TYPES, normalizeDate } = require("./assignments");
 
 /** Create or edit one assignment note. */
@@ -9938,7 +10008,7 @@ class AssignmentModal extends QtModal {
         this.onDone(result);
       } catch (e) {
         save.disabled = false;
-        new Notice(str(e && e.message) || "Could not save the assignment.");
+        new Notice(`Could not save the assignment: ${errorDetail(e)}. Your edits are still on the form; fix anything it asks for, then try again.`, 9000);
       }
     });
   }
@@ -13496,7 +13566,7 @@ __defs["calendar-settings"] = function (module, exports, require) {
  * saves immediately, like the rest of the settings page.
  */
 const { Notice, Setting } = require("obsidian");
-const { str } = require("./util");
+const { errorDetail, str } = require("./util");
 const {
   BREAK_ICON_OPTIONS,
   CLASS_CATEGORIES,
@@ -13637,7 +13707,7 @@ function renderSchedules(containerEl, plugin, redisplay) {
             await plugin.syncCalendarSource(src.id);
             new Notice("Schedule updated.");
           } catch (e) {
-            new Notice(str(e.message));
+            new Notice(`Could not sync that schedule: ${errorDetail(e)}. Check the source still exists, then try again.`, 9000);
           }
           redisplay();
         })
@@ -14140,7 +14210,7 @@ const { QtModal } = require("./a11y");
  */
 const { ItemView, Modal, Notice, Setting, setIcon } = require("obsidian");
 const { VIEW_TYPE_CALENDAR } = require("./constants");
-const { addDays, str } = require("./util");
+const { addDays, errorDetail, str } = require("./util");
 const { dateKey } = require("./calendar-ics");
 const {
   classColor,
@@ -14403,7 +14473,7 @@ function renderEventCard(plugin, timeline, event, key, options) {
     plugin
       .openClassNote(event, key)
       .then(() => plugin.refreshCalendarViews())
-      .catch((err) => new Notice(str(err && err.message) || "Could not open the note."));
+      .catch((err) => new Notice(`Could not open the class note: ${errorDetail(err)}. Check the note still exists in this vault, then try again.`, 9000));
   };
   const onKey = (e) => {
     if (e.key !== "Enter" && e.key !== " ") return;
@@ -14817,7 +14887,7 @@ class CalendarView extends ItemView {
         this.plugin
           .openClassNote(exam, exam.dateKey)
           .then(() => this.plugin.refreshCalendarViews())
-          .catch((err) => new Notice(str(err && err.message) || "Could not open the note."));
+          .catch((err) => new Notice(`Could not open the class note: ${errorDetail(err)}. Check the note still exists in this vault, then try again.`, 9000));
       });
       const resource = this.attachedResource(exam);
       if (!resource) continue;
@@ -14831,7 +14901,7 @@ class CalendarView extends ItemView {
       add.addEventListener("click", () =>
         this.plugin
           .addApResourceToClassNote(exam, exam.dateKey, resource)
-          .catch((err) => new Notice(str(err && err.message) || "Could not add the resource to the note.")),
+          .catch((err) => new Notice(`Could not add the resource to the class note: ${errorDetail(err)}. Check the resource is still attached, then try again.`, 9000)),
       );
     }
   }
@@ -14920,15 +14990,26 @@ class CalendarView extends ItemView {
 
   async sync(button) {
     if (button) button.addClass("is-syncing");
+    const failures = [];
+    let attempted = 0;
     try {
       for (const source of this.plugin.calendarSources()) {
-        if (!source.hidden) await this.plugin.syncCalendarSource(source.id);
+        if (source.hidden) continue;
+        attempted++;
+        // One dead feed must not stop the others: report it and keep going.
+        try {
+          await this.plugin.syncCalendarSource(source.id);
+        } catch (e) {
+          failures.push({ name: str(source.name).trim() || "a feed", message: str(e && e.message) || "could not be read." });
+        }
       }
       this.plugin.invalidateCalendar();
-      new Notice("Schedule updated.");
+      if (!failures.length) new Notice("Schedule updated.");
+      else {
+        const head = failures.length === attempted ? "Could not refresh any calendar feed." : `Schedule updated, but ${failures.length} of ${attempted} feeds could not refresh.`;
+        new Notice(`${head} ${failures[0].name}: ${failures[0].message}`, 9000);
+      }
       this.render();
-    } catch (e) {
-      new Notice(str(e && e.message) || "Could not refresh the schedule.");
     } finally {
       if (button) button.removeClass("is-syncing");
     }
@@ -15188,7 +15269,7 @@ class CalendarImportModal extends QtModal {
           this.close();
           this.onDone();
         } catch (e) {
-          new Notice(str(e && e.message) || "Could not read that file.");
+          new Notice(`Could not add that .ics file: ${errorDetail(e)}. Check the file is a calendar export, then try again.`, 9000);
         }
       })
     );
@@ -18348,7 +18429,7 @@ __defs["card-grading-ai"] = function (module, exports, require) {
  * is confident. This module is only reached when that grader cannot decide, so
  * easy matches stay local and free.
  */
-const { str } = require("./util");
+const { str, AI_REPLY_CUT_OFF_HINT } = require("./util");
 
 const VERDICTS = ["correct", "partial", "incorrect"];
 const MIN_AI_CONFIDENCE = 0.6;
@@ -18391,12 +18472,12 @@ function parseGradeReply(reply) {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start < 0) throw new Error("The AI grader did not return JSON.");
-  if (end <= start) throw new Error("The AI grader returned malformed JSON.");
+  if (end <= start) throw new Error("The AI grader returned malformed JSON, or the reply was cut off before it finished." + AI_REPLY_CUT_OFF_HINT);
   let data;
   try {
     data = JSON.parse(text.slice(start, end + 1));
   } catch (e) {
-    throw new Error("The AI grader returned malformed JSON.");
+    throw new Error("The AI grader returned malformed JSON, or the reply was cut off before it finished." + AI_REPLY_CUT_OFF_HINT);
   }
   const verdict = str(data && data.verdict).trim().toLowerCase();
   if (!VERDICTS.includes(verdict)) throw new Error("The AI grader returned an unknown verdict.");
@@ -18497,7 +18578,7 @@ module.exports = {
 __defs["card-modal"] = function (module, exports, require) {
 const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
-const { str } = require("./util");
+const { errorDetail, str } = require("./util");
 const { CARD_TYPES } = require("./cards");
 
 /** Create a basic, reversed, cloze, or vocabulary note in a chosen deck. */
@@ -18707,7 +18788,7 @@ class CardModal extends QtModal {
         this.onDone(result);
       } catch (e) {
         save.disabled = false;
-        new Notice(str(e && e.message) || "Could not create the card.");
+        new Notice(`Could not create the card: ${errorDetail(e)}. Your fields are still filled in; fix anything it asks for, then try again.`, 9000);
       }
     });
   }
@@ -24721,7 +24802,7 @@ class CardView extends ItemView {
       this.pendingGradeId = queued ? queued.id : "";
       this.gradeAttemptId = queued ? queued.id : "";
     } catch (e) {
-      new Notice(`Could not read ${card.file.path}.`);
+      new Notice(`Could not read ${card.file.path}. It was skipped for this session; check the note still exists, then reopen Cards.`, 8000);
       this.queue.splice(this.index, 1);
       return this.showCard();
     }
@@ -24869,7 +24950,7 @@ class CardView extends ItemView {
       await this.showCard();
     } catch (e) {
       this.busy = false;
-      new Notice(str(e && e.message) || "Could not save this review.");
+      new Notice(`Could not save this review: ${errorDetail(e)}. The review was not recorded; press the grade again.`, 7000);
     }
   }
 
@@ -24918,7 +24999,7 @@ class CardView extends ItemView {
       this.index = Math.min(this.index, this.queue.length - 1);
       await this.showCard();
     } catch (e) {
-      new Notice(str(e && e.message) || "Could not update this card.", 6000);
+      new Notice(`Could not update this card: ${errorDetail(e)}. Nothing was changed; try again.`, 7000);
     }
   }
 
@@ -26930,7 +27011,7 @@ module.exports = {
 __defs["chat-panel"] = function (module, exports, require) {
 const { Notice } = require("obsidian");
 const { apiTurns, friendlyApiError } = require("./api-client");
-const { str } = require("./util");
+const { errorDetail, str } = require("./util");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole, tutorRole } = require("./tutor-presets");
 const { parseStudyCommand, applyStudyCommand } = require("./study-commands");
@@ -28591,7 +28672,7 @@ class ChatPanel {
     try {
       await this.opts.onSaveChat(text);
     } catch (e) {
-      new Notice(str(e && e.message ? e.message : e) || "Could not save the chat.", 8000);
+      new Notice(`Could not save the chat: ${errorDetail(e)}. The transcript is still here; try Save chat again.`, 9000);
     }
   }
 
@@ -33329,23 +33410,68 @@ function errorMessage(error) {
   return text || "CouchDB request failed.";
 }
 
+/** A sync request must answer; 30s of silence is a stuck server, not a slow one. */
+const REQUEST_TIMEOUT_MS = 30 * 1000;
+
+/** Resolve `promise`, or reject with a marked timeout error after `ms`. */
+function boundedRequest(promise, ms, label) {
+  let timer = null;
+  const limit = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error(`${label} did not answer within ${ms >= 1000 ? Math.round(ms / 1000) + "s" : ms + "ms"}.`);
+      error.timedOut = true;
+      reject(error);
+    }, ms);
+  });
+  return Promise.race([promise, limit]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+/** A thrown transport error becomes a message that names the server and what to check. */
+function couchDbUnreachable(address, e) {
+  const detail = str(e && e.message ? e.message : e).slice(0, 160);
+  return `Could not reach the CouchDB server at ${address}. Check the server URL, that CouchDB is running, and your connection.${detail ? ` (${detail})` : ""}`;
+}
+
+/** A server that accepted the connection but never answered. */
+function couchDbTimeout(address, ms) {
+  const allowance = ms >= 1000 ? Math.round(ms / 1000) + "s" : ms + "ms";
+  return `Could not reach the CouchDB server at ${address}: it did not answer within ${allowance}. Check the server URL, that CouchDB is running, and your connection.`;
+}
+
+function couchDbFailure(address, ms, e) {
+  if (e && (e.timedOut === true || /did not answer within/.test(str(e.message)))) return couchDbTimeout(address, ms);
+  return couchDbUnreachable(address, e);
+}
+
 class CouchDbClient {
   constructor(config, options) {
     const opts = options || {};
     this.config = { ...normalizeCouchDb(config), password: str(opts.password) };
+    this.timeoutMs = Number(opts.timeoutMs) > 0 ? Number(opts.timeoutMs) : REQUEST_TIMEOUT_MS;
     this.address = couchDbAddress(this.config);
     this.request = typeof opts.request === "function" ? opts.request : null;
     if (!this.request) throw new Error("No HTTP transport was supplied for CouchDB.");
   }
 
   async call(method, path, body) {
-    const response = await this.request({
-      url: this.address + (path || ""),
-      method,
-      headers: couchDbHeaders(this.config, !!body),
-      ...(body ? { body: JSON.stringify(body) } : {}),
-      throw: false,
-    });
+    let response;
+    try {
+      response = await boundedRequest(
+        this.request({
+          url: this.address + (path || ""),
+          method,
+          headers: couchDbHeaders(this.config, !!body),
+          ...(body ? { body: JSON.stringify(body) } : {}),
+          throw: false,
+        }),
+        this.timeoutMs,
+        `CouchDB ${method}`
+      );
+    } catch (e) {
+      throw new Error(couchDbFailure(this.address, this.timeoutMs, e));
+    }
     let data = null;
     try {
       data = response && response.json ? response.json : response && response.text ? JSON.parse(response.text) : null;
@@ -33363,12 +33489,21 @@ class CouchDbClient {
   async ensureDatabase() {
     let status = 0;
     let data = null;
-    const response = await this.request({
-      url: this.address,
-      method: "GET",
-      headers: couchDbHeaders(this.config),
-      throw: false,
-    });
+    let response;
+    try {
+      response = await boundedRequest(
+        this.request({
+          url: this.address,
+          method: "GET",
+          headers: couchDbHeaders(this.config),
+          throw: false,
+        }),
+        this.timeoutMs,
+        "CouchDB"
+      );
+    } catch (e) {
+      throw new Error(couchDbFailure(this.address, this.timeoutMs, e));
+    }
     status = Number(response && response.status) || 0;
     try {
       data = response && response.json ? response.json : null;
@@ -37520,7 +37655,7 @@ const { QtModal } = require("./a11y");
 const { Modal, Notice, Setting } = require("obsidian");
 const epub = require("./epub");
 const epubAnnotations = require("./epub-annotations");
-const { str } = require("./util");
+const { errorDetail, str } = require("./util");
 
 class EpubReaderModal extends QtModal {
   qtDialogLabel() {
@@ -37637,7 +37772,7 @@ class EpubReaderModal extends QtModal {
       new Notice("Highlight saved beside the book.");
       return true;
     } catch (e) {
-      new Notice(str(e && e.message ? e.message : e));
+      new Notice(`Could not save the highlight beside the book: ${errorDetail(e)}. The book and its annotations are unchanged; try again.`, 9000);
       return false;
     }
   }
@@ -37656,7 +37791,7 @@ class EpubReaderModal extends QtModal {
       await this.load();
       return true;
     } catch (e) {
-      new Notice(str(e && e.message ? e.message : e));
+      new Notice(`Could not save the note beside the book: ${errorDetail(e)}. The book and its annotations are unchanged; try again.`, 9000);
       return false;
     }
   }
@@ -37668,7 +37803,7 @@ class EpubReaderModal extends QtModal {
       if (!removed) new Notice(`There is no annotation ${str(id)} in this book.`);
       return removed;
     } catch (e) {
-      new Notice(str(e && e.message ? e.message : e));
+      new Notice(`Could not remove that annotation: ${errorDetail(e)}. Nothing was changed; try again.`, 9000);
       return false;
     }
   }
@@ -37796,7 +37931,7 @@ module.exports = { LETTERS, parseExamBlock };
 __defs["exam-modal"] = function (module, exports, require) {
 const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
-const { localDate, str } = require("./util");
+const { errorDetail, localDate, str } = require("./util");
 
 /* Manual exams are ordinary assignment notes with type: exam. */
 class ExamModal extends QtModal {
@@ -37865,7 +38000,7 @@ class ExamModal extends QtModal {
         this.onDone(result);
       } catch (e) {
         save.disabled = false;
-        new Notice(str(e && e.message) || "Could not create the exam note.");
+        new Notice(`Could not create the exam note: ${errorDetail(e)}. Your details are still on the form; fix anything it asks for, then try again.`, 9000);
       }
     });
   }
@@ -38017,7 +38152,7 @@ module.exports = {
 /* ---- src/exam-view.js ---- */
 __defs["exam-view"] = function (module, exports, require) {
 const { ItemView, Notice, setIcon } = require("obsidian");
-const { fmtClock, fmtDate, str } = require("./util");
+const { errorDetail, fmtClock, fmtDate, str } = require("./util");
 const { fmtPct, packTestSession, sliceQuestionRange, unpackTestSession } = require("./stats");
 const { MODES } = require("./constants");
 const { pickQuestion } = require("./filters");
@@ -38135,6 +38270,8 @@ class TestView extends ItemView {
       await this.restore();
     } catch (e) {
       console.error("MCQ Tracker: couldn't restore the saved timed test", e);
+      // A silent reset looked like the saved test vanished on its own.
+      new Notice(`Could not restore your saved timed test: ${errorDetail(e)}. It was set aside so the setup screen can open; start a new test, or check the developer console for details.`, 12000);
       this.items = [];
       this.phase = "setup";
       this.plugin.settings.testSession = null; // a broken saved test must not block the view
@@ -39360,7 +39497,7 @@ __defs["feynman-ai"] = function (module, exports, require) {
  * separate aiScores/aiFeedback pair. No network code lives here: the plugin's
  * existing bring-your-own-key AI path performs the request.
  */
-const { str } = require("./util");
+const { str, AI_REPLY_CUT_OFF_HINT } = require("./util");
 
 const FEYNMAN_AI_DIMENSIONS = ["clarity", "accuracy", "simplicity"];
 const MAX_ANSWER = 4000;
@@ -39440,12 +39577,12 @@ function parseFeynmanScoreReply(reply) {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start < 0) throw new Error("The AI feedback did not return JSON.");
-  if (end <= start) throw new Error("The AI feedback returned malformed JSON.");
+  if (end <= start) throw new Error("The AI feedback returned malformed JSON, or the reply was cut off before it finished." + AI_REPLY_CUT_OFF_HINT);
   let data;
   try {
     data = JSON.parse(text.slice(start, end + 1));
   } catch (e) {
-    throw new Error("The AI feedback returned malformed JSON.");
+    throw new Error("The AI feedback returned malformed JSON, or the reply was cut off before it finished." + AI_REPLY_CUT_OFF_HINT);
   }
   const scores = {};
   for (const key of FEYNMAN_AI_DIMENSIONS) {
@@ -40162,7 +40299,7 @@ __defs["frq"] = function (module, exports, require) {
  * A rubric preset is an editable starting point written for this MIT-licensed
  * project, not an official College Board rubric.
  */
-const { localDate, str } = require("./util");
+const { localDate, str, AI_REPLY_CUT_OFF_HINT } = require("./util");
 const { AP_PROFILES, profileById } = require("./ap-score");
 
 const FRQ_NOTE_TYPE = "ap_frq";
@@ -40662,12 +40799,12 @@ function parseFrqGradeReply(reply, rubric) {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start < 0) throw new Error("The AI grader did not return JSON.");
-  if (end <= start) throw new Error("The AI grader returned malformed JSON.");
+  if (end <= start) throw new Error("The AI grader returned malformed JSON, or the reply was cut off before it finished." + AI_REPLY_CUT_OFF_HINT);
   let data;
   try {
     data = JSON.parse(text.slice(start, end + 1));
   } catch (e) {
-    throw new Error("The AI grader returned malformed JSON.");
+    throw new Error("The AI grader returned malformed JSON, or the reply was cut off before it finished." + AI_REPLY_CUT_OFF_HINT);
   }
   const list = data && Array.isArray(data.criteria) ? data.criteria : null;
   if (!list) throw new Error("The AI grader did not score the rubric criteria.");
@@ -49220,7 +49357,7 @@ module.exports = { releaseCommandPaletteShortcut, stealsCommandPalette };
 __defs["image-occlusion-modal"] = function (module, exports, require) {
 const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
-const { str } = require("./util");
+const { errorDetail, str } = require("./util");
 const { parseMaskRows } = require("./cards");
 
 /** Create one card per mask on an already-saved vault image. */
@@ -49309,7 +49446,7 @@ class ImageOcclusionModal extends QtModal {
         this.onDone(result);
       } catch (e) {
         save.disabled = false;
-        new Notice(str(e && e.message) || "Could not create the image occlusion cards.");
+        new Notice(`Could not create the image occlusion cards: ${errorDetail(e)}. The image and masks are unchanged; try again.`, 9000);
       }
     });
   }
@@ -52929,7 +53066,10 @@ class InsightsView extends ItemView {
           await plugin.enableKnowledgeRecord();
           this.render();
         } catch (e) {
-          new Notice("The knowledge record could not be built.");
+          // A failed build used to leave the button disabled for good, so the
+          // only control on an empty panel stopped responding with no way back.
+          button.disabled = false;
+          new Notice(`The knowledge record could not be built: ${(e && e.message) || e}. Nothing was changed; try again.`, 8000);
         }
       });
       return;
@@ -52946,7 +53086,8 @@ class InsightsView extends ItemView {
           await plugin.rebuildKnowledgeRecord();
           this.render();
         } catch (e) {
-          new Notice("The knowledge record could not be built.");
+          button.disabled = false;
+          new Notice(`The knowledge record could not be built: ${(e && e.message) || e}. Nothing was changed; try again.`, 8000);
         }
       });
       return;
@@ -52977,7 +53118,7 @@ class InsightsView extends ItemView {
         await plugin.rebuildKnowledgeRecord();
         this.render();
       } catch (e) {
-        new Notice("The knowledge record could not be rebuilt.");
+        new Notice(`The knowledge record could not be rebuilt: ${(e && e.message) || e}. Nothing was changed; try again.`, 8000);
         rebuild.disabled = false;
       }
     });
@@ -55231,7 +55372,7 @@ const { QtModal } = require("./a11y");
 const { ItemView, Modal, Notice, Platform } = require("obsidian");
 const { VIEW_TYPE_LOCAL_EVENTS } = require("./constants");
 const { LOCAL_EVENT_CATEGORIES, addDaysKey, eventsInRange, eventsOnDate, monthCells, todayKey } = require("./local-events");
-const { str } = require("./util");
+const { errorDetail, str } = require("./util");
 const { makeKeyboardClickable } = require("./view-helpers");
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -55334,7 +55475,7 @@ class LocalEventModal extends QtModal {
         await this.plugin.saveLocalEvent(value);
         this.close();
       } catch (e) {
-        new Notice(str(e && e.message ? e.message : e) || "Could not save the event.");
+        new Notice(`Could not save the event: ${errorDetail(e)}. Your details are still on the form; fix anything it asks for, then try again.`, 9000);
       }
     });
   }
@@ -56956,7 +57097,7 @@ const { QtModal } = require("./a11y");
  * schedulers, so this is a session UI, not another review system.
  */
 const { Modal, Notice } = require("obsidian");
-const { localDate, str } = require("./util");
+const { errorDetail, localDate, str } = require("./util");
 const { extractRationale } = require("./notes");
 const { parseCardBody } = require("./cards");
 const { buildDueQueue } = require("./due-queue");
@@ -57255,7 +57396,7 @@ class MixedReviewModal extends QtModal {
       await this.loadCurrent();
     } catch (e) {
       this.busy = false;
-      new Notice(str(e && e.message) || "Could not save this review.");
+      new Notice(`Could not save this review: ${errorDetail(e)}. The review was not recorded; try again.`, 9000);
       this.render();
     }
   }
@@ -60300,7 +60441,7 @@ module.exports = {
 /* ---- src/opencode-client.js ---- */
 __defs["opencode-client"] = function (module, exports, require) {
 const { requestUrl } = require("obsidian");
-const { str } = require("./util");
+const { sleep, str } = require("./util");
 const { safeApiBase } = require("./url-safety");
 const { extractRationale } = require("./notes");
 const { roleInstruction, commandReference } = require("./tutor-presets");
@@ -60310,11 +60451,21 @@ const { chunksFromStream, sseData } = require("./chat-stream");
 
 /** A health check must finish even when the server accepts the socket but never answers. */
 const HEALTH_TIMEOUT_MS = 4000;
+/** A small request (session, messages, abort) must answer too; 60s is a stuck server, not a slow one. */
+const REQUEST_TIMEOUT_MS = 60 * 1000;
+/** A blocking agent send may run long, but it may not go silent: this is the silence allowance. */
+const IDLE_TIMEOUT_MS = 6 * 60 * 1000;
+/** How often a blocking send asks the session whether anything new was written. */
+const IDLE_POLL_MS = 3000;
+
+function durationLabel(ms) {
+  return ms >= 1000 ? Math.round(ms / 1000) + "s" : ms + "ms";
+}
 
 function bounded(promise, ms, label) {
   let timer = null;
   const limit = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s.`)), ms);
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${durationLabel(ms)}.`)), ms);
   });
   return Promise.race([promise, limit]).finally(() => {
     if (timer) clearTimeout(timer);
@@ -60450,8 +60601,9 @@ function buildGeneralContext(app, mode, tutorRole, studyContext) {
 }
 
 class OpenCodeClient {
-  constructor(ai) {
+  constructor(ai, opts) {
     this.ai = ai;
+    this.timeoutMs = Number(opts && opts.timeoutMs) > 0 ? Number(opts.timeoutMs) : REQUEST_TIMEOUT_MS;
   }
   base() {
     return safeApiBase(str(this.ai.url).trim().replace(/\/+$/, "") || "http://127.0.0.1:4096");
@@ -60464,8 +60616,8 @@ class OpenCodeClient {
     }
     return h;
   }
-  async req(method, path, body) {
-    const r = await requestUrl({
+  async req(method, path, body, timeoutMs) {
+    const work = requestUrl({
       url: this.base() + path,
       method,
       headers: this.headers(),
@@ -60473,6 +60625,9 @@ class OpenCodeClient {
       body: body !== undefined ? JSON.stringify(body) : undefined,
       throw: false,
     });
+    // 0 means "the caller watches this request itself" (a blocking agent send).
+    const ms = Number(timeoutMs) > 0 ? Number(timeoutMs) : 0;
+    const r = ms ? await bounded(work, ms, `OpenCode ${method} ${path}`) : await work;
     if (r.status === 401) throw new Error("401 unauthorized");
     if (r.status >= 400) {
       const hint = r.status === 404 || r.status === 405 ? " This usually means the OpenCode version doesn't match the plugin (it works with OpenCode 1.x). In the plugin settings press Download and install, or switch AI backend to Direct API." : "";
@@ -60486,29 +60641,66 @@ class OpenCodeClient {
   }
   health(timeoutMs) {
     const ms = Number(timeoutMs) > 0 ? Number(timeoutMs) : HEALTH_TIMEOUT_MS;
-    return bounded(this.req("GET", "/global/health"), ms, "OpenCode health check");
+    return bounded(this.req("GET", "/global/health", undefined, 0), ms, "OpenCode health check");
   }
   agents() {
-    return this.req("GET", "/agent");
+    return this.req("GET", "/agent", undefined, this.timeoutMs);
   }
   providers(timeoutMs) {
-    const req = this.req("GET", "/config/providers");
+    const req = this.req("GET", "/config/providers", undefined, this.timeoutMs);
     const ms = Number(timeoutMs) > 0 ? Number(timeoutMs) : 0;
     return ms ? bounded(req, ms, "OpenCode providers check") : req;
   }
   createSession(title) {
-    return this.req("POST", "/session", { title });
+    return this.req("POST", "/session", { title }, this.timeoutMs);
   }
   messages(id) {
-    return this.req("GET", `/session/${encodeURIComponent(id)}/message`);
+    return this.req("GET", `/session/${encodeURIComponent(id)}/message`, undefined, this.timeoutMs);
   }
-  send(id, body) {
-    // blocks until the assistant has finished (including any tool use)
-    return this.req("POST", `/session/${encodeURIComponent(id)}/message`, body);
+  /**
+   * Send a message and wait for the agent to finish (including any tool use).
+   * A run that keeps writing to the session may take as long as it needs; one
+   * that writes nothing new for `idleMs` is treated as stuck, so the chat or
+   * import spinner cannot run forever. `idleMs` is for tests.
+   */
+  async send(id, body, opts) {
+    const o = opts || {};
+    const idleMs = Number(o.idleMs) > 0 ? Number(o.idleMs) : IDLE_TIMEOUT_MS;
+    const work = this.req("POST", `/session/${encodeURIComponent(id)}/message`, body, 0);
+    let settled = null;
+    work.then(
+      (value) => {
+        settled = { value };
+      },
+      (error) => {
+        settled = { error };
+      }
+    );
+    let signature = null;
+    let lastActivity = Date.now();
+    const pollMs = Math.max(20, Math.min(IDLE_POLL_MS, Math.floor(idleMs / 4)));
+    while (!settled) {
+      await sleep(pollMs);
+      if (settled) break;
+      try {
+        const next = JSON.stringify((await this.messages(id)) || null);
+        if (signature !== null && next !== signature) lastActivity = Date.now();
+        signature = next;
+      } catch (e) {
+        /* a failed progress read is not progress; the silence allowance decides */
+      }
+      if (Date.now() - lastActivity >= idleMs) {
+        throw new Error(
+          `OpenCode accepted the request but wrote nothing new for ${durationLabel(idleMs)}. Check that OpenCode is still running and a provider is connected, then try again.`
+        );
+      }
+    }
+    if (settled.error) throw settled.error;
+    return settled.value;
   }
   /** Queue a prompt without waiting for the agent; poll messages/status for completion. */
   promptAsync(id, body) {
-    return this.req("POST", `/session/${encodeURIComponent(id)}/prompt_async`, body);
+    return this.req("POST", `/session/${encodeURIComponent(id)}/prompt_async`, body, this.timeoutMs);
   }
   /**
    * Send a message and report text deltas from the server's SSE event stream
@@ -60562,12 +60754,14 @@ class OpenCodeClient {
     return text;
   }
   abort(id) {
-    return this.req("POST", `/session/${encodeURIComponent(id)}/abort`, {});
+    return this.req("POST", `/session/${encodeURIComponent(id)}/abort`, {}, this.timeoutMs);
   }
 }
 
 module.exports = {
   HEALTH_TIMEOUT_MS,
+  REQUEST_TIMEOUT_MS,
+  IDLE_TIMEOUT_MS,
   modelFromString,
   friendlyError,
   partsToTurns,
@@ -60580,7 +60774,7 @@ module.exports = {
 /* ---- src/opencode-manager.js ---- */
 __defs["opencode-manager"] = function (module, exports, require) {
 const { Platform, requestUrl } = require("obsidian");
-const { fmtMB, sleep, str } = require("./util");
+const { fmtMB, sleep, str, withDeadline } = require("./util");
 const { HEALTH_TIMEOUT_MS, OpenCodeClient } = require("./opencode-client");
 
 /*
@@ -60612,6 +60806,9 @@ function nodeReq(name) {
 /* ------------------------------------------- OpenCode: install + local server */
 
 const OPENCODE_REPO = "anomalyco/opencode";
+
+/** The GitHub release page is a short lookup; 30s of silence is a stuck request, not a big page. */
+const RELEASE_LOOKUP_TIMEOUT_MS = 30 * 1000;
 
 /** The newest OpenCode major version this plugin can talk to. OpenCode 2.x removed the 1.x server routes (POST /session now answers 405), so 2.x isn't supported yet. */
 const MAX_OPENCODE_MAJOR = 1;
@@ -61091,17 +61288,32 @@ class OpenCodeManager {
 
   async plan() {
     if (!Platform.isDesktopApp) throw new Error("OpenCode auto-setup needs the desktop app (it isn't available on mobile yet).");
+    const lookupMs = Number(this.releaseTimeoutMs) > 0 ? Number(this.releaseTimeoutMs) : RELEASE_LOOKUP_TIMEOUT_MS;
     const fs = nodeReq("fs");
     const tr = platformTriple(process.platform, process.arch, process.platform === "linux" && fs.existsSync("/etc/alpine-release"));
     if (!tr) throw new Error(`Auto-install isn't available for ${process.platform}/${process.arch}. Install OpenCode yourself (npm i -g opencode-ai) and it will be found automatically.`);
     // newest first; page on until a release this plugin supports turns up (the latest ones may all be a newer major version)
     let pick = null;
     for (let page = 1; page <= 5 && !pick; page++) {
-      const r = await requestUrl({
-        url: `https://api.github.com/repos/${OPENCODE_REPO}/releases?per_page=100&page=${page}`,
-        headers: { Accept: "application/vnd.github+json" },
-        throw: false,
-      });
+      let r;
+      try {
+        r = await withDeadline(
+          requestUrl({
+            url: `https://api.github.com/repos/${OPENCODE_REPO}/releases?per_page=100&page=${page}`,
+            headers: { Accept: "application/vnd.github+json" },
+            throw: false,
+          }),
+          lookupMs,
+          "The OpenCode release list"
+        );
+      } catch (e) {
+        if (e && e.timedOut) {
+          throw new Error(
+            `Couldn't look up OpenCode releases: GitHub did not answer within ${lookupMs >= 1000 ? Math.round(lookupMs / 1000) + "s" : lookupMs + "ms"}. Check your internet connection and press Download and install again, or install OpenCode yourself (npm i -g opencode-ai@${MAX_OPENCODE_MAJOR}).`
+          );
+        }
+        throw new Error(`Couldn't look up OpenCode releases (${str(e && e.message ? e.message : e)}). Try again later, or install OpenCode yourself (npm i -g opencode-ai@${MAX_OPENCODE_MAJOR}).`);
+      }
       if (r.status !== 200) throw new Error(`Couldn't look up OpenCode releases (GitHub returned ${r.status}). Try again later, or install OpenCode yourself (npm i -g opencode-ai@${MAX_OPENCODE_MAJOR}).`);
       if (!Array.isArray(r.json) || !r.json.length) break;
       pick = chooseRelease(r.json, candidateAssetNames(tr), MAX_OPENCODE_MAJOR);
@@ -71649,8 +71861,12 @@ const timeBlocks = require("./time-blocks");
 const webBrowser = require("./web-browser");
 const canvasMarkdown = require("./canvas-markdown");
 const mindmap = require("./mindmap");
-const pdfDeepLink = require("./pdf-deep-link");
-const pdfBacklinks = require("./pdf-backlinks");
+let _pdfDeepLink = null;
+// Lazy: this feature is only needed when used, not at plugin startup.
+const pdfDeepLink = () => (_pdfDeepLink || (_pdfDeepLink = require("./pdf-deep-link")));
+let _pdfBacklinks = null;
+// Lazy: this feature is only needed when used, not at plugin startup.
+const pdfBacklinks = () => (_pdfBacklinks || (_pdfBacklinks = require("./pdf-backlinks")));
 const pdfPlus = require("./pdf-plus");
 const pdfLatex = require("./pdf-latex");
 const epub = require("./epub");
@@ -71663,10 +71879,8 @@ const { KanbanReportModal } = require("./canvas-kanban-view");
 const canvasAutoLink = require("./canvas-auto-link");
 const { LinkReportModal } = require("./canvas-auto-link-view");
 const canvasPresentations = require("./canvas-presentations");
-const { PresentationModal, PresentationPlanModal } = require("./canvas-presentations-view");
 const canvasQuery = require("./canvas-query");
 const { QueryGroupsModal } = require("./canvas-query-view");
-const { WebBrowserView } = require("./web-browser-view");
 const { RecentFilesView } = require("./recent-files-view");
 const recentFiles = require("./recent-files");
 const studyBlocks = require("./study-blocks");
@@ -71684,7 +71898,9 @@ const readingLibrary = require("./reading-library");
 const courseHealth = require("./course-health");
 const feynmanAi = require("./feynman-ai");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
-const readingCompanion = require("./reading-companion");
+let _readingCompanion = null;
+// Lazy: this feature is only needed when used, not at plugin startup.
+const readingCompanion = () => (_readingCompanion || (_readingCompanion = require("./reading-companion")));
 const vaultTaskIndex = require("./vault-task-index");
 const taskTags = require("./task-tags");
 const glossary = require("./glossary");
@@ -71700,6 +71916,19 @@ const { VIEW_TYPE_TABLE_CONTROLS } = require("./constants");
  * unverified. Stopping the import still cancels the wait, and a check that
  * errors simply does not vote.
  */
+/** A calendar server that accepts the connection and never answers must not spin forever. */
+const CALENDAR_FETCH_TIMEOUT_MS = 45 * 1000;
+
+function withinDeadline(promise, ms, label) {
+  let timer = null;
+  const limit = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(label + " timed out after " + Math.round(ms / 1000) + "s.")), ms);
+  });
+  return Promise.race([promise, limit]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 class TimeBlocksTourModal extends QtModal {
   constructor(app, steps, onOpenDay) {
     super(app);
@@ -71760,7 +71989,6 @@ const TABLE_COMMANDS = [
 const writingSessions = require("./writing-sessions");
 const voiceMemo = require("./voice-memo");
 const { buildCornellNote } = require("./cornell");
-const { renderCornellBlock } = require("./cornell-view");
 const studyTools = require("./study-tools");
 const { AssignmentModal } = require("./assignments-modal");
 const { assignmentId, assignmentMarkdown, assignmentStats, categoryFor, estimateMinutes, isAssignmentNote, normalizeAssignmentSettings, normalizeStatus, parseAssignment, safeName, typeId, uniquePath, updateTaskCheckbox, updateTaskDue, updateTaskEstimate, updateTaskTitle } = require("./assignments");
@@ -71772,10 +72000,9 @@ const readingModel = require("./reading");
 const { normalizeReadingSettings } = readingModel;
 const { normalizeTagTimerSettings, stopRunningTagTimers } = require("./tag-timer");
 const { normalizeTallySettings } = require("./tally");
-const { renderTallyBlock } = require("./tally-view");
 const { normalizeTextTimerSettings } = require("./text-timer");
 const { renderTextTimerBlock } = require("./text-timer-view");
-const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
+const { sleep, hashString, localDate, ensureFolder, errorDetail, str } = require("./util");
 const diagnostics = require("./diagnostics");
 const chatSkills = require("./chat-skills");
 const chatPricing = require("./chat-pricing");
@@ -71859,10 +72086,8 @@ const { adaptiveDailyCount, normalizeQuickAdaptive } = require("./adaptive-sessi
 const { dismissReminder, markReminderShown, normalizeReminder, reminderState: computeReminderState } = require("./reminder");
 const { requestOsPermission, showReminderNotification } = require("./os-notifications");
 const { extractSimpleQuizBlocks, legacyQuizJsNotice, normalizeSimpleQuiz, parseSimpleQuizCards, parseSimpleQuizOptions, recordSimpleQuizSession, simpleQuizChartSeries, simpleQuizDaySummary } = require("./simple-quiz");
-const { renderQuizPortBlock } = require("./quizport-view");
 const { renderSimpleFlashcardsBlock } = require("./simple-flashcards-view");
 const { renderReadingPlanBlock } = require("./reading-view");
-const { renderTagTimerBlock } = require("./tag-timer-view");
 const { applySimpleNoteQuizMarks, clearSimpleNoteQuizMarks, normalizeSimpleNoteQuiz, parseSimpleNoteQuiz } = require("./simple-note-quiz");
 const { SimpleNoteQuizModal } = require("./simple-note-quiz-modal");
 const { normalizeTutorRole } = require("./tutor-presets");
@@ -71877,7 +72102,9 @@ const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const { QuickAskModal } = require("./quick-ask-modal");
 const { QuickChatModal } = require("./quick-chat-modal");
-const chatBookmarks = require("./chat-bookmarks");
+let _chatBookmarks = null;
+// Lazy: this feature is only needed when used, not at plugin startup.
+const chatBookmarks = () => (_chatBookmarks || (_chatBookmarks = require("./chat-bookmarks")));
 const studyCommands = require("./study-commands");
 const { quickAddNote, quickAddTitle } = require("./quick-add");
 const { noteQuizToQuickAdd } = require("./quiz-clipboard");
@@ -71914,21 +72141,21 @@ const linkHierarchy = require("./link-hierarchy");
 const utcDates = require("./utc-dates");
 const { StudyStatsView } = require("./study-stats-view");
 const { LocalEventModal, LocalEventsView } = require("./local-events-view");
-const reviewSession = require("./review-session");
+let _reviewSession = null;
+// Lazy: this feature is only needed when used, not at plugin startup.
+const reviewSession = () => (_reviewSession || (_reviewSession = require("./review-session")));
 const durability = require("./durability");
 const studyCounters = require("./study-counters");
 const pomodoro = require("./pomodoro");
 const { PomodoroView } = require("./pomodoro-view");
 const { applySpacedReview, buildSpacedQueue, normalizeSpacedEverything, renderSpacedTemplate, spacedCaptureText } = require("./spaced-everything");
 const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
-const { CardGeneratorModal } = require("./card-generator-modal");
 const { AutoAnkiModal } = require("./auto-anki-modal");
 const { autoAnkiBatchPaths, autoAnkiCardInputs, autoAnkiSourceKey, chooseAutoAnkiSource, normalizeAutoAnki } = require("./auto-anki");
 const { chooseText2AnkiSource, normalizeText2Anki, text2AnkiNotice } = require("./text2anki");
 const { appendPrefix, buildCardBlock, buildCardGeneratorPrompt, normalizeCardGenerator, verifyCardDrafts } = require("./card-generator");
 const { buildSpacedQuizNote, spacedQuizFileName, spacedQuizSourceKey } = require("./spaced-quiz");
 const { readActiveNoteContext } = require("./note-context");
-const { QuizGeneratorModal } = require("./quiz-generator-modal");
 const { MAX_SOURCE_CHARS, buildQuizGeneratorPrompt, collectGeneratorSources, folderMatches, normalizeQuizGenerator, parseGeneratorQuestions } = require("./quiz-generator");
 const { buildStudyBundle, bundleFileName } = require("./study-bundle");
 const { parseStudyBundle, planStudyBundleRestore } = require("./study-bundle-import");
@@ -71942,6 +72169,7 @@ const fileExplorer = require("./file-explorer");
 const { NEEDS_FIXING_DAYS, hasAttemptId, markNeedsFixingFixed, normalizeHistoryLimit, repairHistoryCounters } = require("./history");
 const { checkDistractorQuality } = require("./distractor-quality");
 const { normalizeBlueprint, normalizePassScore } = require("./exam-sections");
+const uiErrors = require("./ui-errors");
 
 function noteBodyText(text) {
   const close = str(text).indexOf("\n---\n", 3);
@@ -72061,7 +72289,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_LOCAL_EVENTS, (leaf) => new LocalEventsView(leaf, this));
     this.registerView(VIEW_TYPE_POMODORO, (leaf) => new PomodoroView(leaf, this));
     this.registerView(VIEW_TYPE_TASK_LIST, (leaf) => new TaskListView(leaf, this));
-    this.registerView(VIEW_TYPE_WEB_BROWSER, (leaf) => new WebBrowserView(leaf, this));
+    this.registerView(VIEW_TYPE_WEB_BROWSER, (leaf) => new (require("./web-browser-view").WebBrowserView)(leaf, this));
     this.registerView(VIEW_TYPE_RECENT_FILES, (leaf) => new RecentFilesView(leaf, this));
     const { AgentView: StudyAgentView } = require("./agent-view");
     this.registerView(VIEW_TYPE_AGENT, (leaf) => new StudyAgentView(leaf, this));
@@ -72420,7 +72648,7 @@ class QuestionTrackerPlugin extends Plugin {
                 );
               }
             })
-            .catch((e) => new Notice(str(e && e.message ? e.message : e) || "Could not check that answer by calculation.", 7000));
+            .catch((e) => new Notice(`Could not check that answer by calculation: ${errorDetail(e)}. The note was not changed; try again.`, 7000));
         }
         return true;
       },
@@ -72578,12 +72806,12 @@ class QuestionTrackerPlugin extends Plugin {
         if (this.moduleOff("mcq")) return false;
         const file = this.app.workspace.getActiveFile();
         if (!file || !/\.md$/i.test(file.path)) return false;
-        if (!checking) this.openSimpleNoteQuiz().catch((e) => new Notice(str(e && e.message ? e.message : e) || "Could not start the note quiz.", 6000));
+        if (!checking) this.openSimpleNoteQuiz().catch((e) => new Notice(`Could not start the note quiz: ${errorDetail(e)}. Check the note has a quiz block, then try again.`, 7000));
         return true;
       },
     });
     this.addCommand({ id: "generate-quiz", name: "Find or generate quiz questions", callback: () => this.openQuizGenerator() });
-    this.addCommand({ id: "cards-export-archive", name: "Cards: export a portable archive", callback: () => this.exportCardArchive().catch((e) => new Notice(str(e && e.message ? e.message : e) || "Could not export the archive.", 6000)) });
+    this.addCommand({ id: "cards-export-archive", name: "Cards: export a portable archive", callback: () => this.exportCardArchive().catch((e) => new Notice(`Could not export the archive: ${errorDetail(e)}. Check the destination folder is writable, then try again.`, 7000)) });
     this.addCommand({ id: "cards-import-archive", name: "Cards: import a portable archive", callback: () => this.openCardArchiveImport() });
     this.addCommand({ id: "study-nudge-show", name: "Show today's study nudge", callback: () => this.maybeShowStudyNudge(new Date()) });
     this.addCommand({ id: "course-note-from-template", name: "Course notes: create a note from a template", callback: () => this.openCourseNoteBuilder() });
@@ -72620,7 +72848,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor("grill", (source, el, ctx) => studyBlocks.renderGrillBlock(this, source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("deadlines", (source, el) => studyBlocks.renderDeadlinesBlock(this, source, el));
     this.registerMarkdownCodeBlockProcessor("text-timer", (source, el, ctx) => this.renderTextTimerBlock(source, el, ctx));
-    this.registerMarkdownCodeBlockProcessor("cornell-note", (source, el) => renderCornellBlock(this, source, el));
+    this.registerMarkdownCodeBlockProcessor("cornell-note", (source, el) => require("./cornell-view").renderCornellBlock(this, source, el));
     this.registerMarkdownCodeBlockProcessor("quiz", (source, el, ctx) => this.renderSimpleQuizBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quizjson", (source, el) => this.renderSimpleQuizDataBlock(source, el, "json"));
     this.registerMarkdownCodeBlockProcessor("quizjs", (source, el) => this.renderSimpleQuizDataBlock(source, el, "js"));
@@ -72886,6 +73114,14 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerInterval(activeWindow.setInterval(() => this.flushPendingAttempts().catch(() => {}), 60000));
     this.registerDomEvent(window, "online", () => this.flushPendingAttempts().catch(() => {}));
 
+    // Most buttons call an async plugin method without a try/catch. Without this
+    // net a rejection leaves a dead control and no message, so report every
+    // unhandled rejection once, deduplicated by the shared reporter.
+    const reportRejection = uiErrors.makeRejectionReporter();
+    this.registerDomEvent(window, "unhandledrejection", (event) => {
+      reportRejection(event && (event.reason || event.detail));
+    });
+
     this.registerDomEvent(activeDocument, "visibilitychange", () => {
       if (activeDocument.hidden && Platform.isMobile && this.settings.autoPauseOnMobile && this.isRunning()) {
         this.pauseSession();
@@ -72991,7 +73227,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.ai.verification = normalizeVerificationMode(this.settings.ai.verification);
     aiService.normalizeAiService(this.settings.ai);
     this.settings.ai.studyCommands = studyCommands.normalizeStudyCommands(this.settings.ai.studyCommands);
-    this.settings.ai.studyChatBookmarks = chatBookmarks.normalizeBookmarks(this.settings.ai.studyChatBookmarks);
+    this.settings.ai.studyChatBookmarks = chatBookmarks().normalizeBookmarks(this.settings.ai.studyChatBookmarks);
     // 0.2.0 saved settings had no `managed` flag: move those users to the automatic setup.
     if (saved.explanationDefault === undefined && saved.showRationale === false) this.settings.explanationDefault = "hide";
     delete this.settings.showRationale;
@@ -73365,7 +73601,7 @@ class QuestionTrackerPlugin extends Plugin {
       if (!quiet) {
         new Notice(`Knowledge record: ${summary.concepts} concepts from ${summary.notes} notes (${summary.known} known, ${summary.due} due).`, 7000);
       }
-      if (failed) new Notice(`${failed} note${failed === 1 ? "" : "s"} could not be read and were skipped.`, 5000);
+      if (failed) new Notice(`${failed} note${failed === 1 ? "" : "s"} could not be read and were skipped. Open them once, then build the record again.`, 7000);
       this.refreshViews();
       return Object.assign({ read, failed }, summary);
     })();
@@ -74037,7 +74273,7 @@ class QuestionTrackerPlugin extends Plugin {
   /** Opens a PDF deep link in the reader on its page, with its rectangle ringed. */
   openPdfDeepLink(link) {
     if (this.moduleOff("mcq")) return null;
-    const parsed = pdfDeepLink.parsePdfDeepLink(link);
+    const parsed = pdfDeepLink().parsePdfDeepLink(link);
     if (!parsed.valid) {
       new Notice("That is not a PDF deep link. Copy one from an annotation or the reader.");
       return null;
@@ -74206,7 +74442,7 @@ class QuestionTrackerPlugin extends Plugin {
       }
       if (chars >= 4000000) break;
     }
-    return pdfBacklinks.collectPdfBacklinks(notes, source);
+    return pdfBacklinks().collectPdfBacklinks(notes, source);
   }
 
   /** Opens the Markdown note behind a backlink highlight. */
@@ -74281,7 +74517,7 @@ class QuestionTrackerPlugin extends Plugin {
       new Notice("Turn on AI under Settings > Study agent > AI and the assistant to ask about a passage.");
       return false;
     }
-    const prompt = readingCompanion.passagePrompt(source, row, question);
+    const prompt = readingCompanion().passagePrompt(source, row, question);
     if (!prompt) {
       new Notice("That annotation has no quote or note to ask about.");
       return false;
@@ -74978,7 +75214,7 @@ class QuestionTrackerPlugin extends Plugin {
       new Notice(report.message);
       return report;
     }
-    new PresentationPlanModal(this.app, report).open();
+    new (require("./canvas-presentations-view").PresentationPlanModal)(this.app, report).open();
     new Notice(report.summary);
     return report;
   }
@@ -74995,7 +75231,7 @@ class QuestionTrackerPlugin extends Plugin {
       new Notice(plan.message);
       return plan;
     }
-    const modal = new PresentationModal(this.app, plan, (step) => {
+    const modal = new (require("./canvas-presentations-view").PresentationModal)(this.app, plan, (step) => {
       new Notice("Slide " + (step.index + 1) + " of " + step.total + ": " + step.slide.title);
     });
     modal.open();
@@ -75594,11 +75830,35 @@ class QuestionTrackerPlugin extends Plugin {
     new Notice(`Added ${name}.`);
   }
 
+  /**
+   * One GET for a calendar feed. requestUrl throws on a network or HTTP failure
+   * unless asked not to, and a raw throw used to stop a whole multi-feed sync.
+   */
+  async fetchCalendarFeedText(rawUrl, label, timeoutMs) {
+    const what = str(label).trim() || "that calendar feed";
+    const url = safeCalendarFeedUrl(rawUrl);
+    const limit = Number(this.calendarFetchTimeoutMs) > 0 ? Number(this.calendarFetchTimeoutMs) : Number(timeoutMs) > 0 ? Number(timeoutMs) : CALENDAR_FETCH_TIMEOUT_MS;
+    const allowance = limit >= 1000 ? Math.round(limit / 1000) + "s" : limit + "ms";
+    let response = null;
+    try {
+      response = await withinDeadline(requestUrl({ url, method: "GET", throw: false }), limit, what);
+    } catch (e) {
+      const detail = str(e && e.message ? e.message : e).slice(0, 160);
+      if (/timed out/i.test(detail)) {
+        throw new Error(`Couldn't reach ${what} within ${allowance}. Check the address and your internet connection, then try again.`);
+      }
+      throw new Error(`Couldn't reach ${what}. Check the address and your internet connection, then try again.${detail ? ` (${detail})` : ""}`);
+    }
+    if (!response) throw new Error(`${what} returned no response. Check the address, then try again.`);
+    if (response.status >= 400) {
+      throw new Error(`${what} answered HTTP ${response.status}. Check the calendar URL is still shared publicly, then try again.`);
+    }
+    return { url, text: calendarText(response) };
+  }
+
   async addCalendarUrlSource(rawUrl) {
-    const url = safeCalendarFeedUrl(normalizeCalendarUrl(rawUrl));
-    const response = await requestUrl({ url, method: "GET" });
-    const text = calendarText(response);
-    if (!icsLooksValid(text)) throw new Error("That address did not return an iCalendar feed.");
+    const { url, text } = await this.fetchCalendarFeedText(normalizeCalendarUrl(rawUrl), "that calendar address");
+    if (!icsLooksValid(text)) throw new Error("That address did not return an iCalendar feed. Use the public .ics link from the calendar's share menu.");
     const cal = this.settings.calendar;
     const name = deriveSourceLabel(url, text);
     const existing = cal.sources.find((s) => s.type === "url" && s.url === url);
@@ -75623,10 +75883,8 @@ class QuestionTrackerPlugin extends Plugin {
       this.refreshCalendarViews();
       return;
     }
-    const url = safeCalendarFeedUrl(source.url);
-    const response = await requestUrl({ url, method: "GET" });
-    const text = calendarText(response);
-    if (!icsLooksValid(text)) throw new Error("That calendar did not return an iCalendar feed.");
+    const { text } = await this.fetchCalendarFeedText(source.url, "that calendar feed");
+    if (!icsLooksValid(text)) throw new Error("That calendar did not return an iCalendar feed. Check the share link is still public, then add it again.");
     source.content = text;
     source.lastSync = Date.now();
     this.invalidateCalendar();
@@ -78974,12 +79232,12 @@ class QuestionTrackerPlugin extends Plugin {
 
   /** Render a `tag-timer` block with local timer state and per-tag analytics. */
   async renderTagTimerBlock(source, el, ctx) {
-    return renderTagTimerBlock(this, source, el, ctx);
+    return require("./tag-timer-view").renderTagTimerBlock(this, source, el, ctx);
   }
 
   /** Render a `tally` block with local correct/incorrect counters. */
   async renderTallyBlock(source, el, ctx) {
-    return renderTallyBlock(this, source, el, ctx);
+    return require("./tally-view").renderTallyBlock(this, source, el, ctx);
   }
 
   /** Render a `text-timer` block with a local count-up clock. */
@@ -79000,7 +79258,7 @@ class QuestionTrackerPlugin extends Plugin {
 
   /** Render a `quizport` block with the local QuizPort player. */
   async renderQuizPortBlock(source, el, ctx) {
-    return renderQuizPortBlock(this, source, el, ctx);
+    return require("./quizport-view").renderQuizPortBlock(this, source, el, ctx);
   }
 
   /** Write one completed inline-quiz result into the source note's frontmatter. */
@@ -79156,7 +79414,13 @@ class QuestionTrackerPlugin extends Plugin {
     };
     const renderCard = () => {
       if (index >= cards.length) {
-        finish().catch((e) => new Notice(str(e && e.message ? e.message : e)));
+        finish().catch((e) => {
+          console.error("MCQ Tracker: couldn't save the simple-quiz result", e);
+          new Notice(
+            `Could not save the simple-quiz result: ${errorDetail(e)}. Your score is still on screen; check that the plugin can write its settings, then try again.`,
+            9000
+          );
+        });
         return;
       }
       const card = cards[index];
@@ -79395,7 +79659,7 @@ class QuestionTrackerPlugin extends Plugin {
       return null;
     }
     if (this.moduleOff("mcq")) return null;
-    const modal = new QuizGeneratorModal(this.app, this, onDone || (() => this.refreshViews()));
+    const modal = new (require("./quiz-generator-modal").QuizGeneratorModal)(this.app, this, onDone || (() => this.refreshViews()));
     modal.open();
     return modal;
   }
@@ -79558,7 +79822,7 @@ class QuestionTrackerPlugin extends Plugin {
       new Notice("Turn on Cards under Settings, Global, Modules to generate flashcards.");
       return null;
     }
-    const modal = new CardGeneratorModal(this.app, this, onDone || (() => this.refreshViews()), options);
+    const modal = new (require("./card-generator-modal").CardGeneratorModal)(this.app, this, onDone || (() => this.refreshViews()), options);
     modal.open();
     return modal;
   }
@@ -79988,7 +80252,7 @@ ${body}
       new Notice("Finish a docked review session first, then save its report.", 6000);
       return null;
     }
-    const status = session ? reviewSession.sessionStatus(session) : { completed: list.length, missed: [], requeued: 0 };
+    const status = session ? reviewSession().sessionStatus(session) : { completed: list.length, missed: [], requeued: 0 };
     const date = localDate();
     const markdown = sessionReport.sessionReportMarkdown({ status, items: list, date });
     const existing = this.app.vault.getMarkdownFiles().map((file) => file.path);
@@ -80717,7 +80981,7 @@ ${body}
     if (this.moduleOff("calendar")) return;
     const status = nextClassStatus(this.calendarEvents(), new Date());
     if (!status.event) {
-      new Notice("No class found in the calendar.");
+      new Notice('No class on the calendar yet. Run "Open calendar" to add one, or "Calendar: add an .ics schedule" to import your timetable.', 8000);
       return;
     }
     await this.openClassNote(status.event, status.event.dateKey);
@@ -81249,7 +81513,7 @@ ${body}
       }
     }
     if (!records.length) {
-      new Notice("Could not read any of the filtered questions.");
+      new Notice("Could not read any of the filtered questions. Check the notes still exist and are readable, then export again.", 8000);
       return null;
     }
     const today = localDate();
@@ -81288,7 +81552,7 @@ ${body}
       }
     }
     if (!records.length) {
-      new Notice("Could not read any of the due questions.");
+      new Notice("Could not read any of the due questions. Check the notes still exist and are readable, then export again.", 8000);
       return null;
     }
     const base = reviewSheetFileName(today);
@@ -82219,7 +82483,7 @@ ${body}
     try {
       return await this.importServiceExport({ path: active.path });
     } catch (e) {
-      new Notice(str(e && e.message ? e.message : e), 10000);
+      new Notice(`Could not import that export: ${errorDetail(e)}. Check the open file is the export you meant, then try again.`, 10000);
       return null;
     }
   }
@@ -82236,7 +82500,7 @@ ${body}
     try {
       return await this.importServiceExport({ text }, { folder: "" });
     } catch (e) {
-      new Notice(str(e && e.message ? e.message : e), 10000);
+      new Notice(`Could not import the pasted export: ${errorDetail(e)}. Check the text is a complete export, then try again.`, 10000);
       return null;
     }
   }
@@ -83402,7 +83666,7 @@ ${body}
         await this.restoreStudyStatusSnapshot(file, previous);
         new Notice("Restored the previous study status.", 4000);
       } catch (e) {
-        new Notice(str(e && e.message) || "Could not undo that change.", 6000);
+        new Notice(`Could not undo that change: ${errorDetail(e)}. Nothing was changed; try again.`, 7000);
       } finally {
         notice.hide();
       }
@@ -87410,7 +87674,7 @@ __defs["practice-view"] = function (module, exports, require) {
 const { ItemView, Notice, Platform, TFile, setIcon } = require("obsidian");
 const { FILTER_FIELDS, MODES, VIEW_TYPE } = require("./constants");
 const { loadQuestionData, makeKeyboardClickable, renderMarkdownInto, renderMatchPicker } = require("./view-helpers");
-const { fmtClock, fmtDate, str } = require("./util");
+const { errorDetail, fmtClock, fmtDate, str } = require("./util");
 const { MODE_PRED, filterOptionCounts, folderLabel, fvals, hasFilters, isDue, pickQuestion } = require("./filters");
 const { extractRationale } = require("./notes");
 const { gradeAnswerDetailed } = require("./numeric-grading");
@@ -87778,7 +88042,7 @@ class PracticeView extends ItemView {
       }
       this.render();
     } catch (e) {
-      new Notice(str(e && e.message) || "Could not save this review.", 6000);
+      new Notice(`Could not save this review: ${errorDetail(e)}. The review was not recorded; press the grade again.`, 7000);
     }
   }
 
@@ -87837,7 +88101,7 @@ class PracticeView extends ItemView {
     const byPath = new Map(p.getQuestions().map((q) => [q.file.path, q]));
     const queue = list.map((path) => byPath.get(path)).filter(Boolean);
     if (!queue.length) {
-      new Notice("Today's daily quiz questions are no longer available.");
+      new Notice("Today's daily quiz questions are no longer available — they may have been edited or deleted. Open Today and start the quiz again.", 8000);
       return;
     }
     this.quickSession = null;
@@ -87890,7 +88154,7 @@ class PracticeView extends ItemView {
       p.notifyStudyStatusChange(summary, file, summary && summary.previous);
       await this.next();
     } catch (e) {
-      new Notice(str(e && e.message) || "Could not update this item.", 6000);
+      new Notice(`Could not update this item: ${errorDetail(e)}. Nothing was changed; try again.`, 7000);
     }
   }
 
@@ -88781,7 +89045,7 @@ class PracticeView extends ItemView {
         new Notice(summary.nextReview ? `Logged a skip. Next review ${summary.nextReview}.` : "Logged a skip.", 5000);
         await this.next();
       } catch (e) {
-        new Notice(str(e && e.message ? e.message : e) || "Could not log this skip.", 6000);
+        new Notice(`Could not log this skip: ${errorDetail(e)}. Nothing was changed; try Skip again.`, 7000);
       } finally {
         this.busy = false;
       }
@@ -91943,7 +92207,7 @@ const { QtModal } = require("./a11y");
  * plugin's existing chat provider, request limits and note-context guards.
  */
 const { Modal, Notice } = require("obsidian");
-const { str } = require("./util");
+const { errorDetail, str } = require("./util");
 const { renderMarkdownInto } = require("./view-helpers");
 const { buildGeneralContext } = require("./opencode-client");
 const {
@@ -92201,7 +92465,7 @@ class QuickAskModal extends QtModal {
       const result = await insertReplyIntoNote(this.app, this.answer);
       if (this.status) this.status.setText(result.mode === "append" ? "Added the answer to the end of the note." : "Inserted the answer.");
     } catch (e) {
-      new Notice(str(e && e.message ? e.message : e) || "Could not insert the answer.", 8000);
+      new Notice(`Could not insert the answer: ${errorDetail(e)}. The note was not changed; copy the answer and add it yourself.`, 9000);
     }
   }
 
@@ -107446,7 +107710,7 @@ const { Notice, Platform, PluginSettingTab, SecretComponent, Setting, setIcon } 
 const { FILTER_FIELDS, FOLDER_AUTO_MAX } = require("./constants");
 const { API_PRESETS, ApiClient, friendlyApiError } = require("./api-client");
 const { localModelGuide } = require("./local-models");
-const { str } = require("./util");
+const { errorDetail, str } = require("./util");
 const { OPENCODE_REPO, PROVIDERS } = require("./opencode-manager");
 const { HEALTH_TIMEOUT_MS } = require("./opencode-client");
 const { fvals, hasFilters } = require("./filters");
@@ -108736,7 +109000,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           mgr
             .describe()
             .then((d) => status.setDesc(d))
-            .catch((e) => status.setDesc(str(e.message)));
+            .catch((e) => status.setDesc(`Could not check OpenCode: ${errorDetail(e)}. Check the program path below, then press Check again.`));
         })
       );
       const guarded = (fn) => async () => {
@@ -108749,7 +109013,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
         try {
           await fn((m) => note.setMessage(m));
         } catch (e) {
-          new Notice(str(e.message), 10000);
+          new Notice(`OpenCode setup did not finish: ${errorDetail(e)}. Check the status below, then try again.`, 10000);
         } finally {
           note.hide();
           this.display();
@@ -108818,7 +109082,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
               apiKey = "";
               this.display();
             } catch (e) {
-              new Notice(str(e.message), 10000);
+              new Notice(`Could not save that provider key: ${errorDetail(e)}. Check that OpenCode's config folder is writable, then try again.`, 10000);
             }
           })
         );
@@ -116740,7 +117004,7 @@ module.exports = {
 __defs["study-status-modal"] = function (module, exports, require) {
 const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
-const { str } = require("./util");
+const { errorDetail, str } = require("./util");
 
 class StudyStatusModal extends QtModal {
   constructor(app, plugin) {
@@ -116873,7 +117137,7 @@ class StudyStatusModal extends QtModal {
       this.renderRows();
     } catch (e) {
       if (button) button.disabled = false;
-      new Notice(str(e && e.message) || "Could not restore that item.");
+      new Notice(`Could not restore that item: ${errorDetail(e)}. Nothing was changed; try again.`, 9000);
     }
   }
 
@@ -123759,7 +124023,7 @@ __defs["table-controls-view"] = function (module, exports, require) {
  */
 const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_TABLE_CONTROLS } = require("./constants");
-const { str } = require("./util");
+const { errorDetail, str } = require("./util");
 
 /** Button groups, in the upstream order (Align, Move, Edit, Sort, More). */
 const TABLE_CONTROL_GROUPS = [
@@ -123863,7 +124127,7 @@ class TableControlsView extends ItemView {
             try {
               pending = this.plugin.runTableAction(id);
             } catch (error) {
-              new Notice(str(error && error.message ? error.message : error) || "The table action failed.");
+              new Notice(`The table action failed: ${errorDetail(error)}. Nothing was changed; try again.`, 9000);
               return;
             }
             Promise.resolve(pending)
@@ -123871,7 +124135,7 @@ class TableControlsView extends ItemView {
                 if (value && value.ok === false && value.message) new Notice(value.message);
                 this.draw();
               })
-              .catch((error) => new Notice(str(error && error.message ? error.message : error) || "The table action failed."));
+              .catch((error) => new Notice(`The table action failed: ${errorDetail(error)}. Nothing was changed; try again.`, 9000));
           });
         }
       }
@@ -131597,6 +131861,63 @@ module.exports = {
 };
 };
 
+/* ---- src/ui-errors.js ---- */
+__defs["ui-errors"] = function (module, exports, require) {
+/*
+ * One safety net for click handlers.
+ *
+ * Almost every button in this plugin is `async`, and most of them call a plugin
+ * method without a try/catch: if that method throws, the browser reports an
+ * unhandled rejection, the click appears to do nothing, and the user is left
+ * with a dead control and no explanation. Rather than wrap 160 handlers, the
+ * plugin listens for `unhandledrejection` once and reports it here, so a failure
+ * is always visible.
+ *
+ * The same message inside the repeat window is dropped: a button that fails on
+ * every click must not fill the screen with notices.
+ */
+const { Notice } = require("obsidian");
+
+const REPEAT_MS = 10000;
+const MESSAGE_LIMIT = 180;
+
+/** The one-line message shown when an async action fails outside a try/catch. */
+function rejectionMessage(reason) {
+  let raw = reason && (reason.message || reason);
+  // A rejection reason can be anything: an Error, a string, or a plain object
+  // with no message. Only text is worth showing; "[object Object]" is noise.
+  if (typeof raw !== "string" && typeof raw !== "number") raw = "";
+  const text = String(raw)
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MESSAGE_LIMIT);
+  return `MCQ Tracker hit an error: ${text || "unknown error"}. Try again; if it keeps happening, send feedback from Settings, About.`;
+}
+
+/**
+ * Build the reporter. `notice` and `now` are injectable so the throttle can be
+ * tested without a clock or a screen.
+ */
+function makeRejectionReporter(options) {
+  const opts = options || {};
+  const show = opts.notice || ((message, ms) => new Notice(message, ms));
+  const now = opts.now || (() => Date.now());
+  let lastText = "";
+  let lastAt = 0;
+  return function report(reason) {
+    const text = rejectionMessage(reason);
+    const at = now();
+    if (text === lastText && at - lastAt < REPEAT_MS) return "";
+    lastText = text;
+    lastAt = at;
+    show(text, 8000);
+    return text;
+  };
+}
+
+module.exports = { MESSAGE_LIMIT, REPEAT_MS, makeRejectionReporter, rejectionMessage };
+};
+
 /* ---- src/url-safety.js ---- */
 __defs["url-safety"] = function (module, exports, require) {
 /*
@@ -131924,6 +132245,44 @@ function localDate(value) {
   return fmtDate(d);
 }
 
+/**
+ * One plain line for an error's message, or `fallback` when it carries none.
+ * Notices use it so a thrown value can never render as "undefined" or an object.
+ */
+function errorDetail(e, fallback) {
+  const raw = e && e.message !== undefined && e.message !== null ? e.message : e;
+  const text = typeof raw === "string" || typeof raw === "number" ? String(raw).trim() : "";
+  const detail = text && text !== "[object Object]" ? text : str(fallback).trim();
+  return (detail || "unknown error").slice(0, 300);
+}
+
+/** `${ms}` as a short human duration: "40ms", "45s". */
+function deadlineLabel(ms) {
+  return ms >= 1000 ? Math.round(ms / 1000) + "s" : ms + "ms";
+}
+
+/**
+ * Resolve `promise`, or reject with a message that names what stalled when `ms`
+ * passes first. The error carries `timedOut` so a caller can tell a silent
+ * server apart from a connection failure.
+ */
+function withDeadline(promise, ms, label) {
+  let timer = null;
+  const limit = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error(`${label} timed out after ${deadlineLabel(ms)}.`);
+      error.timedOut = true;
+      reject(error);
+    }, ms);
+  });
+  return Promise.race([promise, limit]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+/** Added to a strict-JSON AI reply that came back cut off or unparseable, so the message has a next step. */
+const AI_REPLY_CUT_OFF_HINT = " Try again; if it keeps happening, raise Reply token cap in Settings, MCQ Tracker, AI.";
+
 module.exports = {
   pad,
   fmtDate,
@@ -131936,6 +132295,10 @@ module.exports = {
   clampInt,
   textValue,
   boundedText,
+  AI_REPLY_CUT_OFF_HINT,
+  errorDetail,
+  deadlineLabel,
+  withDeadline,
   normalizePath,
   escapeHtml,
   uniquePath,
@@ -134495,6 +134858,8 @@ class WelcomeModal extends QtModal {
 
     if (!Platform.isDesktopApp) {
       status.setText("OpenCode is desktop-only. On mobile, add a Direct API provider key in Settings.");
+      // A message that sends someone to Settings has to be able to open it.
+      this.renderAiSettingsLink(section);
       return;
     }
 
@@ -134670,6 +135035,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.301.16",
+    date: "November 13, 2026",
+    title: "Failure messages name what to do next",
+    summary:
+      "Every local save, import, restore and settings write that fails now says what it was doing and what to check, instead of showing a raw error. Nothing about requests, formats or schedules changed.",
+    highlights: [
+      {
+        title: "The operation and the next step",
+        body: "A failed save, import, restore or sync names the operation (the simple-quiz result, the provider key, the schedule, the card review) and says what to check before trying again.",
+      },
+      {
+        title: "No more raw errors",
+        body: "Technical details such as permission denials are kept as the reason inside a plain sentence, so the message stays readable and the detail is not lost.",
+      },
+      {
+        title: "Nothing else moved",
+        body: "No note format, setting key, review schedule or network behaviour changed; timed-test restores still explain themselves instead of silently resetting.",
+      },
+      {
+        title: "Guarded going forward",
+        body: "An automated check now fails if any future message ever shows a raw error again, so this cleanup cannot quietly regress.",
+      },
+    ],
+  },
   {
     version: "1.301.16",
     date: "November 13, 2026",
@@ -136238,7 +136628,7 @@ const { PracticeView } = require("./practice-view");
 const practiceKeys = require("./practice-keys");
 const practiceFullscreen = require("./practice-fullscreen");
 const practiceTools = require("./practice-tools");
-const { API_PRESETS, ApiClient, apiTurns, friendlyApiError } = require("./api-client");
+const { API_PRESETS, ApiClient, apiTurns, friendlyApiError, REQUEST_TIMEOUT_MS } = require("./api-client");
 const modelDiscovery = require("./model-discovery");
 const reading = require("./reading");
 const tagTimer = require("./tag-timer");
@@ -136483,21 +136873,76 @@ const support = require("./support");
 module.exports = QuestionTrackerPlugin;
 QuestionTrackerPlugin.__test = {
   makeKeyboardClickable,
-  graphExport: require("./graph-export"),
-  studyBlocks: require("./study-blocks"),
-  recentFiles: require("./recent-files"),
-  recentFilesView: require("./recent-files-view"),
-  graphExamples: require("./graph-examples"),
-  statistics: require("./statistics"),
-  calculus: require("./calculus"),
-  graphAccessibility: require("./graph-accessibility"),
-  graphFolders: require("./graph-folders"),
-  graphTable: require("./graph-table"),
-  graphPrint: require("./graph-print"),
-  graphImage: require("./graph-image"),
-  graphHistory: require("./graph-history"),
-  graphPaper: require("./graph-paper"),
-  graphSummation: require("./graph-summation"),
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get util() {
+    return require("./util");
+  },
+  get calendarSettings() {
+    return require("./calendar-settings");
+  },
+  get graphExport() {
+    return require("./graph-export");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get studyBlocks() {
+    return require("./study-blocks");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get recentFiles() {
+    return require("./recent-files");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get recentFilesView() {
+    return require("./recent-files-view");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get uiErrors() {
+    return require("./ui-errors");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get graphExamples() {
+    return require("./graph-examples");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get statistics() {
+    return require("./statistics");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get calculus() {
+    return require("./calculus");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get graphAccessibility() {
+    return require("./graph-accessibility");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get graphFolders() {
+    return require("./graph-folders");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get graphTable() {
+    return require("./graph-table");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get graphPrint() {
+    return require("./graph-print");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get graphImage() {
+    return require("./graph-image");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get graphHistory() {
+    return require("./graph-history");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get graphPaper() {
+    return require("./graph-paper");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get graphSummation() {
+    return require("./graph-summation");
+  },
   DEFAULT_SETTINGS,
   finalizeNote,
   API_SYSTEM,
@@ -136508,7 +136953,10 @@ QuestionTrackerPlugin.__test = {
   weightOf,
   adaptiveWeight,
   adaptiveTargetRank,
-  masteryPicker: require("./mastery-picker"),
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get masteryPicker() {
+    return require("./mastery-picker");
+  },
   matchFilters,
   filterOptions,
   matchSets,
@@ -136536,34 +136984,101 @@ QuestionTrackerPlugin.__test = {
   ApiClient,
   friendlyApiError,
   apiTurns,
+  REQUEST_TIMEOUT_MS,
   modelDiscovery,
   reading,
   tagTimer,
   tally,
   textTimer,
   ChatPanel,
-  agentRetrieval: require("./agent-retrieval"),
-  chatHistory: require("./chat-history"),
-  chatStream: require("./chat-stream"),
-  chatSessions: require("./chat-sessions"),
-  chatBudget: require("./chat-budget"),
-  chatSkills: require("./chat-skills"),
-  chatProjects: require("./chat-projects"),
-  chatMemory: require("./chat-memory"),
-  chatExport: require("./chat-export"),
-  chatBranches: require("./chat-branches"),
-  chatPlan: require("./chat-plan"),
-  chatPdf: require("./chat-pdf"),
-  chatPdfModal: require("./chat-pdf-modal"),
-  aiToolReviewModal: require("./ai-tool-review-modal"),
-  chatPricing: require("./chat-pricing"),
-  chatMentions: require("./chat-mentions"),
-  chatBookmarks: require("./chat-bookmarks"),
-  chatModels: require("./chat-models"),
-  chatCompact: require("./chat-compact"),
-  diagnostics: require("./diagnostics"),
-  localModels: require("./local-models"),
-  readingCompanion: require("./reading-companion"),
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get agentRetrieval() {
+    return require("./agent-retrieval");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatHistory() {
+    return require("./chat-history");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatStream() {
+    return require("./chat-stream");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatSessions() {
+    return require("./chat-sessions");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatBudget() {
+    return require("./chat-budget");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatSkills() {
+    return require("./chat-skills");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatProjects() {
+    return require("./chat-projects");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatMemory() {
+    return require("./chat-memory");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatExport() {
+    return require("./chat-export");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatBranches() {
+    return require("./chat-branches");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatPlan() {
+    return require("./chat-plan");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatPdf() {
+    return require("./chat-pdf");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatPdfModal() {
+    return require("./chat-pdf-modal");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get aiToolReviewModal() {
+    return require("./ai-tool-review-modal");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatPricing() {
+    return require("./chat-pricing");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatMentions() {
+    return require("./chat-mentions");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatBookmarks() {
+    return require("./chat-bookmarks");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatModels() {
+    return require("./chat-models");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatCompact() {
+    return require("./chat-compact");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get diagnostics() {
+    return require("./diagnostics");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get localModels() {
+    return require("./local-models");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get readingCompanion() {
+    return require("./reading-companion");
+  },
   tutorPresets,
   aiContext,
   aiService,
@@ -136602,7 +137117,10 @@ QuestionTrackerPlugin.__test = {
   mindmap,
   pdfDeepLink,
   pdfBacklinks,
-  pdfPlus: require("./pdf-plus"),
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get pdfPlus() {
+    return require("./pdf-plus");
+  },
   pdfLatex,
   graph3d,
   graph3dPanel,
@@ -136638,8 +137156,14 @@ QuestionTrackerPlugin.__test = {
   noteReview,
   reviewCalendar,
   studyStats,
-  snapshotCache: require("./snapshot-cache"),
-  quizDedup: require("./quiz-dedup"),
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get snapshotCache() {
+    return require("./snapshot-cache");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get quizDedup() {
+    return require("./quiz-dedup");
+  },
   localEvents,
   noteReviewDock,
   sessionReport,
@@ -136751,7 +137275,10 @@ QuestionTrackerPlugin.__test = {
   apExamResources,
   pdfAnnotations,
   pdfInk,
-  pdfAnnotatorSidebar: require("./pdf-annotator-sidebar"),
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get pdfAnnotatorSidebar() {
+    return require("./pdf-annotator-sidebar");
+  },
   get pdfInkModal() { return require("./pdf-ink-modal"); },
   get pdfEditor() { return require("./pdf-editor"); },
   get pdfEditorModal() { return require("./pdf-editor-modal"); },
@@ -136800,7 +137327,10 @@ QuestionTrackerPlugin.__test = {
   TranscriptPracticeModal,
   resultsExport,
   support,
-  thinkFirst: require("./think-first"),
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get thinkFirst() {
+    return require("./think-first");
+  },
   AssignmentsView,
   AssignmentModal,
   renderAssignmentsSettings,
@@ -136808,7 +137338,10 @@ QuestionTrackerPlugin.__test = {
   cards,
   plainCards,
   cardsImport,
-  pdf: require("./pdf"),
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get pdf() {
+    return require("./pdf");
+  },
   ankiConnect,
   apkg,
   cardsExtract,
@@ -136831,8 +137364,14 @@ QuestionTrackerPlugin.__test = {
   studyTools,
   studyToolSettings,
   settingsGlobal,
-  settingsCategories: require("./settings-categories"),
-  pdfPlusSettings: require("./pdf-plus-settings"),
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get settingsCategories() {
+    return require("./settings-categories");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get pdfPlusSettings() {
+    return require("./pdf-plus-settings");
+  },
   readingLibrary,
   studyWorkspace,
   timeBlocks,
@@ -136850,8 +137389,14 @@ QuestionTrackerPlugin.__test = {
   glossary,
   wordnet,
   tableEditor,
-  tableControls: require("./table-controls-view"),
-  tableCsvModal: require("./table-csv-modal"),
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get tableControls() {
+    return require("./table-controls-view");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get tableCsvModal() {
+    return require("./table-csv-modal");
+  },
   writingSessions,
   voiceMemo,
   cornell,

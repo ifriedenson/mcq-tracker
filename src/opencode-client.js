@@ -1,6 +1,6 @@
 "use strict";
 const { requestUrl } = require("obsidian");
-const { str } = require("./util");
+const { sleep, str } = require("./util");
 const { safeApiBase } = require("./url-safety");
 const { extractRationale } = require("./notes");
 const { roleInstruction, commandReference } = require("./tutor-presets");
@@ -10,11 +10,21 @@ const { chunksFromStream, sseData } = require("./chat-stream");
 
 /** A health check must finish even when the server accepts the socket but never answers. */
 const HEALTH_TIMEOUT_MS = 4000;
+/** A small request (session, messages, abort) must answer too; 60s is a stuck server, not a slow one. */
+const REQUEST_TIMEOUT_MS = 60 * 1000;
+/** A blocking agent send may run long, but it may not go silent: this is the silence allowance. */
+const IDLE_TIMEOUT_MS = 6 * 60 * 1000;
+/** How often a blocking send asks the session whether anything new was written. */
+const IDLE_POLL_MS = 3000;
+
+function durationLabel(ms) {
+  return ms >= 1000 ? Math.round(ms / 1000) + "s" : ms + "ms";
+}
 
 function bounded(promise, ms, label) {
   let timer = null;
   const limit = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s.`)), ms);
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${durationLabel(ms)}.`)), ms);
   });
   return Promise.race([promise, limit]).finally(() => {
     if (timer) clearTimeout(timer);
@@ -150,8 +160,9 @@ function buildGeneralContext(app, mode, tutorRole, studyContext) {
 }
 
 class OpenCodeClient {
-  constructor(ai) {
+  constructor(ai, opts) {
     this.ai = ai;
+    this.timeoutMs = Number(opts && opts.timeoutMs) > 0 ? Number(opts.timeoutMs) : REQUEST_TIMEOUT_MS;
   }
   base() {
     return safeApiBase(str(this.ai.url).trim().replace(/\/+$/, "") || "http://127.0.0.1:4096");
@@ -164,8 +175,8 @@ class OpenCodeClient {
     }
     return h;
   }
-  async req(method, path, body) {
-    const r = await requestUrl({
+  async req(method, path, body, timeoutMs) {
+    const work = requestUrl({
       url: this.base() + path,
       method,
       headers: this.headers(),
@@ -173,6 +184,9 @@ class OpenCodeClient {
       body: body !== undefined ? JSON.stringify(body) : undefined,
       throw: false,
     });
+    // 0 means "the caller watches this request itself" (a blocking agent send).
+    const ms = Number(timeoutMs) > 0 ? Number(timeoutMs) : 0;
+    const r = ms ? await bounded(work, ms, `OpenCode ${method} ${path}`) : await work;
     if (r.status === 401) throw new Error("401 unauthorized");
     if (r.status >= 400) {
       const hint = r.status === 404 || r.status === 405 ? " This usually means the OpenCode version doesn't match the plugin (it works with OpenCode 1.x). In the plugin settings press Download and install, or switch AI backend to Direct API." : "";
@@ -186,29 +200,66 @@ class OpenCodeClient {
   }
   health(timeoutMs) {
     const ms = Number(timeoutMs) > 0 ? Number(timeoutMs) : HEALTH_TIMEOUT_MS;
-    return bounded(this.req("GET", "/global/health"), ms, "OpenCode health check");
+    return bounded(this.req("GET", "/global/health", undefined, 0), ms, "OpenCode health check");
   }
   agents() {
-    return this.req("GET", "/agent");
+    return this.req("GET", "/agent", undefined, this.timeoutMs);
   }
   providers(timeoutMs) {
-    const req = this.req("GET", "/config/providers");
+    const req = this.req("GET", "/config/providers", undefined, this.timeoutMs);
     const ms = Number(timeoutMs) > 0 ? Number(timeoutMs) : 0;
     return ms ? bounded(req, ms, "OpenCode providers check") : req;
   }
   createSession(title) {
-    return this.req("POST", "/session", { title });
+    return this.req("POST", "/session", { title }, this.timeoutMs);
   }
   messages(id) {
-    return this.req("GET", `/session/${encodeURIComponent(id)}/message`);
+    return this.req("GET", `/session/${encodeURIComponent(id)}/message`, undefined, this.timeoutMs);
   }
-  send(id, body) {
-    // blocks until the assistant has finished (including any tool use)
-    return this.req("POST", `/session/${encodeURIComponent(id)}/message`, body);
+  /**
+   * Send a message and wait for the agent to finish (including any tool use).
+   * A run that keeps writing to the session may take as long as it needs; one
+   * that writes nothing new for `idleMs` is treated as stuck, so the chat or
+   * import spinner cannot run forever. `idleMs` is for tests.
+   */
+  async send(id, body, opts) {
+    const o = opts || {};
+    const idleMs = Number(o.idleMs) > 0 ? Number(o.idleMs) : IDLE_TIMEOUT_MS;
+    const work = this.req("POST", `/session/${encodeURIComponent(id)}/message`, body, 0);
+    let settled = null;
+    work.then(
+      (value) => {
+        settled = { value };
+      },
+      (error) => {
+        settled = { error };
+      }
+    );
+    let signature = null;
+    let lastActivity = Date.now();
+    const pollMs = Math.max(20, Math.min(IDLE_POLL_MS, Math.floor(idleMs / 4)));
+    while (!settled) {
+      await sleep(pollMs);
+      if (settled) break;
+      try {
+        const next = JSON.stringify((await this.messages(id)) || null);
+        if (signature !== null && next !== signature) lastActivity = Date.now();
+        signature = next;
+      } catch (e) {
+        /* a failed progress read is not progress; the silence allowance decides */
+      }
+      if (Date.now() - lastActivity >= idleMs) {
+        throw new Error(
+          `OpenCode accepted the request but wrote nothing new for ${durationLabel(idleMs)}. Check that OpenCode is still running and a provider is connected, then try again.`
+        );
+      }
+    }
+    if (settled.error) throw settled.error;
+    return settled.value;
   }
   /** Queue a prompt without waiting for the agent; poll messages/status for completion. */
   promptAsync(id, body) {
-    return this.req("POST", `/session/${encodeURIComponent(id)}/prompt_async`, body);
+    return this.req("POST", `/session/${encodeURIComponent(id)}/prompt_async`, body, this.timeoutMs);
   }
   /**
    * Send a message and report text deltas from the server's SSE event stream
@@ -262,12 +313,14 @@ class OpenCodeClient {
     return text;
   }
   abort(id) {
-    return this.req("POST", `/session/${encodeURIComponent(id)}/abort`, {});
+    return this.req("POST", `/session/${encodeURIComponent(id)}/abort`, {}, this.timeoutMs);
   }
 }
 
 module.exports = {
   HEALTH_TIMEOUT_MS,
+  REQUEST_TIMEOUT_MS,
+  IDLE_TIMEOUT_MS,
   modelFromString,
   friendlyError,
   partsToTurns,

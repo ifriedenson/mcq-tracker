@@ -6,7 +6,7 @@
  */
 const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_TABLE_CONTROLS } = require("./constants");
-const { str } = require("./util");
+const { errorDetail, str } = require("./util");
 
 /** Button groups, in the upstream order (Align, Move, Edit, Sort, More). */
 const TABLE_CONTROL_GROUPS = [
@@ -110,7 +110,7 @@ class TableControlsView extends ItemView {
             try {
               pending = this.plugin.runTableAction(id);
             } catch (error) {
-              new Notice(str(error && error.message ? error.message : error) || "The table action failed.");
+              new Notice(`The table action failed: ${errorDetail(error)}. Nothing was changed; try again.`, 9000);
               return;
             }
             Promise.resolve(pending)
@@ -118,7 +118,7 @@ class TableControlsView extends ItemView {
                 if (value && value.ok === false && value.message) new Notice(value.message);
                 this.draw();
               })
-              .catch((error) => new Notice(str(error && error.message ? error.message : error) || "The table action failed."));
+              .catch((error) => new Notice(`The table action failed: ${errorDetail(error)}. Nothing was changed; try again.`, 9000));
           });
         }
       }

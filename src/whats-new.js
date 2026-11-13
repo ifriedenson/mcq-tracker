@@ -8,6 +8,31 @@ const RELEASES = [
   {
     version: "1.301.16",
     date: "November 13, 2026",
+    title: "Failure messages name what to do next",
+    summary:
+      "Every local save, import, restore and settings write that fails now says what it was doing and what to check, instead of showing a raw error. Nothing about requests, formats or schedules changed.",
+    highlights: [
+      {
+        title: "The operation and the next step",
+        body: "A failed save, import, restore or sync names the operation (the simple-quiz result, the provider key, the schedule, the card review) and says what to check before trying again.",
+      },
+      {
+        title: "No more raw errors",
+        body: "Technical details such as permission denials are kept as the reason inside a plain sentence, so the message stays readable and the detail is not lost.",
+      },
+      {
+        title: "Nothing else moved",
+        body: "No note format, setting key, review schedule or network behaviour changed; timed-test restores still explain themselves instead of silently resetting.",
+      },
+      {
+        title: "Guarded going forward",
+        body: "An automated check now fails if any future message ever shows a raw error again, so this cleanup cannot quietly regress.",
+      },
+    ],
+  },
+  {
+    version: "1.301.16",
+    date: "November 13, 2026",
     title: "Answer checks wait, and OpenCode recovers after sleep",
     summary:
       "Blind answer checks no longer have a time limit, so a slow model can take as long as it needs and the note still gets verified. The managed OpenCode server is also pinged before each use, and a server left half-dead by the computer sleeping is restarted instead of stalling the next file.",

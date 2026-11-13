@@ -7,7 +7,7 @@
  * separate aiScores/aiFeedback pair. No network code lives here: the plugin's
  * existing bring-your-own-key AI path performs the request.
  */
-const { str } = require("./util");
+const { str, AI_REPLY_CUT_OFF_HINT } = require("./util");
 
 const FEYNMAN_AI_DIMENSIONS = ["clarity", "accuracy", "simplicity"];
 const MAX_ANSWER = 4000;
@@ -87,12 +87,12 @@ function parseFeynmanScoreReply(reply) {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start < 0) throw new Error("The AI feedback did not return JSON.");
-  if (end <= start) throw new Error("The AI feedback returned malformed JSON.");
+  if (end <= start) throw new Error("The AI feedback returned malformed JSON, or the reply was cut off before it finished." + AI_REPLY_CUT_OFF_HINT);
   let data;
   try {
     data = JSON.parse(text.slice(start, end + 1));
   } catch (e) {
-    throw new Error("The AI feedback returned malformed JSON.");
+    throw new Error("The AI feedback returned malformed JSON, or the reply was cut off before it finished." + AI_REPLY_CUT_OFF_HINT);
   }
   const scores = {};
   for (const key of FEYNMAN_AI_DIMENSIONS) {

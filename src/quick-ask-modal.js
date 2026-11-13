@@ -6,7 +6,7 @@ const { QtModal } = require("./a11y");
  * plugin's existing chat provider, request limits and note-context guards.
  */
 const { Modal, Notice } = require("obsidian");
-const { str } = require("./util");
+const { errorDetail, str } = require("./util");
 const { renderMarkdownInto } = require("./view-helpers");
 const { buildGeneralContext } = require("./opencode-client");
 const {
@@ -264,7 +264,7 @@ class QuickAskModal extends QtModal {
       const result = await insertReplyIntoNote(this.app, this.answer);
       if (this.status) this.status.setText(result.mode === "append" ? "Added the answer to the end of the note." : "Inserted the answer.");
     } catch (e) {
-      new Notice(str(e && e.message ? e.message : e) || "Could not insert the answer.", 8000);
+      new Notice(`Could not insert the answer: ${errorDetail(e)}. The note was not changed; copy the answer and add it yourself.`, 9000);
     }
   }
 
