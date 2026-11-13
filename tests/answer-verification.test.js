@@ -88,6 +88,35 @@ test("answer verification: a slow provider is waited on until it answers", async
   assert.equal(item.verification.drop, false);
 });
 
+test("answer verification: a long batch reports its position and stops when asked", async () => {
+  const plugin = new QT(makeApp([]));
+  await plugin.onload();
+  plugin.settings.ai.enabled = true;
+  let calls = 0;
+  plugin.aiComplete = async () => {
+    calls++;
+    return '{"answer":"B"}';
+  };
+  const items = [
+    { question: "One?", choices: ["a", "b", "c", "d"], answer: "B" },
+    { question: "Two?", choices: ["a", "b", "c", "d"], answer: "B" },
+    { question: "Three?", choices: ["a", "b", "c", "d"], answer: "B" },
+  ];
+  const seen = [];
+  let stopping = false;
+  const summary = await plugin.verifyDraftQuestions(items, {
+    onProgress: (n, total) => {
+      seen.push(`${n}/${total}`);
+      if (n === 2) stopping = true;
+    },
+    shouldStop: () => stopping,
+  });
+  assert.deepEqual(seen, ["1/3", "2/3"]);
+  assert.equal(calls, 2, "the check after the stop is never sent");
+  assert.equal(summary.checked, 2);
+  assert.equal(items[2].verification, undefined, "the unchecked note is left unverified, not marked");
+});
+
 test("plugin: a matching blind answer verifies the note and a mismatch flags it", async () => {
   const app = makeApp([
     {

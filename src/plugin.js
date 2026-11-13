@@ -1566,16 +1566,23 @@ class QuestionTrackerPlugin extends Plugin {
     return new Promise((resolve) => new ConfirmModal(this.app, title, body, okText, resolve).open());
   }
 
+  /**
+   * Make sure the managed server is up before an AI request. Every request
+   * comes through here, so a server that is already running and answering
+   * must not flash a "Setting up OpenCode..." notice; the notice appears only
+   * when there is real work to report (a start, a repair or a restart).
+   */
   async ensureOpenCode(progress) {
-    const note = new Notice("Setting up OpenCode...", 0);
+    let note = this.manager.isRunning() ? null : new Notice("Setting up OpenCode...", 0);
     const say = (m) => {
-      note.setMessage(m);
+      if (note) note.setMessage(m);
+      else note = new Notice(m, 0);
       if (progress) progress(m);
     };
     try {
       await this.manager.ensure(say);
     } finally {
-      note.hide();
+      if (note) note.hide();
     }
   }
 
@@ -6153,16 +6160,27 @@ class QuestionTrackerPlugin extends Plugin {
    * Runs the blind check over generated or imported drafts. A mismatch is
    * marked for review, or dropped when the user chose that setting.
    */
-  async verifyDraftQuestions(items) {
+  async verifyDraftQuestions(items, opts) {
     const list = Array.isArray(items) ? items : [];
+    // A batch can wait a long time now that a check has no time limit, so the
+    // caller may want to show its position and may stop the run between notes
+    // (an import window that was closed or stopped must not keep paying for
+    // checks whose results nobody will see).
+    const o = opts || {};
+    const onProgress = typeof o.onProgress === "function" ? o.onProgress : null;
+    const shouldStop = typeof o.shouldStop === "function" ? o.shouldStop : null;
     const mode = normalizeVerificationMode(this.settings.ai.verification);
     const model = this.aiModelLabel("verification");
     const date = localDate();
     let checked = 0;
     let dropped = 0;
     let failed = 0;
+    let position = 0;
     for (const item of list) {
+      if (shouldStop && shouldStop()) break;
       if (!item || typeof item !== "object") continue;
+      position++;
+      if (onProgress) onProgress(position, list.length);
       const answerText = str(item.answer).trim();
       const quality = checkDistractorQuality(item);
       if (!quality.ok) {

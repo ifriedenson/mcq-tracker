@@ -51204,7 +51204,9 @@ class PdfImportModal extends QtModal {
       if (preKey && !preFromDocument && parsed.sec.choices.length && typeof this.plugin.verifyDraftQuestions === "function") {
         const draft = { question: parsed.sec.question, choices: parsed.sec.choices, answer: preKey };
         this.status(`Checking answer ${i + 1} of ${files.length}: ${base}...`);
-        await this.awaitCancellable(this.plugin.verifyDraftQuestions([draft]));
+        await this.awaitCancellable(
+          this.plugin.verifyDraftQuestions([draft], { shouldStop: () => this.stop || this.closed })
+        );
         verification = draft.verification;
         if (verification && verification.drop) {
           if (f instanceof TFile) await this.app.vault.delete(f);
@@ -51446,9 +51448,14 @@ class PdfImportModal extends QtModal {
       return f.aiAnswer && q.sec.choices.length > 0;
     });
     if (!candidates.length) return;
-    this.status(`Checking ${candidates.length} AI-written answer${candidates.length === 1 ? "" : "s"} without showing the key...`);
     const drafts = candidates.map((q) => ({ question: q.sec.question, choices: q.sec.choices, answer: str(q.fm.answer) }));
-    await this.plugin.verifyDraftQuestions(drafts);
+    // The check has no time limit, so keep one line counting: a slow provider
+    // must not leave a frozen sentence on screen, and closing the window stops
+    // paying for checks whose results are no longer shown.
+    await this.plugin.verifyDraftQuestions(drafts, {
+      onProgress: (n, total) => this.status(`Checking answer ${n} of ${total} without showing the key...`),
+      shouldStop: () => this.stop || this.closed,
+    });
     candidates.forEach((q, i) => {
       q.verification = drafts[i].verification;
       if (q.verification && q.verification.drop) q.include = false;
@@ -60837,6 +60844,10 @@ function permissionConfigContent(vaultPath) {
  */
 const ENSURE_PING_TIMEOUT_MS = 10 * 1000;
 
+/** Shown when a Start was already in flight and the user pressed Stop. */
+const STOPPED_EARLY_MESSAGE =
+  "OpenCode was stopped before it finished starting. Start it again from Settings > Study agent > AI when you are ready.";
+
 /** 2 from "2.2.0" or "v2.2.0"; 0 when the text has no version number. */
 function opencodeMajor(v) {
   const m = /(\d+)\.\d+/.exec(str(v));
@@ -61095,6 +61106,9 @@ class OpenCodeManager {
     this.tail = "";
     this.starting = null;
     this.root = null;
+    // Bumped by stop() only: a check that is already in flight uses it to
+    // notice that the user stopped the server and must not start another.
+    this.stopMark = 0;
   }
 
   get ai() {
@@ -61344,7 +61358,7 @@ class OpenCodeManager {
       err.cancelled = true;
       throw err;
     }
-    this.stop();
+    this.terminate();
     let lastErr;
     for (const asset of plan.assets) {
       try {
@@ -61550,7 +61564,7 @@ class OpenCodeManager {
           // A server that is listening but never answers providers is usually
           // stuck on OpenCode's own database after a previous process was killed.
           // Preserve the old database and start once with a fresh one.
-          this.stop();
+          this.terminate();
           await pause(1000);
           if (this.quarantineDb()) {
             progress("Repairing OpenCode's database...");
@@ -61567,7 +61581,7 @@ class OpenCodeManager {
         await pause(500);
       }
     }
-    this.stop();
+    this.terminate();
     if (timedOut) {
       throw new Error(
         "OpenCode started, but its readiness check timed out. Press Test OpenCode again; if it keeps happening, reinstall OpenCode or switch AI backend to Direct API."
@@ -61576,7 +61590,14 @@ class OpenCodeManager {
     throw new Error(`OpenCode didn't become ready within 90 seconds. ${this.tail.trim().slice(-300)}`);
   }
 
+  /** Stop the managed server because the user (or plugin unload) asked. */
   stop() {
+    this.stopMark = (this.stopMark || 0) + 1;
+    this.terminate();
+  }
+
+  /** Kill the process as part of the manager's own work, not a user stop. */
+  terminate() {
     const p = this.proc;
     this.proc = null;
     this.conn = null;
@@ -61613,6 +61634,9 @@ class OpenCodeManager {
     const h = hooks || {};
     this.starting = (async () => {
       const say = typeof progress === "function" ? progress : () => {};
+      // A Stop press (Settings, or the plugin unloading) while this check is in
+      // flight must win: never start a server for someone who just stopped it.
+      const stopped = this.stopMark || 0;
       if (this.isRunning()) {
         // The process can outlive its server: after the computer sleeps with
         // the screen off, the process handle still looks alive while nothing
@@ -61620,12 +61644,16 @@ class OpenCodeManager {
         // file or chat a dead server it would wait on forever.
         const client = h.client ? h.client(this.conn) : new OpenCodeClient(this.conn);
         if (await this.answering(client)) return;
+        // Say something before the second try: this is the one moment where
+        // the check can look frozen for ten seconds with nothing on screen.
+        say("OpenCode is running but didn't answer a quick check. Asking once more...");
         await sleep(1500);
         if (await this.answering(client)) return;
         say("OpenCode was still running but stopped answering, so restarting it fresh...");
-        this.stop();
+        this.terminate();
         await sleep(1000);
       }
+      if ((this.stopMark || 0) !== stopped) throw new Error(STOPPED_EARLY_MESSAGE);
       if (!Platform.isDesktopApp) throw new Error("OpenCode auto-setup needs the desktop app (it isn't available on mobile yet).");
       if (!(await this.findBinary())) {
         if (this.tooNew) throw new Error(this.tooNewMessage());
@@ -61636,6 +61664,7 @@ class OpenCodeManager {
           throw new Error("OpenCode isn't set up yet. Open Settings > Study agent > AI and the assistant and press Download and install, or choose a copy you already have.");
         }
       }
+      if ((this.stopMark || 0) !== stopped) throw new Error(STOPPED_EARLY_MESSAGE);
       await this.start(progress, undefined, h.client ? hooks : undefined);
     })().finally(() => {
       this.starting = null;
@@ -73402,16 +73431,23 @@ class QuestionTrackerPlugin extends Plugin {
     return new Promise((resolve) => new ConfirmModal(this.app, title, body, okText, resolve).open());
   }
 
+  /**
+   * Make sure the managed server is up before an AI request. Every request
+   * comes through here, so a server that is already running and answering
+   * must not flash a "Setting up OpenCode..." notice; the notice appears only
+   * when there is real work to report (a start, a repair or a restart).
+   */
   async ensureOpenCode(progress) {
-    const note = new Notice("Setting up OpenCode...", 0);
+    let note = this.manager.isRunning() ? null : new Notice("Setting up OpenCode...", 0);
     const say = (m) => {
-      note.setMessage(m);
+      if (note) note.setMessage(m);
+      else note = new Notice(m, 0);
       if (progress) progress(m);
     };
     try {
       await this.manager.ensure(say);
     } finally {
-      note.hide();
+      if (note) note.hide();
     }
   }
 
@@ -77989,16 +78025,27 @@ class QuestionTrackerPlugin extends Plugin {
    * Runs the blind check over generated or imported drafts. A mismatch is
    * marked for review, or dropped when the user chose that setting.
    */
-  async verifyDraftQuestions(items) {
+  async verifyDraftQuestions(items, opts) {
     const list = Array.isArray(items) ? items : [];
+    // A batch can wait a long time now that a check has no time limit, so the
+    // caller may want to show its position and may stop the run between notes
+    // (an import window that was closed or stopped must not keep paying for
+    // checks whose results nobody will see).
+    const o = opts || {};
+    const onProgress = typeof o.onProgress === "function" ? o.onProgress : null;
+    const shouldStop = typeof o.shouldStop === "function" ? o.shouldStop : null;
     const mode = normalizeVerificationMode(this.settings.ai.verification);
     const model = this.aiModelLabel("verification");
     const date = localDate();
     let checked = 0;
     let dropped = 0;
     let failed = 0;
+    let position = 0;
     for (const item of list) {
+      if (shouldStop && shouldStop()) break;
       if (!item || typeof item !== "object") continue;
+      position++;
+      if (onProgress) onProgress(position, list.length);
       const answerText = str(item.answer).trim();
       const quality = checkDistractorQuality(item);
       if (!quality.ok) {
@@ -135035,6 +135082,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.301.17",
+    date: "November 13, 2026",
+    title: "A stopped OpenCode stays stopped, and long checks keep counting",
+    summary:
+      "The quiet checks that keep OpenCode and the blind answer checks healthy now say what they are doing and can always be stopped. No note format, review schedule or network default changed.",
+    highlights: [
+      {
+        title: "Stop really stops",
+        body: "Pressing Stop, or closing Obsidian, while the plugin is checking a silent OpenCode server no longer starts a fresh one behind your back; the check ends and says how to start it again.",
+      },
+      {
+        title: "A second try is announced",
+        body: "When OpenCode is running but misses the first quick check, the window says it is asking once more instead of looking frozen for ten seconds.",
+      },
+      {
+        title: "No setup notice on every request",
+        body: "The \"Setting up OpenCode...\" notice now appears only when a start, repair or restart is really happening, not on every request through a server that is already running.",
+      },
+      {
+        title: "Long answer checks keep counting",
+        body: "The import window names the answer being checked (answer 2 of 5) for AI-written answers too, and stopping or closing it ends the remaining paid checks instead of running them unseen.",
+      },
+    ],
+  },
   {
     version: "1.301.16",
     date: "November 13, 2026",

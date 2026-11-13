@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.17",
+    date: "November 13, 2026",
+    title: "A stopped OpenCode stays stopped, and long checks keep counting",
+    summary:
+      "The quiet checks that keep OpenCode and the blind answer checks healthy now say what they are doing and can always be stopped. No note format, review schedule or network default changed.",
+    highlights: [
+      {
+        title: "Stop really stops",
+        body: "Pressing Stop, or closing Obsidian, while the plugin is checking a silent OpenCode server no longer starts a fresh one behind your back; the check ends and says how to start it again.",
+      },
+      {
+        title: "A second try is announced",
+        body: "When OpenCode is running but misses the first quick check, the window says it is asking once more instead of looking frozen for ten seconds.",
+      },
+      {
+        title: "No setup notice on every request",
+        body: "The \"Setting up OpenCode...\" notice now appears only when a start, repair or restart is really happening, not on every request through a server that is already running.",
+      },
+      {
+        title: "Long answer checks keep counting",
+        body: "The import window names the answer being checked (answer 2 of 5) for AI-written answers too, and stopping or closing it ends the remaining paid checks instead of running them unseen.",
+      },
+    ],
+  },
+  {
     version: "1.301.16",
     date: "November 13, 2026",
     title: "Failure messages name what to do next",

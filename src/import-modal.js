@@ -1597,7 +1597,9 @@ class PdfImportModal extends QtModal {
       if (preKey && !preFromDocument && parsed.sec.choices.length && typeof this.plugin.verifyDraftQuestions === "function") {
         const draft = { question: parsed.sec.question, choices: parsed.sec.choices, answer: preKey };
         this.status(`Checking answer ${i + 1} of ${files.length}: ${base}...`);
-        await this.awaitCancellable(this.plugin.verifyDraftQuestions([draft]));
+        await this.awaitCancellable(
+          this.plugin.verifyDraftQuestions([draft], { shouldStop: () => this.stop || this.closed })
+        );
         verification = draft.verification;
         if (verification && verification.drop) {
           if (f instanceof TFile) await this.app.vault.delete(f);
@@ -1839,9 +1841,14 @@ class PdfImportModal extends QtModal {
       return f.aiAnswer && q.sec.choices.length > 0;
     });
     if (!candidates.length) return;
-    this.status(`Checking ${candidates.length} AI-written answer${candidates.length === 1 ? "" : "s"} without showing the key...`);
     const drafts = candidates.map((q) => ({ question: q.sec.question, choices: q.sec.choices, answer: str(q.fm.answer) }));
-    await this.plugin.verifyDraftQuestions(drafts);
+    // The check has no time limit, so keep one line counting: a slow provider
+    // must not leave a frozen sentence on screen, and closing the window stops
+    // paying for checks whose results are no longer shown.
+    await this.plugin.verifyDraftQuestions(drafts, {
+      onProgress: (n, total) => this.status(`Checking answer ${n} of ${total} without showing the key...`),
+      shouldStop: () => this.stop || this.closed,
+    });
     candidates.forEach((q, i) => {
       q.verification = drafts[i].verification;
       if (q.verification && q.verification.drop) q.include = false;

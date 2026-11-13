@@ -63,6 +63,10 @@ function permissionConfigContent(vaultPath) {
  */
 const ENSURE_PING_TIMEOUT_MS = 10 * 1000;
 
+/** Shown when a Start was already in flight and the user pressed Stop. */
+const STOPPED_EARLY_MESSAGE =
+  "OpenCode was stopped before it finished starting. Start it again from Settings > Study agent > AI when you are ready.";
+
 /** 2 from "2.2.0" or "v2.2.0"; 0 when the text has no version number. */
 function opencodeMajor(v) {
   const m = /(\d+)\.\d+/.exec(str(v));
@@ -321,6 +325,9 @@ class OpenCodeManager {
     this.tail = "";
     this.starting = null;
     this.root = null;
+    // Bumped by stop() only: a check that is already in flight uses it to
+    // notice that the user stopped the server and must not start another.
+    this.stopMark = 0;
   }
 
   get ai() {
@@ -570,7 +577,7 @@ class OpenCodeManager {
       err.cancelled = true;
       throw err;
     }
-    this.stop();
+    this.terminate();
     let lastErr;
     for (const asset of plan.assets) {
       try {
@@ -776,7 +783,7 @@ class OpenCodeManager {
           // A server that is listening but never answers providers is usually
           // stuck on OpenCode's own database after a previous process was killed.
           // Preserve the old database and start once with a fresh one.
-          this.stop();
+          this.terminate();
           await pause(1000);
           if (this.quarantineDb()) {
             progress("Repairing OpenCode's database...");
@@ -793,7 +800,7 @@ class OpenCodeManager {
         await pause(500);
       }
     }
-    this.stop();
+    this.terminate();
     if (timedOut) {
       throw new Error(
         "OpenCode started, but its readiness check timed out. Press Test OpenCode again; if it keeps happening, reinstall OpenCode or switch AI backend to Direct API."
@@ -802,7 +809,14 @@ class OpenCodeManager {
     throw new Error(`OpenCode didn't become ready within 90 seconds. ${this.tail.trim().slice(-300)}`);
   }
 
+  /** Stop the managed server because the user (or plugin unload) asked. */
   stop() {
+    this.stopMark = (this.stopMark || 0) + 1;
+    this.terminate();
+  }
+
+  /** Kill the process as part of the manager's own work, not a user stop. */
+  terminate() {
     const p = this.proc;
     this.proc = null;
     this.conn = null;
@@ -839,6 +853,9 @@ class OpenCodeManager {
     const h = hooks || {};
     this.starting = (async () => {
       const say = typeof progress === "function" ? progress : () => {};
+      // A Stop press (Settings, or the plugin unloading) while this check is in
+      // flight must win: never start a server for someone who just stopped it.
+      const stopped = this.stopMark || 0;
       if (this.isRunning()) {
         // The process can outlive its server: after the computer sleeps with
         // the screen off, the process handle still looks alive while nothing
@@ -846,12 +863,16 @@ class OpenCodeManager {
         // file or chat a dead server it would wait on forever.
         const client = h.client ? h.client(this.conn) : new OpenCodeClient(this.conn);
         if (await this.answering(client)) return;
+        // Say something before the second try: this is the one moment where
+        // the check can look frozen for ten seconds with nothing on screen.
+        say("OpenCode is running but didn't answer a quick check. Asking once more...");
         await sleep(1500);
         if (await this.answering(client)) return;
         say("OpenCode was still running but stopped answering, so restarting it fresh...");
-        this.stop();
+        this.terminate();
         await sleep(1000);
       }
+      if ((this.stopMark || 0) !== stopped) throw new Error(STOPPED_EARLY_MESSAGE);
       if (!Platform.isDesktopApp) throw new Error("OpenCode auto-setup needs the desktop app (it isn't available on mobile yet).");
       if (!(await this.findBinary())) {
         if (this.tooNew) throw new Error(this.tooNewMessage());
@@ -862,6 +883,7 @@ class OpenCodeManager {
           throw new Error("OpenCode isn't set up yet. Open Settings > Study agent > AI and the assistant and press Download and install, or choose a copy you already have.");
         }
       }
+      if ((this.stopMark || 0) !== stopped) throw new Error(STOPPED_EARLY_MESSAGE);
       await this.start(progress, undefined, h.client ? hooks : undefined);
     })().finally(() => {
       this.starting = null;

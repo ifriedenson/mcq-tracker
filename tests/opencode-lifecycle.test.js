@@ -13,7 +13,7 @@ const http = require("node:http");
 const crypto = require("node:crypto");
 const { load, obsidian } = require("./helpers/load");
 
-const { T } = load();
+const { T, Plugin } = load();
 const { zipStore } = T.zipWrite;
 const EXE_NAME = process.platform === "win32" ? "opencode.exe" : "opencode";
 
@@ -212,8 +212,57 @@ test("ensure() restarts a server whose process survived but which stopped answer
   assert.notEqual(mgr.proc, first, "the dead server is replaced, not handed to the next file");
   assert.equal(mgr.isRunning(), true, "the fresh server is running");
   assert.deepEqual((await new T.OpenCodeClient(mgr.conn).providers(1000)).providers, [{ id: "anthropic" }]);
+  assert.ok(said.some((m) => /didn't answer a quick check/i.test(m)), "the second try is announced instead of a silent wait");
   assert.ok(said.some((m) => /restarting it fresh/i.test(m)), "the restart says what it is doing");
   mgr.stop();
+});
+
+test("ensure() does not start a server after the user stopped it while it was checking", async (t) => {
+  const { installRoot, mgr } = lifecycle(t);
+  const folder = path.join(installRoot, "v1.19.5-opencode-windows-x64");
+  writeExecutable(folder, "1.19.5");
+  mgr.ai.managedBinary = folder;
+  withHttp(t);
+
+  await mgr.ensure();
+  assert.equal(mgr.isRunning(), true);
+  // The connection points at a closed port, so the check can only fail.
+  mgr.conn = { url: "http://127.0.0.1:1", username: mgr.conn.username, password: mgr.conn.password };
+  const checking = mgr.ensure();
+  mgr.stop(); // Stop in Settings while the check is still in flight
+
+  await assert.rejects(checking, /stopped before it finished starting/);
+  assert.equal(mgr.isRunning(), false, "nothing restarts behind the user's back");
+  assert.equal(mgr.proc, null);
+});
+
+test("a server that is already answering is checked without a setup notice", async () => {
+  const running = Object.create(Plugin.prototype);
+  running.manager = { isRunning: () => true, ensure: async () => {} };
+  const before = obsidian.notices.length;
+  await running.ensureOpenCode(() => {});
+  assert.equal(obsidian.notices.length, before, "no notice flashes on every AI request");
+
+  const starting = Object.create(Plugin.prototype);
+  starting.manager = { isRunning: () => false, ensure: async (say) => say("Starting OpenCode...") };
+  await starting.ensureOpenCode(() => {});
+  const note = obsidian.noticeObjects[obsidian.noticeObjects.length - 1];
+  assert.equal(note.message, "Starting OpenCode...", "a real start keeps reporting itself");
+  assert.equal(note.hidden, true, "the notice is hidden when the start ends");
+
+  const restarting = Object.create(Plugin.prototype);
+  const lines = [];
+  restarting.manager = {
+    isRunning: () => true,
+    ensure: async (say) => {
+      say("OpenCode was still running but stopped answering, so restarting it fresh...");
+      lines.push("done");
+    },
+  };
+  const seen = [];
+  await restarting.ensureOpenCode((m) => seen.push(m));
+  assert.deepEqual(seen, ["OpenCode was still running but stopped answering, so restarting it fresh..."]);
+  assert.deepEqual(lines, ["done"]);
 });
 
 test("a managed folder missing the executable repairs through a real download and starts", async (t) => {
