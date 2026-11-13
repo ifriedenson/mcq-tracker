@@ -2,7 +2,7 @@
 const { parseYaml, stringifyYaml } = require("obsidian");
 const { sleep, str } = require("./util");
 const { TRACKING_DEFAULTS } = require("./constants");
-const { HEAD_ALIASES, extractRationale, fillDefaults, parseSections } = require("./notes");
+const { HEAD_ALIASES, extractRationale, fillDefaults, findAnswerKey, parseSections } = require("./notes");
 const { chunkText } = require("./pdf");
 const { officialIdOf } = require("./filters");
 const { normalizePage, sourceLink } = require("./provenance");
@@ -17,9 +17,17 @@ const { formatChoiceSet, normalizeTrueFalse, parseChoiceSet } = require("./answe
 async function noteIssues(text, exists) {
   const { fm, body, sec } = parseNote(text);
   const out = [];
-  const ans = str(fm.answer).trim();
-  if (!ans) out.push("No answer");
-  if (!sec.choices.length && (!ans || /^[A-Ha-h]$/.test(ans))) out.push("No answer choices");
+  // Read the key the same way practice does: a property first, then the
+  // "## Answer" section. An agent sometimes writes only the section, and
+  // calling that note unanswered made a finished import look broken.
+  const ans = findAnswerKey(fm, sec);
+  // A free-response note has no single key: its "## Answer" section holds a
+  // model response, and marking that as unanswered was wrong.
+  const modelAnswer = str(sec.answer).replace(/^\s*>\s?\[!answer\][^\n]*/im, "").replace(/^\s*>\s?/gm, "").trim();
+  if (!ans && !modelAnswer) out.push("No answer");
+  // Only a letter key without its choices is a real defect; a free-response
+  // note is meant to have none.
+  if (!sec.choices.length && /^[A-Ha-h]$/.test(str(ans).trim())) out.push("No answer choices");
   let missing = /\[Figure not captured\]/i.test(body);
   for (const path of figureEmbeds(body)) {
     if (!(await exists(path))) missing = true;
@@ -48,7 +56,8 @@ function cacheIssues(fm, headings) {
   const answered = !!prop || has(HEAD_ALIASES.answer);
   if (!answered) out.push("No answer");
   const hasChoices = Number(fm.choices) > 0 || has(HEAD_ALIASES.choices);
-  if (!hasChoices && (!answered || /^[A-Ha-h]$/.test(prop))) out.push("No answer choices");
+  // Same rule as noteIssues: only a letter key without its choices is a defect.
+  if (!hasChoices && /^[A-Ha-h]$/.test(prop)) out.push("No answer choices");
   return out;
 }
 
@@ -378,13 +387,32 @@ function finalizeNote(text, meta, qid, stamp) {
   fm.question_type = type;
   if (type !== "spr") fm.choices = sec.choices.length;
   let ans = str(src.answer).trim();
+  // The agent can put the key only under "## Answer" ("**Correct Answer: B**").
+  // Practice already reads it there, so promote it to the property the rest of
+  // the plugin, the import audit and the blind check read.
+  if (!ans) ans = findAnswerKey({}, sec);
   if (type === "multi") {
     ans = formatChoiceSet(parseChoiceSet(ans));
   } else if (type === "tf") {
-    ans = normalizeTrueFalse(ans, sec.choices);
+    ans = normalizeTrueFalse(ans, sec.choices) || ans;
   } else if (type === "mcq") {
-    const m = ans.match(/^\(?([A-Ha-h])(?![A-Za-z])/);
-    ans = m ? m[1].toUpperCase() : "";
+    // The key can be a letter, "Choice B", or the whole text of one choice.
+    let key = ans;
+    if (!key) {
+      const line = str(sec.answer).match(/(?:correct\s+)?answers?\s*(?:is|:|=|-|–|—)\s*([^\n]+)/i);
+      key = line ? line[1].replace(/[*_`]/g, "").trim() : "";
+    }
+    // "B", "(B)", "B. text" and "B) text" are all the letter B.
+    const m = key.match(/^\(?([A-Ha-h])(?![A-Za-z])/);
+    const word = key.match(/^(?:choice|option|answer)\s*\(?([A-Ha-h])\)?\b/i);
+    const text = key.replace(/^[*_`\s]+|[*_`\s.]+$/g, "").toLowerCase();
+    const idx = text ? sec.choices.findIndex((c) => str(c.text).trim().toLowerCase() === text) : -1;
+    if (m) ans = m[1].toUpperCase();
+    else if (word) ans = word[1].toUpperCase();
+    else if (idx >= 0) ans = str(sec.choices[idx].letter || "ABCDEFGH"[idx]).toUpperCase();
+    // Never throw away an answer the document or the agent did give; a value
+    // that is not a plain letter is kept and self-graded instead.
+    else ans = key.slice(0, 200);
   }
   if (ans) fm.answer = ans;
   const f = aiFlags({ ...src, answer: ans }, sec);

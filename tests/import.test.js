@@ -144,7 +144,11 @@ test("noteIssues flags a missing answer, missing choices and a missing figure", 
   const good = NOTE("");
   assert.deepEqual(await T.noteIssues(good, exists), []);
 
-  const noAnswer = good.replace("answer: D\n", "");
+  // The key in the "## Answer" section counts: practice reads it there. Only a
+  // note with neither the property nor anything in that section is unanswered.
+  const sectionOnly = good.replace("answer: D\n", "");
+  assert.deepEqual(await T.noteIssues(sectionOnly, exists), []);
+  const noAnswer = good.replace("answer: D\n", "").replace(/> \[!answer\][\s\S]*?(?=## My Notes)/, "");
   assert.ok((await T.noteIssues(noAnswer, exists)).includes("No answer"));
 
   const noChoices = good.replace(/## Answer Choices[\s\S]*?(?=## Answer\n)/, "");
@@ -175,4 +179,69 @@ test("the saved import report lists each problem with links", () => {
   assert.match(md, /## Missing figure \(1\)/);
   assert.match(md, /Same question ID as another note \(1\)/);
   assert.match(T.buildReportMarkdown("F", [], [], "d"), /Nothing needs a look/);
+});
+
+test("an answer written only in the ## Answer section becomes the answer property", () => {
+  // What the agent actually wrote for the AP World PDFs: the key is in the
+  // reveal callout, but there is no answer: line in the properties.
+  const text = NOTE("x_unused: 1").replace(/answer: D\n/, "");
+  const out = T.finalizeNote(text, {}, "PREFIX-Q01", STAMP);
+  const { fm } = T.parseNote(out);
+  assert.equal(fm.answer, "D", "the section's Correct Answer is promoted to the property");
+  assert.equal(fm.question_type, "mcq");
+});
+
+test("a note with its key only in the section is not reported as having no answer", async () => {
+  const text = NOTE("x_unused: 1").replace(/answer: D\n/, "");
+  assert.deepEqual(await T.noteIssues(text, async () => true), [], "practice can answer it, so the audit must not call it unanswered");
+});
+
+test("a note with an empty Answer section is still reported", async () => {
+  const text = NOTE("x_unused: 1").replace(/answer: D\n/, "").replace(/> \[!answer\][\s\S]*?(?=## My Notes)/, "");
+  assert.ok((await T.noteIssues(text, async () => true)).includes("No answer"));
+});
+
+test("a free-response note with a model response is not reported as unanswered", async () => {
+  // The AP World PDF ends with two FRQ-style prompts: no choices, no single
+  // key, and a written model response under "## Answer".
+  const text = `---
+question_id: X-Q26
+question_type: spr
+---
+
+## Question
+a) Identify ONE purpose of the decree.
+
+## Answer
+> [!answer]- Reveal answer
+> **Correct Answer:**
+>
+> a) To limit the military power of the daimyo.
+
+## My Notes
+`;
+  assert.deepEqual(await T.noteIssues(text, async () => true), []);
+});
+
+test("an answer the agent wrote as words or a full choice is kept, not dropped", () => {
+  const words = NOTE("x_unused: 1").replace(/answer: D\n/, "").replace("answer_source: pdf\n", "");
+  const byChoice = T.finalizeNote(words.replace("> **Correct Answer: D**", "> **Correct Answer: Choice D**"), {}, "X-Q01", STAMP);
+  assert.equal(T.parseNote(byChoice).fm.answer, "D", "Choice D is the letter D");
+
+  const byText = T.finalizeNote(
+    words.replace("> **Correct Answer: D**", "> **Correct Answer: four**"),
+    {},
+    "X-Q02",
+    STAMP
+  );
+  assert.equal(T.parseNote(byText).fm.answer, "D", "the full text of a choice maps back to its letter");
+
+  const unparsed = T.finalizeNote(
+    words.replace("> **Correct Answer: D**", "> **Correct Answer: the fourth one, clearly**"),
+    {},
+    "X-Q03",
+    STAMP
+  );
+  const fm = T.parseNote(unparsed).fm;
+  assert.equal(fm.answer, "the fourth one, clearly", "an answer that is not a letter is kept for self-grading");
 });

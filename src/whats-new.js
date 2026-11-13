@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.10",
+    date: "November 13, 2026",
+    title: "Answers written in the Answer section count",
+    summary:
+      "An import no longer reports notes as having no answer when the key is written under Answer instead of in the properties, and a free-response question with a model response is no longer called unanswered. The answer is also copied into the note's properties, so grading and checks see it.",
+    highlights: [
+      {
+        title: "The Answer section is enough",
+        body: "If a note shows **Correct Answer: C** under Answer but has no answer property, the import now reads it, writes it as the answer, and stops listing the note under No answer.",
+      },
+      {
+        title: "Words and full choices work too",
+        body: "Choice C, the full text of a choice, or an answer written as a sentence are recognised instead of being dropped when they are not a plain letter.",
+      },
+      {
+        title: "Free-response notes are not broken notes",
+        body: "A question with no answer choices and a written model response (for example the AP World a/b/c prompts) is treated as self-graded instead of being listed as needing a look.",
+      },
+      {
+        title: "No format changes",
+        body: "Existing notes stay valid; already-imported notes do not need re-importing. Review dates, settings, provider keys and network defaults are unchanged.",
+      },
+    ],
+  },
+  {
     version: "1.301.9",
     date: "November 13, 2026",
     title: "No time limit, and a one-press OpenCode check",

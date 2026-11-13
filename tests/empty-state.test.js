@@ -87,7 +87,9 @@ test("malformed notes: counted and labelled, and ordinary notes are left out", a
     state.broken.map((b) => [b.path, b.problems]),
     [
       ["Pdf/noid.md", ["No question ID"]],
-      ["Pdf/stub.md", ["No answer", "No answer choices"]],
+      // A note with nothing at all is one problem, not two: "No answer choices"
+      // is only added when a letter key is left without its choices.
+      ["Pdf/stub.md", ["No answer"]],
     ]
   );
 });
