@@ -280,6 +280,24 @@ test("study agent phone layout: Escape exits full screen from the controls strip
   assert.equal(panel.fullscreenBtn.getAttr("aria-label"), "Open the chat full screen");
 });
 
+test("study agent error card: a missing-key failure offers the AI settings page and keeps Retry", async () => {
+  const { panel, plugin, dom } = await apiPanel();
+  const opened = [];
+  plugin.openSettings = (page) => {
+    opened.push(page || "");
+  };
+  panel.lastSent = "Why is the answer B?";
+  panel.error = "Add your API key in the plugin settings.";
+  panel.busy = false;
+  panel.sig = "";
+  panel.draw();
+
+  assert.ok(dom.texts().some((text) => text === "Retry"));
+  assert.ok(dom.texts().some((text) => text === "Open settings"));
+  await dom.click("Open settings");
+  assert.deepEqual(opened, ["mcq-ai"], "the error card opens the AI settings page directly");
+});
+
 test("study agent off state: names the setting and draws a working settings button", async () => {
   const { panel, plugin, dom } = await apiPanel();
   const opened = [];

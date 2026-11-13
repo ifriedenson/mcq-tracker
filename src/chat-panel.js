@@ -76,6 +76,16 @@ const PROPOSAL_FILE_LABELS = {
   deleted: "Deleted",
 };
 
+/** Provider errors whose fix is a setting, not another identical request. */
+function errorNeedsSettings(error) {
+  const text = str(error);
+  return (
+    /\bsettings?\b/i.test(text) ||
+    /rejected the API key|can't use this model/i.test(text) ||
+    /no AI provider connected/i.test(text)
+  );
+}
+
 function budgetRefusal(budget) {
   return `Nothing was sent: the estimated ${chatBudget.formatTokenCount(budget.tokens)}-token context is over the local ${chatBudget.formatTokenCount(budget.limit)}-token chat budget. Remove a mention or PDF attachment, or shorten the message.`;
 }
@@ -2953,13 +2963,26 @@ class ChatPanel {
         text: this.busy ? "Reply interrupted" : "That reply did not finish",
       });
       boxed.createDiv({ cls: "qt-agent-error-text", text: this.error });
-      if (this.lastSent && !this.busy) {
-        const retry = boxed.createEl("button", {
-          text: "Retry",
-          cls: "qt-agent-error-retry",
-          attr: { "aria-label": "Retry the last message" },
-        });
-        retry.addEventListener("click", () => this.retry());
+      const canRetry = this.lastSent && !this.busy;
+      const needsSettings = errorNeedsSettings(this.error) && typeof this.view.plugin.openSettings === "function";
+      if (canRetry || needsSettings) {
+        const actions = boxed.createDiv({ cls: "qt-agent-error-actions" });
+        if (canRetry) {
+          const retry = actions.createEl("button", {
+            text: "Retry",
+            cls: "qt-agent-error-retry",
+            attr: { "aria-label": "Retry the last message" },
+          });
+          retry.addEventListener("click", () => this.retry());
+        }
+        if (needsSettings) {
+          const settings = actions.createEl("button", {
+            text: "Open settings",
+            cls: "qt-agent-error-settings",
+            attr: { "aria-label": "Open AI settings" },
+          });
+          settings.addEventListener("click", () => this.view.plugin.openSettings("mcq-ai"));
+        }
       }
     }
     if (this.proposalCard) this.renderProposalCard(lastAssistantStack || box);

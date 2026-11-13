@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.23",
+    date: "November 13, 2026",
+    title: "The error card has the fix",
+    summary:
+      "The missing-key error in the chat panel now offers Open settings beside Retry, opening the AI page directly. The same action appears on every provider error whose fix is a setting.",
+    highlights: [
+      {
+        title: "Missing key is one click from fixed",
+        body: "Add your API key in the plugin settings used to be a dead end with only Retry. Open settings now sits beside Retry and opens the AI and the assistant page.",
+      },
+      {
+        title: "The same control wherever a setting is the fix",
+        body: "A missing base URL or model, an OpenCode server with no provider, OpenCode credentials rejected, and a provider that rejects the key or model all show the settings action too.",
+      },
+      {
+        title: "Retry still works",
+        body: "The header gear and Retry are unchanged. After the key was restored, Retry sent the same question and the reply rendered with its usual actions.",
+      },
+      {
+        title: "Verified in a live window",
+        body: "Driven with a seeded question in headless Obsidian: the missing-key card appeared, Open settings landed on AI backend / Enable AI features, and Retry recovered once the provider answered.",
+      },
+    ],
+  },
+  {
     version: "1.301.22",
     date: "November 13, 2026",
     title: "AI failures tell you what to fix",
