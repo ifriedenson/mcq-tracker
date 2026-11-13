@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status: v1.301.17 (Nov 13, 2026).** One MIT, dependency-free Obsidian plugin
+**Status: v1.301.18 (Nov 13, 2026).** One MIT, dependency-free Obsidian plugin
 (`mcq-tracker`) covering exam practice, cards and vocabulary, courses and
 calendars, study planning, document ingestion, reference/STEM tools and an
 optional BYOK/OpenCode AI layer.
@@ -15,7 +15,7 @@ surfaces, so unfinished ideas are not disguised as checked work.
 
 **Verified at this commit:** `node --test` → 2,781 tests pass, 0 fail;
 `npm run check` clean (no dynamic code across 361 source files, vendor guard,
-bundle up to date); `main.js` generated from 364 modules at 7,266,406 bytes.
+bundle up to date); `main.js` generated from 364 modules at 7,268,797 bytes.
 Re-run both before quoting these numbers.
 
 **Maintainability pass (Nov 10, 2026):** the duplicate `onTableEditorToggled` is merged into one method that updates the ribbon and repaints open reading views; question and card reads use path indexes with path/type-scoped invalidation; the PDF editor/reader stack loads only when a PDF is opened; the four document importers share `src/document-source.js`; and `npm run check` now rejects duplicate class members and export keys and enforces an eager module-load budget that keeps the PDF editor stack and the vendored PDF engines lazy. Measured in a real Obsidian 1.15.0 desktop under Xvfb, three launches per build: module evaluation fell from a median **63 ms** (57/63/64 ms) to **41 ms** (38/41/48 ms), while `onload` stayed at 16 ms versus 20 ms medians and parse was about 1 ms in both; launch-to-plugin-complete was about 0.9-1.0 s for both and is dominated by Obsidian's own boot, not the plugin. The module-registry/plugin split was assessed and deliberately deferred to a separate maintainability project: all 361 modules are reachable, the bundle remains dependency-free, and a split needs boundary ownership, a migration path and an external test harness first.

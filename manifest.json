@@ -2,7 +2,7 @@
   "id": "mcq-tracker",
   "isDesktopOnly": false,
   "name": "MCQ Tracker",
-  "version": "1.301.17",
+  "version": "1.301.18",
   "minAppVersion": "1.8.7",
   "description": "Exam-style practice from your notes: timed tests, confidence ratings, mistake tags and spaced review. Works offline. AI is optional.",
   "author": "Isaac Friedenson",

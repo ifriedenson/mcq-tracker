@@ -63,6 +63,9 @@ function permissionConfigContent(vaultPath) {
  */
 const ENSURE_PING_TIMEOUT_MS = 10 * 1000;
 
+/** Returned by a wait that a Stop press cut short. */
+const STOPPED = Symbol("stopped");
+
 /** Shown when a Start was already in flight and the user pressed Stop. */
 const STOPPED_EARLY_MESSAGE =
   "OpenCode was stopped before it finished starting. Start it again from Settings > Study agent > AI when you are ready.";
@@ -328,6 +331,10 @@ class OpenCodeManager {
     // Bumped by stop() only: a check that is already in flight uses it to
     // notice that the user stopped the server and must not start another.
     this.stopMark = 0;
+    // Waits a Stop press should cut short (the two pings and the pause
+    // between them), so pressing Stop is answered at once, not ten seconds
+    // later after a ping that no longer matters.
+    this.stopWaiters = [];
   }
 
   get ai() {
@@ -812,6 +819,15 @@ class OpenCodeManager {
   /** Stop the managed server because the user (or plugin unload) asked. */
   stop() {
     this.stopMark = (this.stopMark || 0) + 1;
+    const waiters = this.stopWaiters;
+    this.stopWaiters = [];
+    for (const resolve of waiters) {
+      try {
+        resolve(STOPPED);
+      } catch (e) {
+        /* a waiter never throws */
+      }
+    }
     this.terminate();
   }
 
@@ -851,23 +867,35 @@ class OpenCodeManager {
   ensure(progress, hooks) {
     if (this.starting) return this.starting;
     const h = hooks || {};
+    let stopWaiter = null;
     this.starting = (async () => {
       const say = typeof progress === "function" ? progress : () => {};
       // A Stop press (Settings, or the plugin unloading) while this check is in
       // flight must win: never start a server for someone who just stopped it.
       const stopped = this.stopMark || 0;
+      // Resolve as soon as stop() is called, so the presses are answered now
+      // rather than after the current ten-second ping gives up.
+      const stoppedNow = new Promise((resolve) => {
+        stopWaiter = resolve;
+        this.stopWaiters.push(resolve);
+      });
+      const unlessStopped = async (work) => {
+        const result = await Promise.race([work, stoppedNow]);
+        if (result === STOPPED) throw new Error(STOPPED_EARLY_MESSAGE);
+        return result;
+      };
       if (this.isRunning()) {
         // The process can outlive its server: after the computer sleeps with
         // the screen off, the process handle still looks alive while nothing
         // answers it. Ask twice and restart fresh instead of handing the next
         // file or chat a dead server it would wait on forever.
         const client = h.client ? h.client(this.conn) : new OpenCodeClient(this.conn);
-        if (await this.answering(client)) return;
+        if (await unlessStopped(this.answering(client))) return;
         // Say something before the second try: this is the one moment where
         // the check can look frozen for ten seconds with nothing on screen.
         say("OpenCode is running but didn't answer a quick check. Asking once more...");
-        await sleep(1500);
-        if (await this.answering(client)) return;
+        await unlessStopped(sleep(1500));
+        if (await unlessStopped(this.answering(client))) return;
         say("OpenCode was still running but stopped answering, so restarting it fresh...");
         this.terminate();
         await sleep(1000);
@@ -886,6 +914,7 @@ class OpenCodeManager {
       if ((this.stopMark || 0) !== stopped) throw new Error(STOPPED_EARLY_MESSAGE);
       await this.start(progress, undefined, h.client ? hooks : undefined);
     })().finally(() => {
+      if (stopWaiter) this.stopWaiters = this.stopWaiters.filter((waiter) => waiter !== stopWaiter);
       this.starting = null;
     });
     return this.starting;

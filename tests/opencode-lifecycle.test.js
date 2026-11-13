@@ -228,10 +228,14 @@ test("ensure() does not start a server after the user stopped it while it was ch
   assert.equal(mgr.isRunning(), true);
   // The connection points at a closed port, so the check can only fail.
   mgr.conn = { url: "http://127.0.0.1:1", username: mgr.conn.username, password: mgr.conn.password };
-  const checking = mgr.ensure();
+  const said = [];
+  const t0 = Date.now();
+  const checking = mgr.ensure((m) => said.push(m));
   mgr.stop(); // Stop in Settings while the check is still in flight
 
   await assert.rejects(checking, /stopped before it finished starting/);
+  assert.ok(Date.now() - t0 < 1200, "the Stop press is answered at once, not after the ping gives up");
+  assert.deepEqual(said, [], "nothing is announced for a server the user just stopped");
   assert.equal(mgr.isRunning(), false, "nothing restarts behind the user's back");
   assert.equal(mgr.proc, null);
 });

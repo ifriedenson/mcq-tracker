@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.18",
+    date: "November 13, 2026",
+    title: "Stop is answered at once",
+    summary:
+      "A Stop pressed while the plugin is checking whether OpenCode still answers now ends the check immediately and stays stopped. Nothing else changed.",
+    highlights: [
+      {
+        title: "The Stop press is answered now",
+        body: "Pressing Stop during the quick OpenCode check no longer waits for the ten-second ping to give up; the message appears at once.",
+      },
+      {
+        title: "Nothing is announced for a server you stopped",
+        body: "The window no longer says it is restarting OpenCode when you have just stopped it, and nothing starts in the background.",
+      },
+      {
+        title: "Checked in a real Obsidian window",
+        body: "This release was verified in an actual Obsidian 1.15.1 window: the settings Start/Stop controls, the running status line, a frozen server that recovers, and the import popout.",
+      },
+      {
+        title: "Nothing else moved",
+        body: "No note format, setting key, review schedule or network default changed; the only difference is how quickly and how plainly a Stop is answered.",
+      },
+    ],
+  },
+  {
     version: "1.301.17",
     date: "November 13, 2026",
     title: "A stopped OpenCode stays stopped, and long checks keep counting",
