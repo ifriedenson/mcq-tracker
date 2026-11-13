@@ -6132,12 +6132,18 @@ class QuestionTrackerPlugin extends Plugin {
     said(
       managed
         ? "OpenCode stopped answering, so it is being restarted, and then this same answer is asked again..."
-        : "OpenCode stopped answering. Starting it again, then asking this same answer again..."
+        : "OpenCode stopped answering, so this same answer is asked again..."
     );
     try {
-      if (managed) this.manager.stop();
-      await sleep(600);
-      await this.ensureOpenCode(o.onNotice);
+      // Only the copy this plugin started can be restarted. A server the user
+      // runs themselves is left alone: asking again is the retry.
+      if (managed) {
+        this.manager.stop();
+        await sleep(600);
+        await this.ensureOpenCode(o.onNotice);
+      } else {
+        await sleep(600);
+      }
       return true;
     } catch (e) {
       // The restart itself failed; keep the original failure, which names the

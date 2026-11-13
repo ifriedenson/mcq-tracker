@@ -78190,12 +78190,18 @@ class QuestionTrackerPlugin extends Plugin {
     said(
       managed
         ? "OpenCode stopped answering, so it is being restarted, and then this same answer is asked again..."
-        : "OpenCode stopped answering. Starting it again, then asking this same answer again..."
+        : "OpenCode stopped answering, so this same answer is asked again..."
     );
     try {
-      if (managed) this.manager.stop();
-      await sleep(600);
-      await this.ensureOpenCode(o.onNotice);
+      // Only the copy this plugin started can be restarted. A server the user
+      // runs themselves is left alone: asking again is the retry.
+      if (managed) {
+        this.manager.stop();
+        await sleep(600);
+        await this.ensureOpenCode(o.onNotice);
+      } else {
+        await sleep(600);
+      }
       return true;
     } catch (e) {
       // The restart itself failed; keep the original failure, which names the
@@ -135377,6 +135383,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.301.28",
+    date: "November 13, 2026",
+    title: "A frozen check recovers on every OpenCode setup",
+    summary:
+      "If you run OpenCode yourself instead of letting the plugin start it, a frozen answer check now asks the question again instead of stopping to look for an OpenCode copy to install.",
+    highlights: [
+      {
+        title: "Your own server is left alone",
+        body: "Recovery only stops and restarts the copy this plugin started. A server you run in a terminal is never killed, never re-downloaded and never replaced.",
+      },
+      {
+        title: "Still the same question",
+        body: "The identical blind check is sent again with the same model, so the note ends up verified rather than kept unchecked.",
+      },
+      {
+        title: "Honest wording",
+        body: "The checking line says this same answer is asked again and no longer promises a restart that a manual server cannot have.",
+      },
+      {
+        title: "Checked against a real frozen server",
+        body: "A managed server was frozen on purpose: the six-minute silence guard noticed, the server was restarted on a new port, the identical prompt was sent again, and the answer verified. Nothing about note format or settings changed.",
+      },
+    ],
+  },
   {
     version: "1.301.27",
     date: "November 13, 2026",

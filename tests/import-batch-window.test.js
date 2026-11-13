@@ -97,8 +97,8 @@ function agentMessage(id) {
 
 const AGENT_NOTE = `---\nnumber: 1\nanswer: B\nanswer_source: pdf\n---\n\n## Question\nWhat is 2 + 2?\n\n## Answer Choices\n- A. 3\n- B. 4\n\n## Answer\n**Correct Answer: B**\n`;
 
-async function waitFor(check, label) {
-  const end = Date.now() + 5000;
+async function waitFor(check, label, ms) {
+  const end = Date.now() + (Number(ms) > 0 ? Number(ms) : 5000);
   while (Date.now() < end) {
     if (check()) return;
     await sleep(15);
@@ -867,7 +867,11 @@ test("batch import: a long answer check shows how long it has been waiting", asy
 test("batch import: a frozen answer check restarts OpenCode and verifies the same note", async () => {
   const state = await setup();
   state.plugin.settings.ai.backend = "opencode";
-  state.plugin.settings.ai.managed = false;
+  // Managed, so the recovery has a server of its own to stop and start; the
+  // saved program only has to name one for the import to be ready.
+  state.plugin.settings.ai.managed = true;
+  state.plugin.settings.ai.enabled = true;
+  state.plugin.settings.ai.binaryPath = require.resolve("./answer-verification.test.js");
   state.plugin.settings.ai.verifyPanel = false;
   // setup() stubs the check away; this test drives the real one.
   delete state.plugin.verifyDraftQuestions;
@@ -920,7 +924,7 @@ test("batch import: a frozen answer check restarts OpenCode and verifies the sam
     return status(text, ...args);
   };
   await modal.startBatch();
-  await waitFor(() => completionModal(modal), "the completion summary after a recovered check");
+  await waitFor(() => completionModal(modal), "the completion summary after a recovered check", 20000);
 
   assert.equal(checks, 2, "the same answer is asked again after the server is restarted");
   assert.equal(restarts, 1, "the frozen check starts the server again once");

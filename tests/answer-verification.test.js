@@ -335,6 +335,36 @@ test("answer verification: a frozen OpenCode is restarted and the same answer is
   assert.match(notices[0], /OpenCode stopped answering/i, "the window says what is happening");
 });
 
+test("answer verification: a server the user runs is asked again without being restarted", async () => {
+  const plugin = new QT(makeApp([]));
+  await plugin.onload();
+  plugin.settings.ai.enabled = true;
+  plugin.settings.ai.backend = "opencode";
+  plugin.settings.ai.managed = false;
+  plugin.settings.ai.verifyPanel = false;
+  let starts = 0;
+  plugin.ensureOpenCode = async () => {
+    starts++;
+  };
+  plugin.manager.stop = () => {
+    throw new Error("a manual server must not be stopped");
+  };
+  let calls = 0;
+  plugin.aiComplete = async () => {
+    calls++;
+    if (calls === 1) throw new Error("OpenCode accepted the request but wrote nothing new for 6 minutes.");
+    return '{"answer":"B"}';
+  };
+  const notices = [];
+  const item = { question: "Two?", choices: ["a", "b", "c", "d"], answer: "B" };
+  const summary = await plugin.verifyDraftQuestions([item], { onNotice: (m) => notices.push(m) });
+  assert.deepEqual(summary, { checked: 1, dropped: 0, failed: 0, mode: "mark" });
+  assert.equal(calls, 2, "the same answer is asked again");
+  assert.equal(starts, 0, "no managed copy is installed or started behind a manual server");
+  assert.equal(item.verification.status, "match");
+  assert.match(notices[0], /this same answer is asked again/i, "the wording does not promise a restart");
+});
+
 test("answer verification: a reply that makes no sense is not retried", async () => {
   const plugin = new QT(makeApp([]));
   await plugin.onload();
