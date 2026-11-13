@@ -323,6 +323,23 @@ class PdfImportModal extends QtModal {
     if (this.batchMode && this.progress) this.progress.update(this.progressLabel || "Importing...", msg, this.batchIndex / Math.max(1, this.batchJobs.length));
   }
 
+  /**
+   * Report a wait that counts up, so a check that has stalled shows its age in
+   * minutes instead of looking like a frozen sentence. The returned function
+   * stops the clock; the caller keeps the last line on screen.
+   */
+  waitClock(makeText) {
+    const started = Date.now();
+    const paint = () => {
+      const secs = Math.max(0, Math.floor((Date.now() - started) / 1000));
+      this.status(`${makeText()} (${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")})`);
+    };
+    paint();
+    const timer = setInterval(paint, 1000);
+    if (timer && typeof timer.unref === "function") timer.unref();
+    return () => clearInterval(timer);
+  }
+
   beginCancellableRun() {
     let cancel = null;
     this.cancelGate = new Promise((resolve) => {
@@ -1602,10 +1619,14 @@ class PdfImportModal extends QtModal {
       let verification = null;
       if (preKey && !preFromDocument && parsed.sec.choices.length && typeof this.plugin.verifyDraftQuestions === "function") {
         const draft = { question: parsed.sec.question, choices: parsed.sec.choices, answer: preKey };
-        this.status(`Checking answer ${i + 1} of ${files.length}: ${base}...`);
-        await this.awaitCancellable(
-          this.plugin.verifyDraftQuestions([draft], { shouldStop: () => this.stop || this.closed })
-        );
+        const stopClock = this.waitClock(() => `Checking answer ${i + 1} of ${files.length}: ${base}...`);
+        try {
+          await this.awaitCancellable(
+            this.plugin.verifyDraftQuestions([draft], { shouldStop: () => this.stop || this.closed })
+          );
+        } finally {
+          stopClock();
+        }
         verification = draft.verification;
         if (verification && verification.drop) {
           if (f instanceof TFile) await this.app.vault.delete(f);
@@ -1851,10 +1872,18 @@ class PdfImportModal extends QtModal {
     // The check has no time limit, so keep one line counting: a slow provider
     // must not leave a frozen sentence on screen, and closing the window stops
     // paying for checks whose results are no longer shown.
-    await this.plugin.verifyDraftQuestions(drafts, {
-      onProgress: (n, total) => this.status(`Checking answer ${n} of ${total} without showing the key...`),
-      shouldStop: () => this.stop || this.closed,
-    });
+    let label = `Checking answer 1 of ${drafts.length} without showing the key...`;
+    const stopClock = this.waitClock(() => label);
+    try {
+      await this.plugin.verifyDraftQuestions(drafts, {
+        onProgress: (n, total) => {
+          label = `Checking answer ${n} of ${total} without showing the key...`;
+        },
+        shouldStop: () => this.stop || this.closed,
+      });
+    } finally {
+      stopClock();
+    }
     candidates.forEach((q, i) => {
       q.verification = drafts[i].verification;
       if (q.verification && q.verification.drop) q.include = false;

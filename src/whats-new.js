@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.26",
+    date: "November 13, 2026",
+    title: "A waiting answer check shows its age",
+    summary:
+      "The line that says which answer is being checked now counts seconds, so a check that has stopped moving is obvious in a minute instead of hours. Nothing about how long a check may take has changed.",
+    highlights: [
+      {
+        title: "The wait counts up",
+        body: "Checking answer 4 of 27 now reads (2:14) after two minutes and keeps counting, so an import can no longer sit on a frozen sentence unnoticed.",
+      },
+      {
+        title: "Every check path shows it",
+        body: "The note-by-note check during an import and the check after a review both count. The clock stops when the answer arrives and the last line stays on screen.",
+      },
+      {
+        title: "No new limit",
+        body: "The count is information, not a deadline. A slow model still gets as long as it needs, and the client's own idle guard is what ends a request that truly stopped answering.",
+      },
+      {
+        title: "Stop still works",
+        body: "Stop, Undo everything, Finish this file and closing the window end the wait, exactly as before. No note format, setting or review date changed.",
+      },
+    ],
+  },
+  {
     version: "1.301.25",
     date: "November 13, 2026",
     title: "The gear goes straight to AI settings",

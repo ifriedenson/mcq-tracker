@@ -847,6 +847,23 @@ test("batch import: a slow answer check is waited on and the note is verified", 
   assert.ok(summary.includes("Practice these questions"));
 });
 
+test("batch import: a long answer check shows how long it has been waiting", async () => {
+  const state = await setup();
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [] });
+  attach(modal);
+  modal.onOpen();
+  let text = "";
+  modal.statusEl = { setText: (value) => (text = String(value)) };
+  const stop = modal.waitClock(() => "Checking answer 1 of 1: note...");
+  assert.match(text, /Checking answer 1 of 1: note\.\.\. \(0:00\)/, "the wait starts at zero");
+  await sleep(1100);
+  assert.match(text, /\(0:01\)/, "the line counts up, so a stall is visible in minutes");
+  stop();
+  const kept = text;
+  await sleep(1100);
+  assert.equal(text, kept, "stopping the clock leaves the last line on screen");
+});
+
 test("agent import: no notes removes the source copy and the empty folder", async () => {
   const state = await setup();
   state.plugin.settings.ai.backend = "opencode";
