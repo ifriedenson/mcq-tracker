@@ -367,6 +367,19 @@ npm run check             # verify main.js matches src/
 
 The repository is dependency-free, but `package-lock.json` is committed and the release workflow installs with `npm ci` so local and CI builds start from the same locked metadata.
 
+## Real Obsidian on this VM (Nov 13, 2026)
+
+Fast path: `bash scripts/restore-obsidian.sh` (idempotent one-command reinstall + launch; run this first in a fresh session, then verify below).
+
+No sudo and no system X server here, so Obsidian 1.15.1 runs from user-space pieces in `$HOME` (reinstall per the steps below if a later session is missing them).
+
+- Runtime: `~/.local/bin/micromamba` plus env `~/.micromamba/envs/obsidian` (gtk3, nss, alsa, cups, fontconfig, fonts). Obsidian itself is the 1.15.1 AppImage extracted with `--appimage-extract` to `~/downloads/squashfs-root` (`--headless` segfaults in Skia, so always run under X).
+- X server: `~/.local/xvfb-root/usr/bin/Xvfb` (Ubuntu noble `xvfb`, `xserver-xorg-core`, `xserver-common`, `libxfont2`, `libxcvt0`, `libfontenc1`, `x11-xkb-utils`, `xkb-data`, `libxkbfile1` debs extracted with `dpkg-deb -x`). It hardcodes `/usr/bin/xkbcomp`, so start it with `bash ~/.local/bin/run-xvfb.sh`: recreates `/tmp/.X11-unix` and `/tmp/fakebin` (`xkbcomp` + `sh` copies -- `/tmp` is not checkpointed, so this matters after a restore), then bind-mounts fakebin over `/usr/bin` in a user+mount namespace and execs Xvfb on `:102`. No-op when already up.
+- Vault `~/.local/mcq-vault` (seeded from `samples/sample-vault`), plugin files copied from a fresh `node scripts/build.js`, Primary theme in `.obsidian/themes/Primary` with `appearance.json` `{"cssTheme": "Primary"}` and `community-plugins.json` enabling `mcq-tracker`; profile `~/.local/obsidian-profile` whose `obsidian.json` registers the vault with `"open": true`.
+- Launch with `bash ~/.local/bin/run-obsidian.sh` (starts Xvfb first, then exports `LD_LIBRARY_PATH` for the conda lib + xvfb-root lib, `FONTCONFIG_FILE`/`FONTCONFIG_PATH` for the conda fontconfig without which the renderer dies in `SkFontMgr`, `DISPLAY=:102`, nohup with `--remote-debugging-port=9222`). Verify with `curl -s http://127.0.0.1:9222/json` (vault window listed) and a CDP eval that the theme is `Primary` and the mcq-tracker plugin object is loaded. Drive it over CDP (`tools/ui-audit/cdp.mjs`; `CDP_TITLE` selects the window, and the Settings window is a separate target).
+- Always use this exact pair and keep both current: before launching, rebuild the plugin (`node scripts/build.js`) and copy the fresh `main.js`, `manifest.json`, `styles.css` into the vault plugin folder; re-download the Primary `theme.css` + `manifest.json` from the primary-theme/obsidian repo into `.obsidian/themes/Primary/`; after launch verify over CDP that the theme is `Primary` and the mcq-tracker plugin object is loaded. Never substitute another theme or a stale `main.js` when checking plugin UI.
+- Gotchas: fresh profiles start with community plugins disabled, so run `await app.plugins.setEnable(true)` then reload before the plugin loads; a theme folder only registers when its `manifest.json` `"name"` equals the folder name (then `app.customCss.requestReadThemes()`); a restored Practice view can show a stale empty filter set after a restart, so detach its leaf and reopen for a live one; never `pkill -f` with the Obsidian path in the same command line (the runner echoes it and you SIGTERM yourself), use `pkill -x obsidian` or a script file.
+
 ## Rules
 
 - Make the smallest change that meets the request; do not add dependencies.
