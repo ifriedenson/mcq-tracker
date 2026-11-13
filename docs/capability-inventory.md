@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 442 groups, 3065 exports. **Commands:** 233. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 442 groups, 3066 exports. **Commands:** 233. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -110,7 +110,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `answerSetFromSection` | 0 | `tests/question-types.test.js` |
 | `answerTrueFalseFromSection` | 0 | `tests/question-types.test.js` |
 | `answerTypes` | 9 | `tests/question-types.test.js` |
-| `answerVerification` | 13 | `tests/answer-verification.test.js`, `tests/computed-verification.test.js` |
+| `answerVerification` | 14 | `tests/answer-verification.test.js`, `tests/computed-verification.test.js` |
 | `apExamHistory` | 12 | `tests/ap-exam-history.test.js` |
 | `apExamResources` | 8 | `tests/ap-exam-resources.test.js` |
 | `apResourceNotes` | 19 | `tests/ap-resource-notes.test.js` |

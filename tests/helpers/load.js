@@ -154,11 +154,11 @@ const obsidian = {
       return this;
     }
     addText(cb) {
-      cb({ inputEl: {}, setPlaceholder() { return this; }, setValue() { return this; }, onChange() { return this; } });
+      cb({ inputEl: {}, setPlaceholder() { return this; }, setValue() { return this; }, setDisabled() { return this; }, onChange() { return this; } });
       return this;
     }
     addTextArea(cb) {
-      cb({ inputEl: {}, setPlaceholder() { return this; }, setValue() { return this; }, onChange() { return this; } });
+      cb({ inputEl: {}, setPlaceholder() { return this; }, setValue() { return this; }, setDisabled() { return this; }, onChange() { return this; } });
       return this;
     }
     addExtraButton(cb) {

@@ -146,6 +146,29 @@ function normalizePanelModels(value) {
   return out;
 }
 
+/**
+ * Every model this device already knows about, for the extra-check pickers:
+ * the provider's fetched list, the models saved for other AI features, the
+ * models already chosen here, then an optional saved value of its own. A
+ * picker built from this cannot introduce a typo.
+ */
+function panelModelChoices(source) {
+  const s = source || {};
+  const out = [];
+  const seen = new Set();
+  const add = (raw) => {
+    const model = str(raw).trim().slice(0, 200);
+    if (!model || seen.has(model)) return;
+    seen.add(model);
+    out.push(model);
+  };
+  for (const id of Array.isArray(s.fetched) ? s.fetched : []) add(id);
+  for (const id of Array.isArray(s.features) ? s.features : []) add(id);
+  for (const id of normalizePanelModels(s.saved)) add(id);
+  add(s.own);
+  return out;
+}
+
 /** The model for one extra check: the list repeats until the panel is full. */
 function panelModelFor(models, index) {
   const list = Array.isArray(models) ? models : [];
@@ -259,6 +282,7 @@ module.exports = {
   VERIFICATION_MODES,
   consensusVerdict,
   normalizePanelModels,
+  panelModelChoices,
   panelModelFor,
   addVerificationBanner,
   buildBlindVerificationPrompt,

@@ -134,6 +134,22 @@ test("settings navigation: a page opens the existing renderer for its module and
   assert.equal(tab.activePage, "study-nudge", "an unknown page is ignored");
 });
 
+test("settings navigation: the extra answer checks pick models from a list, not a typed field", async () => {
+  const plugin = await setup();
+  plugin.settings.ai.api.models = ["model-a", "model-b"];
+  const { tab } = openTab(plugin);
+  tab.openPage("mcq-ai");
+  for (const name of ["Extra check model 1", "Extra check model 2", "Extra check model 3"]) {
+    assert.ok(obsidian.settingNames.includes(name), `${name} is offered`);
+  }
+  assert.ok(!obsidian.settingNames.includes("Models for the extra checks"), "the typed list is gone");
+  // A saved name that is not in the fetched list still shows, in its own field.
+  plugin.settings.ai.verifyPanelModels = ["hand-typed/model"];
+  const again = openTab(plugin);
+  again.tab.openPage("mcq-ai");
+  assert.ok(obsidian.settingNames.includes("Extra check model 1"));
+});
+
 test("settings navigation: the practice page exposes the mobile view switch", async () => {
   const { tab } = openTab(await setup());
   tab.openPage("mcq-practice");

@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.15",
+    date: "November 13, 2026",
+    title: "Pick the extra check models from a list",
+    summary:
+      "The models for the extra answer checks are now chosen from a list of models this device already knows, so a mistyped name cannot quietly cost a vote. A model that is not in the list can still be entered on purpose.",
+    highlights: [
+      {
+        title: "Three pickers, no typing",
+        body: "Settings, AI, Session pacing and checks shows Extra check model 1, 2 and 3 as dropdowns. Same as the first check keeps the model chosen for Check AI-written answers.",
+      },
+      {
+        title: "Only names that exist",
+        body: "The list is built from the models your provider returned, the models saved for other AI features and the ones already chosen here. A typo cannot get in.",
+      },
+      {
+        title: "Other model, when you mean it",
+        body: "Choosing Other model opens one text field for that slot, so a provider whose list was never fetched can still be used deliberately.",
+      },
+      {
+        title: "What you already had keeps working",
+        body: "Models saved by the previous version appear in their pickers, and the order and repeat rule for the extra passes are unchanged.",
+      },
+    ],
+  },
+  {
     version: "1.301.14",
     date: "November 13, 2026",
     title: "The extra checks can use other AIs",

@@ -6689,6 +6689,29 @@ function normalizePanelModels(value) {
   return out;
 }
 
+/**
+ * Every model this device already knows about, for the extra-check pickers:
+ * the provider's fetched list, the models saved for other AI features, the
+ * models already chosen here, then an optional saved value of its own. A
+ * picker built from this cannot introduce a typo.
+ */
+function panelModelChoices(source) {
+  const s = source || {};
+  const out = [];
+  const seen = new Set();
+  const add = (raw) => {
+    const model = str(raw).trim().slice(0, 200);
+    if (!model || seen.has(model)) return;
+    seen.add(model);
+    out.push(model);
+  };
+  for (const id of Array.isArray(s.fetched) ? s.fetched : []) add(id);
+  for (const id of Array.isArray(s.features) ? s.features : []) add(id);
+  for (const id of normalizePanelModels(s.saved)) add(id);
+  add(s.own);
+  return out;
+}
+
 /** The model for one extra check: the list repeats until the panel is full. */
 function panelModelFor(models, index) {
   const list = Array.isArray(models) ? models : [];
@@ -6802,6 +6825,7 @@ module.exports = {
   VERIFICATION_MODES,
   consensusVerdict,
   normalizePanelModels,
+  panelModelChoices,
   panelModelFor,
   addVerificationBanner,
   buildBlindVerificationPrompt,
@@ -107444,7 +107468,7 @@ const chatPricing = require("./chat-pricing");
 const { DEFAULT_THINK_FIRST_SECONDS, MAX_THINK_FIRST_SECONDS, MIN_THINK_FIRST_SECONDS, normalizeThinkFirstSeconds } = require("./think-first");
 const { normalizeAiContext } = require("./ai-context");
 const { AI_FEATURES, CAPABILITY_LABELS } = require("./ai-service");
-const { normalizePanelModels, normalizeVerificationMode } = require("./answer-verification");
+const { normalizePanelModels, normalizeVerificationMode, panelModelChoices } = require("./answer-verification");
 
 /** The saved panel size as 2 or 3; an install from 1.301.12 defaults to three. */
 function savedPanelSize(ai) {
@@ -108387,22 +108411,63 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             this.plugin.refreshViews();
           })
       );
-    new Setting(section)
-      .setName("Models for the extra checks")
-      .setDesc(
-        "Optional. One model per line, used by the extra checks in order and repeated when there are more checks than models, so a disagreement is not settled by copies of one AI. Leave it empty to use the model chosen for Check AI-written answers. The first check always uses that model."
-      )
-      .addTextArea((t) => {
-        t.inputEl.rows = 3;
-        t.inputEl.spellcheck = false;
-        t.setPlaceholder("gpt-5\nclaude-sonnet-4-5")
-          .setValue(normalizePanelModels(ai.verifyPanelModels).join("\n"))
-          .onChange(async (v) => {
-            ai.verifyPanelModels = normalizePanelModels(v);
-            await this.plugin.save();
-            this.plugin.refreshViews();
+    const panelSaved = normalizePanelModels(ai.verifyPanelModels);
+    const panelChoices = panelModelChoices({
+      fetched: ai.api && Array.isArray(ai.api.models) ? ai.api.models : [],
+      features: Object.values(ai.features || {}).map((entry) => entry && entry.model),
+      saved: panelSaved,
+    });
+    const setPanelModel = async (index, model) => {
+      const slots = panelSaved.slice();
+      while (slots.length <= index) slots.push("");
+      slots[index] = str(model).trim().slice(0, 200);
+      ai.verifyPanelModels = normalizePanelModels(slots);
+      await this.plugin.save();
+      this.plugin.refreshViews();
+    };
+    for (let index = 0; index < 3; index++) {
+      const saved = panelSaved[index] || "";
+      const typed = this.panelOtherModel === index || (!!saved && !panelChoices.includes(saved));
+      const row = new Setting(section)
+        .setName(`Extra check model ${index + 1}`)
+        .setDesc(
+          index === 0
+            ? "Optional. Pick from the models this device already knows so a name cannot be mistyped. The extra checks use these in order and repeat the list when there are more checks than models, so a disagreement is not settled by copies of one AI. Same as the first check keeps the model chosen for Check AI-written answers, which the first check always uses."
+            : ""
+        );
+      if (typed) {
+        row.addText((t) =>
+          t
+            .setPlaceholder("model name, exactly as the provider lists it")
+            .setValue(saved)
+            .onChange(async (v) => {
+              await setPanelModel(index, v);
+            })
+        );
+        row.addButton((b) =>
+          b.setButtonText("Use the list").onClick(() => {
+            this.panelOtherModel = -1;
+            this.display();
+          })
+        );
+      } else {
+        row.addDropdown((d) => {
+          d.addOption("", "Same as the first check");
+          for (const id of panelChoices) d.addOption(id, id);
+          d.addOption("__other__", "Other model...");
+          d.setValue(saved);
+          d.onChange(async (v) => {
+            if (v === "__other__") {
+              this.panelOtherModel = index;
+              this.display();
+              return;
+            }
+            this.panelOtherModel = -1;
+            await setPanelModel(index, v);
           });
-      });
+        });
+      }
+    }
     section = card("Context and privacy", "Choose which aggregate study signals the assistant may see. Nothing here includes note text, question text or answers.");
     section.createEl("p", {
       cls: "setting-item-description",
@@ -134594,6 +134659,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.301.15",
+    date: "November 13, 2026",
+    title: "Pick the extra check models from a list",
+    summary:
+      "The models for the extra answer checks are now chosen from a list of models this device already knows, so a mistyped name cannot quietly cost a vote. A model that is not in the list can still be entered on purpose.",
+    highlights: [
+      {
+        title: "Three pickers, no typing",
+        body: "Settings, AI, Session pacing and checks shows Extra check model 1, 2 and 3 as dropdowns. Same as the first check keeps the model chosen for Check AI-written answers.",
+      },
+      {
+        title: "Only names that exist",
+        body: "The list is built from the models your provider returned, the models saved for other AI features and the ones already chosen here. A typo cannot get in.",
+      },
+      {
+        title: "Other model, when you mean it",
+        body: "Choosing Other model opens one text field for that slot, so a provider whose list was never fetched can still be used deliberately.",
+      },
+      {
+        title: "What you already had keeps working",
+        body: "Models saved by the previous version appear in their pickers, and the order and repeat rule for the extra passes are unchanged.",
+      },
+    ],
+  },
   {
     version: "1.301.14",
     date: "November 13, 2026",

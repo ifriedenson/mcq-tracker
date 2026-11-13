@@ -36,7 +36,7 @@ const chatPricing = require("./chat-pricing");
 const { DEFAULT_THINK_FIRST_SECONDS, MAX_THINK_FIRST_SECONDS, MIN_THINK_FIRST_SECONDS, normalizeThinkFirstSeconds } = require("./think-first");
 const { normalizeAiContext } = require("./ai-context");
 const { AI_FEATURES, CAPABILITY_LABELS } = require("./ai-service");
-const { normalizePanelModels, normalizeVerificationMode } = require("./answer-verification");
+const { normalizePanelModels, normalizeVerificationMode, panelModelChoices } = require("./answer-verification");
 
 /** The saved panel size as 2 or 3; an install from 1.301.12 defaults to three. */
 function savedPanelSize(ai) {
@@ -979,22 +979,63 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             this.plugin.refreshViews();
           })
       );
-    new Setting(section)
-      .setName("Models for the extra checks")
-      .setDesc(
-        "Optional. One model per line, used by the extra checks in order and repeated when there are more checks than models, so a disagreement is not settled by copies of one AI. Leave it empty to use the model chosen for Check AI-written answers. The first check always uses that model."
-      )
-      .addTextArea((t) => {
-        t.inputEl.rows = 3;
-        t.inputEl.spellcheck = false;
-        t.setPlaceholder("gpt-5\nclaude-sonnet-4-5")
-          .setValue(normalizePanelModels(ai.verifyPanelModels).join("\n"))
-          .onChange(async (v) => {
-            ai.verifyPanelModels = normalizePanelModels(v);
-            await this.plugin.save();
-            this.plugin.refreshViews();
+    const panelSaved = normalizePanelModels(ai.verifyPanelModels);
+    const panelChoices = panelModelChoices({
+      fetched: ai.api && Array.isArray(ai.api.models) ? ai.api.models : [],
+      features: Object.values(ai.features || {}).map((entry) => entry && entry.model),
+      saved: panelSaved,
+    });
+    const setPanelModel = async (index, model) => {
+      const slots = panelSaved.slice();
+      while (slots.length <= index) slots.push("");
+      slots[index] = str(model).trim().slice(0, 200);
+      ai.verifyPanelModels = normalizePanelModels(slots);
+      await this.plugin.save();
+      this.plugin.refreshViews();
+    };
+    for (let index = 0; index < 3; index++) {
+      const saved = panelSaved[index] || "";
+      const typed = this.panelOtherModel === index || (!!saved && !panelChoices.includes(saved));
+      const row = new Setting(section)
+        .setName(`Extra check model ${index + 1}`)
+        .setDesc(
+          index === 0
+            ? "Optional. Pick from the models this device already knows so a name cannot be mistyped. The extra checks use these in order and repeat the list when there are more checks than models, so a disagreement is not settled by copies of one AI. Same as the first check keeps the model chosen for Check AI-written answers, which the first check always uses."
+            : ""
+        );
+      if (typed) {
+        row.addText((t) =>
+          t
+            .setPlaceholder("model name, exactly as the provider lists it")
+            .setValue(saved)
+            .onChange(async (v) => {
+              await setPanelModel(index, v);
+            })
+        );
+        row.addButton((b) =>
+          b.setButtonText("Use the list").onClick(() => {
+            this.panelOtherModel = -1;
+            this.display();
+          })
+        );
+      } else {
+        row.addDropdown((d) => {
+          d.addOption("", "Same as the first check");
+          for (const id of panelChoices) d.addOption(id, id);
+          d.addOption("__other__", "Other model...");
+          d.setValue(saved);
+          d.onChange(async (v) => {
+            if (v === "__other__") {
+              this.panelOtherModel = index;
+              this.display();
+              return;
+            }
+            this.panelOtherModel = -1;
+            await setPanelModel(index, v);
           });
-      });
+        });
+      }
+    }
     section = card("Context and privacy", "Choose which aggregate study signals the assistant may see. Nothing here includes note text, question text or answers.");
     section.createEl("p", {
       cls: "setting-item-description",

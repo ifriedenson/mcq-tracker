@@ -245,6 +245,21 @@ test("panel models: a typed list is cleaned up and the extra checks take turns",
   assert.equal(verify.panelModelFor([], 0), "", "no list leaves the verification model in charge");
 });
 
+test("panel models: the picker only offers models this device already knows", () => {
+  const verify = require("../src/answer-verification");
+  assert.deepEqual(
+    verify.panelModelChoices({
+      fetched: ["model-a", "model-b", "model-a"],
+      features: ["model-b", "typed/elsewhere", ""],
+      saved: ["model-a", "saved-one"],
+      own: "own-model",
+    }),
+    ["model-a", "model-b", "typed/elsewhere", "saved-one", "own-model"],
+    "fetched models first, blanks dropped, repeats collapsed"
+  );
+  assert.deepEqual(verify.panelModelChoices({}), [], "nothing known means an empty list (and the Other field)");
+});
+
 test("consensus: the extra checks use the listed models in turn", async () => {
   const plugin = new QT(makeApp([]));
   await plugin.onload();
