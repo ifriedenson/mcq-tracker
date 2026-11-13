@@ -6673,6 +6673,31 @@ function parseBlindVerificationNumber(reply) {
 }
 
 /**
+ * The models the extra checks use, from a saved array or a typed list (one per
+ * line, or comma separated). At most three, deduplicated, so a vote cannot be
+ * three copies of the same model by accident.
+ */
+function normalizePanelModels(value) {
+  const raw = Array.isArray(value) ? value : str(value).split(/[\r\n,]+/);
+  const out = [];
+  for (const item of raw) {
+    const model = str(item).trim().slice(0, 200);
+    if (!model || out.includes(model)) continue;
+    out.push(model);
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+
+/** The model for one extra check: the list repeats until the panel is full. */
+function panelModelFor(models, index) {
+  const list = Array.isArray(models) ? models : [];
+  if (!list.length) return "";
+  const at = Math.max(0, Number(index) || 0) % list.length;
+  return str(list[at]).trim();
+}
+
+/**
  * Final verdict when one disagreement was put to more blind checks. The stored
  * key needs a real majority of the checks that answered; a panel that settles
  * on one other answer is reported as that answer so the warning can name it;
@@ -6776,6 +6801,8 @@ function addVerificationBanner(text, verification) {
 module.exports = {
   VERIFICATION_MODES,
   consensusVerdict,
+  normalizePanelModels,
+  panelModelFor,
   addVerificationBanner,
   buildBlindVerificationPrompt,
   normalizeVerificationMode,
@@ -71730,7 +71757,7 @@ const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normali
 const { WELCOME_EXAMPLE, WELCOME_NOTE_PATH, WELCOME_PRESETS, markWelcomeSeen, welcomeNoteMarkdown, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, applySkip, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setAttemptError, setLastErrorType } = require("./notes");
 const { parseChoiceSet } = require("./answer-types");
-const { addVerificationBanner, buildBlindVerificationPrompt, consensusVerdict, normalizeVerificationMode, parseBlindVerification, parseBlindVerificationNumber, parseBlindVerificationSet, verificationFields } = require("./answer-verification");
+const { addVerificationBanner, buildBlindVerificationPrompt, consensusVerdict, normalizePanelModels, normalizeVerificationMode, panelModelFor, parseBlindVerification, parseBlindVerificationNumber, parseBlindVerificationSet, verificationFields } = require("./answer-verification");
 const { computedVerification } = require("./computed-verification");
 const { renderSmilesSvg } = require("./smiles");
 const { renderBiologyDiagram, renderChemistryDiagram, renderCircuitDiagram } = require("./stem-diagrams");
@@ -77580,8 +77607,9 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   /** Ask one independent question, without showing the stored key. */
-  async verifyQuestionDraft(item) {
+  async verifyQuestionDraft(item, options) {
     const data = item || {};
+    const model = str(options && options.model).trim().slice(0, 200);
     const rawKey = str(data.answer).trim();
     if (!rawKey) throw new Error("This item has no answer to check.");
     const choices = Array.isArray(data.choices) ? data.choices : [];
@@ -77597,7 +77625,7 @@ class QuestionTrackerPlugin extends Plugin {
       const multiple = keyLetters.length > 1 || data.multiple === true;
       const prompt = buildBlindVerificationPrompt({ question: data.question, choices, multiple });
       const reply = await withinVerificationTimeout(
-        this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800 }),
+        this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model }),
         timeoutMs,
         "The answer check"
       );
@@ -77616,7 +77644,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (!Number.isFinite(keyNumber)) throw new Error("Only multiple-choice, true/false, multi-select or numeric answers can be checked.");
     const prompt = buildBlindVerificationPrompt({ question: data.question });
     const reply = await withinVerificationTimeout(
-      this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800 }),
+      this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model }),
       timeoutMs,
       "The answer check"
     );
@@ -77711,13 +77739,18 @@ class QuestionTrackerPlugin extends Plugin {
         // correct note its answer and a genuinely wrong one is named.
         if (!result.match) result = await this.verifyByConsensus(item, result);
         const status = result.match ? "match" : "mismatch";
+        // Name the panel when it voted, so a note says which AIs checked it.
+        const votedBy =
+          result.method === "consensus"
+            ? [model, ...normalizePanelModels(this.settings.ai && this.settings.ai.verifyPanelModels)].filter(Boolean).join(" + ").slice(0, 200)
+            : model;
         item.verification = {
           status,
           match: result.match,
           answer: result.answer,
           key: result.key,
           confidence: result.confidence,
-          model,
+          model: votedBy,
           date,
           method: result.method,
           votes: result.votes,
@@ -77751,16 +77784,20 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   /**
-   * Ask up to two more independent checks after the first disagrees, and let
-   * the vote decide. A check that errors is not a vote; the first verdict is
-   * kept when the extras cannot settle anything.
+   * Ask the extra independent checks after the first disagrees, and let the
+   * vote decide. Each pass can use its own model (Settings: Models for the
+   * extra checks), so the votes are not three copies of one AI's judgment.
+   * A check that errors is not a vote; the first verdict is kept when the
+   * extras cannot settle anything.
    */
   async verifyByConsensus(item, first) {
     const votes = [{ answer: str(first.answer).trim() }];
     const extras = this.verificationPanelSize();
+    const models = normalizePanelModels(this.settings.ai && this.settings.ai.verifyPanelModels);
     for (let i = 0; i < extras; i++) {
+      const model = panelModelFor(models, i);
       try {
-        const again = await this.verifyQuestionDraft(item);
+        const again = await this.verifyQuestionDraft(item, { model });
         votes.push({ answer: str(again.answer).trim() });
       } catch (e) {
         votes.push({ answer: "" });
@@ -107407,7 +107444,7 @@ const chatPricing = require("./chat-pricing");
 const { DEFAULT_THINK_FIRST_SECONDS, MAX_THINK_FIRST_SECONDS, MIN_THINK_FIRST_SECONDS, normalizeThinkFirstSeconds } = require("./think-first");
 const { normalizeAiContext } = require("./ai-context");
 const { AI_FEATURES, CAPABILITY_LABELS } = require("./ai-service");
-const { normalizeVerificationMode } = require("./answer-verification");
+const { normalizePanelModels, normalizeVerificationMode } = require("./answer-verification");
 
 /** The saved panel size as 2 or 3; an install from 1.301.12 defaults to three. */
 function savedPanelSize(ai) {
@@ -108350,6 +108387,22 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             this.plugin.refreshViews();
           })
       );
+    new Setting(section)
+      .setName("Models for the extra checks")
+      .setDesc(
+        "Optional. One model per line, used by the extra checks in order and repeated when there are more checks than models, so a disagreement is not settled by copies of one AI. Leave it empty to use the model chosen for Check AI-written answers. The first check always uses that model."
+      )
+      .addTextArea((t) => {
+        t.inputEl.rows = 3;
+        t.inputEl.spellcheck = false;
+        t.setPlaceholder("gpt-5\nclaude-sonnet-4-5")
+          .setValue(normalizePanelModels(ai.verifyPanelModels).join("\n"))
+          .onChange(async (v) => {
+            ai.verifyPanelModels = normalizePanelModels(v);
+            await this.plugin.save();
+            this.plugin.refreshViews();
+          });
+      });
     section = card("Context and privacy", "Choose which aggregate study signals the assistant may see. Nothing here includes note text, question text or answers.");
     section.createEl("p", {
       cls: "setting-item-description",
@@ -134541,6 +134594,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.301.14",
+    date: "November 13, 2026",
+    title: "The extra checks can use other AIs",
+    summary:
+      "The extra checks that settle a disputed answer can each run on a model you list, so three passes are no longer three copies of one AI's opinion. Leave the list empty and the chosen check model still does every pass.",
+    highlights: [
+      {
+        title: "List the models to ask",
+        body: "Settings, AI, Session pacing and checks has Models for the extra checks: one model per line, up to three, used in order and repeated when there are more checks than models.",
+      },
+      {
+        title: "The first check stays yours",
+        body: "The first pass still uses the model chosen for Check AI-written answers, so listing two models gives opinions from three different AIs across four passes.",
+      },
+      {
+        title: "The note says who voted",
+        body: "A consensus-checked note now records every model that voted in verified_by, not just the first one.",
+      },
+      {
+        title: "Nothing to set up",
+        body: "Leave the list empty to keep the previous behaviour exactly. Existing notes, settings and review dates are unchanged.",
+      },
+    ],
+  },
   {
     version: "1.301.13",
     date: "November 13, 2026",

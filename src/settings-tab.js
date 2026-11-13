@@ -36,7 +36,7 @@ const chatPricing = require("./chat-pricing");
 const { DEFAULT_THINK_FIRST_SECONDS, MAX_THINK_FIRST_SECONDS, MIN_THINK_FIRST_SECONDS, normalizeThinkFirstSeconds } = require("./think-first");
 const { normalizeAiContext } = require("./ai-context");
 const { AI_FEATURES, CAPABILITY_LABELS } = require("./ai-service");
-const { normalizeVerificationMode } = require("./answer-verification");
+const { normalizePanelModels, normalizeVerificationMode } = require("./answer-verification");
 
 /** The saved panel size as 2 or 3; an install from 1.301.12 defaults to three. */
 function savedPanelSize(ai) {
@@ -979,6 +979,22 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             this.plugin.refreshViews();
           })
       );
+    new Setting(section)
+      .setName("Models for the extra checks")
+      .setDesc(
+        "Optional. One model per line, used by the extra checks in order and repeated when there are more checks than models, so a disagreement is not settled by copies of one AI. Leave it empty to use the model chosen for Check AI-written answers. The first check always uses that model."
+      )
+      .addTextArea((t) => {
+        t.inputEl.rows = 3;
+        t.inputEl.spellcheck = false;
+        t.setPlaceholder("gpt-5\nclaude-sonnet-4-5")
+          .setValue(normalizePanelModels(ai.verifyPanelModels).join("\n"))
+          .onChange(async (v) => {
+            ai.verifyPanelModels = normalizePanelModels(v);
+            await this.plugin.save();
+            this.plugin.refreshViews();
+          });
+      });
     section = card("Context and privacy", "Choose which aggregate study signals the assistant may see. Nothing here includes note text, question text or answers.");
     section.createEl("p", {
       cls: "setting-item-description",

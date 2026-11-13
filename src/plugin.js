@@ -188,7 +188,7 @@ const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normali
 const { WELCOME_EXAMPLE, WELCOME_NOTE_PATH, WELCOME_PRESETS, markWelcomeSeen, welcomeNoteMarkdown, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, applySkip, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setAttemptError, setLastErrorType } = require("./notes");
 const { parseChoiceSet } = require("./answer-types");
-const { addVerificationBanner, buildBlindVerificationPrompt, consensusVerdict, normalizeVerificationMode, parseBlindVerification, parseBlindVerificationNumber, parseBlindVerificationSet, verificationFields } = require("./answer-verification");
+const { addVerificationBanner, buildBlindVerificationPrompt, consensusVerdict, normalizePanelModels, normalizeVerificationMode, panelModelFor, parseBlindVerification, parseBlindVerificationNumber, parseBlindVerificationSet, verificationFields } = require("./answer-verification");
 const { computedVerification } = require("./computed-verification");
 const { renderSmilesSvg } = require("./smiles");
 const { renderBiologyDiagram, renderChemistryDiagram, renderCircuitDiagram } = require("./stem-diagrams");
@@ -6038,8 +6038,9 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   /** Ask one independent question, without showing the stored key. */
-  async verifyQuestionDraft(item) {
+  async verifyQuestionDraft(item, options) {
     const data = item || {};
+    const model = str(options && options.model).trim().slice(0, 200);
     const rawKey = str(data.answer).trim();
     if (!rawKey) throw new Error("This item has no answer to check.");
     const choices = Array.isArray(data.choices) ? data.choices : [];
@@ -6055,7 +6056,7 @@ class QuestionTrackerPlugin extends Plugin {
       const multiple = keyLetters.length > 1 || data.multiple === true;
       const prompt = buildBlindVerificationPrompt({ question: data.question, choices, multiple });
       const reply = await withinVerificationTimeout(
-        this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800 }),
+        this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model }),
         timeoutMs,
         "The answer check"
       );
@@ -6074,7 +6075,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (!Number.isFinite(keyNumber)) throw new Error("Only multiple-choice, true/false, multi-select or numeric answers can be checked.");
     const prompt = buildBlindVerificationPrompt({ question: data.question });
     const reply = await withinVerificationTimeout(
-      this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800 }),
+      this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model }),
       timeoutMs,
       "The answer check"
     );
@@ -6169,13 +6170,18 @@ class QuestionTrackerPlugin extends Plugin {
         // correct note its answer and a genuinely wrong one is named.
         if (!result.match) result = await this.verifyByConsensus(item, result);
         const status = result.match ? "match" : "mismatch";
+        // Name the panel when it voted, so a note says which AIs checked it.
+        const votedBy =
+          result.method === "consensus"
+            ? [model, ...normalizePanelModels(this.settings.ai && this.settings.ai.verifyPanelModels)].filter(Boolean).join(" + ").slice(0, 200)
+            : model;
         item.verification = {
           status,
           match: result.match,
           answer: result.answer,
           key: result.key,
           confidence: result.confidence,
-          model,
+          model: votedBy,
           date,
           method: result.method,
           votes: result.votes,
@@ -6209,16 +6215,20 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   /**
-   * Ask up to two more independent checks after the first disagrees, and let
-   * the vote decide. A check that errors is not a vote; the first verdict is
-   * kept when the extras cannot settle anything.
+   * Ask the extra independent checks after the first disagrees, and let the
+   * vote decide. Each pass can use its own model (Settings: Models for the
+   * extra checks), so the votes are not three copies of one AI's judgment.
+   * A check that errors is not a vote; the first verdict is kept when the
+   * extras cannot settle anything.
    */
   async verifyByConsensus(item, first) {
     const votes = [{ answer: str(first.answer).trim() }];
     const extras = this.verificationPanelSize();
+    const models = normalizePanelModels(this.settings.ai && this.settings.ai.verifyPanelModels);
     for (let i = 0; i < extras; i++) {
+      const model = panelModelFor(models, i);
       try {
-        const again = await this.verifyQuestionDraft(item);
+        const again = await this.verifyQuestionDraft(item, { model });
         votes.push({ answer: str(again.answer).trim() });
       } catch (e) {
         votes.push({ answer: "" });

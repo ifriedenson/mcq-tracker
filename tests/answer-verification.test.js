@@ -233,6 +233,37 @@ test("consensus: three extra checks are the default, and a 2-of-4 split stays a 
   assert.equal(clear.verification.status, "match", "three of four backing the key verifies");
 });
 
+test("panel models: a typed list is cleaned up and the extra checks take turns", async () => {
+  const verify = require("../src/answer-verification");
+  assert.deepEqual(verify.normalizePanelModels("gpt-5\nclaude-sonnet-4-5"), ["gpt-5", "claude-sonnet-4-5"]);
+  assert.deepEqual(verify.normalizePanelModels("a, b , ,a"), ["a", "b"], "commas work and a repeat is dropped");
+  assert.deepEqual(verify.normalizePanelModels(["one", "two", "three", "four"]).length, 3, "at most three models");
+  assert.deepEqual(verify.normalizePanelModels(undefined), []);
+  assert.equal(verify.panelModelFor(["m-one", "m-two"], 0), "m-one");
+  assert.equal(verify.panelModelFor(["m-one", "m-two"], 1), "m-two");
+  assert.equal(verify.panelModelFor(["m-one", "m-two"], 2), "m-one", "the list repeats for a third check");
+  assert.equal(verify.panelModelFor([], 0), "", "no list leaves the verification model in charge");
+});
+
+test("consensus: the extra checks use the listed models in turn", async () => {
+  const plugin = new QT(makeApp([]));
+  await plugin.onload();
+  plugin.settings.ai.enabled = true;
+  plugin.settings.ai.verifyPanelSize = 3;
+  plugin.settings.ai.verifyPanelModels = ["m-one", "m-two"];
+  const asked = [];
+  let calls = 0;
+  plugin.aiComplete = async (system, user, opts) => {
+    asked.push(opts && opts.model);
+    return calls++ === 0 ? '{"answer":"A"}' : '{"answer":"B"}';
+  };
+  const item = { question: "Two?", choices: ["a", "b", "c", "d"], answer: "B" };
+  await plugin.verifyDraftQuestions([item]);
+  assert.deepEqual(asked, ["", "m-one", "m-two", "m-one"], "the first check keeps the settings model");
+  assert.equal(item.verification.status, "match");
+  assert.match(String(item.verification.model), /m-one \+ m-two/, "the note names the models that voted");
+});
+
 test("consensus: turning the panel off flags the first disagreement immediately", async () => {
   const plugin = new QT(makeApp([]));
   await plugin.onload();

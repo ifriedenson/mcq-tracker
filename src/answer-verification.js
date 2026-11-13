@@ -130,6 +130,31 @@ function parseBlindVerificationNumber(reply) {
 }
 
 /**
+ * The models the extra checks use, from a saved array or a typed list (one per
+ * line, or comma separated). At most three, deduplicated, so a vote cannot be
+ * three copies of the same model by accident.
+ */
+function normalizePanelModels(value) {
+  const raw = Array.isArray(value) ? value : str(value).split(/[\r\n,]+/);
+  const out = [];
+  for (const item of raw) {
+    const model = str(item).trim().slice(0, 200);
+    if (!model || out.includes(model)) continue;
+    out.push(model);
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+
+/** The model for one extra check: the list repeats until the panel is full. */
+function panelModelFor(models, index) {
+  const list = Array.isArray(models) ? models : [];
+  if (!list.length) return "";
+  const at = Math.max(0, Number(index) || 0) % list.length;
+  return str(list[at]).trim();
+}
+
+/**
  * Final verdict when one disagreement was put to more blind checks. The stored
  * key needs a real majority of the checks that answered; a panel that settles
  * on one other answer is reported as that answer so the warning can name it;
@@ -233,6 +258,8 @@ function addVerificationBanner(text, verification) {
 module.exports = {
   VERIFICATION_MODES,
   consensusVerdict,
+  normalizePanelModels,
+  panelModelFor,
   addVerificationBanner,
   buildBlindVerificationPrompt,
   normalizeVerificationMode,

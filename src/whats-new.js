@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.14",
+    date: "November 13, 2026",
+    title: "The extra checks can use other AIs",
+    summary:
+      "The extra checks that settle a disputed answer can each run on a model you list, so three passes are no longer three copies of one AI's opinion. Leave the list empty and the chosen check model still does every pass.",
+    highlights: [
+      {
+        title: "List the models to ask",
+        body: "Settings, AI, Session pacing and checks has Models for the extra checks: one model per line, up to three, used in order and repeated when there are more checks than models.",
+      },
+      {
+        title: "The first check stays yours",
+        body: "The first pass still uses the model chosen for Check AI-written answers, so listing two models gives opinions from three different AIs across four passes.",
+      },
+      {
+        title: "The note says who voted",
+        body: "A consensus-checked note now records every model that voted in verified_by, not just the first one.",
+      },
+      {
+        title: "Nothing to set up",
+        body: "Leave the list empty to keep the previous behaviour exactly. Existing notes, settings and review dates are unchanged.",
+      },
+    ],
+  },
+  {
     version: "1.301.13",
     date: "November 13, 2026",
     title: "Three more checks by default, or two",
