@@ -129,6 +129,35 @@ function parseBlindVerificationNumber(reply) {
   return Number.isFinite(value) ? value : null;
 }
 
+/**
+ * Final verdict when one disagreement was put to more blind checks. The stored
+ * key needs a real majority of the checks that answered; a panel that settles
+ * on one other answer is reported as that answer so the warning can name it;
+ * anything else stays a mismatch for review. `votes` is how many checks
+ * answered, so the note can say how much checking it took.
+ */
+function consensusVerdict(votes, fallback) {
+  const base = fallback || {};
+  const key = str(base.key).trim();
+  const answered = (Array.isArray(votes) ? votes : []).map((vote) => str(vote && vote.answer).trim()).filter(Boolean);
+  const total = answered.length;
+  const forKey = answered.filter((answer) => answer === key).length;
+  const tally = new Map();
+  for (const answer of answered) {
+    if (answer === key) continue;
+    tally.set(answer, (tally.get(answer) || 0) + 1);
+  }
+  const [topAnswer, topVotes] = [...tally.entries()].sort((a, b) => b[1] - a[1])[0] || ["", 0];
+  const out = { ...base, method: "consensus", votes: total };
+  if (total >= 2 && forKey >= 2 && forKey > total / 2) {
+    return { ...out, status: "match", match: true, answer: key, confidence: "consensus" };
+  }
+  if (topVotes >= 2 && topVotes > total / 2) {
+    return { ...out, status: "mismatch", match: false, answer: topAnswer, confidence: "consensus" };
+  }
+  return { ...out, status: "mismatch", match: false, answer: str(base.answer).trim() };
+}
+
 /** The properties recorded after a check. `verified` is false for a mismatch or an unfinished check. */
 function verificationFields(verification) {
   const v = verification || {};
@@ -158,6 +187,12 @@ function verificationBanner(verification) {
       return (
         "> [!warning] Calculation check failed\n" +
         `> A calculation gives ${str(v.answer).trim() || "a different value"}, but this note's answer is ${str(v.key).trim() || "not set"}. This note is marked for review.\n\n`
+      );
+    }
+    if (v.method === "consensus" && Number(v.votes) >= 2) {
+      return (
+        "> [!warning] Answer check failed\n" +
+        `> The answer check ran ${Number(v.votes)} times and most passes chose ${str(v.answer).trim() || "a different answer"}, while this note's answer is ${str(v.key).trim() || "not set"}. This note is marked for review.\n\n`
       );
     }
     return (
@@ -197,6 +232,7 @@ function addVerificationBanner(text, verification) {
 
 module.exports = {
   VERIFICATION_MODES,
+  consensusVerdict,
   addVerificationBanner,
   buildBlindVerificationPrompt,
   normalizeVerificationMode,

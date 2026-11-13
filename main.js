@@ -6672,6 +6672,35 @@ function parseBlindVerificationNumber(reply) {
   return Number.isFinite(value) ? value : null;
 }
 
+/**
+ * Final verdict when one disagreement was put to more blind checks. The stored
+ * key needs a real majority of the checks that answered; a panel that settles
+ * on one other answer is reported as that answer so the warning can name it;
+ * anything else stays a mismatch for review. `votes` is how many checks
+ * answered, so the note can say how much checking it took.
+ */
+function consensusVerdict(votes, fallback) {
+  const base = fallback || {};
+  const key = str(base.key).trim();
+  const answered = (Array.isArray(votes) ? votes : []).map((vote) => str(vote && vote.answer).trim()).filter(Boolean);
+  const total = answered.length;
+  const forKey = answered.filter((answer) => answer === key).length;
+  const tally = new Map();
+  for (const answer of answered) {
+    if (answer === key) continue;
+    tally.set(answer, (tally.get(answer) || 0) + 1);
+  }
+  const [topAnswer, topVotes] = [...tally.entries()].sort((a, b) => b[1] - a[1])[0] || ["", 0];
+  const out = { ...base, method: "consensus", votes: total };
+  if (total >= 2 && forKey >= 2 && forKey > total / 2) {
+    return { ...out, status: "match", match: true, answer: key, confidence: "consensus" };
+  }
+  if (topVotes >= 2 && topVotes > total / 2) {
+    return { ...out, status: "mismatch", match: false, answer: topAnswer, confidence: "consensus" };
+  }
+  return { ...out, status: "mismatch", match: false, answer: str(base.answer).trim() };
+}
+
 /** The properties recorded after a check. `verified` is false for a mismatch or an unfinished check. */
 function verificationFields(verification) {
   const v = verification || {};
@@ -6701,6 +6730,12 @@ function verificationBanner(verification) {
       return (
         "> [!warning] Calculation check failed\n" +
         `> A calculation gives ${str(v.answer).trim() || "a different value"}, but this note's answer is ${str(v.key).trim() || "not set"}. This note is marked for review.\n\n`
+      );
+    }
+    if (v.method === "consensus" && Number(v.votes) >= 2) {
+      return (
+        "> [!warning] Answer check failed\n" +
+        `> The answer check ran ${Number(v.votes)} times and most passes chose ${str(v.answer).trim() || "a different answer"}, while this note's answer is ${str(v.key).trim() || "not set"}. This note is marked for review.\n\n`
       );
     }
     return (
@@ -6740,6 +6775,7 @@ function addVerificationBanner(text, verification) {
 
 module.exports = {
   VERIFICATION_MODES,
+  consensusVerdict,
   addVerificationBanner,
   buildBlindVerificationPrompt,
   normalizeVerificationMode,
@@ -71694,7 +71730,7 @@ const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normali
 const { WELCOME_EXAMPLE, WELCOME_NOTE_PATH, WELCOME_PRESETS, markWelcomeSeen, welcomeNoteMarkdown, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, applySkip, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setAttemptError, setLastErrorType } = require("./notes");
 const { parseChoiceSet } = require("./answer-types");
-const { addVerificationBanner, buildBlindVerificationPrompt, normalizeVerificationMode, parseBlindVerification, parseBlindVerificationNumber, parseBlindVerificationSet, verificationFields } = require("./answer-verification");
+const { addVerificationBanner, buildBlindVerificationPrompt, consensusVerdict, normalizeVerificationMode, parseBlindVerification, parseBlindVerificationNumber, parseBlindVerificationSet, verificationFields } = require("./answer-verification");
 const { computedVerification } = require("./computed-verification");
 const { renderSmilesSvg } = require("./smiles");
 const { renderBiologyDiagram, renderChemistryDiagram, renderCircuitDiagram } = require("./stem-diagrams");
@@ -77669,7 +77705,11 @@ class QuestionTrackerPlugin extends Plugin {
         continue;
       }
       try {
-        const result = await this.verifyQuestionDraft(item);
+        let result = await this.verifyQuestionDraft(item);
+        // One disagreement is not proof. Put it to two more blind checks and
+        // verify only on a real majority, so a single odd reply does not cost a
+        // correct note its answer and a genuinely wrong one is named.
+        if (!result.match) result = await this.verifyByConsensus(item, result);
         const status = result.match ? "match" : "mismatch";
         item.verification = {
           status,
@@ -77679,6 +77719,8 @@ class QuestionTrackerPlugin extends Plugin {
           confidence: result.confidence,
           model,
           date,
+          method: result.method,
+          votes: result.votes,
           drop: !result.match && mode === "drop",
         };
         checked++;
@@ -77698,6 +77740,33 @@ class QuestionTrackerPlugin extends Plugin {
       }
     }
     return { checked, dropped, failed, mode };
+  }
+
+  /** How many extra blind checks a disagreement earns (0 turns the panel off). */
+  verificationPanelSize() {
+    const ai = this.settings.ai || {};
+    if (ai.verifyPanel === false) return 0;
+    const wanted = Number(ai.verifyPanelSize);
+    return Number.isFinite(wanted) ? Math.max(0, Math.min(3, Math.round(wanted))) : 2;
+  }
+
+  /**
+   * Ask up to two more independent checks after the first disagrees, and let
+   * the vote decide. A check that errors is not a vote; the first verdict is
+   * kept when the extras cannot settle anything.
+   */
+  async verifyByConsensus(item, first) {
+    const votes = [{ answer: str(first.answer).trim() }];
+    const extras = this.verificationPanelSize();
+    for (let i = 0; i < extras; i++) {
+      try {
+        const again = await this.verifyQuestionDraft(item);
+        votes.push({ answer: str(again.answer).trim() });
+      } catch (e) {
+        votes.push({ answer: "" });
+      }
+    }
+    return consensusVerdict(votes, first);
   }
 
   /** Compare a blind AI answer with the note's stored key and record the result. */
@@ -108253,6 +108322,18 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             await this.plugin.save();
           })
       );
+    new Setting(section)
+      .setName("Ask two more checks when they disagree")
+      .setDesc(
+        "On by default. The first check runs once per AI-written multiple-choice answer. If it disagrees with the stored answer, two more independent blind checks run and the answer counts as verified only when at least two of the three agree with it; a panel that settles on one other answer is flagged with that answer named. Extra requests happen only for answers that disagree, and switching this off flags a disagreement immediately."
+      )
+      .addToggle((t) =>
+        t.setValue(ai.verifyPanel !== false).onChange(async (v) => {
+          ai.verifyPanel = v;
+          await this.plugin.save();
+          this.plugin.refreshViews();
+        })
+      );
     section = card("Context and privacy", "Choose which aggregate study signals the assistant may see. Nothing here includes note text, question text or answers.");
     section.createEl("p", {
       cls: "setting-item-description",
@@ -134444,6 +134525,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.301.12",
+    date: "November 13, 2026",
+    title: "A disagreement is checked again before it is believed",
+    summary:
+      "When the independent answer check disagrees with a note's answer, two more blind checks now vote before the note is flagged. The answer is verified only when at least two of the three agree with it, so one odd reply no longer costs a right answer.",
+    highlights: [
+      {
+        title: "One odd answer is not a verdict",
+        body: "The first check still runs once per AI-written multiple-choice answer. If it disagrees, two more independent checks run and the stored answer needs a real majority (two of three) to count as verified.",
+      },
+      {
+        title: "A wrong answer is named",
+        body: "If the extra checks settle on one different answer, the warning says how many checks ran and which answer most of them chose, instead of the vague a different answer.",
+      },
+      {
+        title: "You only pay on disagreement",
+        body: "Extra requests happen only for answers that disagree, never for a clean match. One switch in Settings turns the panel off if you would rather flag the first disagreement at once.",
+      },
+      {
+        title: "No format changes",
+        body: "Existing notes stay valid and need no re-import. Review dates, saved settings, provider keys and network defaults are unchanged.",
+      },
+    ],
+  },
   {
     version: "1.301.11",
     date: "November 13, 2026",

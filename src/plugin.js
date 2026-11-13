@@ -188,7 +188,7 @@ const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normali
 const { WELCOME_EXAMPLE, WELCOME_NOTE_PATH, WELCOME_PRESETS, markWelcomeSeen, welcomeNoteMarkdown, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, applySkip, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setAttemptError, setLastErrorType } = require("./notes");
 const { parseChoiceSet } = require("./answer-types");
-const { addVerificationBanner, buildBlindVerificationPrompt, normalizeVerificationMode, parseBlindVerification, parseBlindVerificationNumber, parseBlindVerificationSet, verificationFields } = require("./answer-verification");
+const { addVerificationBanner, buildBlindVerificationPrompt, consensusVerdict, normalizeVerificationMode, parseBlindVerification, parseBlindVerificationNumber, parseBlindVerificationSet, verificationFields } = require("./answer-verification");
 const { computedVerification } = require("./computed-verification");
 const { renderSmilesSvg } = require("./smiles");
 const { renderBiologyDiagram, renderChemistryDiagram, renderCircuitDiagram } = require("./stem-diagrams");
@@ -6163,7 +6163,11 @@ class QuestionTrackerPlugin extends Plugin {
         continue;
       }
       try {
-        const result = await this.verifyQuestionDraft(item);
+        let result = await this.verifyQuestionDraft(item);
+        // One disagreement is not proof. Put it to two more blind checks and
+        // verify only on a real majority, so a single odd reply does not cost a
+        // correct note its answer and a genuinely wrong one is named.
+        if (!result.match) result = await this.verifyByConsensus(item, result);
         const status = result.match ? "match" : "mismatch";
         item.verification = {
           status,
@@ -6173,6 +6177,8 @@ class QuestionTrackerPlugin extends Plugin {
           confidence: result.confidence,
           model,
           date,
+          method: result.method,
+          votes: result.votes,
           drop: !result.match && mode === "drop",
         };
         checked++;
@@ -6192,6 +6198,33 @@ class QuestionTrackerPlugin extends Plugin {
       }
     }
     return { checked, dropped, failed, mode };
+  }
+
+  /** How many extra blind checks a disagreement earns (0 turns the panel off). */
+  verificationPanelSize() {
+    const ai = this.settings.ai || {};
+    if (ai.verifyPanel === false) return 0;
+    const wanted = Number(ai.verifyPanelSize);
+    return Number.isFinite(wanted) ? Math.max(0, Math.min(3, Math.round(wanted))) : 2;
+  }
+
+  /**
+   * Ask up to two more independent checks after the first disagrees, and let
+   * the vote decide. A check that errors is not a vote; the first verdict is
+   * kept when the extras cannot settle anything.
+   */
+  async verifyByConsensus(item, first) {
+    const votes = [{ answer: str(first.answer).trim() }];
+    const extras = this.verificationPanelSize();
+    for (let i = 0; i < extras; i++) {
+      try {
+        const again = await this.verifyQuestionDraft(item);
+        votes.push({ answer: str(again.answer).trim() });
+      } catch (e) {
+        votes.push({ answer: "" });
+      }
+    }
+    return consensusVerdict(votes, first);
   }
 
   /** Compare a blind AI answer with the note's stored key and record the result. */

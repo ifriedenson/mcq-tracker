@@ -951,6 +951,18 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             await this.plugin.save();
           })
       );
+    new Setting(section)
+      .setName("Ask two more checks when they disagree")
+      .setDesc(
+        "On by default. The first check runs once per AI-written multiple-choice answer. If it disagrees with the stored answer, two more independent blind checks run and the answer counts as verified only when at least two of the three agree with it; a panel that settles on one other answer is flagged with that answer named. Extra requests happen only for answers that disagree, and switching this off flags a disagreement immediately."
+      )
+      .addToggle((t) =>
+        t.setValue(ai.verifyPanel !== false).onChange(async (v) => {
+          ai.verifyPanel = v;
+          await this.plugin.save();
+          this.plugin.refreshViews();
+        })
+      );
     section = card("Context and privacy", "Choose which aggregate study signals the assistant may see. Nothing here includes note text, question text or answers.");
     section.createEl("p", {
       cls: "setting-item-description",

@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.12",
+    date: "November 13, 2026",
+    title: "A disagreement is checked again before it is believed",
+    summary:
+      "When the independent answer check disagrees with a note's answer, two more blind checks now vote before the note is flagged. The answer is verified only when at least two of the three agree with it, so one odd reply no longer costs a right answer.",
+    highlights: [
+      {
+        title: "One odd answer is not a verdict",
+        body: "The first check still runs once per AI-written multiple-choice answer. If it disagrees, two more independent checks run and the stored answer needs a real majority (two of three) to count as verified.",
+      },
+      {
+        title: "A wrong answer is named",
+        body: "If the extra checks settle on one different answer, the warning says how many checks ran and which answer most of them chose, instead of the vague a different answer.",
+      },
+      {
+        title: "You only pay on disagreement",
+        body: "Extra requests happen only for answers that disagree, never for a clean match. One switch in Settings turns the panel off if you would rather flag the first disagreement at once.",
+      },
+      {
+        title: "No format changes",
+        body: "Existing notes stay valid and need no re-import. Review dates, saved settings, provider keys and network defaults are unchanged.",
+      },
+    ],
+  },
+  {
     version: "1.301.11",
     date: "November 13, 2026",
     title: "The answer check now runs on section-only keys",
