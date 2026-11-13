@@ -298,6 +298,90 @@ test("study agent error card: a missing-key failure offers the AI settings page 
   assert.deepEqual(opened, ["mcq-ai"], "the error card opens the AI settings page directly");
 });
 
+test("study agent error card: every settings-fix provider failure offers Retry and the AI settings page", async () => {
+  const cases = [
+    ["Add your API key in the plugin settings.", "missing key"],
+    ["Add a base URL in the plugin settings.", "missing base URL"],
+    ["Add a model name in the plugin settings.", "missing model"],
+    [
+      "OpenCode has no AI provider connected yet. Open Settings > Study agent > AI and the assistant, choose a provider and paste an API key.",
+      "OpenCode without a provider",
+    ],
+    ["OpenCode rejected the username or password. Check the plugin settings.", "OpenCode credential rejection"],
+    [
+      "The provider rejected the API key, or the key can't use this model. HTTP 401: Incorrect API key provided.",
+      "provider key/model rejection",
+    ],
+    [
+      "The provider did not find that model or endpoint. Check the model name and base URL in settings. HTTP 404: model not found",
+      "provider unknown model",
+    ],
+    ["Enter a valid http:// or https:// address.", "invalid base URL"],
+    ["Do not put a username or password in the address; use the separate fields.", "credentials in base URL"],
+    [
+      "Remote API and OpenCode addresses must use https://. Plain http:// is allowed only for localhost, 127.0.0.1 or ::1.",
+      "plain-http remote base URL",
+    ],
+  ];
+
+  for (const [message, label] of cases) {
+    const { panel, plugin, dom } = await apiPanel();
+    const opened = [];
+    plugin.openSettings = (page) => opened.push(page || "");
+    let retries = 0;
+    panel.retry = () => {
+      retries += 1;
+    };
+    panel.lastSent = "Why is the answer B?";
+    panel.busy = false;
+    panel.sig = "";
+    panel.setError(message, { code: "ai-config" });
+    assert.equal(panel.errorConfig, true, `${label}: the structured error kind survives`);
+    panel.draw();
+
+    assert.ok(dom.texts().some((text) => text === "Retry"), `${label}: Retry is still drawn`);
+    assert.ok(dom.texts().some((text) => text === "Open settings"), `${label}: Open settings is drawn`);
+    await dom.click("Retry");
+    assert.equal(retries, 1, `${label}: Retry stays wired`);
+    await dom.click("Open settings");
+    assert.deepEqual(opened, ["mcq-ai"], `${label}: Open settings goes straight to AI settings`);
+  }
+});
+
+test("study agent error card: an OpenCode reply that says a provider is connected still offers settings", async () => {
+  const { panel, plugin, dom } = await apiPanel();
+  const opened = [];
+  plugin.openSettings = (page) => opened.push(page || "");
+  panel.lastSent = "Why is the answer B?";
+  panel.busy = false;
+  panel.sig = "";
+  panel.setError(
+    "OpenCode didn't finish the request at http://127.0.0.1:4096. Check that OpenCode is running and a provider is connected, then try again."
+  );
+  panel.draw();
+
+  assert.ok(dom.texts().some((text) => text === "Retry"));
+  assert.ok(dom.texts().some((text) => text === "Open settings"));
+  await dom.click("Open settings");
+  assert.deepEqual(opened, ["mcq-ai"]);
+});
+
+test("study agent error card: a settings-fix error kind wins even when the message does not say settings", async () => {
+  const { panel, plugin, dom } = await apiPanel();
+  const opened = [];
+  plugin.openSettings = (page) => opened.push(page || "");
+  panel.lastSent = "Why is the answer B?";
+  panel.busy = false;
+  panel.sig = "";
+  panel.setError("Remote API and OpenCode addresses must use https://.", { code: "ai-config" });
+  panel.draw();
+
+  assert.ok(dom.texts().some((text) => text === "Retry"));
+  assert.ok(dom.texts().some((text) => text === "Open settings"));
+  await dom.click("Open settings");
+  assert.deepEqual(opened, ["mcq-ai"]);
+});
+
 test("study agent off state: names the setting and draws a working settings button", async () => {
   const { panel, plugin, dom } = await apiPanel();
   const opened = [];

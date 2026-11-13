@@ -24,12 +24,44 @@ const API_PRESETS = {
 
 function friendlyApiError(e) {
   const m = str(e && e.message ? e.message : e);
+  // Callers can pass a message that was already made friendly; do not prefix it twice.
+  if (/^(?:The provider rejected the API key|The provider says you're rate limited|Couldn't reach the provider)/.test(m)) return m;
   if (/HTTP 401|HTTP 403/.test(m)) return `The provider rejected the API key, or the key can't use this model. ${m}`;
   if (/HTTP 429/.test(m)) return `The provider says you're rate limited or out of credit. ${m}`;
   if (/ENOTFOUND|ECONNREFUSED|Failed to fetch|net::|ETIMEDOUT/i.test(m)) {
     return "Couldn't reach the provider. Check your internet connection and the base URL in settings.";
   }
   return m;
+}
+
+/** A provider failure whose fix is a value on the AI settings page. */
+function configError(message, code) {
+  const error = new Error(message);
+  error.aiConfig = true;
+  error.code = code || "ai-config";
+  return error;
+}
+
+/** A request that never reached the provider: only the base URL/connection message is actionable in settings. */
+function requestFailure(error) {
+  const message = friendlyApiError(error);
+  return /Couldn't reach the provider/.test(message) ? configError(message) : new Error(message);
+}
+
+/** An HTTP response from the provider: key/model/endpoint failures belong on the AI settings page. */
+function providerHttpError(status, reason) {
+  const detail = `HTTP ${status}: ${str(reason).trim()}`;
+  if (status === 401 || status === 403) return configError(friendlyApiError(new Error(detail)), "provider-auth");
+  if (status === 404) {
+    return configError(
+      `The provider did not find that model or endpoint. Check the model name and base URL in settings. ${detail}`,
+      "provider-model"
+    );
+  }
+  if ((status === 400 || status === 422) && /model|context|max_tokens|token limit/i.test(detail)) {
+    return configError(`The provider rejected the request. Check the model name and request limits in settings. ${detail}`, "provider-model");
+  }
+  return new Error(friendlyApiError(new Error(detail)));
 }
 
 /** No provider reply should spin forever; a request that hangs is a dead end for the user. */
@@ -65,19 +97,28 @@ class ApiClient {
   cfg() {
     const a = this.ai.api || {};
     const preset = API_PRESETS[a.provider] || API_PRESETS.custom;
+    const rawBase = (str(a.baseUrl).trim() || preset.base).replace(/\/+$/, "");
+    let base = "";
+    if (rawBase) {
+      try {
+        base = safeApiBase(rawBase);
+      } catch (e) {
+        throw configError(str(e && e.message ? e.message : e));
+      }
+    }
     return {
       timeoutMs: Number(this.opts.timeoutMs) > 0 ? Number(this.opts.timeoutMs) : REQUEST_TIMEOUT_MS,
       preset,
-      base: (str(a.baseUrl).trim() || preset.base).replace(/\/+$/, "") ? safeApiBase((str(a.baseUrl).trim() || preset.base).replace(/\/+$/, "")) : "",
+      base,
       key: resolveApiKey(this.app, a),
       model: str(this.opts.model).trim() || str(a.model).trim() || preset.defaultModel,
     };
   }
   async vision(system, prompt, images, opts) {
     const { preset, base, key, model, timeoutMs } = this.cfg();
-    if (!base) throw new Error("Add a base URL in the plugin settings.");
-    if (!model) throw new Error("Add a model name in the plugin settings.");
-    if (!key && !preset.noKey) throw new Error("Add your API key in the plugin settings.");
+    if (!base) throw configError("Add a base URL in the plugin settings.", "missing-base");
+    if (!model) throw configError("Add a model name in the plugin settings.", "missing-model");
+    if (!key && !preset.noKey) throw configError("Add your API key in the plugin settings.", "missing-key");
     const list = (Array.isArray(images) ? images : []).filter((image) => image && image.data);
     if (!list.length) throw new Error("There are no page images to send.");
 
@@ -125,7 +166,7 @@ class ApiClient {
         "The image request"
       );
     } catch (e) {
-      throw new Error(friendlyApiError(e));
+      throw requestFailure(e);
     }
     if (!r) throw new Error("The provider returned no response.");
     let data = null;
@@ -136,8 +177,8 @@ class ApiClient {
     }
     if (r.status >= 400) {
       const em = data && data.error ? data.error.message || data.error : r.text;
-      const detail = `HTTP ${r.status}: ${str(typeof em === "string" ? em : JSON.stringify(em)).slice(0, 300)}`;
-      throw new Error(friendlyApiError(new Error(detail)));
+      const reason = str(typeof em === "string" ? em : JSON.stringify(em)).slice(0, 300);
+      throw providerHttpError(r.status, reason);
     }
     let text = "";
     if (preset.kind === "anthropic") {
@@ -153,8 +194,8 @@ class ApiClient {
   /** Read the provider's current model list. This never sends a prompt or spends a generation request. */
   async listModels() {
     const { preset, base, key, timeoutMs } = this.cfg();
-    if (!base) throw new Error("Add a base URL in the plugin settings.");
-    if (!key && !preset.noKey) throw new Error("Add your API key in the plugin settings.");
+    if (!base) throw configError("Add a base URL in the plugin settings.", "missing-base");
+    if (!key && !preset.noKey) throw configError("Add your API key in the plugin settings.", "missing-key");
     const anthropic = preset.kind === "anthropic";
     const url = `${base}${anthropic ? "/v1/models?limit=1000" : "/models"}`;
     const headers = anthropic
@@ -166,7 +207,7 @@ class ApiClient {
     try {
       response = await withinTimeout(requestUrl({ url, method: "GET", headers, throw: false }), timeoutMs, "The model list request");
     } catch (e) {
-      throw new Error(friendlyApiError(e));
+      throw requestFailure(e);
     }
     if (!response || typeof response !== "object") throw new Error("The provider returned no response.");
     let data = null;
@@ -179,9 +220,9 @@ class ApiClient {
       const detail = data && data.error ? data.error.message || data.error : response.text;
       const reason = str(typeof detail === "string" ? detail : JSON.stringify(detail)).slice(0, 300);
       if (response.status === 404) {
-        throw new Error(`The provider did not expose a model list at that address. Check the base URL. HTTP 404: ${reason}`);
+        throw configError(`The provider did not expose a model list at that address. Check the base URL. HTTP 404: ${reason}`, "provider-model");
       }
-      throw new Error(friendlyApiError(new Error(`HTTP ${response.status}: ${reason}`)));
+      throw providerHttpError(response.status, reason);
     }
     const parsed = parseModelList(data);
     if (!parsed.models.length) throw new Error(parsed.issue || "The provider returned an empty model list.");
@@ -200,9 +241,9 @@ class ApiClient {
       return this.chat(system, messages, o);
     }
     const { preset, base, key, model, timeoutMs } = this.cfg();
-    if (!base) throw new Error("Add a base URL in the plugin settings.");
-    if (!model) throw new Error("Add a model name in the plugin settings.");
-    if (!key && !preset.noKey) throw new Error("Add your API key in the plugin settings.");
+    if (!base) throw configError("Add a base URL in the plugin settings.", "missing-base");
+    if (!model) throw configError("Add a model name in the plugin settings.", "missing-model");
+    if (!key && !preset.noKey) throw configError("Add your API key in the plugin settings.", "missing-key");
     const msgs = messages.slice(-20);
     while (msgs.length && msgs[0].role !== "user") msgs.shift();
     const kind = preset.kind === "anthropic" ? "anthropic" : "openai";
@@ -228,18 +269,19 @@ class ApiClient {
     } catch (e) {
       // A cancel is the user's own action; callers detect it by error name, so keep it unwrapped.
       if (e && (e.name === "AbortError" || (o.signal && o.signal.aborted))) throw e;
-      throw new Error(friendlyApiError(e));
+      throw requestFailure(e);
     }
     if (!response || !response.ok) {
-      let detail = response ? `HTTP ${response.status}` : "no response";
+      let reason = "";
       try {
         const data = response && typeof response.json === "function" ? await response.json() : null;
         const message = data && data.error ? data.error.message || data.error : "";
-        if (message) detail += `: ${str(typeof message === "string" ? message : JSON.stringify(message)).slice(0, 300)}`;
+        if (message) reason = str(typeof message === "string" ? message : JSON.stringify(message)).slice(0, 300);
       } catch (error) {
         /* the error body may not be JSON */
       }
-      throw new Error(detail);
+      if (!response) throw new Error("The provider returned no response.");
+      throw providerHttpError(response.status, reason || "no response");
     }
     const type = response.headers && typeof response.headers.get === "function" ? str(response.headers.get("content-type")) : "";
     if (type.includes("text/event-stream") && response.body && typeof response.body.getReader === "function") {
@@ -259,9 +301,9 @@ class ApiClient {
 
   async chat(system, messages, opts) {
     const { preset, base, key, model, timeoutMs } = this.cfg();
-    if (!base) throw new Error("Add a base URL in the plugin settings.");
-    if (!model) throw new Error("Add a model name in the plugin settings.");
-    if (!key && !preset.noKey) throw new Error("Add your API key in the plugin settings.");
+    if (!base) throw configError("Add a base URL in the plugin settings.", "missing-base");
+    if (!model) throw configError("Add a model name in the plugin settings.", "missing-model");
+    if (!key && !preset.noKey) throw configError("Add your API key in the plugin settings.", "missing-key");
     const msgs = messages.slice(-20);
     while (msgs.length && msgs[0].role !== "user") msgs.shift(); // providers require a user turn first
 
@@ -283,7 +325,7 @@ class ApiClient {
         "The provider"
       );
     } catch (e) {
-      throw new Error(friendlyApiError(e));
+      throw requestFailure(e);
     }
     let data = null;
     try {
@@ -294,8 +336,8 @@ class ApiClient {
     if (!r) throw new Error("The provider returned no response.");
     if (r.status >= 400) {
       const em = data && data.error ? data.error.message || data.error : r.text;
-      const detail = `HTTP ${r.status}: ${str(typeof em === "string" ? em : JSON.stringify(em)).slice(0, 300)}`;
-      throw new Error(friendlyApiError(new Error(detail)));
+      const reason = str(typeof em === "string" ? em : JSON.stringify(em)).slice(0, 300);
+      throw providerHttpError(r.status, reason);
     }
     let text = "";
     if (preset.kind === "anthropic") {

@@ -19,15 +19,52 @@ function stubRequest(handler) {
 }
 
 test("AI request: a missing key, base URL or model names the setting to fix", async () => {
+  const config = (pattern) => (error) => {
+    assert.equal(error.aiConfig, true);
+    assert.match(error.message, pattern);
+    return true;
+  };
   const noKey = { api: { provider: "openai", baseUrl: "https://api.example.com/v1", model: "m", keys: {} } };
-  await assert.rejects(() => client({}, noKey).chat("sys", messages), /Add your API key in the plugin settings/);
-  await assert.rejects(() => client({}, noKey).vision("sys", "prompt", [{ data: "x" }]), /Add your API key in the plugin settings/);
+  await assert.rejects(() => client({}, noKey).chat("sys", messages), config(/Add your API key in the plugin settings/));
+  await assert.rejects(
+    () => client({}, noKey).vision("sys", "prompt", [{ data: "x" }]),
+    config(/Add your API key in the plugin settings/)
+  );
 
   const noBase = { api: { provider: "custom", baseUrl: "", model: "m", keys: { custom: "k" } } };
-  await assert.rejects(() => client({}, noBase).chat("sys", messages), /Add a base URL in the plugin settings/);
+  await assert.rejects(() => client({}, noBase).chat("sys", messages), config(/Add a base URL in the plugin settings/));
 
   const noModel = { api: { provider: "openai", baseUrl: "https://api.example.com/v1", model: "", keys: { openai: "k" } } };
-  await assert.rejects(() => client({}, noModel).chat("sys", messages), /Add a model name in the plugin settings/);
+  await assert.rejects(() => client({}, noModel).chat("sys", messages), config(/Add a model name in the plugin settings/));
+});
+
+test("AI request: rejected keys, unknown models and unsafe base URLs carry a settings-fix kind", async () => {
+  const config = (code, pattern) => (error) => {
+    assert.equal(error.aiConfig, true);
+    assert.equal(error.code, code);
+    assert.match(error.message, pattern);
+    return true;
+  };
+
+  const restore401 = stubRequest(async () => ({ status: 401, json: { error: { message: "invalid x-api-key" } }, text: "" }));
+  try {
+    await assert.rejects(() => client().chat("sys", messages), config("provider-auth", /rejected the API key/));
+  } finally {
+    restore401();
+  }
+
+  const restore404 = stubRequest(async () => ({ status: 404, json: { error: { message: "model gpt-missing not found" } }, text: "" }));
+  try {
+    await assert.rejects(
+      () => client().chat("sys", messages),
+      config("provider-model", /did not find that model or endpoint.*Check the model name and base URL in settings/)
+    );
+  } finally {
+    restore404();
+  }
+
+  const unsafe = { api: { provider: "custom", baseUrl: "http://api.example.com/v1", model: "m", keys: { custom: "k" } } };
+  await assert.rejects(() => client({}, unsafe).chat("sys", messages), config("ai-config", /must use https:\/\//));
 });
 
 test("AI errors: a rejected key is reported as a key problem, not a network problem", () => {
@@ -205,6 +242,13 @@ test("AI errors: friendlyApiError leaves an already-clear message alone", () => 
   assert.equal(friendlyApiError(new Error("Add your API key in the plugin settings.")), "Add your API key in the plugin settings.");
   assert.match(friendlyApiError("ETIMEDOUT"), /Couldn't reach the provider/);
   assert.match(friendlyApiError(new Error("HTTP 403: forbidden")), /rejected the API key/);
+  for (const message of [
+    "The provider rejected the API key, or the key can't use this model. HTTP 401: Incorrect API key provided.",
+    "The provider says you're rate limited or out of credit. HTTP 429: slow down",
+    "Couldn't reach the provider. Check your internet connection and the base URL in settings.",
+  ]) {
+    assert.equal(friendlyApiError(new Error(message)), message, "a friendly message is not prefixed twice");
+  }
 });
 
 test("AI streaming: a cancelled request keeps its AbortError so the panel shows no failure", async () => {

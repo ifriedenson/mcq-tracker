@@ -82,7 +82,17 @@ function errorNeedsSettings(error) {
   return (
     /\bsettings?\b/i.test(text) ||
     /rejected the API key|can't use this model/i.test(text) ||
-    /no AI provider connected/i.test(text)
+    /no AI provider connected|provider is connected/i.test(text)
+  );
+}
+
+/** Configuration errors carry a kind, so the card does not depend on the wording of a message. */
+function isConfigError(error) {
+  return Boolean(
+    error &&
+      (error.aiConfig === true ||
+        error.code === "ai-config" ||
+        (typeof error.code === "string" && error.code.startsWith("ai-config:")))
   );
 }
 
@@ -115,6 +125,7 @@ class ChatPanel {
     this.turns = [];
     this.pending = "";
     this.error = "";
+    this.errorConfig = false;
     this.sig = "";
     this.streamText = "";
     this.streamingController = null;
@@ -574,13 +585,13 @@ class ChatPanel {
       .then((started) => {
         if (started === false) {
           const message = `Queued message could not be sent: ${this.error || "the composer refused it"}. It was not retried.`;
-          this.error = message;
+          this.setError(message);
           if (this.status) this.status.setText(message);
           this.draw();
         }
       })
       .catch((e) => {
-        this.error = `Queued message could not be sent: ${str(e && e.message ? e.message : e)}`;
+        this.setError(`Queued message could not be sent: ${str(e && e.message ? e.message : e)}`);
         if (this.status) this.status.setText(this.error);
         this.draw();
       })
@@ -1321,7 +1332,7 @@ class ChatPanel {
     this.streamText = "";
     this.keepPartial = "";
     this.pending = "";
-    this.error = partial ? "" : "Stopped waiting for the reply.";
+    this.setError(partial ? "" : "Stopped waiting for the reply.");
     this.setBusy(false);
     if (this.status) this.status.setText(partial ? "Stopped. The partial reply was kept." : "Stopped waiting for the reply.");
     this.draw();
@@ -1382,7 +1393,7 @@ class ChatPanel {
     this.refreshBookmarks();
     this.turns = apiTurns(Array.isArray(messages) ? messages : []);
     this.pending = "";
-    this.error = "";
+    this.clearError();
     this.streamText = "";
     this.keepPartial = "";
     this.lastSent = "";
@@ -1665,6 +1676,17 @@ class ChatPanel {
     );
   }
 
+  /** Store a failure together with whether its fix lives on the AI settings page. */
+  setError(message, cause) {
+    this.error = str(message);
+    this.errorConfig = isConfigError(cause) || errorNeedsSettings(this.error);
+  }
+
+  clearError() {
+    this.error = "";
+    this.errorConfig = false;
+  }
+
   async saveChat() {
     if (typeof this.opts.onSaveChat !== "function") return;
     const text = this.transcriptMarkdown();
@@ -1694,13 +1716,13 @@ class ChatPanel {
   async resend(text) {
     const value = str(text).trim();
     if (!value || this.busy) return;
-    this.error = "";
+    this.clearError();
     this.lastSent = value;
     const modelPlan = this.modelPlan(value);
     if (this.view.plugin.backend() === "api") {
       const prepared = await this.prepareSendContext(value);
       if (!prepared.ok) {
-        this.error = prepared.error;
+        this.setError(prepared.error);
         if (this.status) this.status.setText(prepared.error);
         this.draw();
         return;
@@ -1719,7 +1741,7 @@ class ChatPanel {
     if (this.busy || !this.lastSent) return;
     const text = this.lastSent;
     const last = this.turns[this.turns.length - 1];
-    this.error = "";
+    this.clearError();
     if (last && last.role === "assistant") return this.resend(text);
     return this.send(text);
   }
@@ -1781,7 +1803,7 @@ class ChatPanel {
     if (this.view.plugin.backend() !== "api") {
       const reason =
         "/compact folds the Direct API conversation stored in settings. OpenCode keeps its own server-side history, so there is nothing local to compact.";
-      this.error = reason;
+      this.setError(reason);
       if (this.status) this.status.setText(reason);
       this.draw();
       return false;
@@ -1790,7 +1812,7 @@ class ChatPanel {
       limit: chatBudget.CONTEXT_BUDGET_TOKENS,
     });
     if (!result.ok) {
-      this.error = "";
+      this.clearError();
       if (this.status) this.status.setText(result.reason);
       return false;
     }
@@ -1802,7 +1824,7 @@ class ChatPanel {
     }
     this.turns = apiTurns(result.messages);
     this.lastSent = "";
-    this.error = "";
+    this.clearError();
     this.input.value = "";
     this.syncMentionChips();
     this.sig = "";
@@ -1894,7 +1916,7 @@ class ChatPanel {
 
     const prepared = await this.prepareSendContext(text);
     if (!prepared.ok) {
-      this.error = prepared.error;
+      this.setError(prepared.error);
       if (this.status) this.status.setText(prepared.error);
       this.draw();
       return false;
@@ -1926,14 +1948,14 @@ class ChatPanel {
       try {
         baseline = await plugin.captureAgentBaseline([this.opts.sourcePath, active && active.path]);
       } catch (e) {
-        this.error = `Could not prepare the agent edit review, so nothing was sent. ${str(e && e.message ? e.message : e)}`;
+        this.setError(`Could not prepare the agent edit review, so nothing was sent. ${str(e && e.message ? e.message : e)}`);
         this.draw();
         return false;
       }
     }
     const guard = ai.mode === "agent" && typeof plugin.snapshotProtectedState === "function" ? plugin.snapshotProtectedState() : null;
     let stepOutcome = null;
-    this.error = "";
+    this.clearError();
     this.input.value = "";
     this.syncMentionChips();
     this.pending = text;
@@ -1992,7 +2014,7 @@ class ChatPanel {
     } catch (e) {
       const stopped = this.cancelled || (e && (e.name === "AbortError" || (this.streamingController && this.streamingController.signal && this.streamingController.signal.aborted)));
       if (stopped) this.keepPartial = this.streamText.trim();
-      else this.error = friendlyError(e, plugin.openCode().base());
+      else this.setError(friendlyError(e, plugin.openCode().base()), e);
       stepOutcome = { kind: stopped ? "aborted" : "error", message: this.error || "The step request failed." };
     } finally {
       if (timer) activeWindow.clearInterval(timer);
@@ -2011,7 +2033,7 @@ class ChatPanel {
         try {
           staged = await plugin.stageAgentEdits(baseline);
         } catch (e) {
-          this.error = `Could not stage the agent's edits: ${str(e && e.message ? e.message : e)}`;
+          this.setError(`Could not stage the agent's edits: ${str(e && e.message ? e.message : e)}`);
           new Notice(this.error, 10000);
         }
       }
@@ -2363,13 +2385,13 @@ class ChatPanel {
     const planning = Boolean(this.planRequest);
     const budget = this.budgetFor(text, currentNote);
     if (budget.over) {
-      this.error = budgetRefusal(budget);
+      this.setError(budgetRefusal(budget));
       if (this.status) this.status.setText(this.error);
       this.refreshTokenFooter();
       this.draw();
       return false;
     }
-    this.error = "";
+    this.clearError();
     this.input.value = "";
     this.syncMentionChips();
     this.pending = text;
@@ -2436,7 +2458,8 @@ class ChatPanel {
       }
       this.pending = "";
       this.streamText = "";
-      this.error = stopped ? "" : friendlyApiError(e);
+      if (stopped) this.clearError();
+      else this.setError(friendlyApiError(e), e);
       stepOutcome = { kind: stopped ? "aborted" : "error", message: this.error || "The step request failed." };
       if (planning) this.settlePlanRequest(stepOutcome);
       if (!stopped && !kept) this.input.value = text;
@@ -2496,9 +2519,12 @@ class ChatPanel {
       return; // endpoint differs on this OpenCode version: let the request itself report problems
     }
     if (n === 0) {
-      throw new Error(
+      const error = new Error(
         "OpenCode has no AI provider connected yet. Open Settings > Study agent > AI and the assistant, choose a provider and paste an API key."
       );
+      error.aiConfig = true;
+      error.code = "ai-config";
+      throw error;
     }
   }
 
@@ -2517,7 +2543,7 @@ class ChatPanel {
       this.draw();
     } catch (e) {
       if (!this.busy) {
-        this.error = friendlyError(e, this.view.plugin.openCode().base());
+        this.setError(friendlyError(e, this.view.plugin.openCode().base()), e);
         this.draw();
       }
     }
@@ -2964,7 +2990,7 @@ class ChatPanel {
       });
       boxed.createDiv({ cls: "qt-agent-error-text", text: this.error });
       const canRetry = this.lastSent && !this.busy;
-      const needsSettings = errorNeedsSettings(this.error) && typeof this.view.plugin.openSettings === "function";
+      const needsSettings = (this.errorConfig || errorNeedsSettings(this.error)) && typeof this.view.plugin.openSettings === "function";
       if (canRetry || needsSettings) {
         const actions = boxed.createDiv({ cls: "qt-agent-error-actions" });
         if (canRetry) {

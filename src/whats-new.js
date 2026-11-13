@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.24",
+    date: "November 13, 2026",
+    title: "Every settings error shows the fix",
+    summary:
+      "Provider errors now carry a configuration kind instead of relying on the word settings. Invalid base URLs, unknown models, OpenCode credential/version failures and no-provider replies all get Retry plus Open settings, and 401 copy is no longer doubled.",
+    highlights: [
+      {
+        title: "Errors say what kind of fix they need",
+        body: "The API client marks missing values, rejected keys, unknown models and unsafe base URLs with a configuration kind. The chat panel reads that kind first, so a helpful button no longer depends on the exact wording of an error.",
+      },
+      {
+        title: "Model and base-URL dead ends are gone",
+        body: "A provider 404 for an unknown model, a 400 that rejects the model or request limits, and an http:// remote base URL now explain what to change and draw Open settings beside Retry.",
+      },
+      {
+        title: "OpenCode failures get the same action",
+        body: "OpenCode credentials rejected, a server version mismatch, no connected provider, and the reply that says a provider is connected all point at AI and the assistant with a working settings control.",
+      },
+      {
+        title: "A live 401 no longer repeats itself",
+        body: "The live run showed the 401 sentence twice. Friendly provider copy is now left alone when it is already friendly, and the re-run showed one sentence, one Retry and one Open settings, then recovered through Retry.",
+      },
+    ],
+  },
+  {
     version: "1.301.23",
     date: "November 13, 2026",
     title: "The error card has the fix",

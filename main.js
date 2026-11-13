@@ -8030,12 +8030,44 @@ const API_PRESETS = {
 
 function friendlyApiError(e) {
   const m = str(e && e.message ? e.message : e);
+  // Callers can pass a message that was already made friendly; do not prefix it twice.
+  if (/^(?:The provider rejected the API key|The provider says you're rate limited|Couldn't reach the provider)/.test(m)) return m;
   if (/HTTP 401|HTTP 403/.test(m)) return `The provider rejected the API key, or the key can't use this model. ${m}`;
   if (/HTTP 429/.test(m)) return `The provider says you're rate limited or out of credit. ${m}`;
   if (/ENOTFOUND|ECONNREFUSED|Failed to fetch|net::|ETIMEDOUT/i.test(m)) {
     return "Couldn't reach the provider. Check your internet connection and the base URL in settings.";
   }
   return m;
+}
+
+/** A provider failure whose fix is a value on the AI settings page. */
+function configError(message, code) {
+  const error = new Error(message);
+  error.aiConfig = true;
+  error.code = code || "ai-config";
+  return error;
+}
+
+/** A request that never reached the provider: only the base URL/connection message is actionable in settings. */
+function requestFailure(error) {
+  const message = friendlyApiError(error);
+  return /Couldn't reach the provider/.test(message) ? configError(message) : new Error(message);
+}
+
+/** An HTTP response from the provider: key/model/endpoint failures belong on the AI settings page. */
+function providerHttpError(status, reason) {
+  const detail = `HTTP ${status}: ${str(reason).trim()}`;
+  if (status === 401 || status === 403) return configError(friendlyApiError(new Error(detail)), "provider-auth");
+  if (status === 404) {
+    return configError(
+      `The provider did not find that model or endpoint. Check the model name and base URL in settings. ${detail}`,
+      "provider-model"
+    );
+  }
+  if ((status === 400 || status === 422) && /model|context|max_tokens|token limit/i.test(detail)) {
+    return configError(`The provider rejected the request. Check the model name and request limits in settings. ${detail}`, "provider-model");
+  }
+  return new Error(friendlyApiError(new Error(detail)));
 }
 
 /** No provider reply should spin forever; a request that hangs is a dead end for the user. */
@@ -8071,19 +8103,28 @@ class ApiClient {
   cfg() {
     const a = this.ai.api || {};
     const preset = API_PRESETS[a.provider] || API_PRESETS.custom;
+    const rawBase = (str(a.baseUrl).trim() || preset.base).replace(/\/+$/, "");
+    let base = "";
+    if (rawBase) {
+      try {
+        base = safeApiBase(rawBase);
+      } catch (e) {
+        throw configError(str(e && e.message ? e.message : e));
+      }
+    }
     return {
       timeoutMs: Number(this.opts.timeoutMs) > 0 ? Number(this.opts.timeoutMs) : REQUEST_TIMEOUT_MS,
       preset,
-      base: (str(a.baseUrl).trim() || preset.base).replace(/\/+$/, "") ? safeApiBase((str(a.baseUrl).trim() || preset.base).replace(/\/+$/, "")) : "",
+      base,
       key: resolveApiKey(this.app, a),
       model: str(this.opts.model).trim() || str(a.model).trim() || preset.defaultModel,
     };
   }
   async vision(system, prompt, images, opts) {
     const { preset, base, key, model, timeoutMs } = this.cfg();
-    if (!base) throw new Error("Add a base URL in the plugin settings.");
-    if (!model) throw new Error("Add a model name in the plugin settings.");
-    if (!key && !preset.noKey) throw new Error("Add your API key in the plugin settings.");
+    if (!base) throw configError("Add a base URL in the plugin settings.", "missing-base");
+    if (!model) throw configError("Add a model name in the plugin settings.", "missing-model");
+    if (!key && !preset.noKey) throw configError("Add your API key in the plugin settings.", "missing-key");
     const list = (Array.isArray(images) ? images : []).filter((image) => image && image.data);
     if (!list.length) throw new Error("There are no page images to send.");
 
@@ -8131,7 +8172,7 @@ class ApiClient {
         "The image request"
       );
     } catch (e) {
-      throw new Error(friendlyApiError(e));
+      throw requestFailure(e);
     }
     if (!r) throw new Error("The provider returned no response.");
     let data = null;
@@ -8142,8 +8183,8 @@ class ApiClient {
     }
     if (r.status >= 400) {
       const em = data && data.error ? data.error.message || data.error : r.text;
-      const detail = `HTTP ${r.status}: ${str(typeof em === "string" ? em : JSON.stringify(em)).slice(0, 300)}`;
-      throw new Error(friendlyApiError(new Error(detail)));
+      const reason = str(typeof em === "string" ? em : JSON.stringify(em)).slice(0, 300);
+      throw providerHttpError(r.status, reason);
     }
     let text = "";
     if (preset.kind === "anthropic") {
@@ -8159,8 +8200,8 @@ class ApiClient {
   /** Read the provider's current model list. This never sends a prompt or spends a generation request. */
   async listModels() {
     const { preset, base, key, timeoutMs } = this.cfg();
-    if (!base) throw new Error("Add a base URL in the plugin settings.");
-    if (!key && !preset.noKey) throw new Error("Add your API key in the plugin settings.");
+    if (!base) throw configError("Add a base URL in the plugin settings.", "missing-base");
+    if (!key && !preset.noKey) throw configError("Add your API key in the plugin settings.", "missing-key");
     const anthropic = preset.kind === "anthropic";
     const url = `${base}${anthropic ? "/v1/models?limit=1000" : "/models"}`;
     const headers = anthropic
@@ -8172,7 +8213,7 @@ class ApiClient {
     try {
       response = await withinTimeout(requestUrl({ url, method: "GET", headers, throw: false }), timeoutMs, "The model list request");
     } catch (e) {
-      throw new Error(friendlyApiError(e));
+      throw requestFailure(e);
     }
     if (!response || typeof response !== "object") throw new Error("The provider returned no response.");
     let data = null;
@@ -8185,9 +8226,9 @@ class ApiClient {
       const detail = data && data.error ? data.error.message || data.error : response.text;
       const reason = str(typeof detail === "string" ? detail : JSON.stringify(detail)).slice(0, 300);
       if (response.status === 404) {
-        throw new Error(`The provider did not expose a model list at that address. Check the base URL. HTTP 404: ${reason}`);
+        throw configError(`The provider did not expose a model list at that address. Check the base URL. HTTP 404: ${reason}`, "provider-model");
       }
-      throw new Error(friendlyApiError(new Error(`HTTP ${response.status}: ${reason}`)));
+      throw providerHttpError(response.status, reason);
     }
     const parsed = parseModelList(data);
     if (!parsed.models.length) throw new Error(parsed.issue || "The provider returned an empty model list.");
@@ -8206,9 +8247,9 @@ class ApiClient {
       return this.chat(system, messages, o);
     }
     const { preset, base, key, model, timeoutMs } = this.cfg();
-    if (!base) throw new Error("Add a base URL in the plugin settings.");
-    if (!model) throw new Error("Add a model name in the plugin settings.");
-    if (!key && !preset.noKey) throw new Error("Add your API key in the plugin settings.");
+    if (!base) throw configError("Add a base URL in the plugin settings.", "missing-base");
+    if (!model) throw configError("Add a model name in the plugin settings.", "missing-model");
+    if (!key && !preset.noKey) throw configError("Add your API key in the plugin settings.", "missing-key");
     const msgs = messages.slice(-20);
     while (msgs.length && msgs[0].role !== "user") msgs.shift();
     const kind = preset.kind === "anthropic" ? "anthropic" : "openai";
@@ -8234,18 +8275,19 @@ class ApiClient {
     } catch (e) {
       // A cancel is the user's own action; callers detect it by error name, so keep it unwrapped.
       if (e && (e.name === "AbortError" || (o.signal && o.signal.aborted))) throw e;
-      throw new Error(friendlyApiError(e));
+      throw requestFailure(e);
     }
     if (!response || !response.ok) {
-      let detail = response ? `HTTP ${response.status}` : "no response";
+      let reason = "";
       try {
         const data = response && typeof response.json === "function" ? await response.json() : null;
         const message = data && data.error ? data.error.message || data.error : "";
-        if (message) detail += `: ${str(typeof message === "string" ? message : JSON.stringify(message)).slice(0, 300)}`;
+        if (message) reason = str(typeof message === "string" ? message : JSON.stringify(message)).slice(0, 300);
       } catch (error) {
         /* the error body may not be JSON */
       }
-      throw new Error(detail);
+      if (!response) throw new Error("The provider returned no response.");
+      throw providerHttpError(response.status, reason || "no response");
     }
     const type = response.headers && typeof response.headers.get === "function" ? str(response.headers.get("content-type")) : "";
     if (type.includes("text/event-stream") && response.body && typeof response.body.getReader === "function") {
@@ -8265,9 +8307,9 @@ class ApiClient {
 
   async chat(system, messages, opts) {
     const { preset, base, key, model, timeoutMs } = this.cfg();
-    if (!base) throw new Error("Add a base URL in the plugin settings.");
-    if (!model) throw new Error("Add a model name in the plugin settings.");
-    if (!key && !preset.noKey) throw new Error("Add your API key in the plugin settings.");
+    if (!base) throw configError("Add a base URL in the plugin settings.", "missing-base");
+    if (!model) throw configError("Add a model name in the plugin settings.", "missing-model");
+    if (!key && !preset.noKey) throw configError("Add your API key in the plugin settings.", "missing-key");
     const msgs = messages.slice(-20);
     while (msgs.length && msgs[0].role !== "user") msgs.shift(); // providers require a user turn first
 
@@ -8289,7 +8331,7 @@ class ApiClient {
         "The provider"
       );
     } catch (e) {
-      throw new Error(friendlyApiError(e));
+      throw requestFailure(e);
     }
     let data = null;
     try {
@@ -8300,8 +8342,8 @@ class ApiClient {
     if (!r) throw new Error("The provider returned no response.");
     if (r.status >= 400) {
       const em = data && data.error ? data.error.message || data.error : r.text;
-      const detail = `HTTP ${r.status}: ${str(typeof em === "string" ? em : JSON.stringify(em)).slice(0, 300)}`;
-      throw new Error(friendlyApiError(new Error(detail)));
+      const reason = str(typeof em === "string" ? em : JSON.stringify(em)).slice(0, 300);
+      throw providerHttpError(r.status, reason);
     }
     let text = "";
     if (preset.kind === "anthropic") {
@@ -27092,7 +27134,17 @@ function errorNeedsSettings(error) {
   return (
     /\bsettings?\b/i.test(text) ||
     /rejected the API key|can't use this model/i.test(text) ||
-    /no AI provider connected/i.test(text)
+    /no AI provider connected|provider is connected/i.test(text)
+  );
+}
+
+/** Configuration errors carry a kind, so the card does not depend on the wording of a message. */
+function isConfigError(error) {
+  return Boolean(
+    error &&
+      (error.aiConfig === true ||
+        error.code === "ai-config" ||
+        (typeof error.code === "string" && error.code.startsWith("ai-config:")))
   );
 }
 
@@ -27125,6 +27177,7 @@ class ChatPanel {
     this.turns = [];
     this.pending = "";
     this.error = "";
+    this.errorConfig = false;
     this.sig = "";
     this.streamText = "";
     this.streamingController = null;
@@ -27584,13 +27637,13 @@ class ChatPanel {
       .then((started) => {
         if (started === false) {
           const message = `Queued message could not be sent: ${this.error || "the composer refused it"}. It was not retried.`;
-          this.error = message;
+          this.setError(message);
           if (this.status) this.status.setText(message);
           this.draw();
         }
       })
       .catch((e) => {
-        this.error = `Queued message could not be sent: ${str(e && e.message ? e.message : e)}`;
+        this.setError(`Queued message could not be sent: ${str(e && e.message ? e.message : e)}`);
         if (this.status) this.status.setText(this.error);
         this.draw();
       })
@@ -28331,7 +28384,7 @@ class ChatPanel {
     this.streamText = "";
     this.keepPartial = "";
     this.pending = "";
-    this.error = partial ? "" : "Stopped waiting for the reply.";
+    this.setError(partial ? "" : "Stopped waiting for the reply.");
     this.setBusy(false);
     if (this.status) this.status.setText(partial ? "Stopped. The partial reply was kept." : "Stopped waiting for the reply.");
     this.draw();
@@ -28392,7 +28445,7 @@ class ChatPanel {
     this.refreshBookmarks();
     this.turns = apiTurns(Array.isArray(messages) ? messages : []);
     this.pending = "";
-    this.error = "";
+    this.clearError();
     this.streamText = "";
     this.keepPartial = "";
     this.lastSent = "";
@@ -28675,6 +28728,17 @@ class ChatPanel {
     );
   }
 
+  /** Store a failure together with whether its fix lives on the AI settings page. */
+  setError(message, cause) {
+    this.error = str(message);
+    this.errorConfig = isConfigError(cause) || errorNeedsSettings(this.error);
+  }
+
+  clearError() {
+    this.error = "";
+    this.errorConfig = false;
+  }
+
   async saveChat() {
     if (typeof this.opts.onSaveChat !== "function") return;
     const text = this.transcriptMarkdown();
@@ -28704,13 +28768,13 @@ class ChatPanel {
   async resend(text) {
     const value = str(text).trim();
     if (!value || this.busy) return;
-    this.error = "";
+    this.clearError();
     this.lastSent = value;
     const modelPlan = this.modelPlan(value);
     if (this.view.plugin.backend() === "api") {
       const prepared = await this.prepareSendContext(value);
       if (!prepared.ok) {
-        this.error = prepared.error;
+        this.setError(prepared.error);
         if (this.status) this.status.setText(prepared.error);
         this.draw();
         return;
@@ -28729,7 +28793,7 @@ class ChatPanel {
     if (this.busy || !this.lastSent) return;
     const text = this.lastSent;
     const last = this.turns[this.turns.length - 1];
-    this.error = "";
+    this.clearError();
     if (last && last.role === "assistant") return this.resend(text);
     return this.send(text);
   }
@@ -28791,7 +28855,7 @@ class ChatPanel {
     if (this.view.plugin.backend() !== "api") {
       const reason =
         "/compact folds the Direct API conversation stored in settings. OpenCode keeps its own server-side history, so there is nothing local to compact.";
-      this.error = reason;
+      this.setError(reason);
       if (this.status) this.status.setText(reason);
       this.draw();
       return false;
@@ -28800,7 +28864,7 @@ class ChatPanel {
       limit: chatBudget.CONTEXT_BUDGET_TOKENS,
     });
     if (!result.ok) {
-      this.error = "";
+      this.clearError();
       if (this.status) this.status.setText(result.reason);
       return false;
     }
@@ -28812,7 +28876,7 @@ class ChatPanel {
     }
     this.turns = apiTurns(result.messages);
     this.lastSent = "";
-    this.error = "";
+    this.clearError();
     this.input.value = "";
     this.syncMentionChips();
     this.sig = "";
@@ -28904,7 +28968,7 @@ class ChatPanel {
 
     const prepared = await this.prepareSendContext(text);
     if (!prepared.ok) {
-      this.error = prepared.error;
+      this.setError(prepared.error);
       if (this.status) this.status.setText(prepared.error);
       this.draw();
       return false;
@@ -28936,14 +29000,14 @@ class ChatPanel {
       try {
         baseline = await plugin.captureAgentBaseline([this.opts.sourcePath, active && active.path]);
       } catch (e) {
-        this.error = `Could not prepare the agent edit review, so nothing was sent. ${str(e && e.message ? e.message : e)}`;
+        this.setError(`Could not prepare the agent edit review, so nothing was sent. ${str(e && e.message ? e.message : e)}`);
         this.draw();
         return false;
       }
     }
     const guard = ai.mode === "agent" && typeof plugin.snapshotProtectedState === "function" ? plugin.snapshotProtectedState() : null;
     let stepOutcome = null;
-    this.error = "";
+    this.clearError();
     this.input.value = "";
     this.syncMentionChips();
     this.pending = text;
@@ -29002,7 +29066,7 @@ class ChatPanel {
     } catch (e) {
       const stopped = this.cancelled || (e && (e.name === "AbortError" || (this.streamingController && this.streamingController.signal && this.streamingController.signal.aborted)));
       if (stopped) this.keepPartial = this.streamText.trim();
-      else this.error = friendlyError(e, plugin.openCode().base());
+      else this.setError(friendlyError(e, plugin.openCode().base()), e);
       stepOutcome = { kind: stopped ? "aborted" : "error", message: this.error || "The step request failed." };
     } finally {
       if (timer) activeWindow.clearInterval(timer);
@@ -29021,7 +29085,7 @@ class ChatPanel {
         try {
           staged = await plugin.stageAgentEdits(baseline);
         } catch (e) {
-          this.error = `Could not stage the agent's edits: ${str(e && e.message ? e.message : e)}`;
+          this.setError(`Could not stage the agent's edits: ${str(e && e.message ? e.message : e)}`);
           new Notice(this.error, 10000);
         }
       }
@@ -29373,13 +29437,13 @@ class ChatPanel {
     const planning = Boolean(this.planRequest);
     const budget = this.budgetFor(text, currentNote);
     if (budget.over) {
-      this.error = budgetRefusal(budget);
+      this.setError(budgetRefusal(budget));
       if (this.status) this.status.setText(this.error);
       this.refreshTokenFooter();
       this.draw();
       return false;
     }
-    this.error = "";
+    this.clearError();
     this.input.value = "";
     this.syncMentionChips();
     this.pending = text;
@@ -29446,7 +29510,8 @@ class ChatPanel {
       }
       this.pending = "";
       this.streamText = "";
-      this.error = stopped ? "" : friendlyApiError(e);
+      if (stopped) this.clearError();
+      else this.setError(friendlyApiError(e), e);
       stepOutcome = { kind: stopped ? "aborted" : "error", message: this.error || "The step request failed." };
       if (planning) this.settlePlanRequest(stepOutcome);
       if (!stopped && !kept) this.input.value = text;
@@ -29506,9 +29571,12 @@ class ChatPanel {
       return; // endpoint differs on this OpenCode version: let the request itself report problems
     }
     if (n === 0) {
-      throw new Error(
+      const error = new Error(
         "OpenCode has no AI provider connected yet. Open Settings > Study agent > AI and the assistant, choose a provider and paste an API key."
       );
+      error.aiConfig = true;
+      error.code = "ai-config";
+      throw error;
     }
   }
 
@@ -29527,7 +29595,7 @@ class ChatPanel {
       this.draw();
     } catch (e) {
       if (!this.busy) {
-        this.error = friendlyError(e, this.view.plugin.openCode().base());
+        this.setError(friendlyError(e, this.view.plugin.openCode().base()), e);
         this.draw();
       }
     }
@@ -29974,7 +30042,7 @@ class ChatPanel {
       });
       boxed.createDiv({ cls: "qt-agent-error-text", text: this.error });
       const canRetry = this.lastSent && !this.busy;
-      const needsSettings = errorNeedsSettings(this.error) && typeof this.view.plugin.openSettings === "function";
+      const needsSettings = (this.errorConfig || errorNeedsSettings(this.error)) && typeof this.view.plugin.openSettings === "function";
       if (canRetry || needsSettings) {
         const actions = boxed.createDiv({ cls: "qt-agent-error-actions" });
         if (canRetry) {
@@ -60672,10 +60740,20 @@ class OpenCodeClient {
     // 0 means "the caller watches this request itself" (a blocking agent send).
     const ms = Number(timeoutMs) > 0 ? Number(timeoutMs) : 0;
     const r = ms ? await bounded(work, ms, `OpenCode ${method} ${path}`) : await work;
-    if (r.status === 401) throw new Error("401 unauthorized");
+    if (r.status === 401) {
+      const error = new Error("401 unauthorized");
+      error.aiConfig = true;
+      error.code = "ai-config";
+      throw error;
+    }
     if (r.status >= 400) {
       const hint = r.status === 404 || r.status === 405 ? " This usually means the OpenCode version doesn't match the plugin (it works with OpenCode 1.x). In the plugin settings press Download and install, or switch AI backend to Direct API." : "";
-      throw new Error(`OpenCode returned ${r.status} for ${method} ${path}${str(r.text).trim() ? `: ${str(r.text).slice(0, 300)}` : "."}${hint}`);
+      const error = new Error(`OpenCode returned ${r.status} for ${method} ${path}${str(r.text).trim() ? `: ${str(r.text).slice(0, 300)}` : "."}${hint}`);
+      if (hint) {
+        error.aiConfig = true;
+        error.code = "ai-config";
+      }
+      throw error;
     }
     try {
       return r.json;
@@ -135184,6 +135262,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.301.24",
+    date: "November 13, 2026",
+    title: "Every settings error shows the fix",
+    summary:
+      "Provider errors now carry a configuration kind instead of relying on the word settings. Invalid base URLs, unknown models, OpenCode credential/version failures and no-provider replies all get Retry plus Open settings, and 401 copy is no longer doubled.",
+    highlights: [
+      {
+        title: "Errors say what kind of fix they need",
+        body: "The API client marks missing values, rejected keys, unknown models and unsafe base URLs with a configuration kind. The chat panel reads that kind first, so a helpful button no longer depends on the exact wording of an error.",
+      },
+      {
+        title: "Model and base-URL dead ends are gone",
+        body: "A provider 404 for an unknown model, a 400 that rejects the model or request limits, and an http:// remote base URL now explain what to change and draw Open settings beside Retry.",
+      },
+      {
+        title: "OpenCode failures get the same action",
+        body: "OpenCode credentials rejected, a server version mismatch, no connected provider, and the reply that says a provider is connected all point at AI and the assistant with a working settings control.",
+      },
+      {
+        title: "A live 401 no longer repeats itself",
+        body: "The live run showed the 401 sentence twice. Friendly provider copy is now left alone when it is already friendly, and the re-run showed one sentence, one Retry and one Open settings, then recovered through Retry.",
+      },
+    ],
+  },
   {
     version: "1.301.23",
     date: "November 13, 2026",
