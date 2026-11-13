@@ -63,6 +63,20 @@ test("AI request: rejected keys, unknown models and unsafe base URLs carry a set
     restore404();
   }
 
+  const restore400 = stubRequest(async () => ({
+    status: 400,
+    json: { error: { message: "model gpt-test does not support this request" } },
+    text: "",
+  }));
+  try {
+    await assert.rejects(
+      () => client().chat("sys", messages),
+      config("provider-model", /rejected the request.*Check the model name and request limits in settings/)
+    );
+  } finally {
+    restore400();
+  }
+
   const unsafe = { api: { provider: "custom", baseUrl: "http://api.example.com/v1", model: "m", keys: { custom: "k" } } };
   await assert.rejects(() => client({}, unsafe).chat("sys", messages), config("ai-config", /must use https:\/\//));
 });

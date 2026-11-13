@@ -316,6 +316,14 @@ test("study agent error card: every settings-fix provider failure offers Retry a
       "The provider did not find that model or endpoint. Check the model name and base URL in settings. HTTP 404: model not found",
       "provider unknown model",
     ],
+    [
+      "The provider rejected the request. Check the model name and request limits in settings. HTTP 400: model gpt-test does not support this request",
+      "provider model or limit rejection",
+    ],
+    [
+      "OpenCode returned 404 for GET /session. This usually means the OpenCode version doesn't match the plugin (it works with OpenCode 1.x). In the plugin settings press Download and install, or switch AI backend to Direct API.",
+      "OpenCode version mismatch",
+    ],
     ["Enter a valid http:// or https:// address.", "invalid base URL"],
     ["Do not put a username or password in the address; use the separate fields.", "credentials in base URL"],
     [
