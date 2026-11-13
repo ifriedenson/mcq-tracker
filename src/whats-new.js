@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.8",
+    date: "November 12, 2026",
+    title: "No more silence cutoff on the agent",
+    summary:
+      "The OpenCode agent watchdog no longer stops a file for going quiet: a slow model keeps working until it finishes, you stop it, or a 20-minute absolute backstop ends it. Lost contact with the server still fails fast.",
+    highlights: [
+      {
+        title: "Quiet work is never cut off",
+        body: "The old 3-minute silence cutoff is gone, so a long illustrated PDF that keeps the model thinking silently can no longer be stopped at 181s. Stop, Undo everything and Discard this file still end a file the moment you ask.",
+      },
+      {
+        title: "The backstops that stay",
+        body: "An unreadable server still fails fast with Lost contact, and a 20-minute absolute cap ends a file that never finishes, naming what the agent was last seen doing and the file-edit permission fix.",
+      },
+      {
+        title: "No format changes",
+        body: "Question notes, review dates, saved settings, provider keys and network defaults are unchanged.",
+      },
+      {
+        title: "Covered by a test",
+        body: "A quiet agent is proven to run past any silence and stop only at the absolute backstop, with the reason intact.",
+      },
+    ],
+  },
+  {
     version: "1.301.7",
     date: "November 12, 2026",
     title: "Long imports get proportional patience",

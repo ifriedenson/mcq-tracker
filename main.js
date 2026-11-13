@@ -49554,7 +49554,6 @@ class PdfImportModal extends QtModal {
     this.attemptRemoved = 0;
     this.agentSendError = null;
     this.agentPollMs = 1500;
-    this.agentIdleMs = 3 * 60 * 1000;
     this.agentSettleMs = 90 * 1000;
     this.agentMaxMs = 20 * 60 * 1000;
     this.apiChunkTimeoutMs = 3 * 60 * 1000;
@@ -50682,8 +50681,6 @@ class PdfImportModal extends QtModal {
     const s = await this.awaitCancellable(oc.createSession(`Import ${sourceName}`));
     this.sid = s && s.id;
     if (!this.sid) throw new Error("OpenCode did not return a session id.");
-    // A long file needs a longer silence allowance; see agentIdleBudget.
-    this.agentIdleMs = this.agentIdleBudget(pages.length);
     const ai = p.settings.ai;
     const body = {
       parts: [{ type: "text", text: agentPrompt({ name: sourceName, textPath, docPath: sourcePath, imagesDir, folder, prefix, meta: this.meta, kind }) }],
@@ -50809,18 +50806,6 @@ class PdfImportModal extends QtModal {
     }
   }
 
-  /**
-   * How long the agent may go without visible progress on this file. A long
-   * illustrated document can keep a model thinking silently for minutes, so
-   * patience scales with the page count (capped at 10 minutes) instead of
-   * cutting every file off at the same 3 minutes.
-   */
-  agentIdleBudget(pageCount) {
-    const base = Number(this.agentIdleMs) > 0 ? Number(this.agentIdleMs) : 3 * 60 * 1000;
-    const scaled = 30000 + Math.max(0, Number(pageCount) || 0) * 4000;
-    return Math.min(10 * 60 * 1000, Math.max(base, scaled));
-  }
-
   /** Watch the session until the assistant has finished, without relying on send() resolving. */
   async waitForAgent(sid, folder) {
     const started = Date.now();
@@ -50857,11 +50842,15 @@ class PdfImportModal extends QtModal {
       if (state.noteCount > 0) sawNotes = true;
       if (state.terminal) return;
       if (sawNotes && now - lastChange >= this.agentSettleMs) return;
-      if (now - lastChange >= this.agentIdleMs || now - started >= this.agentMaxMs) {
-        this.status("OpenCode stopped responding. Stopping this file...");
+      // No silence cutoff: a slow model may think quietly for a long time,
+      // and stopping it would throw away that work. Only the absolute
+      // backstop below ends the file; Stop/Undo/Discard end it any sooner.
+      if (now - started >= this.agentMaxMs) {
+        this.status("OpenCode took too long. Stopping this file...");
         this.abortAgent();
         const doing = lastLines.length ? ` Last seen working on: ${lastLines.join(" | ")}.` : "";
-        throw new Error(`OpenCode stopped responding while importing this file: nothing new for ${Math.round((now - lastChange) / 1000)}s.${doing} If the agent was waiting to be allowed to create files, allow file edits for this vault in your OpenCode permissions and try again. For a long file you can also use Direct AI (you review first) instead of the agent.`);
+        const mins = Math.max(1, Math.round((now - started) / 60000));
+        throw new Error(`OpenCode worked on this file for over ${mins} minute${mins === 1 ? "" : "s"} without finishing it.${doing} If the agent was waiting to be allowed to create files, allow file edits for this vault in your OpenCode permissions (the server this plugin starts already allows them after an Obsidian restart) and try again. For a long file you can also use Direct AI (you review first) instead of the agent.`);
       }
     }
     throw this.cancelledImportError();
@@ -134324,6 +134313,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.301.8",
+    date: "November 12, 2026",
+    title: "No more silence cutoff on the agent",
+    summary:
+      "The OpenCode agent watchdog no longer stops a file for going quiet: a slow model keeps working until it finishes, you stop it, or a 20-minute absolute backstop ends it. Lost contact with the server still fails fast.",
+    highlights: [
+      {
+        title: "Quiet work is never cut off",
+        body: "The old 3-minute silence cutoff is gone, so a long illustrated PDF that keeps the model thinking silently can no longer be stopped at 181s. Stop, Undo everything and Discard this file still end a file the moment you ask.",
+      },
+      {
+        title: "The backstops that stay",
+        body: "An unreadable server still fails fast with Lost contact, and a 20-minute absolute cap ends a file that never finishes, naming what the agent was last seen doing and the file-edit permission fix.",
+      },
+      {
+        title: "No format changes",
+        body: "Question notes, review dates, saved settings, provider keys and network defaults are unchanged.",
+      },
+      {
+        title: "Covered by a test",
+        body: "A quiet agent is proven to run past any silence and stop only at the absolute backstop, with the reason intact.",
+      },
+    ],
+  },
   {
     version: "1.301.7",
     date: "November 12, 2026",
