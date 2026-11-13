@@ -504,3 +504,78 @@ test("a database-not-empty retry is not repaired a second time", async (t) => {
   assert.notEqual(h.children[0].exitCode, null);
   assert.notEqual(h.children[1].exitCode, null);
 });
+
+test("OpenCode: a blocking send that writes nothing new is bounded with a next step", async () => {
+  // Regression: send() waited forever, so the chat or import spinner never stopped.
+  const oc = new T.OpenCodeClient({ url: "http://127.0.0.1:1" }, { timeoutMs: 200 });
+  obsidian.requestImpl = async (req) => {
+    if (req.method === "GET" && String(req.url).includes("/message")) return { status: 200, json: [{ info: { role: "user" } }] };
+    if (req.method === "POST") return new Promise(() => {});
+    return { status: 200, json: {} };
+  };
+  const started = Date.now();
+  try {
+    await assert.rejects(() => oc.send("s1", { parts: [] }, { idleMs: 40 }), (e) => {
+      assert.match(e.message, /OpenCode accepted the request but wrote nothing new for 40ms/);
+      assert.match(e.message, /Check that OpenCode is still running and a provider is connected, then try again/);
+      return true;
+    });
+    assert.ok(Date.now() - started < 2000, "the send returned within its silence allowance");
+  } finally {
+    obsidian.requestImpl = null;
+  }
+});
+
+test("OpenCode: a long send that keeps writing to the session is not cut off", async () => {
+  const oc = new T.OpenCodeClient({ url: "http://127.0.0.1:1" }, { timeoutMs: 200 });
+  let reads = 0;
+  obsidian.requestImpl = async (req) => {
+    if (req.method === "GET" && String(req.url).includes("/message")) {
+      reads++;
+      return { status: 200, json: [{ info: { role: "assistant", step: reads } }] };
+    }
+    if (req.method === "POST") {
+      // still working for longer than the silence allowance below
+      await new Promise((resolve) => setTimeout(resolve, 160));
+      return { status: 200, json: { ok: true } };
+    }
+    return { status: 200, json: {} };
+  };
+  try {
+    const out = await oc.send("s1", { parts: [] }, { idleMs: 60 });
+    assert.deepEqual(out, { ok: true }, "the finished send returned its reply");
+    assert.ok(reads > 1, "the session was read while the send was still running");
+  } finally {
+    obsidian.requestImpl = null;
+  }
+});
+
+test("OpenCode: a session request that never answers is bounded", async () => {
+  const oc = new T.OpenCodeClient({ url: "http://127.0.0.1:1" }, { timeoutMs: 40 });
+  obsidian.requestImpl = () => new Promise(() => {});
+  try {
+    await assert.rejects(() => oc.createSession("x"), /OpenCode POST \/session timed out after 40ms/);
+    await assert.rejects(() => oc.messages("s1"), /OpenCode GET \/session\/s1\/message timed out after 40ms/);
+  } finally {
+    obsidian.requestImpl = null;
+  }
+});
+
+test("OpenCode installer: a GitHub release lookup that never answers is bounded", async () => {
+  // Regression: plan() awaited requestUrl with no deadline, so the install spinner could run forever.
+  const mgr = new T.OpenCodeManager({ settings: { ai: {} } });
+  mgr.releaseTimeoutMs = 40;
+  obsidian.requestImpl = () => new Promise(() => {});
+  const started = Date.now();
+  try {
+    await assert.rejects(() => mgr.plan(), (e) => {
+      assert.match(e.message, /GitHub did not answer within 40ms/);
+      assert.match(e.message, /Check your internet connection and press Download and install again/);
+      assert.match(e.message, /install OpenCode yourself/);
+      return true;
+    });
+    assert.ok(Date.now() - started < 2000, "the lookup returned within its bound");
+  } finally {
+    obsidian.requestImpl = null;
+  }
+});

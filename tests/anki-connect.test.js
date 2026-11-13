@@ -1002,3 +1002,19 @@ test("plugin: duplicate media basenames warn instead of silently overwriting, an
   assert.match(failed.join(" "), /Media upload failed: disk full/);
   assert.equal(failed.length, 1);
 });
+
+test("AnkiConnect: a hung add-on resolves into a bounded, actionable error", async () => {
+  // Regression: call() had no deadline, so a stuck Anki left the sync button spinning.
+  const client = new anki.AnkiConnectClient({
+    url: "http://127.0.0.1:8765",
+    timeoutMs: 40,
+    request: () => new Promise(() => {}),
+  });
+  const started = Date.now();
+  await assert.rejects(() => client.call("version"), (e) => {
+    assert.match(e.message, /AnkiConnect at http:\/\/127\.0\.0\.1:8765 did not answer within 40ms/);
+    assert.match(e.message, /Check that Anki is open with the AnkiConnect add-on installed, close any dialog in Anki, then try again/);
+    return true;
+  });
+  assert.ok(Date.now() - started < 2000, "the call returned within its bound");
+});

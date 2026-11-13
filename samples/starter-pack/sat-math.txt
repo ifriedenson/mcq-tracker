@@ -1,0 +1,126 @@
+MCQ Tracker starter pack — SAT Math, 10 original questions.
+Paste everything below into Obsidian: Ctrl/Cmd+P, run "Quick add questions from pasted text", paste, then review and import.
+Every question is written from scratch. Nothing here is taken from, adapted from, or copied out of College Board, a practice test or a test-prep book.
+Six are multiple choice and four are student-produced response, the two formats the SAT Math section uses. Every key can be checked by doing the arithmetic in the explanation.
+
+Q: If 2x + 7 = 19, what is the value of x?
+A. 3
+B. 6
+C. 12
+D. 13
+Answer: B
+Why: Subtract 7 from both sides to get 2x = 12, then divide by 2 to get x = 6. Answer D comes from subtracting 7 from one side only, which leaves 2x = 19.
+Course: SAT
+Test: Math
+Skill: Linear equations
+Difficulty: easy
+
+---
+
+Q: What is the slope of the line that passes through the points (2, 3) and (6, 11)?
+A. 1/2
+B. 2
+C. 4
+D. 8
+Answer: B
+Why: Slope is the change in y over the change in x, so (11 - 3) / (6 - 2) = 8 / 4 = 2. Answer D is just the change in y, which forgets to divide by the change in x.
+Course: SAT
+Test: Math
+Skill: Linear equations
+Difficulty: easy
+
+---
+
+Q: A jacket costs $40 and is discounted by 25%. What is the sale price, in dollars?
+Answer: 30
+Why: 25% of 40 is 0.25 × 40 = 10, and 40 - 10 = 30. Answering 10 is the discount, not the price.
+Course: SAT
+Test: Math
+Skill: Percentages
+Difficulty: easy
+
+---
+
+Q: If f(x) = 3x^2 - 2, what is f(4)?
+Answer: 46
+Why: f(4) = 3(4^2) - 2 = 3(16) - 2 = 48 - 2 = 46. Squaring before multiplying gives 48 rather than 144, and the answer 46 is what follows.
+Course: SAT
+Test: Math
+Skill: Functions
+Difficulty: medium
+
+---
+
+Q: Which expression is equivalent to (x + 3)(x - 5)?
+A. x^2 - 2x - 15
+B. x^2 + 2x - 15
+C. x^2 - 2x + 15
+D. x^2 - 8x - 15
+Answer: A
+Why: Expanding gives x^2 - 5x + 3x - 15, and -5x + 3x = -2x, so the result is x^2 - 2x - 15. Answer B gets the sign of the middle term wrong, and answer D adds the coefficients instead of combining -5 and 3.
+Course: SAT
+Test: Math
+Skill: Quadratics
+Difficulty: medium
+
+---
+
+Q: What is the mean of 4, 7, 9 and 10?
+Answer: 7.5
+Why: The four values add to 30, and 30 / 4 = 7.5. The median is 8, so answering 8 means the middle value was found instead of the mean.
+Course: SAT
+Test: Math
+Skill: Statistics
+Difficulty: easy
+
+---
+
+Q: A circle has a radius of 5. What is its area?
+A. 10π
+B. 25π
+C. 50π
+D. 100π
+Answer: B
+Why: Area is πr^2, so π × 5^2 = 25π. Answer A is the circumference, 2πr, and answer C doubles the area by mistake.
+Course: SAT
+Test: Math
+Skill: Circles
+Difficulty: easy
+
+---
+
+Q: What is 3/4 of 60?
+Answer: 45
+Why: One quarter of 60 is 15, so three quarters is 45. Answering 80 multiplies by 4/3 instead of 3/4.
+Course: SAT
+Test: Math
+Skill: Ratios and proportions
+Difficulty: easy
+
+---
+
+Q: Which value of x makes the inequality 4x - 8 > 12 true?
+A. 3
+B. 4
+C. 5
+D. 6
+Answer: D
+Why: Add 8 to both sides to get 4x > 20, then divide by 4 to get x > 5, so 6 is the only listed value that works. Substituting 5 gives 12 > 12, which is false, and that strict inequality is the trap.
+Course: SAT
+Test: Math
+Skill: Inequalities
+Difficulty: medium
+
+---
+
+Q: A price rises from $80 to $100. What is the percent increase?
+A. 20%
+B. 25%
+C. 80%
+D. 125%
+Answer: B
+Why: The increase is 20, and 20 / 80 = 0.25, which is 25%. Answer A divides by the new price instead of the original, and 125% is the new price as a percentage of the old one, not the increase.
+Course: SAT
+Test: Math
+Skill: Percentages
+Difficulty: medium

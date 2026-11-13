@@ -3,7 +3,7 @@ const { Notice, Platform, PluginSettingTab, SecretComponent, Setting, setIcon } 
 const { FILTER_FIELDS, FOLDER_AUTO_MAX } = require("./constants");
 const { API_PRESETS, ApiClient, friendlyApiError } = require("./api-client");
 const { localModelGuide } = require("./local-models");
-const { str } = require("./util");
+const { errorDetail, str } = require("./util");
 const { OPENCODE_REPO, PROVIDERS } = require("./opencode-manager");
 const { HEALTH_TIMEOUT_MS } = require("./opencode-client");
 const { fvals, hasFilters } = require("./filters");
@@ -1293,7 +1293,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           mgr
             .describe()
             .then((d) => status.setDesc(d))
-            .catch((e) => status.setDesc(str(e.message)));
+            .catch((e) => status.setDesc(`Could not check OpenCode: ${errorDetail(e)}. Check the program path below, then press Check again.`));
         })
       );
       const guarded = (fn) => async () => {
@@ -1306,7 +1306,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
         try {
           await fn((m) => note.setMessage(m));
         } catch (e) {
-          new Notice(str(e.message), 10000);
+          new Notice(`OpenCode setup did not finish: ${errorDetail(e)}. Check the status below, then try again.`, 10000);
         } finally {
           note.hide();
           this.display();
@@ -1375,7 +1375,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
               apiKey = "";
               this.display();
             } catch (e) {
-              new Notice(str(e.message), 10000);
+              new Notice(`Could not save that provider key: ${errorDetail(e)}. Check that OpenCode's config folder is writable, then try again.`, 10000);
             }
           })
         );

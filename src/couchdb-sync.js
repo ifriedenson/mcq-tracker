@@ -182,23 +182,68 @@ function errorMessage(error) {
   return text || "CouchDB request failed.";
 }
 
+/** A sync request must answer; 30s of silence is a stuck server, not a slow one. */
+const REQUEST_TIMEOUT_MS = 30 * 1000;
+
+/** Resolve `promise`, or reject with a marked timeout error after `ms`. */
+function boundedRequest(promise, ms, label) {
+  let timer = null;
+  const limit = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error(`${label} did not answer within ${ms >= 1000 ? Math.round(ms / 1000) + "s" : ms + "ms"}.`);
+      error.timedOut = true;
+      reject(error);
+    }, ms);
+  });
+  return Promise.race([promise, limit]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+/** A thrown transport error becomes a message that names the server and what to check. */
+function couchDbUnreachable(address, e) {
+  const detail = str(e && e.message ? e.message : e).slice(0, 160);
+  return `Could not reach the CouchDB server at ${address}. Check the server URL, that CouchDB is running, and your connection.${detail ? ` (${detail})` : ""}`;
+}
+
+/** A server that accepted the connection but never answered. */
+function couchDbTimeout(address, ms) {
+  const allowance = ms >= 1000 ? Math.round(ms / 1000) + "s" : ms + "ms";
+  return `Could not reach the CouchDB server at ${address}: it did not answer within ${allowance}. Check the server URL, that CouchDB is running, and your connection.`;
+}
+
+function couchDbFailure(address, ms, e) {
+  if (e && (e.timedOut === true || /did not answer within/.test(str(e.message)))) return couchDbTimeout(address, ms);
+  return couchDbUnreachable(address, e);
+}
+
 class CouchDbClient {
   constructor(config, options) {
     const opts = options || {};
     this.config = { ...normalizeCouchDb(config), password: str(opts.password) };
+    this.timeoutMs = Number(opts.timeoutMs) > 0 ? Number(opts.timeoutMs) : REQUEST_TIMEOUT_MS;
     this.address = couchDbAddress(this.config);
     this.request = typeof opts.request === "function" ? opts.request : null;
     if (!this.request) throw new Error("No HTTP transport was supplied for CouchDB.");
   }
 
   async call(method, path, body) {
-    const response = await this.request({
-      url: this.address + (path || ""),
-      method,
-      headers: couchDbHeaders(this.config, !!body),
-      ...(body ? { body: JSON.stringify(body) } : {}),
-      throw: false,
-    });
+    let response;
+    try {
+      response = await boundedRequest(
+        this.request({
+          url: this.address + (path || ""),
+          method,
+          headers: couchDbHeaders(this.config, !!body),
+          ...(body ? { body: JSON.stringify(body) } : {}),
+          throw: false,
+        }),
+        this.timeoutMs,
+        `CouchDB ${method}`
+      );
+    } catch (e) {
+      throw new Error(couchDbFailure(this.address, this.timeoutMs, e));
+    }
     let data = null;
     try {
       data = response && response.json ? response.json : response && response.text ? JSON.parse(response.text) : null;
@@ -216,12 +261,21 @@ class CouchDbClient {
   async ensureDatabase() {
     let status = 0;
     let data = null;
-    const response = await this.request({
-      url: this.address,
-      method: "GET",
-      headers: couchDbHeaders(this.config),
-      throw: false,
-    });
+    let response;
+    try {
+      response = await boundedRequest(
+        this.request({
+          url: this.address,
+          method: "GET",
+          headers: couchDbHeaders(this.config),
+          throw: false,
+        }),
+        this.timeoutMs,
+        "CouchDB"
+      );
+    } catch (e) {
+      throw new Error(couchDbFailure(this.address, this.timeoutMs, e));
+    }
     status = Number(response && response.status) || 0;
     try {
       data = response && response.json ? response.json : null;

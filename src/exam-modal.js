@@ -1,7 +1,7 @@
 "use strict";
 const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
-const { localDate, str } = require("./util");
+const { errorDetail, localDate, str } = require("./util");
 
 /* Manual exams are ordinary assignment notes with type: exam. */
 class ExamModal extends QtModal {
@@ -70,7 +70,7 @@ class ExamModal extends QtModal {
         this.onDone(result);
       } catch (e) {
         save.disabled = false;
-        new Notice(str(e && e.message) || "Could not create the exam note.");
+        new Notice(`Could not create the exam note: ${errorDetail(e)}. Your details are still on the form; fix anything it asks for, then try again.`, 9000);
       }
     });
   }

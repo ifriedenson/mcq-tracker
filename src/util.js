@@ -90,6 +90,44 @@ function localDate(value) {
   return fmtDate(d);
 }
 
+/**
+ * One plain line for an error's message, or `fallback` when it carries none.
+ * Notices use it so a thrown value can never render as "undefined" or an object.
+ */
+function errorDetail(e, fallback) {
+  const raw = e && e.message !== undefined && e.message !== null ? e.message : e;
+  const text = typeof raw === "string" || typeof raw === "number" ? String(raw).trim() : "";
+  const detail = text && text !== "[object Object]" ? text : str(fallback).trim();
+  return (detail || "unknown error").slice(0, 300);
+}
+
+/** `${ms}` as a short human duration: "40ms", "45s". */
+function deadlineLabel(ms) {
+  return ms >= 1000 ? Math.round(ms / 1000) + "s" : ms + "ms";
+}
+
+/**
+ * Resolve `promise`, or reject with a message that names what stalled when `ms`
+ * passes first. The error carries `timedOut` so a caller can tell a silent
+ * server apart from a connection failure.
+ */
+function withDeadline(promise, ms, label) {
+  let timer = null;
+  const limit = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error(`${label} timed out after ${deadlineLabel(ms)}.`);
+      error.timedOut = true;
+      reject(error);
+    }, ms);
+  });
+  return Promise.race([promise, limit]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+/** Added to a strict-JSON AI reply that came back cut off or unparseable, so the message has a next step. */
+const AI_REPLY_CUT_OFF_HINT = " Try again; if it keeps happening, raise Reply token cap in Settings, MCQ Tracker, AI.";
+
 module.exports = {
   pad,
   fmtDate,
@@ -102,6 +140,10 @@ module.exports = {
   clampInt,
   textValue,
   boundedText,
+  AI_REPLY_CUT_OFF_HINT,
+  errorDetail,
+  deadlineLabel,
+  withDeadline,
   normalizePath,
   escapeHtml,
   uniquePath,

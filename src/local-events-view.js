@@ -4,7 +4,7 @@ const { QtModal } = require("./a11y");
 const { ItemView, Modal, Notice, Platform } = require("obsidian");
 const { VIEW_TYPE_LOCAL_EVENTS } = require("./constants");
 const { LOCAL_EVENT_CATEGORIES, addDaysKey, eventsInRange, eventsOnDate, monthCells, todayKey } = require("./local-events");
-const { str } = require("./util");
+const { errorDetail, str } = require("./util");
 const { makeKeyboardClickable } = require("./view-helpers");
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -107,7 +107,7 @@ class LocalEventModal extends QtModal {
         await this.plugin.saveLocalEvent(value);
         this.close();
       } catch (e) {
-        new Notice(str(e && e.message ? e.message : e) || "Could not save the event.");
+        new Notice(`Could not save the event: ${errorDetail(e)}. Your details are still on the form; fix anything it asks for, then try again.`, 9000);
       }
     });
   }

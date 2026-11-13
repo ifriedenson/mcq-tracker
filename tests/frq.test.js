@@ -429,3 +429,11 @@ test("FRQ: rubric categories can be explicit, inferred and round-tripped", () =>
   assert.equal(frq.rubricCategoryLabel("calculation"), "Calculation");
   assert.equal(frq.presetFor("ap-chemistry", "short").criteria[1].category, "calculation");
 });
+
+test("FRQ AI: a cut-off grader reply names the setting that fixes it", () => {
+  assert.throws(() => frq.parseFrqGradeReply('{"criteria":', chemistryRubric()), (e) => {
+    assert.match(e.message, /cut off before it finished/);
+    assert.match(e.message, /Reply token cap/);
+    return true;
+  });
+});

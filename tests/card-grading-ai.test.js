@@ -101,3 +101,12 @@ test("grade-later queue: pending counts group answers by note path", () => {
   assert.equal(counts.get("Cards/b.md"), 1);
   assert.equal(counts.has("Cards/c.md"), false, "invalid entries are not counted");
 });
+
+test("AI fallback: a cut-off grader reply says what to do next", () => {
+  // Regression: the message stopped at "malformed JSON" with no way forward.
+  assert.throws(() => ai.parseGradeReply('{"verdict":"correct"'), (e) => {
+    assert.match(e.message, /cut off before it finished/);
+    assert.match(e.message, /raise Reply token cap in Settings, MCQ Tracker, AI/);
+    return true;
+  });
+});

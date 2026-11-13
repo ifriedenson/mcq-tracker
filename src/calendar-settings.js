@@ -5,7 +5,7 @@
  * saves immediately, like the rest of the settings page.
  */
 const { Notice, Setting } = require("obsidian");
-const { str } = require("./util");
+const { errorDetail, str } = require("./util");
 const {
   BREAK_ICON_OPTIONS,
   CLASS_CATEGORIES,
@@ -146,7 +146,7 @@ function renderSchedules(containerEl, plugin, redisplay) {
             await plugin.syncCalendarSource(src.id);
             new Notice("Schedule updated.");
           } catch (e) {
-            new Notice(str(e.message));
+            new Notice(`Could not sync that schedule: ${errorDetail(e)}. Check the source still exists, then try again.`, 9000);
           }
           redisplay();
         })

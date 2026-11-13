@@ -4,8 +4,15 @@ node_modules/
 .DS_Store
 Thumbs.db
 
+# Local growth plan — never push strategy to GitHub.
+GROWTH-PLAN-LOCAL-DO-NOT-PUSH.md
+
 # Local reference material and upstream checkouts are never shipped.
 artifacts/
 .upstream-grill/
 .upstream-pdf-to-md/
 server.pid
+
+# Local growth plan and its copy-paste kit — never push strategy to GitHub.
+GROWTH-PLAN-LOCAL-DO-NOT-PUSH.md
+GROWTH-COPYPASTE-LOCAL-DO-NOT-PUSH.md

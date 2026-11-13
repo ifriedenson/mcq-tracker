@@ -1,7 +1,7 @@
 "use strict";
 const { QtModal } = require("./a11y");
 const { Modal, Notice } = require("obsidian");
-const { localDate, str } = require("./util");
+const { errorDetail, localDate, str } = require("./util");
 const { ASSIGNMENT_STATUSES, ASSIGNMENT_TYPES, normalizeDate } = require("./assignments");
 
 /** Create or edit one assignment note. */
@@ -104,7 +104,7 @@ class AssignmentModal extends QtModal {
         this.onDone(result);
       } catch (e) {
         save.disabled = false;
-        new Notice(str(e && e.message) || "Could not save the assignment.");
+        new Notice(`Could not save the assignment: ${errorDetail(e)}. Your edits are still on the form; fix anything it asks for, then try again.`, 9000);
       }
     });
   }

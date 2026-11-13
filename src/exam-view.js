@@ -1,6 +1,6 @@
 "use strict";
 const { ItemView, Notice, setIcon } = require("obsidian");
-const { fmtClock, fmtDate, str } = require("./util");
+const { errorDetail, fmtClock, fmtDate, str } = require("./util");
 const { fmtPct, packTestSession, sliceQuestionRange, unpackTestSession } = require("./stats");
 const { MODES } = require("./constants");
 const { pickQuestion } = require("./filters");
@@ -118,6 +118,8 @@ class TestView extends ItemView {
       await this.restore();
     } catch (e) {
       console.error("MCQ Tracker: couldn't restore the saved timed test", e);
+      // A silent reset looked like the saved test vanished on its own.
+      new Notice(`Could not restore your saved timed test: ${errorDetail(e)}. It was set aside so the setup screen can open; start a new test, or check the developer console for details.`, 12000);
       this.items = [];
       this.phase = "setup";
       this.plugin.settings.testSession = null; // a broken saved test must not block the view

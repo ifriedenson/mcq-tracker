@@ -238,3 +238,11 @@ test("study workspace view: AI feedback and PDF annotation tabs render", async (
   view.setTab("pdfAnnotations");
   assert.match(texts(), /Scan annotations/);
 });
+
+test("Feynman AI: a cut-off feedback reply tells the learner how to avoid it", () => {
+  assert.throws(() => FA.parseFeynmanScoreReply("{oops}"), (e) => {
+    assert.match(e.message, /cut off before it finished/);
+    assert.match(e.message, /Reply token cap in Settings, MCQ Tracker, AI/);
+    return true;
+  });
+});

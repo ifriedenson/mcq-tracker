@@ -9,7 +9,7 @@ const { QtModal } = require("./a11y");
  * schedulers, so this is a session UI, not another review system.
  */
 const { Modal, Notice } = require("obsidian");
-const { localDate, str } = require("./util");
+const { errorDetail, localDate, str } = require("./util");
 const { extractRationale } = require("./notes");
 const { parseCardBody } = require("./cards");
 const { buildDueQueue } = require("./due-queue");
@@ -308,7 +308,7 @@ class MixedReviewModal extends QtModal {
       await this.loadCurrent();
     } catch (e) {
       this.busy = false;
-      new Notice(str(e && e.message) || "Could not save this review.");
+      new Notice(`Could not save this review: ${errorDetail(e)}. The review was not recorded; try again.`, 9000);
       this.render();
     }
   }

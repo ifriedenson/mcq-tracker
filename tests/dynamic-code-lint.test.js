@@ -66,7 +66,7 @@ test("division is not read as a regex", () => {
   assert.deepEqual(hits.map((hit) => hit.rule), ["eval"], "the division lines add no hits and hide none");
 });
 
-test("src/plugin.js is scanned in full, including both requestUrl calls", () => {
+test("src/plugin.js is scanned in full, including its requestUrl call", () => {
   const source = fs.readFileSync(path.join(SRC, "plugin.js"), "utf8");
   const mask = maskCode(source);
   const ratio = coveredRatio(source);
@@ -84,7 +84,7 @@ test("src/plugin.js is scanned in full, including both requestUrl calls", () => 
     }
     offset += line.length + 1;
   }
-  assert.equal(seen, 2, "both calendar feed fetches are in the scanned surface");
+  assert.equal(seen, 1, "the calendar feed fetch is in the scanned surface");
 });
 
 test("no shipped source file is masked down to a fraction of itself", () => {

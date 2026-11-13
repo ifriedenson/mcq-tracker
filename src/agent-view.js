@@ -7,7 +7,7 @@
  * Obsidian Copilot code is used.
  */
 const { ItemView, Notice } = require("obsidian");
-const { str } = require("./util");
+const { errorDetail, str } = require("./util");
 const { ChatPanel } = require("./chat-panel");
 const { readActiveNoteContext } = require("./note-context");
 const { buildGeneralContext } = require("./opencode-client");
@@ -1294,7 +1294,7 @@ class AgentView extends ItemView {
           : `Inserted the reply into ${result.path}.`
       );
     } catch (error) {
-      new Notice(str(error && error.message ? error.message : error) || "Could not insert the reply.", 8000);
+      new Notice(`Could not insert the reply: ${errorDetail(error)}. The note was not changed; open it and try again.`, 8000);
     }
   }
 }

@@ -1,7 +1,7 @@
 "use strict";
 const { Notice } = require("obsidian");
 const { apiTurns, friendlyApiError } = require("./api-client");
-const { str } = require("./util");
+const { errorDetail, str } = require("./util");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole, tutorRole } = require("./tutor-presets");
 const { parseStudyCommand, applyStudyCommand } = require("./study-commands");
@@ -1662,7 +1662,7 @@ class ChatPanel {
     try {
       await this.opts.onSaveChat(text);
     } catch (e) {
-      new Notice(str(e && e.message ? e.message : e) || "Could not save the chat.", 8000);
+      new Notice(`Could not save the chat: ${errorDetail(e)}. The transcript is still here; try Save chat again.`, 9000);
     }
   }
 

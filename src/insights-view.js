@@ -688,7 +688,10 @@ class InsightsView extends ItemView {
           await plugin.enableKnowledgeRecord();
           this.render();
         } catch (e) {
-          new Notice("The knowledge record could not be built.");
+          // A failed build used to leave the button disabled for good, so the
+          // only control on an empty panel stopped responding with no way back.
+          button.disabled = false;
+          new Notice(`The knowledge record could not be built: ${(e && e.message) || e}. Nothing was changed; try again.`, 8000);
         }
       });
       return;
@@ -705,7 +708,8 @@ class InsightsView extends ItemView {
           await plugin.rebuildKnowledgeRecord();
           this.render();
         } catch (e) {
-          new Notice("The knowledge record could not be built.");
+          button.disabled = false;
+          new Notice(`The knowledge record could not be built: ${(e && e.message) || e}. Nothing was changed; try again.`, 8000);
         }
       });
       return;
@@ -736,7 +740,7 @@ class InsightsView extends ItemView {
         await plugin.rebuildKnowledgeRecord();
         this.render();
       } catch (e) {
-        new Notice("The knowledge record could not be rebuilt.");
+        new Notice(`The knowledge record could not be rebuilt: ${(e && e.message) || e}. Nothing was changed; try again.`, 8000);
         rebuild.disabled = false;
       }
     });

@@ -1,0 +1,170 @@
+MCQ Tracker starter pack — AP World History: Modern, 12 original questions.
+Paste everything below into Obsidian: Ctrl/Cmd+P, run "Quick add questions from pasted text", paste, then review and import.
+Every question is written from scratch for this pack. Nothing here is taken from, adapted from, or copied out of College Board, AP Classroom, a textbook or a question bank.
+Each explanation states the fact the key rests on, so you can check an answer without trusting the pack.
+
+Q: The Inca state required adult men to work a set number of days each year on roads, terraces and storehouses. What was this system of labor called?
+A. Encomienda
+B. Mit'a
+C. Indentured servitude
+D. Chattel slavery
+Answer: B
+Why: The mit'a was a labor tax owed to the Inca state, and it built the road network and agricultural terraces. The encomienda was a Spanish colonial grant of Indigenous labor, imposed after the conquest, so it is the wrong empire and the wrong century.
+Course: AP World History: Modern
+Unit: 1
+Skill: State building and legitimacy
+Difficulty: medium
+
+---
+
+Q: Which best describes the effect of the Mongol conquests on trade in the thirteenth and fourteenth centuries?
+A. Long-distance trade across Eurasia expanded because the routes were secured under one authority.
+B. Trade collapsed because the Mongols banned merchants from the steppe.
+C. Trade shifted entirely to the Atlantic Ocean.
+D. Trade shrank because the Mongols closed the Silk Roads to caravans.
+Answer: A
+Why: The period of Mongol rule known as the Pax Mongolica protected the Silk Roads, so the volume of goods, people and ideas moving between China, Central Asia, Persia and Europe rose. The same routes also carried the plague west in the 1340s.
+Course: AP World History: Modern
+Unit: 2
+Skill: Networks of exchange
+Difficulty: easy
+
+---
+
+Q: Which crop, carried across the Atlantic after 1492, had become a staple food in Ireland by the 1700s?
+A. Maize
+B. Potato
+C. Wheat
+D. Rice
+Answer: B
+Why: The potato came from the Andes and spread through the Columbian Exchange; by the 1700s it fed a large share of the Irish population, which is why the blight of the 1840s caused famine. Wheat, rice and most European grains were already in the Old World before 1492.
+Course: AP World History: Modern
+Unit: 4
+Skill: Columbian Exchange
+Difficulty: easy
+
+---
+
+Q: What was the Ottoman devshirme system?
+A. A tax collected in silver from non-Muslim subjects
+B. A levy of Christian boys from the Balkans, converted to Islam and trained for military and administrative service
+C. A grant of land to cavalry soldiers in exchange for military service
+D. A requirement that Muslim families send one son to Istanbul each year
+Answer: B
+Why: Devshirme took boys from Christian families in the Balkans and raised them as janissaries and officials of the sultan, so power rested on loyalty rather than on the old Turkish nobility. The land-for-service grant was the timar system, and the tax on non-Muslims was the jizya.
+Course: AP World History: Modern
+Unit: 3
+Skill: Land-based empires
+Difficulty: medium
+
+---
+
+Q: The Mughal emperor Akbar promoted the Din-i Ilahi, which was
+A. a legal code that replaced sharia in the empire
+B. an attempt to combine elements of Islam and Hinduism in one court religion
+C. a reform of the army that replaced cavalry with artillery
+D. a tax levied on non-Muslim subjects
+Answer: B
+Why: Akbar, who ruled from 1556 to 1605, tried to unite his Muslim and Hindu subjects by blending elements of both faiths at court, and he also abolished the jizya on non-Muslims. The jizya was reinstated later under Aurangzeb, which is what makes that choice a trap.
+Course: AP World History: Modern
+Unit: 3
+Skill: Land-based empires
+Difficulty: medium
+
+---
+
+Q: Which state industrialized first, beginning with cotton textiles in the late 1700s?
+A. France
+B. Britain
+C. Germany
+D. The United States
+Answer: B
+Why: Britain had coal, capital, colonial markets and the water frames and spinning mules of the 1760s to 1780s, so its cotton industry mechanized before any other country. France, Germany and the United States followed in the nineteenth century.
+Course: AP World History: Modern
+Unit: 5
+Skill: Industrialization
+Difficulty: easy
+
+---
+
+Q: What did the Berlin Conference of 1884 to 1885 establish?
+A. Rules for European claims to territory in Africa, agreed without any African representation
+B. The abolition of the Atlantic slave trade
+C. Independence for the Congo basin
+D. A military alliance between Germany and Britain
+Answer: A
+Why: The conference set the principle that a European power had to occupy a territory to claim it, which accelerated the scramble for Africa. No African rulers were invited or consulted, and the Congo was handed to Leopold II rather than made independent.
+Course: AP World History: Modern
+Unit: 6
+Skill: Imperialism
+Difficulty: medium
+
+---
+
+Q: Who led the Taiping Rebellion against the Qing dynasty from 1850 to 1864?
+A. Sun Yat-sen
+B. Hong Xiuquan
+C. Kang Youwei
+D. Chiang Kai-shek
+Answer: B
+Why: Hong Xiuquan, who believed he was the younger brother of Jesus, led the rebellion that took Nanjing and killed millions before Qing forces with Western help defeated it. Sun Yat-sen led the 1911 revolution and Kang Youwei the 1898 reform movement, so both belong to later decades.
+Course: AP World History: Modern
+Unit: 6
+Skill: Internal and external challenges
+Difficulty: medium
+
+---
+
+Q: What did the Meiji Restoration of 1868 do in Japan?
+A. It restored the Tokugawa shogunate to power.
+B. It ended the Tokugawa shogunate and began rapid industrial and military modernization under the emperor.
+C. It closed Japan to foreign trade for another century.
+D. It established a communist government in Tokyo.
+Answer: B
+Why: A group of samurai overthrew the shogunate in 1868 and used the young emperor Meiji to legitimize sweeping reforms: conscription, state-built factories, railways and compulsory education. Japan had been forced open by Commodore Perry in 1853, so the country was opening rather than closing.
+Course: AP World History: Modern
+Unit: 5
+Skill: Political and economic revolutions
+Difficulty: easy
+
+---
+
+Q: In 1928 the Soviet Union began a program of rapid industrialization built on
+A. Five-Year Plans that set production targets for heavy industry
+B. the New Economic Policy of small private enterprise
+C. the Marshall Plan of American aid
+D. the Warsaw Pact
+Answer: A
+Why: The first Five-Year Plan started in 1928 and pushed coal, iron and steel output up through state targets, alongside the forced collectivization of farms. The New Economic Policy was Lenin's 1921 retreat that this replaced, the Marshall Plan was American aid to Western Europe after 1948, and the Warsaw Pact was a 1955 military alliance.
+Course: AP World History: Modern
+Unit: 7
+Skill: State-led industrialization
+Difficulty: medium
+
+---
+
+Q: Gandhi's campaigns for Indian independence, including the Salt March of 1930, depended on
+A. armed insurrection against British garrisons
+B. nonviolent civil disobedience and boycotts of British goods
+C. an alliance with the Axis powers
+D. petitions to the League of Nations
+Answer: B
+Why: Gandhi used satyagraha, meaning nonviolent resistance: the Salt March walked 240 miles to make salt in defiance of the British monopoly, and the plan was to fill the jails rather than fight. The Indian National Army and the 1942 Quit India movement's violence came from other currents, not from Gandhi's method.
+Course: AP World History: Modern
+Unit: 8
+Skill: Decolonization
+Difficulty: medium
+
+---
+
+Q: Which of these were consequences of the Columbian Exchange? Select all that apply.
+A. Smallpox and measles sharply reduced Indigenous populations in the Americas.
+B. The Black Death reached Europe from the Americas.
+C. Maize and potatoes reached Europe, Africa and Asia.
+D. The Ottoman Empire gained territory in the Americas.
+Answer: A, C
+Why: Old World diseases killed a large share of the Indigenous population of the Americas, and American crops became staples in the Old World, which is why maize and the potato show up in African, European and Asian diets. The Black Death reached Europe from Asia in the 1340s, before 1492, and the Ottomans never held territory in the Americas.
+Course: AP World History: Modern
+Unit: 4
+Skill: Columbian Exchange
+Difficulty: hard

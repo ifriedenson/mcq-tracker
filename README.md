@@ -1,8 +1,16 @@
 # MCQ Tracker
 
-MCQ Tracker is the question-first study plugin for Obsidian. Turn notes and PDFs into exam-style practice across seven question formats, review notes and cards with spaced repetition, sit timed tests, and keep every attempt on the note it came from. It is free, local-first, and works on desktop and mobile. No MCQ Tracker account is required; AI is optional and uses your own provider key or the OpenCode desktop agent.
+**Practise multiple-choice questions in your notes, see why you miss them, and review on a schedule.** Timed tests, a confidence rating and mistake tags on every answer, and spaced review — with every attempt saved on the question note it came from.
 
 [Website](https://ifriedenson.github.io/mcq-tracker/) · [Source](https://github.com/ifriedenson/mcq-tracker) · [Give feedback](https://tally.so/r/PRDe1d)
+
+**Try it in 2 minutes:** install, press `Ctrl/Cmd+P`, run **Open welcome guide**, then choose **Try the example question**.
+**No AI needed:** run **Quick add questions from pasted text** and paste questions you already have; it works offline.
+**Tell me what confused you:** [2-minute form](https://tally.so/r/PRDe1d) — I read every answer.
+
+Not affiliated with or endorsed by the College Board. AP and Bluebook are trademarks of their owners. MCQ Tracker ships no AP questions, rubrics or question banks.
+
+MCQ Tracker is the question-first study plugin for Obsidian. Turn notes and PDFs into exam-style practice across seven question formats, review notes and cards with spaced repetition, sit timed tests, and keep every attempt on the note it came from. It is free, local-first, and works on desktop and mobile. No MCQ Tracker account is required; AI is optional and uses your own provider key or the OpenCode desktop agent.
 
 <img src="docs/images/hero-practice.png" alt="MCQ Tracker Practice view showing a multiple-choice question, four answer choices, confidence buttons, a timer and Submit." width="900">
 
@@ -373,7 +381,7 @@ Open the command palette with `Ctrl/Cmd+P` and search **MCQ Tracker**, **Cards**
 
 ### How it compares with Spaceforge
 
-Spaceforge is a strong spaced-repetition and study suite. This comparison is based on its public README (reference `dralkh/spaceforge` at `1.2.92`) and on this 1.301.15 build. The point is to show the trade-offs, not to claim that one plugin wins every row.
+Spaceforge is a strong spaced-repetition and study suite. This comparison is based on its public README (reference `dralkh/spaceforge` at `1.2.92`) and on this 1.301.16 build. The point is to show the trade-offs, not to claim that one plugin wins every row.
 
 | Capability | MCQ Tracker | Spaceforge | The practical difference |
 | --- | --- | --- | --- |

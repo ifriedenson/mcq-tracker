@@ -126,6 +126,8 @@ class WelcomeModal extends QtModal {
 
     if (!Platform.isDesktopApp) {
       status.setText("OpenCode is desktop-only. On mobile, add a Direct API provider key in Settings.");
+      // A message that sends someone to Settings has to be able to open it.
+      this.renderAiSettingsLink(section);
       return;
     }
 
