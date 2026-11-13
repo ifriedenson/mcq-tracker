@@ -73,18 +73,19 @@ test("answer verification: a drop setting removes only mismatched drafts", async
   assert.equal(marked.dropped, 0);
 });
 
-test("answer verification: a stalled provider times out instead of freezing the import", async () => {
+test("answer verification: a slow provider is waited on until it answers", async () => {
   const plugin = new QT(makeApp([]));
   await plugin.onload();
   plugin.settings.ai.enabled = true;
-  plugin.verifyTimeoutMs = 20;
-  plugin.aiComplete = () => new Promise(() => {});
+  plugin.aiComplete = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    return '{"answer":"B"}';
+  };
   const item = { question: "Two?", choices: ["a", "b", "c", "d"], answer: "B" };
   const summary = await plugin.verifyDraftQuestions([item]);
-  assert.deepEqual(summary, { checked: 0, dropped: 0, failed: 1, mode: "mark" });
-  assert.equal(item.verification.status, "error");
-  assert.match(item.verification.error, /timed out/);
-  assert.equal(item.verification.drop, false, "a timeout keeps the note");
+  assert.deepEqual(summary, { checked: 1, dropped: 0, failed: 0, mode: "mark" });
+  assert.equal(item.verification.status, "match", "a slow reply still verifies the note");
+  assert.equal(item.verification.drop, false);
 });
 
 test("plugin: a matching blind answer verifies the note and a mismatch flags it", async () => {

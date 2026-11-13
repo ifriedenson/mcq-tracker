@@ -786,7 +786,7 @@ test("batch import: Stop ends a hanging OpenCode send and summarizes the batch",
   assert.ok(!state.plugin.importSession, "no session survives the stopped batch");
 });
 
-test("batch import: a stalled answer check times out and the file still finishes", async () => {
+test("batch import: a slow answer check is waited on and the note is verified", async () => {
   const state = await setup();
   state.plugin.settings.ai.backend = "opencode";
   state.plugin.settings.ai.managed = false;
@@ -804,8 +804,10 @@ test("batch import: a stalled answer check times out and the file still finishes
     checks++;
     return realVerify.call(this, items);
   };
-  state.plugin.verifyTimeoutMs = 25;
-  state.plugin.aiChat = () => new Promise(() => {});
+  state.plugin.aiChat = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    return '{"answer":"B"}';
+  };
   state.plugin.openCode = () => ({
     providers: async () => ({ providers: [{}] }),
     createSession: async () => ({ id: "import-" + ++sessions }),
@@ -831,11 +833,12 @@ test("batch import: a stalled answer check times out and the file still finishes
   };
   const started = modal.startBatch();
   await started;
-  await waitFor(() => completionModal(modal), "the completion summary after a timed-out check");
+  await waitFor(() => completionModal(modal), "the completion summary after a slow check");
 
   assert.equal(checks, 1, "the real blind check ran once instead of hanging");
   assert.ok(statuses.some((text) => text.includes("Checking answer 1 of 1")), "the import says which answer it is checking");
-  assert.equal(state.files.has(notePath), true, "a timed-out check keeps the note");
+  assert.equal(state.files.has(notePath), true, "a slow check still writes the note");
+  assert.match(state.files.get(notePath).text, /verified: true/, "a slow matching reply verifies the note");
   const complete = completionModal(modal);
   const completeDom = attach(complete);
   complete.onOpen();

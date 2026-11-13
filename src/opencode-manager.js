@@ -53,6 +53,13 @@ function permissionConfigContent(vaultPath) {
   return JSON.stringify({ $schema: "https://opencode.ai/config.json", permission });
 }
 
+/**
+ * How long one "is the server you left running still answering?" ping may
+ * take during ensure(). Two misses in a row mean the server is gone even
+ * though its process handle still looks alive.
+ */
+const ENSURE_PING_TIMEOUT_MS = 10 * 1000;
+
 /** 2 from "2.2.0" or "v2.2.0"; 0 when the text has no version number. */
 function opencodeMajor(v) {
   const m = /(\d+)\.\d+/.exec(str(v));
@@ -798,11 +805,35 @@ class OpenCodeManager {
     }
   }
 
+  /** True when the server behind this connection answers a quick providers ping. */
+  async answering(client) {
+    try {
+      const found = await client.providers(ENSURE_PING_TIMEOUT_MS);
+      return !!(found && Array.isArray(found.providers));
+    } catch (e) {
+      return false;
+    }
+  }
+
   /** Make sure an existing OpenCode is running. It never downloads anything. Safe to call repeatedly. */
-  ensure(progress) {
+  ensure(progress, hooks) {
     if (this.starting) return this.starting;
+    const h = hooks || {};
     this.starting = (async () => {
-      if (this.isRunning()) return;
+      const say = typeof progress === "function" ? progress : () => {};
+      if (this.isRunning()) {
+        // The process can outlive its server: after the computer sleeps with
+        // the screen off, the process handle still looks alive while nothing
+        // answers it. Ask twice and restart fresh instead of handing the next
+        // file or chat a dead server it would wait on forever.
+        const client = h.client ? h.client(this.conn) : new OpenCodeClient(this.conn);
+        if (await this.answering(client)) return;
+        await sleep(1500);
+        if (await this.answering(client)) return;
+        say("OpenCode was still running but stopped answering, so restarting it fresh...");
+        this.stop();
+        await sleep(1000);
+      }
       if (!Platform.isDesktopApp) throw new Error("OpenCode auto-setup needs the desktop app (it isn't available on mobile yet).");
       if (!(await this.findBinary())) {
         if (this.tooNew) throw new Error(this.tooNewMessage());
@@ -813,7 +844,7 @@ class OpenCodeManager {
           throw new Error("OpenCode isn't set up yet. Open Settings > Study agent > AI and the assistant and press Download and install, or choose a copy you already have.");
         }
       }
-      await this.start(progress);
+      await this.start(progress, undefined, h.client ? hooks : undefined);
     })().finally(() => {
       this.starting = null;
     });

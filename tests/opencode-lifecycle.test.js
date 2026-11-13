@@ -192,6 +192,30 @@ test("a persisted install-folder path starts the real executable and restarts", 
   mgr.stop();
 });
 
+test("ensure() restarts a server whose process survived but which stopped answering", async (t) => {
+  const { installRoot, mgr } = lifecycle(t);
+  const folder = path.join(installRoot, "v1.19.5-opencode-windows-x64");
+  writeExecutable(folder, "1.19.5");
+  mgr.ai.managedBinary = folder;
+  withHttp(t);
+
+  await mgr.ensure();
+  assert.equal(mgr.isRunning(), true, "the first start works");
+  const first = mgr.proc;
+  // The screen-off shape: the process handle still looks alive, but the
+  // server behind the connection is gone (a closed port refuses at once).
+  mgr.conn = { url: "http://127.0.0.1:1", username: mgr.conn.username, password: mgr.conn.password };
+  assert.equal(mgr.isRunning(), true, "a dead server still looks running by its process handle");
+
+  const said = [];
+  await mgr.ensure((m) => said.push(m));
+  assert.notEqual(mgr.proc, first, "the dead server is replaced, not handed to the next file");
+  assert.equal(mgr.isRunning(), true, "the fresh server is running");
+  assert.deepEqual((await new T.OpenCodeClient(mgr.conn).providers(1000)).providers, [{ id: "anthropic" }]);
+  assert.ok(said.some((m) => /restarting it fresh/i.test(m)), "the restart says what it is doing");
+  mgr.stop();
+});
+
 test("a managed folder missing the executable repairs through a real download and starts", async (t) => {
   const { installRoot, mgr, plugin } = lifecycle(t);
   const empty = path.join(installRoot, "v1.19.5-opencode-windows-x64");

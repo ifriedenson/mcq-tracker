@@ -71,21 +71,11 @@ const { TableCsvModal } = require("./table-csv-modal");
 const { VIEW_TYPE_TABLE_CONTROLS } = require("./constants");
 
 /**
- * A blind answer check is a small request. Cap it so a provider that accepts
- * the connection and then never replies cannot freeze an import forever.
+ * A blind answer check runs until the model answers: there is no time limit,
+ * because a slow provider made every check time out and left every note
+ * unverified. Stopping the import still cancels the wait, and a check that
+ * errors simply does not vote.
  */
-const VERIFICATION_TIMEOUT_MS = 60 * 1000;
-
-function withinVerificationTimeout(promise, ms, label) {
-  let timer = null;
-  const limit = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(label + " timed out after " + Math.round(ms / 1000) + "s.")), ms);
-  });
-  return Promise.race([promise, limit]).finally(() => {
-    if (timer) clearTimeout(timer);
-  });
-}
-
 class TimeBlocksTourModal extends QtModal {
   constructor(app, steps, onOpenDay) {
     super(app);
@@ -6044,8 +6034,6 @@ class QuestionTrackerPlugin extends Plugin {
     const rawKey = str(data.answer).trim();
     if (!rawKey) throw new Error("This item has no answer to check.");
     const choices = Array.isArray(data.choices) ? data.choices : [];
-    const configuredTimeout = Number(this.verifyTimeoutMs);
-    const timeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : VERIFICATION_TIMEOUT_MS;
     if (choices.length) {
       let keyLetters = parseChoiceSet(rawKey);
       if (!keyLetters.length) {
@@ -6055,11 +6043,7 @@ class QuestionTrackerPlugin extends Plugin {
       if (!keyLetters.length) throw new Error("The stored answer does not match the choices.");
       const multiple = keyLetters.length > 1 || data.multiple === true;
       const prompt = buildBlindVerificationPrompt({ question: data.question, choices, multiple });
-      const reply = await withinVerificationTimeout(
-        this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model }),
-        timeoutMs,
-        "The answer check"
-      );
+      const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model });
       if (multiple) {
         const answer = parseBlindVerificationSet(reply);
         if (!answer.length) throw new Error("The AI did not return a usable answer set.");
@@ -6074,11 +6058,7 @@ class QuestionTrackerPlugin extends Plugin {
     const keyNumber = Number(rawKey.replace(/[^0-9+-.eE]/g, ""));
     if (!Number.isFinite(keyNumber)) throw new Error("Only multiple-choice, true/false, multi-select or numeric answers can be checked.");
     const prompt = buildBlindVerificationPrompt({ question: data.question });
-    const reply = await withinVerificationTimeout(
-      this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model }),
-      timeoutMs,
-      "The answer check"
-    );
+    const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model });
     const answer = parseBlindVerificationNumber(reply);
     if (answer === null) throw new Error("The AI did not return a usable numeric answer.");
     const tolerance = Math.max(1e-9, Math.abs(keyNumber) * 1e-9);

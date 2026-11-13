@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.16",
+    date: "November 13, 2026",
+    title: "Answer checks wait, and OpenCode recovers after sleep",
+    summary:
+      "Blind answer checks no longer have a time limit, so a slow model can take as long as it needs and the note still gets verified. The managed OpenCode server is also pinged before each use, and a server left half-dead by the computer sleeping is restarted instead of stalling the next file.",
+    highlights: [
+      {
+        title: "No time limit on the checks",
+        body: "Each blind answer check runs until the model answers. A reply that arrives late still verifies the note; stopping the import still cancels the wait.",
+      },
+      {
+        title: "A dead server is restarted",
+        body: "Before each file, the plugin asks the running OpenCode server if it is still answering. Twice with no answer means it is stopped and started fresh, with that said on screen.",
+      },
+      {
+        title: "The next file no longer waits forever",
+        body: "A process handle that survived the computer sleeping can look alive while nothing answers it. The ping catches that, so the second and later files start instead of sticking on Starting OpenCode.",
+      },
+      {
+        title: "Nothing to set up",
+        body: "No new setting and no format change. Existing notes, models, settings and review dates are unchanged.",
+      },
+    ],
+  },
+  {
     version: "1.301.15",
     date: "November 13, 2026",
     title: "Pick the extra check models from a list",

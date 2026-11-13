@@ -60633,6 +60633,13 @@ function permissionConfigContent(vaultPath) {
   return JSON.stringify({ $schema: "https://opencode.ai/config.json", permission });
 }
 
+/**
+ * How long one "is the server you left running still answering?" ping may
+ * take during ensure(). Two misses in a row mean the server is gone even
+ * though its process handle still looks alive.
+ */
+const ENSURE_PING_TIMEOUT_MS = 10 * 1000;
+
 /** 2 from "2.2.0" or "v2.2.0"; 0 when the text has no version number. */
 function opencodeMajor(v) {
   const m = /(\d+)\.\d+/.exec(str(v));
@@ -61378,11 +61385,35 @@ class OpenCodeManager {
     }
   }
 
+  /** True when the server behind this connection answers a quick providers ping. */
+  async answering(client) {
+    try {
+      const found = await client.providers(ENSURE_PING_TIMEOUT_MS);
+      return !!(found && Array.isArray(found.providers));
+    } catch (e) {
+      return false;
+    }
+  }
+
   /** Make sure an existing OpenCode is running. It never downloads anything. Safe to call repeatedly. */
-  ensure(progress) {
+  ensure(progress, hooks) {
     if (this.starting) return this.starting;
+    const h = hooks || {};
     this.starting = (async () => {
-      if (this.isRunning()) return;
+      const say = typeof progress === "function" ? progress : () => {};
+      if (this.isRunning()) {
+        // The process can outlive its server: after the computer sleeps with
+        // the screen off, the process handle still looks alive while nothing
+        // answers it. Ask twice and restart fresh instead of handing the next
+        // file or chat a dead server it would wait on forever.
+        const client = h.client ? h.client(this.conn) : new OpenCodeClient(this.conn);
+        if (await this.answering(client)) return;
+        await sleep(1500);
+        if (await this.answering(client)) return;
+        say("OpenCode was still running but stopped answering, so restarting it fresh...");
+        this.stop();
+        await sleep(1000);
+      }
       if (!Platform.isDesktopApp) throw new Error("OpenCode auto-setup needs the desktop app (it isn't available on mobile yet).");
       if (!(await this.findBinary())) {
         if (this.tooNew) throw new Error(this.tooNewMessage());
@@ -61393,7 +61424,7 @@ class OpenCodeManager {
           throw new Error("OpenCode isn't set up yet. Open Settings > Study agent > AI and the assistant and press Download and install, or choose a copy you already have.");
         }
       }
-      await this.start(progress);
+      await this.start(progress, undefined, h.client ? hooks : undefined);
     })().finally(() => {
       this.starting = null;
     });
@@ -71664,21 +71695,11 @@ const { TableCsvModal } = require("./table-csv-modal");
 const { VIEW_TYPE_TABLE_CONTROLS } = require("./constants");
 
 /**
- * A blind answer check is a small request. Cap it so a provider that accepts
- * the connection and then never replies cannot freeze an import forever.
+ * A blind answer check runs until the model answers: there is no time limit,
+ * because a slow provider made every check time out and left every note
+ * unverified. Stopping the import still cancels the wait, and a check that
+ * errors simply does not vote.
  */
-const VERIFICATION_TIMEOUT_MS = 60 * 1000;
-
-function withinVerificationTimeout(promise, ms, label) {
-  let timer = null;
-  const limit = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(label + " timed out after " + Math.round(ms / 1000) + "s.")), ms);
-  });
-  return Promise.race([promise, limit]).finally(() => {
-    if (timer) clearTimeout(timer);
-  });
-}
-
 class TimeBlocksTourModal extends QtModal {
   constructor(app, steps, onOpenDay) {
     super(app);
@@ -77637,8 +77658,6 @@ class QuestionTrackerPlugin extends Plugin {
     const rawKey = str(data.answer).trim();
     if (!rawKey) throw new Error("This item has no answer to check.");
     const choices = Array.isArray(data.choices) ? data.choices : [];
-    const configuredTimeout = Number(this.verifyTimeoutMs);
-    const timeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : VERIFICATION_TIMEOUT_MS;
     if (choices.length) {
       let keyLetters = parseChoiceSet(rawKey);
       if (!keyLetters.length) {
@@ -77648,11 +77667,7 @@ class QuestionTrackerPlugin extends Plugin {
       if (!keyLetters.length) throw new Error("The stored answer does not match the choices.");
       const multiple = keyLetters.length > 1 || data.multiple === true;
       const prompt = buildBlindVerificationPrompt({ question: data.question, choices, multiple });
-      const reply = await withinVerificationTimeout(
-        this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model }),
-        timeoutMs,
-        "The answer check"
-      );
+      const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model });
       if (multiple) {
         const answer = parseBlindVerificationSet(reply);
         if (!answer.length) throw new Error("The AI did not return a usable answer set.");
@@ -77667,11 +77682,7 @@ class QuestionTrackerPlugin extends Plugin {
     const keyNumber = Number(rawKey.replace(/[^0-9+-.eE]/g, ""));
     if (!Number.isFinite(keyNumber)) throw new Error("Only multiple-choice, true/false, multi-select or numeric answers can be checked.");
     const prompt = buildBlindVerificationPrompt({ question: data.question });
-    const reply = await withinVerificationTimeout(
-      this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model }),
-      timeoutMs,
-      "The answer check"
-    );
+    const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model });
     const answer = parseBlindVerificationNumber(reply);
     if (answer === null) throw new Error("The AI did not return a usable numeric answer.");
     const tolerance = Math.max(1e-9, Math.abs(keyNumber) * 1e-9);
@@ -134659,6 +134670,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.301.16",
+    date: "November 13, 2026",
+    title: "Answer checks wait, and OpenCode recovers after sleep",
+    summary:
+      "Blind answer checks no longer have a time limit, so a slow model can take as long as it needs and the note still gets verified. The managed OpenCode server is also pinged before each use, and a server left half-dead by the computer sleeping is restarted instead of stalling the next file.",
+    highlights: [
+      {
+        title: "No time limit on the checks",
+        body: "Each blind answer check runs until the model answers. A reply that arrives late still verifies the note; stopping the import still cancels the wait.",
+      },
+      {
+        title: "A dead server is restarted",
+        body: "Before each file, the plugin asks the running OpenCode server if it is still answering. Twice with no answer means it is stopped and started fresh, with that said on screen.",
+      },
+      {
+        title: "The next file no longer waits forever",
+        body: "A process handle that survived the computer sleeping can look alive while nothing answers it. The ping catches that, so the second and later files start instead of sticking on Starting OpenCode.",
+      },
+      {
+        title: "Nothing to set up",
+        body: "No new setting and no format change. Existing notes, models, settings and review dates are unchanged.",
+      },
+    ],
+  },
   {
     version: "1.301.15",
     date: "November 13, 2026",
