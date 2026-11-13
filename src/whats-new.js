@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.27",
+    date: "November 13, 2026",
+    title: "A frozen answer check restarts OpenCode and asks again",
+    summary:
+      "When a check stops answering, the plugin now restarts OpenCode, says so on the checking line, and asks that same question again, so the note is verified instead of being left unchecked.",
+    highlights: [
+      {
+        title: "Restart, then ask the same question",
+        body: "A check that reports nothing new for the allowed time restarts the managed OpenCode server and re-sends the identical question with the same model, so one frozen request no longer costs a note its check.",
+      },
+      {
+        title: "Said on the same line",
+        body: "Checking answer 4 of 27 now adds a short note when the server is restarted and again when the answer arrives, so the pause has a reason on screen.",
+      },
+      {
+        title: "Only connection trouble is retried",
+        body: "A reply that arrives but makes no sense is not retried: the note keeps its check result and the import moves on, so a bad model answer cannot loop.",
+      },
+      {
+        title: "Stop still wins",
+        body: "If you stopped the import or closed the window, nothing is restarted. Direct AI asks once more without any restart. No note format, setting or review date changed.",
+      },
+    ],
+  },
+  {
     version: "1.301.26",
     date: "November 13, 2026",
     title: "A waiting answer check shows its age",

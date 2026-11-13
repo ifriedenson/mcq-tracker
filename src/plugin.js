@@ -352,6 +352,21 @@ function noteNotesSection(body) {
   return out.join("\n").trimEnd().replace(/^(##\s+Notes\b)[ \t]*\n?/i, "$1\n\n");
 }
 
+/**
+ * Whether a failed AI request failed because the connection or the server
+ * stopped answering, as opposed to a reply that arrived but made no sense.
+ * Only the former is worth restarting OpenCode for and asking again.
+ */
+function isConnectionFailure(error) {
+  const message = str(error && error.message ? error.message : error);
+  if (/usable answer|no answer to check|does not match the choices|Only multiple-choice|Turn on AI features|needs .*Direct AI|Daily request cap|Per-run request cap|no more AI requests/i.test(message)) {
+    return false;
+  }
+  return /wrote nothing new|stopped answering|didn't answer|Can't reach OpenCode|not running|timed out|took longer than|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ERR_CONNECTION|Failed to fetch|net::|socket|network|fetch failed|502|503|504/i.test(
+    message
+  );
+}
+
 class QuestionTrackerPlugin extends Plugin {
   async onload() {
     // A previous plugin instance or a crash may have left the body class behind.
@@ -6099,10 +6114,57 @@ class QuestionTrackerPlugin extends Plugin {
     return result;
   }
 
+  /**
+   * Bring the AI connection back after a request stopped answering, then let
+   * the caller ask its question again. A managed OpenCode server is restarted
+   * fresh (its process can look alive while nothing answers it); a server the
+   * user runs is re-checked; Direct AI just gets one more try. Returns false
+   * when there is nothing worth retrying, so the caller keeps its own error.
+   */
+  async recoverAiConnection(reason, options) {
+    const o = options || {};
+    const said = typeof o.onNotice === "function" ? o.onNotice : () => {};
+    if (this.backend() !== "opencode") {
+      said("The provider stopped answering, so this answer is being asked one more time...");
+      return true;
+    }
+    const managed = !!(this.settings.ai && this.settings.ai.managed);
+    said(
+      managed
+        ? "OpenCode stopped answering, so it is being restarted, and then this same answer is asked again..."
+        : "OpenCode stopped answering. Starting it again, then asking this same answer again..."
+    );
+    try {
+      if (managed) this.manager.stop();
+      await sleep(600);
+      await this.ensureOpenCode(o.onNotice);
+      return true;
+    } catch (e) {
+      // The restart itself failed; keep the original failure, which names the
+      // answer check, and let the note be kept unverified rather than lost.
+      said(`OpenCode could not be restarted: ${str(e && e.message ? e.message : e)}`);
+      return false;
+    }
+  }
+
   /** Ask one independent question, without showing the stored key. */
   async verifyQuestionDraft(item, options) {
     const data = item || {};
-    const model = str(options && options.model).trim().slice(0, 200);
+    const o = options || {};
+    const model = str(o.model).trim().slice(0, 200);
+    // A frozen server must not cost a note its check: recover once, then ask
+    // this same question again with the same model.
+    const ask = async (prompt) => {
+      try {
+        return await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model });
+      } catch (e) {
+        if (o.noRetry === true || !isConnectionFailure(e)) throw e;
+        if (typeof o.shouldStop === "function" && o.shouldStop()) throw e;
+        const recovered = await this.recoverAiConnection(e, { onNotice: o.onNotice });
+        if (!recovered) throw e;
+        return await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model });
+      }
+    };
     const rawKey = str(data.answer).trim();
     if (!rawKey) throw new Error("This item has no answer to check.");
     const choices = Array.isArray(data.choices) ? data.choices : [];
@@ -6115,7 +6177,7 @@ class QuestionTrackerPlugin extends Plugin {
       if (!keyLetters.length) throw new Error("The stored answer does not match the choices.");
       const multiple = keyLetters.length > 1 || data.multiple === true;
       const prompt = buildBlindVerificationPrompt({ question: data.question, choices, multiple });
-      const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model });
+      const reply = await ask(prompt);
       if (multiple) {
         const answer = parseBlindVerificationSet(reply);
         if (!answer.length) throw new Error("The AI did not return a usable answer set.");
@@ -6130,7 +6192,7 @@ class QuestionTrackerPlugin extends Plugin {
     const keyNumber = Number(rawKey.replace(/[^0-9+-.eE]/g, ""));
     if (!Number.isFinite(keyNumber)) throw new Error("Only multiple-choice, true/false, multi-select or numeric answers can be checked.");
     const prompt = buildBlindVerificationPrompt({ question: data.question });
-    const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model });
+    const reply = await ask(prompt);
     const answer = parseBlindVerificationNumber(reply);
     if (answer === null) throw new Error("The AI did not return a usable numeric answer.");
     const tolerance = Math.max(1e-9, Math.abs(keyNumber) * 1e-9);
@@ -6188,6 +6250,8 @@ class QuestionTrackerPlugin extends Plugin {
     const o = opts || {};
     const onProgress = typeof o.onProgress === "function" ? o.onProgress : null;
     const shouldStop = typeof o.shouldStop === "function" ? o.shouldStop : null;
+    const onNotice = typeof o.onNotice === "function" ? o.onNotice : null;
+    const checkOptions = { shouldStop, onNotice };
     const mode = normalizeVerificationMode(this.settings.ai.verification);
     const model = this.aiModelLabel("verification");
     const date = localDate();
@@ -6227,11 +6291,11 @@ class QuestionTrackerPlugin extends Plugin {
         continue;
       }
       try {
-        let result = await this.verifyQuestionDraft(item);
+        let result = await this.verifyQuestionDraft(item, checkOptions);
         // One disagreement is not proof. Put it to two more blind checks and
         // verify only on a real majority, so a single odd reply does not cost a
         // correct note its answer and a genuinely wrong one is named.
-        if (!result.match) result = await this.verifyByConsensus(item, result);
+        if (!result.match) result = await this.verifyByConsensus(item, result, checkOptions);
         const status = result.match ? "match" : "mismatch";
         // Name the panel when it voted, so a note says which AIs checked it.
         const votedBy =
@@ -6284,14 +6348,16 @@ class QuestionTrackerPlugin extends Plugin {
    * A check that errors is not a vote; the first verdict is kept when the
    * extras cannot settle anything.
    */
-  async verifyByConsensus(item, first) {
+  async verifyByConsensus(item, first, options) {
+    const o = options || {};
     const votes = [{ answer: str(first.answer).trim() }];
     const extras = this.verificationPanelSize();
     const models = normalizePanelModels(this.settings.ai && this.settings.ai.verifyPanelModels);
     for (let i = 0; i < extras; i++) {
+      if (typeof o.shouldStop === "function" && o.shouldStop()) break;
       const model = panelModelFor(models, i);
       try {
-        const again = await this.verifyQuestionDraft(item, { model });
+        const again = await this.verifyQuestionDraft(item, { model, noRetry: true, shouldStop: o.shouldStop, onNotice: o.onNotice });
         votes.push({ answer: str(again.answer).trim() });
       } catch (e) {
         votes.push({ answer: "" });

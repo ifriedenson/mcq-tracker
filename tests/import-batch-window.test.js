@@ -864,6 +864,74 @@ test("batch import: a long answer check shows how long it has been waiting", asy
   assert.equal(text, kept, "stopping the clock leaves the last line on screen");
 });
 
+test("batch import: a frozen answer check restarts OpenCode and verifies the same note", async () => {
+  const state = await setup();
+  state.plugin.settings.ai.backend = "opencode";
+  state.plugin.settings.ai.managed = false;
+  state.plugin.settings.ai.verifyPanel = false;
+  // setup() stubs the check away; this test drives the real one.
+  delete state.plugin.verifyDraftQuestions;
+  // The agent itself starts OpenCode once per file; count the restarts that
+  // the frozen check triggers separately.
+  let starts = 0;
+  let restarts = 0;
+  let frozen = false;
+  state.plugin.ensureOpenCode = async () => {
+    starts++;
+    if (frozen) restarts++;
+  };
+  const notePath = "Questions/Unit A/Unit A-Q01.md";
+  const aiNote = AGENT_NOTE.replace("answer_source: pdf", "answer_source: ai").replace(
+    "- A. 3\n- B. 4\n",
+    "- A. 3\n- B. 4\n- C. 5\n- D. 6\n"
+  );
+  let sessions = 0;
+  let checks = 0;
+  state.plugin.aiChat = async () => {
+    checks++;
+    if (checks === 1) {
+      frozen = true;
+      throw new Error("OpenCode accepted the request but wrote nothing new for 6 minutes.");
+    }
+    frozen = false;
+    return '{"answer":"B"}';
+  };
+  state.plugin.openCode = () => ({
+    providers: async () => ({ providers: [{}] }),
+    createSession: async () => ({ id: "frozen-" + ++sessions }),
+    promptAsync: async (id) => {
+      if (id === "frozen-1") await state.app.vault.create(notePath, aiNote);
+      return {};
+    },
+    messages: async () => agentMessage("done"),
+    abort: async () => ({}),
+  });
+
+  const bytes = await textPdf();
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [file("Unit A.pdf", bytes), file("Unit B.pdf", bytes)] });
+  const dom = attach(modal);
+  modal.onOpen();
+  modal.agentPollMs = 5;
+  modal.agentSettleMs = 20;
+  const statuses = [];
+  const status = modal.status.bind(modal);
+  modal.status = (text, ...args) => {
+    statuses.push(String(text));
+    return status(text, ...args);
+  };
+  await modal.startBatch();
+  await waitFor(() => completionModal(modal), "the completion summary after a recovered check");
+
+  assert.equal(checks, 2, "the same answer is asked again after the server is restarted");
+  assert.equal(restarts, 1, "the frozen check starts the server again once");
+  assert.ok(
+    statuses.some((text) => /OpenCode stopped answering/i.test(text)),
+    "the window says why the answer is being asked again"
+  );
+  assert.ok(statuses.some((text) => text.includes("Checking answer 1 of 1")), "the check line stays on screen");
+  assert.match(state.files.get(notePath).text, /verified: true/, "the retried answer verifies the note");
+});
+
 test("agent import: no notes removes the source copy and the empty folder", async () => {
   const state = await setup();
   state.plugin.settings.ai.backend = "opencode";

@@ -335,9 +335,15 @@ class PdfImportModal extends QtModal {
       this.status(`${makeText()} (${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")})`);
     };
     paint();
+    // A caller that has news (a restart, a retry) repaints at once instead of
+    // waiting for the next second.
+    this.paintWait = paint;
     const timer = setInterval(paint, 1000);
     if (timer && typeof timer.unref === "function") timer.unref();
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      this.paintWait = null;
+    };
   }
 
   beginCancellableRun() {
@@ -1619,10 +1625,19 @@ class PdfImportModal extends QtModal {
       let verification = null;
       if (preKey && !preFromDocument && parsed.sec.choices.length && typeof this.plugin.verifyDraftQuestions === "function") {
         const draft = { question: parsed.sec.question, choices: parsed.sec.choices, answer: preKey };
-        const stopClock = this.waitClock(() => `Checking answer ${i + 1} of ${files.length}: ${base}...`);
+        // The wait counts up, and a frozen server says so on the same line
+        // before it is restarted and this same answer is asked again.
+        let noteText = "";
+        const stopClock = this.waitClock(() => `Checking answer ${i + 1} of ${files.length}: ${base}...${noteText ? ` ${noteText}` : ""}`);
         try {
           await this.awaitCancellable(
-            this.plugin.verifyDraftQuestions([draft], { shouldStop: () => this.stop || this.closed })
+            this.plugin.verifyDraftQuestions([draft], {
+              shouldStop: () => this.stop || this.closed,
+              onNotice: (m) => {
+                noteText = str(m);
+                if (typeof this.paintWait === "function") this.paintWait();
+              },
+            })
           );
         } finally {
           stopClock();
@@ -1873,11 +1888,16 @@ class PdfImportModal extends QtModal {
     // must not leave a frozen sentence on screen, and closing the window stops
     // paying for checks whose results are no longer shown.
     let label = `Checking answer 1 of ${drafts.length} without showing the key...`;
-    const stopClock = this.waitClock(() => label);
+    let noteText = "";
+    const stopClock = this.waitClock(() => `${label}${noteText ? ` ${noteText}` : ""}`);
     try {
       await this.plugin.verifyDraftQuestions(drafts, {
         onProgress: (n, total) => {
           label = `Checking answer ${n} of ${total} without showing the key...`;
+        },
+        onNotice: (m) => {
+          noteText = str(m);
+          if (typeof this.paintWait === "function") this.paintWait();
         },
         shouldStop: () => this.stop || this.closed,
       });

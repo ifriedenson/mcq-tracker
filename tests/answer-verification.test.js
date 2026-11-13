@@ -309,6 +309,75 @@ test("consensus: the extra checks use the listed models in turn", async () => {
   assert.match(String(item.verification.model), /m-one \+ m-two/, "the note names the models that voted");
 });
 
+test("answer verification: a frozen OpenCode is restarted and the same answer is asked again", async () => {
+  const plugin = new QT(makeApp([]));
+  await plugin.onload();
+  plugin.settings.ai.enabled = true;
+  plugin.settings.ai.backend = "opencode";
+  plugin.settings.ai.managed = true;
+  plugin.settings.ai.verifyPanel = false;
+  const order = [];
+  plugin.manager.stop = () => order.push("stop");
+  plugin.ensureOpenCode = async () => order.push("start");
+  let calls = 0;
+  plugin.aiComplete = async () => {
+    calls++;
+    order.push(`ask ${calls}`);
+    if (calls === 1) throw new Error("OpenCode accepted the request but wrote nothing new for 6 minutes.");
+    return '{"answer":"B"}';
+  };
+  const notices = [];
+  const item = { question: "Two?", choices: ["a", "b", "c", "d"], answer: "B" };
+  const summary = await plugin.verifyDraftQuestions([item], { onNotice: (m) => notices.push(m) });
+  assert.deepEqual(summary, { checked: 1, dropped: 0, failed: 0, mode: "mark" });
+  assert.deepEqual(order, ["ask 1", "stop", "start", "ask 2"], "the same answer is asked again after a restart");
+  assert.equal(item.verification.status, "match", "the retry verifies the note");
+  assert.match(notices[0], /OpenCode stopped answering/i, "the window says what is happening");
+});
+
+test("answer verification: a reply that makes no sense is not retried", async () => {
+  const plugin = new QT(makeApp([]));
+  await plugin.onload();
+  plugin.settings.ai.enabled = true;
+  plugin.settings.ai.verifyPanel = false;
+  let calls = 0;
+  let restarts = 0;
+  plugin.ensureOpenCode = async () => {
+    restarts++;
+  };
+  plugin.aiComplete = async () => {
+    calls++;
+    return "I would rather not answer that.";
+  };
+  const item = { question: "Two?", choices: ["a", "b", "c", "d"], answer: "B" };
+  const summary = await plugin.verifyDraftQuestions([item]);
+  assert.equal(calls, 1, "a nonsensical reply is not a connection problem");
+  assert.equal(restarts, 0);
+  assert.equal(summary.failed, 1);
+  assert.match(item.verification.error, /usable answer letter/);
+});
+
+test("answer verification: a stopped import does not restart the server", async () => {
+  const plugin = new QT(makeApp([]));
+  await plugin.onload();
+  plugin.settings.ai.enabled = true;
+  plugin.settings.ai.backend = "opencode";
+  let restarts = 0;
+  plugin.ensureOpenCode = async () => {
+    restarts++;
+  };
+  let asked = 0;
+  plugin.aiComplete = async () => {
+    asked++;
+    throw new Error("Can't reach OpenCode at http://127.0.0.1:4096. Start it in a terminal with: opencode serve");
+  };
+  const item = { question: "Two?", choices: ["a", "b", "c", "d"], answer: "B" };
+  // The import is stopped while this answer is being asked.
+  const summary = await plugin.verifyDraftQuestions([item], { shouldStop: () => asked > 0 });
+  assert.equal(restarts, 0, "a stopped run must not start OpenCode behind the user");
+  assert.equal(summary.failed, 1, "the note is kept and reported, not retried");
+});
+
 test("consensus: turning the panel off flags the first disagreement immediately", async () => {
   const plugin = new QT(makeApp([]));
   await plugin.onload();
