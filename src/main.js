@@ -514,6 +514,10 @@ QuestionTrackerPlugin.__test = {
   get importer() {
     return require("./importer");
   },
+  // Lazy: keeps the overnight check queue out of the startup path.
+  get overnightChecks() {
+    return require("./overnight-checks");
+  },
   computedVerification,
   figures,
   calculator,
