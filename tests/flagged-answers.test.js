@@ -148,3 +148,32 @@ test("flagged answers: re-checking asks the checker again and reports", async ()
   assert.match(texts(dom.root).join(" "), /nothing is flagged/i, "the empty surface says so");
   modal.close();
 });
+
+test("flagged answers: the surface waits for the vault index before refreshing", async () => {
+  const { app, plugin } = await setup([note("Q01", "A", FLAGGED("B"))]);
+  const realCache = app.metadataCache.getFileCache;
+  let lagArmed = false;
+  let staleLeft = 0;
+  app.metadataCache.getFileCache = (f) => {
+    // The listings before the check read fresh; everything the checker
+    // triggers after its first model call races the index.
+    if (lagArmed && staleLeft > 0) {
+      staleLeft--;
+      return { frontmatter: { ...f.fm, verification: "match" } };
+    }
+    return realCache(f);
+  };
+  const realComplete = plugin.aiComplete;
+  plugin.aiComplete = async (...args) => {
+    lagArmed = true;
+    return realComplete(...args);
+  };
+  const { modal, dom } = await openSurface(plugin, app);
+  assert.ok(texts(dom.root).join(" ").includes("Q01"), "the disagreement renders");
+  staleLeft = 3;
+  assert.equal(click(dom.root, "Re-check all"), 1);
+  await modal.ready;
+  assert.match(texts(dom.root).join(" "), /Q01/, "the row survives the refresh once the index catches up");
+  assert.equal((await plugin.flaggedAnswers()).length, 1, "the disagreement is still listed");
+  modal.close();
+});

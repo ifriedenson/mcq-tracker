@@ -2827,16 +2827,18 @@ class QuestionTrackerPlugin extends Plugin {
   /** Ask the checker again for every flagged note, reporting as it goes. */
   async recheckAllFlagged(onProgress) {
     const flagged = await this.flaggedAnswers();
-    const outcome = { checked: 0, matched: 0, mismatched: 0, errored: 0 };
+    const outcome = { checked: 0, matched: 0, mismatched: 0, errored: 0, results: [] };
     for (let i = 0; i < flagged.length; i++) {
       try {
         const result = await this.verifyAnswerWithAi(flagged[i].path);
         outcome.checked++;
         if (result.match) outcome.matched++;
         else outcome.mismatched++;
+        outcome.results.push({ path: flagged[i].path, status: result && result.status ? result.status : result && result.match ? "match" : "mismatch" });
       } catch (e) {
         outcome.checked++;
         outcome.errored++;
+        outcome.results.push({ path: flagged[i].path, status: "error" });
       }
       if (typeof onProgress === "function") onProgress(i + 1, flagged.length, flagged[i].path);
     }

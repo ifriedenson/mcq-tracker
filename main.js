@@ -40313,6 +40313,47 @@ class FlaggedAnswersModal extends QtModal {
     if (this.statusEl) this.statusEl.setText(message);
   }
 
+  /**
+   * The vault index re-reads a rewritten note asynchronously, so a refresh
+   * straight after a row action can list the old verdict. Wait until the
+   * index reports the verdict this action just wrote (or a short bound).
+   */
+  async settleVerdict(path, want) {
+    const target = str(want).trim().toLowerCase();
+    if (!target) return;
+    const end = Date.now() + 6000;
+    for (;;) {
+      let seen = "";
+      try {
+        const file = this.app.vault.getAbstractFileByPath(str(path));
+        const cache =
+          file && this.app.metadataCache && typeof this.app.metadataCache.getFileCache === "function"
+            ? this.app.metadataCache.getFileCache(file)
+            : null;
+        seen = str(cache && cache.frontmatter && cache.frontmatter.verification).trim().toLowerCase();
+      } catch (e) {
+        /* the index is still catching up */
+      }
+      if (seen === target || Date.now() > end) return;
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+  }
+
+  /** Same wait for a dropped note: refresh only once the path is gone. */
+  async settleGone(path) {
+    const end = Date.now() + 6000;
+    for (;;) {
+      let gone = false;
+      try {
+        gone = !this.app.vault.getAbstractFileByPath(str(path));
+      } catch (e) {
+        gone = false;
+      }
+      if (gone || Date.now() > end) return;
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+  }
+
   openRow(path) {
     const file = this.app.vault.getAbstractFileByPath(path);
     if (file && this.app.workspace && typeof this.app.workspace.getLeaf === "function") {
@@ -40325,6 +40366,7 @@ class FlaggedAnswersModal extends QtModal {
     this.busy = true;
     try {
       await this.plugin.acceptFlaggedAnswer(path);
+      await this.settleVerdict(path, "match");
       new Notice("The stored answer stands; the flag is cleared.");
     } catch (e) {
       new Notice(`Couldn't accept that answer: ${e && e.message ? e.message : e}`, 8000);
@@ -40339,6 +40381,7 @@ class FlaggedAnswersModal extends QtModal {
     this.busy = true;
     try {
       await this.plugin.dropFlaggedAnswer(path);
+      await this.settleGone(path);
       new Notice("Moved the flagged note to the trash.");
     } catch (e) {
       new Notice(`Couldn't drop that note: ${e && e.message ? e.message : e}`, 8000);
@@ -40354,6 +40397,7 @@ class FlaggedAnswersModal extends QtModal {
     try {
       this.status("Asking the checker again...");
       const result = await this.plugin.recheckFlaggedAnswer(path);
+      await this.settleVerdict(path, result && result.status);
       new Notice(result && result.match ? "The checker agrees with the note now." : "Still flagged: the checker disagrees.");
     } catch (e) {
       new Notice(`Couldn't re-check that note: ${e && e.message ? e.message : e}`, 8000);
@@ -40370,6 +40414,9 @@ class FlaggedAnswersModal extends QtModal {
     try {
       this.status("Re-checking every flagged answer...");
       outcome = await this.plugin.recheckAllFlagged((n, total) => this.status(`Re-checked ${n} of ${total}...`));
+      for (const item of (outcome && outcome.results) || []) {
+        if (item && item.status && item.status !== "error") await this.settleVerdict(item.path, item.status);
+      }
       const left = await this.plugin.flaggedAnswers();
       new Notice(
         left.length ? `${outcome.matched} now match, ${left.length} still flagged.` : "Every flagged answer matches now.",
@@ -75910,16 +75957,18 @@ class QuestionTrackerPlugin extends Plugin {
   /** Ask the checker again for every flagged note, reporting as it goes. */
   async recheckAllFlagged(onProgress) {
     const flagged = await this.flaggedAnswers();
-    const outcome = { checked: 0, matched: 0, mismatched: 0, errored: 0 };
+    const outcome = { checked: 0, matched: 0, mismatched: 0, errored: 0, results: [] };
     for (let i = 0; i < flagged.length; i++) {
       try {
         const result = await this.verifyAnswerWithAi(flagged[i].path);
         outcome.checked++;
         if (result.match) outcome.matched++;
         else outcome.mismatched++;
+        outcome.results.push({ path: flagged[i].path, status: result && result.status ? result.status : result && result.match ? "match" : "mismatch" });
       } catch (e) {
         outcome.checked++;
         outcome.errored++;
+        outcome.results.push({ path: flagged[i].path, status: "error" });
       }
       if (typeof onProgress === "function") onProgress(i + 1, flagged.length, flagged[i].path);
     }
