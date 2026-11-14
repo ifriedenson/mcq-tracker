@@ -2513,7 +2513,9 @@ class QuestionTrackerPlugin extends Plugin {
       new Notice("The paused run's files can't be re-read after a reload. Import them again by hand.", 10000);
       return null;
     }
-    new Notice(`Resuming the overnight import: ${vaultPaths.length + pickedHandles.length} file${vaultPaths.length + pickedHandles.length === 1 ? "" : "s"} left.`, 8000);
+    const uncheckedNotes = run.files.filter((entry) => entryNeedsChecks(entry)).length;
+    const leftFiles = vaultPaths.length + pickedHandles.length;
+    new Notice(leftFiles ? `Resuming the overnight import: ${leftFiles} file${leftFiles === 1 ? "" : "s"} left.` : `Resuming the overnight import: checking ${uncheckedNotes} note${uncheckedNotes === 1 ? "" : "s"}.`, 8000);
     return this.startOvernightImport([...pickedHandles, ...vaultPaths], { run });
   }
 
@@ -2537,7 +2539,8 @@ class QuestionTrackerPlugin extends Plugin {
     if (!run) return null;
     this._overnightResumed = true;
     const left = pendingRunFiles(run).length;
-    new Notice(`The overnight import paused with ${left} file${left === 1 ? "" : "s"} left — resuming now.`, 12000);
+    const unchecked = run.files.filter((entry) => entryNeedsChecks(entry)).length;
+    new Notice(left ? `The overnight import paused with ${left} file${left === 1 ? "" : "s"} left — resuming now.` : `The overnight import paused during answer checks with ${unchecked} note${unchecked === 1 ? "" : "s"} still to check — resuming now.`, 12000);
     try {
       return await this.resumeOvernightImport();
     } catch (e) {

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "local": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Local stand-in",
+      "options": { "baseURL": "http://127.0.0.1:4601/v1" },
+      "models": { "gpt-4o-mini": { "name": "gpt-4o-mini" } }
+    }
+  },
+  "model": "local/gpt-4o-mini",
+  "permission": { "edit": "allow" }
+}

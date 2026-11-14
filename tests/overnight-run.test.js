@@ -103,3 +103,14 @@ test("overnight runs: a source hash is stable and degrades gracefully", async ()
   const hash = await runs().sourceHash(plugin.app, "nothing.pdf");
   assert.equal(hash, "", "an unreadable file hashes to nothing, and resume falls back to the path");
 });
+
+test("overnight runs: a run stranded mid-checks still resumes", async () => {
+  const plugin = await setup();
+  const run = runs().makeOvernightRun([{ sourcePath: "a.pdf", hash: "h" }]);
+  run.status = "checking";
+  runs().markRunFile(run, "a.pdf", { status: "done", written: true, notes: ["Questions/A/Q01.md"], checked: [] });
+  runs().storeOvernightRun(plugin.app, run);
+  assert.equal(runs().pendingRunFiles(run).length, 0, "no file is left to write");
+  assert.equal(runs().unfinishedOvernightRun(plugin.app).id, run.id, "done files with unchecked notes keep the run alive");
+  assert.equal(runs().unfinishedOvernightRun(plugin.app, true).id, run.id, "the manual command finds it too");
+});

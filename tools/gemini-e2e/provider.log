@@ -1,0 +1,7 @@
+provider stand-in on http://127.0.0.1:4601/v1
+2026-11-14T02:24:39.516Z POST /v1/chat/completions model=gpt-4o-mini
+2026-11-14T02:24:46.546Z POST /v1/chat/completions model=gpt-4o-mini
+2026-11-14T02:24:49.583Z POST /v1/chat/completions model=gpt-4o-mini
+2026-11-14T02:24:52.598Z POST /v1/chat/completions model=gpt-4o-mini
+2026-11-14T02:24:55.627Z POST /v1/chat/completions model=gpt-4o-mini
+2026-11-14T02:24:58.643Z POST /v1/chat/completions model=gpt-4o-mini

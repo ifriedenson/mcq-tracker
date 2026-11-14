@@ -163,7 +163,7 @@ function unfinishedOvernightRun(app, includeStopped) {
         run.status !== "finished" &&
         run.status !== "undone" &&
         (includeStopped || run.status !== "stopped") &&
-        pendingRunFiles(run).length > 0
+        (pendingRunFiles(run).length > 0 || (run.files || []).some((entry) => entryNeedsChecks(entry)))
     ) || null
   );
 }

@@ -1,0 +1,8 @@
+opencode: http://127.0.0.1:4719 | model: local/gpt-4o-mini
+check 1: 10273 ms -> answer B match true
+check 2: 3025 ms -> answer B match true
+check 3: 3024 ms -> answer B match true
+check 4: 3021 ms -> answer B match true
+check 5: 3021 ms -> answer B match true
+
+median 3024 ms | mean 4473 ms | checks/hour 1
