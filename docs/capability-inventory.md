@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 451 groups, 3148 exports. **Commands:** 238. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 452 groups, 3151 exports. **Commands:** 238. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -267,6 +267,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `history` | 23 | `tests/history.test.js`, `tests/needs-fixing.test.js` |
 | `hotkeyAudit` | 6 | `tests/hotkey-audit.test.js` |
 | `importAiState` | 0 | `tests/ai-import-help.test.js` |
+| `importModal` | 3 | `tests/overnight-import.test.js` |
 | `importer` | 22 | `tests/importer-prompt.test.js` |
 | `indexOfficialIds` | 0 | `tests/import.test.js` |
 | `inferMode` | 0 | `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/question-types.test.js` |
