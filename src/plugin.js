@@ -6729,18 +6729,17 @@ class QuestionTrackerPlugin extends Plugin {
     const asked = Number(o.concurrency);
     const slots = Number.isFinite(asked) && asked > 0 ? Math.max(1, Math.min(4, Math.floor(asked))) : checkConcurrency(this.settings && this.settings.ai);
     let nextIndex = 0;
-    let completed = 0;
     const checkOne = async () => {
       for (;;) {
         if (shouldStop && shouldStop()) return;
         const index = nextIndex++;
         if (index >= list.length) return;
         const item = list[index];
-        if (!item || typeof item !== "object") {
-          completed++;
-          if (onProgress) onProgress(completed, list.length);
-          continue;
-        }
+        if (!item || typeof item !== "object") continue;
+        // Report when a check starts, not when it lands: the import window
+        // names the answer being checked, and a stop between notes must not
+        // report a check that was never sent.
+        if (onProgress) onProgress(index + 1, list.length);
         const answerText = str(item.answer).trim();
         const quality = checkDistractorQuality(item);
         if (!quality.ok) {
@@ -6806,8 +6805,6 @@ class QuestionTrackerPlugin extends Plugin {
           };
           failed++;
         }
-        completed++;
-        if (onProgress) onProgress(completed, list.length);
       }
     };
     await Promise.all(Array.from({ length: Math.min(slots, Math.max(list.length, 1)) }, () => checkOne()));
