@@ -333,6 +333,7 @@ class PdfImportModal extends QtModal {
     this.unattendedKeys = pickedKeys.concat(goodPaths);
     this.unattended = true;
     if (!this.files.length) {
+      if (run && this.plugin.overnightChecksPending(run)) return this.startUnattendedChecks();
       new Notice("Overnight import: no files to import.");
       if (run) this.plugin.storeOvernightRunState(run, "error");
       this.close();
@@ -1282,8 +1283,10 @@ class PdfImportModal extends QtModal {
     }
     const folders = Array.isArray(extra.folders) ? extra.folders.slice() : [];
     if (folder && !folders.includes(folder)) folders.push(folder);
+    const status = result && result.error ? "error" : result && result.stopped ? "stopped" : "done";
     this.plugin.recordOvernightFile(run, key, {
-      status: result && result.error ? "error" : "done",
+      status,
+      written: status === "done",
       notes,
       copies,
       pictures,
@@ -1532,6 +1535,10 @@ class PdfImportModal extends QtModal {
       await this.cleanupArtifacts();
       if (this.isStopError(e)) {
         if (this.batchMode) {
+          if (this.unattended) {
+            this.unattendedArtifacts = this.artifacts ? { files: [...this.artifacts.files], folders: [...this.artifacts.folders] } : { files: [], folders: [] };
+            this.snapshotUnattendedFile({ made: 0, skipped: ["Stopped before this file finished"], stopped: true, paths: [] }, this.folder);
+          }
           this.recordBatchResult({ made: 0, skipped: ["Stopped before this file finished"] }, this.folder);
           await this.finishBatch("stopped");
         } else if (!this.closed) {
@@ -2089,6 +2096,19 @@ class PdfImportModal extends QtModal {
     return this.createNotes();
   }
 
+  /** The checks phase without a write queue: a quiet screen, a live Stop button. */
+  startUnattendedChecks() {
+    const el = this.contentEl;
+    el.empty();
+    this.headerEl = el.createEl("h3", { text: "Checking answers" });
+    this.statusEl = el.createDiv({ cls: "qt-hint", text: "Starting..." });
+    this.lastStatus = "Starting...";
+    const stop = el.createEl("button", { text: "Stop", cls: "qt-modal-btn" });
+    stop.addEventListener("click", () => this.requestStop(this.plugin, "discard"));
+    this.stopBtns = [stop];
+    return this.plugin.finishUnattended(this, "resumed");
+  }
+
   /** The next file, or the checks phase when the queue is written. */
   advanceBatch() {
     if (this.batchStopped) return this.finishBatch("stopped");
@@ -2308,6 +2328,10 @@ class PdfImportModal extends QtModal {
       await this.cleanupArtifacts();
       if (this.isStopError(e)) {
         if (this.batchMode) {
+          if (this.unattended) {
+            this.unattendedArtifacts = this.artifacts ? { files: [...this.artifacts.files], folders: [...this.artifacts.folders] } : { files: [], folders: [] };
+            this.snapshotUnattendedFile({ made: 0, skipped: ["Stopped before this file finished"], stopped: true, paths: [] }, this.folder);
+          }
           this.recordBatchResult({ made: 0, skipped: ["Stopped before this file finished"] }, this.folder);
           await this.finishBatch("stopped");
         } else if (!this.closed) {

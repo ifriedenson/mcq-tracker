@@ -26,6 +26,7 @@ function cleanRunFile(raw) {
     hash: str(raw.hash),
     status,
     vault: raw.vault === true,
+    written: raw.written === true,
     notes: strings(raw.notes),
     copies: strings(raw.copies),
     pictures: strings(raw.pictures),

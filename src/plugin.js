@@ -2414,6 +2414,8 @@ class QuestionTrackerPlugin extends Plugin {
       } else if (typeof entry.arrayBuffer === "function") picked.push(entry);
       else if (entry.path) vaultPaths.push(String(entry.path));
     }
+    if (!this._overnightHandles) this._overnightHandles = new Map();
+    for (const f of picked) this._overnightHandles.set(f.name, f);
     let run = o.run && o.run.id ? o.run : null;
     if (!run) {
       run = makeOvernightRun([
@@ -2431,15 +2433,22 @@ class QuestionTrackerPlugin extends Plugin {
       } else if (!entry.hash && hash) markRunFile(run, p, { hash });
     }
     storeOvernightRun(this.app, run);
-    const pending = new Set(pendingRunFiles(run).map((f) => f.sourcePath));
-    const usePicked = picked.filter((f) => pending.has(f.name));
-    const useVault = vaultPaths.filter((p) => pending.has(p));
+    // Files whose notes are already written skip the write phase; the checks
+    // phase picks them up from the journal instead of importing them twice.
+    const writeQueue = new Set(pendingRunFiles(run).filter((f) => !f.written).map((f) => f.sourcePath));
+    const usePicked = picked.filter((f) => writeQueue.has(f.name));
+    const useVault = vaultPaths.filter((p) => writeQueue.has(p));
     const count = usePicked.length + useVault.length;
     if (!count) {
+      if (this.overnightChecksPending(run)) {
+        this.openPdfImport({ files: [], vaultPaths: [], unattended: true, overnightRun: run });
+        return run;
+      }
       if (run.status === "writing") {
         run.status = "finished";
         storeOvernightRun(this.app, run);
       }
+      this.forgetOvernightHandles(run);
       new Notice("Overnight import: every file in this queue is already imported.");
       return run;
     }
@@ -2486,17 +2495,40 @@ class QuestionTrackerPlugin extends Plugin {
       return null;
     }
     const vaultPaths = [];
+    const pickedHandles = [];
     for (const entry of pendingRunFiles(run)) {
+      if (entry.written) continue;
       if (entry.vault) vaultPaths.push(entry.sourcePath);
-      else markRunFile(run, entry.sourcePath, { status: "skipped", error: "That file was chosen from the device, so it can't be re-read. Import it again by hand." });
+      else {
+        const handle = this._overnightHandles && this._overnightHandles.get(entry.sourcePath);
+        if (handle) pickedHandles.push(handle);
+        else markRunFile(run, entry.sourcePath, { status: "skipped", error: "That file was chosen from the device, so it can't be re-read. Import it again by hand." });
+      }
     }
     storeOvernightRun(this.app, run);
-    if (!vaultPaths.length) {
+    if (!vaultPaths.length && !pickedHandles.length && !this.overnightChecksPending(run)) {
       new Notice("The paused run's files can't be re-read after a reload. Import them again by hand.", 10000);
       return null;
     }
-    new Notice(`Resuming the overnight import: ${vaultPaths.length} file${vaultPaths.length === 1 ? "" : "s"} left.`, 8000);
-    return this.startOvernightImport(vaultPaths, { run });
+    new Notice(`Resuming the overnight import: ${vaultPaths.length + pickedHandles.length} file${vaultPaths.length + pickedHandles.length === 1 ? "" : "s"} left.`, 8000);
+    return this.startOvernightImport([...pickedHandles, ...vaultPaths], { run });
+  }
+
+  /** Notes written but not yet checked keep a run resumable. */
+  overnightChecksPending(run) {
+    if (!run || !Array.isArray(run.files)) return false;
+    return run.files.some(
+      (entry) =>
+        (entry.status === "done" || entry.status === "paused" || entry.status === "stopped") &&
+        (entry.notes || []).length > (entry.checked || []).length
+    );
+  }
+
+  forgetOvernightHandles(run) {
+    if (!this._overnightHandles || !run || !Array.isArray(run.files)) return;
+    for (const entry of run.files) {
+      if (!entry.vault) this._overnightHandles.delete(entry.sourcePath);
+    }
   }
 
   /** After a reload, one notice and the queue continues itself. */
@@ -2532,7 +2564,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (run && !stopped) {
       const todo = [];
       for (const entry of run.files) {
-        if (entry.status !== "done") continue;
+        if (entry.status !== "done" && entry.status !== "paused" && entry.status !== "stopped") continue;
         const already = new Set(entry.checked || []);
         for (const path of entry.notes || []) {
           if (!already.has(path)) todo.push({ entry, path, verification: null });
@@ -2579,8 +2611,13 @@ class QuestionTrackerPlugin extends Plugin {
             entry.error = result.error || entry.error;
           }
         }
-        if (summary.paused) run.status = "paused";
-        else if (summary.stopped) run.status = "stopped";
+        const phase = summary.paused ? "paused" : summary.stopped ? "stopped" : "";
+        if (phase) {
+          run.status = phase;
+          for (const entry of run.files) {
+            if ((entry.notes || []).length > (entry.checked || []).length && entry.status !== phase) entry.status = phase;
+          }
+        }
         storeOvernightRun(this.app, run);
       }
     }
@@ -2595,6 +2632,7 @@ class QuestionTrackerPlugin extends Plugin {
       new Notice(text, 12000);
     }
     modal.close();
+    if (run && (run.status === "finished" || run.status === "undone" || run.status === "error")) this.forgetOvernightHandles(run);
     return run;
   }
 
@@ -2684,6 +2722,7 @@ class QuestionTrackerPlugin extends Plugin {
     }
     run.status = "undone";
     storeOvernightRun(this.app, run);
+    this.forgetOvernightHandles(run);
     new Notice(`Undid the overnight import: removed ${removed} file${removed === 1 ? "" : "s"}.`);
     return removed;
   }

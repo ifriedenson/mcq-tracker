@@ -159,6 +159,83 @@ test("overnight import: vault files import by path and resume skips the finished
   assert.equal(questionNotes(app).filter((f) => f.path.startsWith("Questions/a/")).length, aNotes, "the finished file is never reopened");
 });
 
+test("overnight import: undo removes exactly what the run wrote", async () => {
+  const state = await setup();
+  const { plugin, app } = state;
+  const bytes = await textPdf();
+  const first = openOvernight(plugin, app, [file("a.pdf", bytes), file("b.pdf", bytes)]);
+  await waitFor(() => first.leaf.view && first.leaf.view.modal, "the import popout");
+  await waitFor(() => first.leaf.view.modal.closed, "the run to finish");
+  const run = T.overnightRun.latestOvernightRun(app);
+  const written = T.overnightRun.runNotePaths(run);
+  assert.ok(written.length >= 4, `notes and copies are journaled (got ${written.length})`);
+  const removed = await plugin.undoOvernightImport();
+  assert.ok(removed >= 4, `everything the run wrote is removed (got ${removed})`);
+  for (const path of written) assert.ok(!app.vault.getAbstractFileByPath(path), `${path} is gone`);
+  assert.ok(!app.vault.getAbstractFileByPath("Questions/a"), "the run folders are removed");
+  assert.ok(logNote(app), "the morning log stays as evidence");
+  assert.equal(T.overnightRun.latestOvernightRun(app).status, "undone");
+  assert.equal(await plugin.undoOvernightImport(), 0, "a second undo finds nothing to do");
+});
+
+test("overnight import: a spent budget pauses the checks and the queue resumes later", async () => {
+  const state = await setup();
+  const { plugin, app } = state;
+  const bytes = await textPdf();
+  plugin.aiComplete = async () => {
+    throw new Error("The daily AI request cap (100) has been reached. Raise it in Settings, MCQ Tracker, AI, or try again tomorrow.");
+  };
+  const first = openOvernight(plugin, app, [file("a.pdf", bytes)]);
+  await waitFor(() => first.leaf.view && first.leaf.view.modal, "the import popout");
+  await waitFor(() => first.leaf.view.modal.closed, "the paused run to close");
+  const paused = T.overnightRun.latestOvernightRun(app);
+  assert.equal(paused.status, "paused", "the queue pauses instead of failing");
+  assert.match(notices(), /paus/i, "the pause is announced");
+  const notes = questionNotes(app);
+  assert.ok(notes.length >= 1, "the notes are written");
+  assert.ok(notes.every((n) => !n.fm.verified), "no note is marked either way");
+  // The cap resets overnight: resume checks everything the run wrote.
+  plugin.aiComplete = async () => '{"answer":"B"}';
+  const second = openOvernight(plugin, app, null, true);
+  await waitFor(() => second.leaf.view && second.leaf.view.modal, "the resume popout");
+  await waitFor(() => second.leaf.view.modal.closed, "the resumed run to finish");
+  const done = T.overnightRun.latestOvernightRun(app);
+  assert.equal(done.status, "finished");
+  assert.ok(questionNotes(app).every((n) => n.fm.verified === true), "every note is verified after the resume");
+});
+
+test("overnight import: a reload resumes the unfinished queue", async () => {
+  const state = await setup();
+  const { plugin, app } = state;
+  const bytes = await textPdf();
+  await app.vault.createBinary("Inbox/a.pdf", bytes);
+  await app.vault.createBinary("Inbox/b.pdf", bytes);
+  const older = T.overnightRun.makeOvernightRun([
+    { sourcePath: "Inbox/a.pdf", hash: "", vault: true },
+    { sourcePath: "Inbox/b.pdf", hash: "", vault: true },
+  ]);
+  T.overnightRun.markRunFile(older, "Inbox/a.pdf", { status: "done", notes: [] });
+  T.overnightRun.storeOvernightRun(app, older);
+  const dom = makeDom();
+  const leaf = { app, view: null };
+  leaf.setViewState = async () => {
+    const view = plugin.views[VIEW_TYPE_IMPORT_WINDOW](leaf);
+    leaf.view = view;
+    view.contentEl = dom.root;
+    view.containerEl = dom.root;
+    await view.onOpen();
+  };
+  app.workspace.getLeavesOfType = () => [];
+  app.workspace.openPopoutLeaf = () => leaf;
+  app.workspace.revealLeaf = () => {};
+  await plugin.resumeUnfinishedOvernightRun();
+  await waitFor(() => leaf.view && leaf.view.modal, "the resumed run");
+  await waitFor(() => leaf.view.modal.closed, "the resumed run to finish");
+  assert.match(notices(), /resuming now/i, "one notice names the resume");
+  assert.ok(questionNotes(app).length >= 1, "the unfinished file imports");
+  assert.equal(plugin._overnightResumed, true);
+});
+
 test("overnight import: Stop ends the run and the journal keeps the queue", async () => {
   const state = await setup();
   const { plugin, app } = state;
