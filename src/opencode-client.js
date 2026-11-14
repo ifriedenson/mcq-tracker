@@ -14,6 +14,8 @@ const HEALTH_TIMEOUT_MS = 4000;
 const REQUEST_TIMEOUT_MS = 60 * 1000;
 /** A blocking agent send may run long, but it may not go silent: this is the silence allowance. */
 const IDLE_TIMEOUT_MS = 6 * 60 * 1000;
+/** A blind check may think for many minutes with no visible output, so a slow model is not a stuck one. */
+const VERIFY_IDLE_TIMEOUT_MS = 20 * 60 * 1000;
 /** How often a blocking send asks the session whether anything new was written. */
 const IDLE_POLL_MS = 3000;
 
@@ -223,6 +225,10 @@ class OpenCodeClient {
   createSession(title) {
     return this.req("POST", "/session", { title }, this.timeoutMs);
   }
+  /** Drop a finished check session so hundreds of imports do not bloat the server. */
+  deleteSession(id) {
+    return this.req("DELETE", "/session/" + encodeURIComponent(id), undefined, this.timeoutMs);
+  }
   messages(id) {
     return this.req("GET", `/session/${encodeURIComponent(id)}/message`, undefined, this.timeoutMs);
   }
@@ -331,6 +337,7 @@ module.exports = {
   HEALTH_TIMEOUT_MS,
   REQUEST_TIMEOUT_MS,
   IDLE_TIMEOUT_MS,
+  VERIFY_IDLE_TIMEOUT_MS,
   modelFromString,
   friendlyError,
   partsToTurns,

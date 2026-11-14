@@ -156,7 +156,7 @@ const { buildCornellNote } = require("./cornell");
 const studyTools = require("./study-tools");
 const { AssignmentModal } = require("./assignments-modal");
 const { assignmentId, assignmentMarkdown, assignmentStats, categoryFor, estimateMinutes, isAssignmentNote, normalizeAssignmentSettings, normalizeStatus, parseAssignment, safeName, typeId, uniquePath, updateTaskCheckbox, updateTaskDue, updateTaskEstimate, updateTaskTitle } = require("./assignments");
-const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-client");
+const { OpenCodeClient, VERIFY_IDLE_TIMEOUT_MS, modelFromString, partsToTurns } = require("./opencode-client");
 const { ApiClient } = require("./api-client");
 const modelDiscovery = require("./model-discovery");
 const { normalizeThinkFirstSeconds } = require("./think-first");
@@ -6153,6 +6153,32 @@ class QuestionTrackerPlugin extends Plugin {
     }
   }
 
+  /**
+   * A check that went quiet is usually a slow provider, not a dead server.
+   * Only a server that stops answering small requests earns a restart: the
+   * probe goes first, and a server that still answers keeps the note alive
+   * without one. A genuinely unreachable server falls through to the usual
+   * recovery, which restarts the managed copy.
+   */
+  async recoverForSlowCheck(error, options) {
+    const o = options || {};
+    const said = typeof o.onNotice === "function" ? o.onNotice : () => {};
+    const message = str(error && error.message ? error.message : error);
+    const unreachable = /Can't reach OpenCode|not running|ECONNREFUSED|ECONNRESET|ERR_CONNECTION|Failed to fetch|fetch failed|net::|socket|network|502|503|504/i.test(
+      message
+    );
+    if (this.backend() === "opencode" && !unreachable) {
+      try {
+        await this.openCode().providers(4000);
+        said("The check is taking a while, so it gets more time; OpenCode is still answering.");
+        return true;
+      } catch (probeError) {
+        /* the probe failed too: the server really is down */
+      }
+    }
+    return this.recoverAiConnection(error, o);
+  }
+
   /** Ask one independent question, without showing the stored key. */
   async verifyQuestionDraft(item, options) {
     const data = item || {};
@@ -6166,7 +6192,7 @@ class QuestionTrackerPlugin extends Plugin {
       } catch (e) {
         if (o.noRetry === true || !isConnectionFailure(e)) throw e;
         if (typeof o.shouldStop === "function" && o.shouldStop()) throw e;
-        const recovered = await this.recoverAiConnection(e, { onNotice: o.onNotice });
+        const recovered = await this.recoverForSlowCheck(e, { onNotice: o.onNotice });
         if (!recovered) throw e;
         return await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model });
       }
@@ -10286,7 +10312,10 @@ ${body}
         const body = { parts: [{ type: "text", text: (Array.isArray(messages) ? messages : []).map((m) => str(m && m.content)).join("\n\n") }], system };
         const parsed = modelFromString(model);
         if (parsed) body.model = parsed;
-        await oc.send(session.id, body);
+        // A blind check may think for many minutes with no visible output, so
+        // a slow model is given more silence allowance than an agent send.
+        const idleMs = feature === "verification" ? VERIFY_IDLE_TIMEOUT_MS : 0;
+        await oc.send(session.id, body, idleMs > 0 ? { idleMs } : undefined);
         const turns = partsToTurns(await oc.messages(session.id));
         const last = [...turns].reverse().find((turn) => turn.role === "assistant");
         const text = last ? last.texts.join("\n").trim() : "";

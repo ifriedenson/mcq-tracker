@@ -319,6 +319,13 @@ test("answer verification: a frozen OpenCode is restarted and the same answer is
   const order = [];
   plugin.manager.stop = () => order.push("stop");
   plugin.ensureOpenCode = async () => order.push("start");
+  // The probe must fail too: a server that still answers keeps the note alive
+  // without a restart (see the slow-check tests).
+  plugin.openCode = () => ({
+    async providers() {
+      throw new Error("fetch failed");
+    },
+  });
   let calls = 0;
   plugin.aiComplete = async () => {
     calls++;
@@ -335,7 +342,7 @@ test("answer verification: a frozen OpenCode is restarted and the same answer is
   assert.match(notices[0], /OpenCode stopped answering/i, "the window says what is happening");
 });
 
-test("answer verification: a server the user runs is asked again without being restarted", async () => {
+test("answer verification: a slow check is given more time when the server still answers", async () => {
   const plugin = new QT(makeApp([]));
   await plugin.onload();
   plugin.settings.ai.enabled = true;
@@ -346,6 +353,12 @@ test("answer verification: a server the user runs is asked again without being r
   plugin.ensureOpenCode = async () => {
     starts++;
   };
+  // A server that still answers must not be restarted for a slow model.
+  plugin.openCode = () => ({
+    async providers() {
+      return [];
+    },
+  });
   plugin.manager.stop = () => {
     throw new Error("a manual server must not be stopped");
   };
@@ -362,7 +375,7 @@ test("answer verification: a server the user runs is asked again without being r
   assert.equal(calls, 2, "the same answer is asked again");
   assert.equal(starts, 0, "no managed copy is installed or started behind a manual server");
   assert.equal(item.verification.status, "match");
-  assert.match(notices[0], /this same answer is asked again/i, "the wording does not promise a restart");
+  assert.match(notices[0], /more time/i, "the window says the check gets more time, not a restart");
 });
 
 test("answer verification: a reply that makes no sense is not retried", async () => {

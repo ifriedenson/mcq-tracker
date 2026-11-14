@@ -1036,7 +1036,12 @@ test("batch import: a frozen answer check restarts OpenCode and verifies the sam
     return '{"answer":"B"}';
   };
   state.plugin.openCode = () => ({
-    providers: async () => ({ providers: [{}] }),
+    // The first probe fails, so the frozen check takes the restart path; a
+    // server that still answered would keep the note without restarting.
+    providers: async () => {
+      if (frozen) throw new Error("fetch failed");
+      return { providers: [{}] };
+    },
     createSession: async () => ({ id: "frozen-" + ++sessions }),
     promptAsync: async (id) => {
       if (id === "frozen-1") await state.app.vault.create(notePath, aiNote);
