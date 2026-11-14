@@ -1270,14 +1270,19 @@ class PdfImportModal extends QtModal {
     const key = (this.unattendedKeys && this.unattendedKeys[this.batchIndex]) || (job.file && job.file.name) || (this.file && this.file.name) || "";
     if (!key) return;
     const extra = this.unattendedArtifacts || { files: [], folders: [] };
+    const scope = normalizePath(str(folder));
+    const mine = (path) => {
+      const p = normalizePath(str(path));
+      return !!scope && (p === scope || p.startsWith(scope + "/"));
+    };
     const notes = [];
     const copies = [];
     const pictures = [];
     for (const path of Array.isArray(result.paths) ? result.paths : []) {
-      if (path && !notes.includes(path)) notes.push(path);
+      if (path && mine(path) && !notes.includes(path)) notes.push(path);
     }
     for (const path of extra.files || []) {
-      if (!path || notes.includes(path) || copies.includes(path) || pictures.includes(path)) continue;
+      if (!path || !mine(path) || notes.includes(path) || copies.includes(path) || pictures.includes(path)) continue;
       const lower = String(path).toLowerCase();
       if (lower.includes("/images/") || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(lower)) pictures.push(path);
       else if (/\.md$/i.test(lower)) notes.push(path);
@@ -2091,7 +2096,12 @@ class PdfImportModal extends QtModal {
   acceptUnattendedItems() {
     if (!this.items.length) {
       this.recordBatchResult({ made: 0, skipped: ["No questions found"] }, this.target);
-      if (this.unattended) this.snapshotUnattendedFile({ made: 0, skipped: [], paths: [] }, this.target);
+      if (this.unattended) {
+        this.unattendedArtifacts = this.artifacts ? { files: [...this.artifacts.files], folders: [...this.artifacts.folders] } : { files: [], folders: [] };
+        const causes = (this.warnings || []).slice(0, 3).join(" ");
+        const reason = "No questions found in " + this.currentFileName() + "." + (causes ? " " + causes : "");
+        this.snapshotUnattendedFile({ made: 0, skipped: ["No questions found"], error: reason, paths: [] }, this.target);
+      }
       return this.advanceBatch();
     }
     for (const q of this.items) q.include = true;

@@ -522,6 +522,10 @@ QuestionTrackerPlugin.__test = {
   get overnightRun() {
     return require("./overnight-run");
   },
+  // Lazy: the unattended snapshot is only exercised by its own tests.
+  get importModal() {
+    return require("./import-modal");
+  },
   // Lazy: keeps the verification pass out of the startup path.
   get answerCheckQueue() {
     return require("./answer-check-queue");

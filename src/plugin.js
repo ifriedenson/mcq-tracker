@@ -2594,8 +2594,11 @@ class QuestionTrackerPlugin extends Plugin {
         });
         summary = outcome.summary;
         for (const result of outcome.results || []) {
-          const found = todo.find((item) => item.path === result.path);
+          // Several entries may list the same note (a stale journal can share
+          // one path): credit each entry once, never the first one every time.
+          const found = todo.find((item) => item.path === result.path && !item.credited);
           if (!found) continue;
+          found.credited = true;
           const entry = found.entry;
           entry.checkMs = (entry.checkMs || 0) + (result.ms || 0);
           if (result.status === "match" || result.status === "mismatch") {

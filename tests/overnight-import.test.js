@@ -133,6 +133,99 @@ test("overnight import: two files import with no clicks and every note is checke
   assert.match(log.text, /a\.pdf[\s\S]*b\.pdf/, "the log names both files");
 });
 
+
+test("overnight import: a file the AI fails to read is an error, not the previous file's notes", async () => {
+  const state = await setup();
+  const { plugin, app } = state;
+  const realChat = plugin.aiChat;
+  plugin.aiChat = async (system, messages, opts) => {
+    const text = (Array.isArray(messages) ? messages : []).map((m) => (m && m.content) || "").join("\n");
+    if (/water cycle/i.test(text)) throw new Error("connect ECONNREFUSED 127.0.0.1:4711");
+    return realChat(system, messages, opts);
+  };
+  const good = await textPdf();
+  const prose = await textPdf([
+    "These lecture notes cover the water cycle in detail.",
+    "Evaporation lifts moisture and condensation forms clouds.",
+    "Students should review the diagrams before the field trip.",
+  ]);
+  const { leaf } = openOvernight(plugin, app, [file("a.pdf", good), file("b.pdf", prose)]);
+  await waitFor(() => leaf.view && leaf.view.modal, "the import popout");
+  const modal = leaf.view.modal;
+  await waitFor(() => modal.closed, "the run to finish");
+  const run = T.overnightRun.latestOvernightRun(app);
+  const second = run.files.find((f) => f.sourcePath === "b.pdf");
+  assert.ok(second, "the unreadable file has a journal entry");
+  assert.deepEqual(second.notes, [], "the unreadable file claims no notes of its own");
+  assert.deepEqual(second.copies, [], "the unreadable file claims no copies of its own");
+  assert.equal(second.status, "error", "the unreadable file is an error, not done");
+  assert.equal(second.written, false, "resume retries the unreadable file instead of skipping it");
+  assert.match(second.error || "", /No questions found/, "the journal keeps the reason");
+  const first = run.files.find((f) => f.sourcePath === "a.pdf");
+  assert.equal(first.notes.length, 1, "the good file keeps its own note");
+  assert.equal(first.status, "done", "the good file finished");
+});
+test("overnight import: a stale capture cannot file another folder's notes under this file", async () => {
+  const state = await setup();
+  const { plugin, app } = state;
+  const run = T.overnightRun.makeOvernightRun([{ sourcePath: "a.pdf" }, { sourcePath: "b.pdf" }]);
+  T.overnightRun.markRunFile(run, "a.pdf", {
+    status: "done",
+    written: true,
+    notes: ["Questions/a/A-Q01.md"],
+    copies: ["Questions/a/a.pdf"],
+    folders: ["Questions/a"],
+  });
+  T.overnightRun.storeOvernightRun(app, run);
+  const fake = {
+    overnightRun: run,
+    batchJobs: [{ file: { name: "a.pdf" } }, { file: { name: "b.pdf" } }],
+    batchIndex: 1,
+    unattendedKeys: ["a.pdf", "b.pdf"],
+    unattendedArtifacts: { files: ["Questions/a/A-Q01.md", "Questions/a/a.pdf"], folders: ["Questions/a"] },
+    unattendedJobStarted: Date.now(),
+    file: { name: "b.pdf" },
+    plugin,
+  };
+  T.importModal.PdfImportModal.prototype.snapshotUnattendedFile.call(
+    fake,
+    { made: 0, skipped: [], paths: [] },
+    "Questions/b"
+  );
+  const after = T.overnightRun.latestOvernightRun(app);
+  const second = after.files.find((f) => f.sourcePath === "b.pdf");
+  assert.deepEqual(second.notes, [], "stale notes from another folder are dropped");
+  assert.deepEqual(second.copies, [], "stale copies from another folder are dropped");
+});
+
+test("overnight import: one shared note credits every entry that lists it", async () => {
+  const state = await setup();
+  const { plugin, app } = state;
+  const notePath = "Questions/shared/Q-SHARED-Q01.md";
+  await app.vault.create(notePath, NOTE_BLOCK);
+  const run = T.overnightRun.makeOvernightRun([{ sourcePath: "a.pdf" }, { sourcePath: "b.pdf" }]);
+  T.overnightRun.markRunFile(run, "a.pdf", { status: "done", written: true, notes: [notePath] });
+  T.overnightRun.markRunFile(run, "b.pdf", { status: "done", written: true, notes: [notePath] });
+  T.overnightRun.storeOvernightRun(app, run);
+  const modal = {
+    overnightRun: run,
+    batchStopped: false,
+    stop: false,
+    closed: false,
+    headerEl: { setText() {} },
+    progress: null,
+    status() {},
+    close() {},
+  };
+  await plugin.finishUnattended(modal);
+  const after = T.overnightRun.latestOvernightRun(app);
+  for (const source of ["a.pdf", "b.pdf"]) {
+    const entry = after.files.find((f) => f.sourcePath === source);
+    assert.deepEqual(entry.checked, [notePath], `${source} is credited for the shared note`);
+    assert.equal(entry.checks.matched, 1, `${source} tallies its own match`);
+  }
+});
+
 test("overnight import: a broken file is recorded and the queue continues", async () => {
   const state = await setup();
   const { plugin, app } = state;
