@@ -183,7 +183,7 @@ function agentPrompt(o) {
     "",
     IMPORT_RULES,
     "",
-    "Work through the whole document. Remember that a passage can be on an earlier page than its questions, so read the whole text before deciding which passage a question belongs to. Do not create, change or delete any file outside that folder, and do not delete anything. When you are done, reply with one short line: how many notes you created, and how many contain an answer or explanation you wrote yourself.",
+    "Work through the whole document. Remember that a passage can be on an earlier page than its questions, so read the whole text before deciding which passage a question belongs to. Do not create, change or delete any file outside that folder, and do not delete anything. Write every note first, then run one command over the whole folder that checks all the notes at once (file name matches question_id, one single-letter answer, the right count of choice bullets, answer_source ai) and prints only the files that fail. Do not check notes one at a time, and do not re-run checks for notes that pass. When you are done, reply with one short line: how many notes you created, and how many contain an answer or explanation you wrote yourself.",
   ]
     .filter((l) => l !== undefined)
     .join("\n");

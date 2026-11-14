@@ -510,6 +510,10 @@ QuestionTrackerPlugin.__test = {
   aiWrites,
   weakSpot,
   answerVerification,
+  // Lazy: keeps the import prompt testable without loading the agent surface.
+  get importer() {
+    return require("./importer");
+  },
   computedVerification,
   figures,
   calculator,
