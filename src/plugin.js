@@ -2624,6 +2624,19 @@ class QuestionTrackerPlugin extends Plugin {
         storeOvernightRun(this.app, run);
       }
     }
+    if (run && run.status !== "stopped" && run.status !== "paused") {
+      // A pause or stop can outlive the entries it marked: anything fully
+      // checked by the time the run finishes reads as done in the log.
+      for (const entry of run.files) {
+        if (
+          (entry.status === "paused" || entry.status === "stopped") &&
+          (entry.notes || []).length > 0 &&
+          (entry.notes || []).length === (entry.checked || []).length
+        ) {
+          entry.status = "done";
+        }
+      }
+    }
     if (run && run.status === "checking") run.status = "finished";
     if (run) storeOvernightRun(this.app, run);
     if (run) await this.writeOvernightLog(run, checked);

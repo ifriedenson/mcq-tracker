@@ -165,6 +165,35 @@ test("overnight import: a file the AI fails to read is an error, not the previou
   assert.equal(first.notes.length, 1, "the good file keeps its own note");
   assert.equal(first.status, "done", "the good file finished");
 });
+test("overnight import: fully checked entries shake off a stale paused status", async () => {
+  const state = await setup();
+  const { plugin, app } = state;
+  const notePath = "Questions/shared/Q-SHARED-Q01.md";
+  await app.vault.create(notePath, NOTE_BLOCK);
+  const run = T.overnightRun.makeOvernightRun([{ sourcePath: "a.pdf" }]);
+  T.overnightRun.markRunFile(run, "a.pdf", {
+    status: "paused",
+    written: true,
+    notes: [notePath],
+    checked: [notePath],
+    checks: { matched: 1, mismatched: 0, errored: 0 },
+  });
+  T.overnightRun.storeOvernightRun(app, run);
+  const modal = {
+    overnightRun: run,
+    batchStopped: false,
+    stop: false,
+    closed: false,
+    headerEl: { setText() {} },
+    progress: null,
+    status() {},
+    close() {},
+  };
+  await plugin.finishUnattended(modal);
+  const after = T.overnightRun.latestOvernightRun(app);
+  assert.equal(after.files[0].status, "done", "a fully checked entry reads as done when the run finishes");
+});
+
 test("overnight import: a stale capture cannot file another folder's notes under this file", async () => {
   const state = await setup();
   const { plugin, app } = state;
