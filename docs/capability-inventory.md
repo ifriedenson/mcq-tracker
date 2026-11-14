@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 451 groups, 3147 exports. **Commands:** 238. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 451 groups, 3148 exports. **Commands:** 238. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -312,7 +312,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `opencodeMajor` | 0 | `tests/opencode-compat.test.js` |
 | `osNotifications` | 7 | `tests/os-notifications.test.js` |
 | `overallStats` | 0 | `tests/p1-knowledge.test.js`, `tests/skip-insights.test.js`, `tests/stats.test.js` |
-| `overnightChecks` | 10 | `tests/overnight-checks.test.js` |
+| `overnightChecks` | 11 | `tests/overnight-checks.test.js` |
 | `overnightRun` | 16 | `tests/answer-check-queue.test.js`, `tests/overnight-import.test.js`, `tests/overnight-run.test.js` |
 | `packQuickSession` | 0 | `tests/uncited-groups.test.js` |
 | `packTestSession` | 0 | `tests/parameterized.test.js`, `tests/stats.test.js` |

@@ -90,6 +90,9 @@ function draftForNote(text) {
 
 /** Write one verdict back to its note: frontmatter fields, a needs-review flag and the visible banner. */
 async function writeCheckResult(plugin, file, text, verification) {
+  // The banner first: vault.modify replaces the whole file, so patching the
+  // frontmatter first and modifying after would restore the old verdict.
+  await plugin.app.vault.modify(file, addVerificationBanner(str(text), verification));
   await plugin.app.fileManager.processFrontMatter(file, (data) => {
     Object.assign(data, verificationFields(verification));
     delete data.answer_verified;
@@ -99,7 +102,6 @@ async function writeCheckResult(plugin, file, text, verification) {
     if (!verification.match) data.needs_review = true;
     else if (data.needs_review === true && verification.status === "match") delete data.needs_review;
   });
-  await plugin.app.vault.modify(file, addVerificationBanner(str(text), verification));
 }
 
 /**
@@ -245,6 +247,7 @@ async function runCheckQueue(plugin, paths, opts) {
 }
 
 module.exports = {
+  writeCheckResult,
   WAKE_GAP_MS,
   MAX_BACKOFF_ATTEMPTS,
   checkConcurrency,

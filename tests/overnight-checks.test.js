@@ -38,6 +38,69 @@ function pathsOf(app) {
   return app.files.filter((f) => /\.md$/.test(f.path)).map((f) => f.path);
 }
 
+test("overnight checks: the verdict survives the banner write on a real vault", async () => {
+  // Obsidian-faithful store: modify() replaces the whole file, so a verdict
+  // patched before the banner write would be restored to the old text.
+  const raw = [
+    "---",
+    "question_id: Q01",
+    "answer: B",
+    "verified: false",
+    "verification: unchecked",
+    "---",
+    "",
+    "> [!warning] AI-generated answer and explanation",
+    "> Written by a model.",
+    "",
+    "## Question",
+    "What is 2 + 2?",
+  ].join("\n");
+  const disk = { text: raw };
+  const file = { path: "Questions/Q01.md" };
+  const parse = (text) => {
+    const fm = {};
+    const m = /^---\n([\s\S]*?)\n---\n?/.exec(text);
+    for (const line of (m ? m[1] : "").split("\n")) {
+      const at = line.indexOf(":");
+      if (at > 0) fm[line.slice(0, at).trim()] = line.slice(at + 1).trim();
+    }
+    return { fm, body: m ? text.slice(m[0].length) : text, head: m ? m[0] : "---\n---\n" };
+  };
+  const dump = (fm, body) => `---\n${Object.entries(fm).map(([k, v]) => `${k}: ${v}`).join("\n")}\n---\n${body}`;
+  const fake = {
+    app: {
+      vault: {
+        modify: async (f, text) => {
+          assert.equal(f, file, "the banner writes to the same note");
+          disk.text = String(text);
+        },
+      },
+      fileManager: {
+        processFrontMatter: async (f, fn) => {
+          const parsed = parse(disk.text);
+          const coerce = (v) => (v === "true" ? true : v === "false" ? false : v);
+          const data = Object.fromEntries(Object.entries(parsed.fm).map(([k, v]) => [k, coerce(v)]));
+          fn(data);
+          disk.text = dump(data, parsed.body);
+        },
+      },
+    },
+  };
+  const verification = { status: "match", match: true, answer: "B", key: "B", confidence: "high", model: "m", date: "2026-11-14" };
+  await queue().writeCheckResult(fake, file, raw, verification);
+  const done = parse(disk.text);
+  assert.equal(done.fm.verified, "true", "a matched check stays verified after the banner write");
+  assert.equal(done.fm.verification, "match");
+  assert.equal(done.fm.verified_answer, "B");
+  assert.ok(done.body.includes("AI-generated answer"), "the note body is kept");
+  const flagged = { status: "mismatch", match: false, answer: "A", key: "B", model: "m", date: "2026-11-14" };
+  await queue().writeCheckResult(fake, file, disk.text, flagged);
+  const after = parse(disk.text);
+  assert.equal(after.fm.verified, "false", "a mismatch stays unverified");
+  assert.equal(after.fm.needs_review, "true", "a mismatch is flagged for review");
+  assert.ok(after.body.includes("Answer check failed"), "a mismatch gains the visible banner");
+});
+
 test("overnight checks: helpers clamp, parse and estimate", () => {
   const q = queue();
   assert.equal(q.checkConcurrency(null), 2);
