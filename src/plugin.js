@@ -196,7 +196,7 @@ const { applyAttempt, applySkip, fillDefaults, findAnswerKey, parseSections, rep
 const { parseChoiceSet } = require("./answer-types");
 const { addVerificationBanner, buildBlindVerificationPrompt, consensusVerdict, normalizePanelModels, normalizeVerificationMode, panelModelFor, parseBlindVerification, parseBlindVerificationNumber, parseBlindVerificationSet, stripVerificationBanner, verificationFields } = require("./answer-verification");
 const { checkConcurrency, runCheckQueue } = require("./overnight-checks");
-const { loadOvernightRuns, makeOvernightRun, markRunFile, pendingRunFiles, runFileDone, runNotePaths, runTotals, sourceHash, storeOvernightRun, unfinishedOvernightRun } = require("./overnight-run");
+const { entryNeedsChecks, loadOvernightRuns, makeOvernightRun, markRunFile, pendingRunFiles, runFileDone, runNotePaths, runTotals, sourceHash, storeOvernightRun, unfinishedOvernightRun } = require("./overnight-run");
 const { computedVerification } = require("./computed-verification");
 const { renderSmilesSvg } = require("./smiles");
 const { renderBiologyDiagram, renderChemistryDiagram, renderCircuitDiagram } = require("./stem-diagrams");
@@ -2491,7 +2491,8 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   async resumeOvernightImport() {
-    const run = unfinishedOvernightRun(this.app);
+    // A stopped run only resumes when asked: the user stopped it on purpose.
+    const run = unfinishedOvernightRun(this.app, true);
     if (!run) {
       new Notice("No paused overnight import to resume.");
       return null;
@@ -2519,11 +2520,7 @@ class QuestionTrackerPlugin extends Plugin {
   /** Notes written but not yet checked keep a run resumable. */
   overnightChecksPending(run) {
     if (!run || !Array.isArray(run.files)) return false;
-    return run.files.some(
-      (entry) =>
-        (entry.status === "done" || entry.status === "paused" || entry.status === "stopped") &&
-        (entry.notes || []).length > (entry.checked || []).length
-    );
+    return run.files.some((entry) => entryNeedsChecks(entry));
   }
 
   forgetOvernightHandles(run) {
@@ -2566,7 +2563,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (run && !stopped) {
       const todo = [];
       for (const entry of run.files) {
-        if (entry.status !== "done" && entry.status !== "paused" && entry.status !== "stopped") continue;
+        if (!entryNeedsChecks(entry)) continue;
         const already = new Set(entry.checked || []);
         for (const path of entry.notes || []) {
           if (!already.has(path)) todo.push({ entry, path, verification: null });
@@ -2788,6 +2785,7 @@ class QuestionTrackerPlugin extends Plugin {
       data.verified_on = localDate();
       data.verified_answer = stored || str(fm.answer).trim().toUpperCase();
       delete data.needs_review;
+      delete data.verification_method;
     });
     await this.app.vault.modify(file, stripVerificationBanner(await this.app.vault.cachedRead(file)));
     this.refreshViews();

@@ -77,6 +77,27 @@ test("overnight runs: junk in storage normalizes instead of crashing", async () 
   assert.equal(runs().pendingRunFiles(null).length, 0);
 });
 
+test("overnight runs: entries with unchecked notes need the checks phase", () => {
+  const R = runs();
+  assert.ok(R.entryNeedsChecks({ status: "done", notes: ["a.md"], checked: [] }));
+  assert.ok(!R.entryNeedsChecks({ status: "done", notes: ["a.md"], checked: ["a.md"] }));
+  assert.ok(R.entryNeedsChecks({ status: "error", notes: ["a.md"], checked: [] }), "partial writes are checked too");
+  assert.ok(R.entryNeedsChecks({ status: "paused", notes: ["a.md"], checked: [] }));
+  assert.ok(R.entryNeedsChecks({ status: "stopped", notes: ["a.md"], checked: [] }));
+  assert.ok(!R.entryNeedsChecks({ status: "pending", notes: [], checked: [] }));
+  assert.ok(!R.entryNeedsChecks({ status: "skipped", notes: [], checked: [] }));
+  assert.ok(!R.entryNeedsChecks(null));
+});
+
+test("overnight runs: a stopped run waits for an explicit resume", async () => {
+  const plugin = await setup();
+  const run = runs().makeOvernightRun([{ sourcePath: "a.pdf", hash: "h" }]);
+  run.status = "stopped";
+  runs().storeOvernightRun(plugin.app, run);
+  assert.equal(runs().unfinishedOvernightRun(plugin.app), null, "no auto-resume after a deliberate stop");
+  assert.equal(runs().unfinishedOvernightRun(plugin.app, true).id, run.id, "the command still finds it");
+});
+
 test("overnight runs: a source hash is stable and degrades gracefully", async () => {
   const plugin = await setup();
   const hash = await runs().sourceHash(plugin.app, "nothing.pdf");

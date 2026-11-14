@@ -304,7 +304,9 @@ class PdfImportModal extends QtModal {
   onOpen() {
     if (this.modalEl && typeof this.modalEl.addClass === "function") this.modalEl.addClass("qt-import-modal");
     if (this.unattended) {
-      this.startUnattended();
+      this.startUnattended().catch((e) => {
+        if (!this.closed) this.showError(importErrorText(e));
+      });
       return;
     }
     // File first: the AI gate comes only after the text layer is known to be readable.

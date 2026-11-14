@@ -101,6 +101,12 @@ function markRunFile(run, sourcePath, patch) {
 }
 
 /** Every path the run wrote: notes, source copies and captured pictures. Undo removes exactly these. */
+function entryNeedsChecks(entry) {
+  if (!entry || typeof entry !== "object") return false;
+  if (entry.status !== "done" && entry.status !== "paused" && entry.status !== "stopped" && entry.status !== "error") return false;
+  return (entry.notes || []).length > (entry.checked || []).length;
+}
+
 function runNotePaths(run) {
   if (!run || !Array.isArray(run.files)) return [];
   const out = [];
@@ -150,8 +156,16 @@ function latestOvernightRun(app) {
   return loadOvernightRuns(app)[0] || null;
 }
 
-function unfinishedOvernightRun(app) {
-  return loadOvernightRuns(app).find((run) => run.status !== "finished" && run.status !== "undone" && pendingRunFiles(run).length > 0) || null;
+function unfinishedOvernightRun(app, includeStopped) {
+  return (
+    loadOvernightRuns(app).find(
+      (run) =>
+        run.status !== "finished" &&
+        run.status !== "undone" &&
+        (includeStopped || run.status !== "stopped") &&
+        pendingRunFiles(run).length > 0
+    ) || null
+  );
 }
 
 /** Identify source bytes for resume: size + mtime when the adapter offers it, else nothing (resume falls back to the path). */
@@ -168,6 +182,7 @@ async function sourceHash(app, path) {
 }
 
 module.exports = {
+  entryNeedsChecks,
   OVERNIGHT_RUNS_KEY,
   MAX_OVERNIGHT_RUNS,
   makeOvernightRun,
