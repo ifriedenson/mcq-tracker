@@ -1,3 +1,7 @@
+## 1.302.2 - 2026-11-14
+
+- **A spent free model no longer stops an import.** A quota, rate-limit or empty reply now sends the same file prompt to the next free model from the same provider in a fresh session, up to three switches, and the file's blind checks use whichever model replied. Paid models are never rotated to, a disk or PDF error never rotates, and a file that already has notes is never started again. Provider errors inside a live request are reported at once, an empty assistant reply fails after 90 seconds and an empty import reply after 2 minutes, and the import prompt now reads the extracted text, writes notes immediately and runs one folder check last. Verified on three PDFs: 6 notes, 4:32 / 3:45 / 4:28 per file, all checks matching; the fallback itself is covered by tests because every free model on the test machine was out of quota. `node --test` passes 2,877 tests; `npm run check` clean across 365 source files; `main.js` is 7,384,813 bytes. No note format, setting key, review schedule or network default changed.
+
 ## 1.291.1 - 2026-11-08
 
 - **PDF++ Customize links scroll to their control.** The embedded vendor settings tab grew to its full content height inside MCQ Tracker's page, so its own `scrollToSetting` had no scroll range; the embedded copy now scrolls the addressed setting into Obsidian's actual settings pane. The page, no-separate-tab behavior, standalone-PDF++ guard and Study agent suggestion deck are unchanged. No schema, provider or dependency changed.

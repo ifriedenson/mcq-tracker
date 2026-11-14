@@ -6768,9 +6768,12 @@ class QuestionTrackerPlugin extends Plugin {
     const onProgress = typeof o.onProgress === "function" ? o.onProgress : null;
     const shouldStop = typeof o.shouldStop === "function" ? o.shouldStop : null;
     const onNotice = typeof o.onNotice === "function" ? o.onNotice : null;
-    const checkOptions = { shouldStop, onNotice, deleteSession: true };
+    // An import that fell back to another model asks its checks with that same
+    // model; every other caller keeps the configured verification model.
+    const modelOverride = str(o.model).trim().slice(0, 200);
+    const checkOptions = Object.assign({ shouldStop, onNotice, deleteSession: true }, modelOverride ? { model: modelOverride } : {});
     const mode = normalizeVerificationMode(this.settings.ai.verification);
-    const model = this.aiModelLabel("verification");
+    const model = modelOverride || this.aiModelLabel("verification");
     const date = localDate();
     let checked = 0;
     let dropped = 0;

@@ -18,6 +18,13 @@ const IDLE_TIMEOUT_MS = 6 * 60 * 1000;
 const VERIFY_IDLE_TIMEOUT_MS = 20 * 60 * 1000;
 /** How often a blocking send asks the session whether anything new was written. */
 const IDLE_POLL_MS = 3000;
+/**
+ * An assistant message that exists but carries no part at all cannot become an
+ * answer. Providers report a usage limit or a rejected key this way, with no
+ * error field and no completion time, so this grace is the only thing that
+ * separates a dead request from a slow first token.
+ */
+const EMPTY_REPLY_MS = 90 * 1000;
 
 function durationLabel(ms) {
   return ms >= 1000 ? Math.round(ms / 1000) + "s" : ms + "ms";
@@ -31,6 +38,46 @@ function bounded(promise, ms, label) {
   return Promise.race([promise, limit]).finally(() => {
     if (timer) clearTimeout(timer);
   });
+}
+
+/**
+ * A provider failure or an empty final reply is final, even while the blocking
+ * POST is still open. Without this, a stream error inside a blind check looked
+ * like a slow model and held the batch for the whole 20-minute silence
+ * allowance.
+ */
+/** The latest assistant message with nothing in it yet (or an empty finish). */
+function emptyAssistant(msgs) {
+  const last = [...(msgs || [])].reverse().find((m) => m && m.info && m.info.role === "assistant");
+  if (!last || (last.info && last.info.error)) return false;
+  const parts = Array.isArray(last.parts) ? last.parts : [];
+  if (parts.length) return false;
+  return !parts.some(
+    (p) => p && p.type === "tool" && p.state && (p.state.status === "pending" || p.state.status === "running" || p.state.status === "streaming")
+  );
+}
+
+function sessionFailure(msgs) {
+  const last = [...(msgs || [])].reverse().find((m) => m && m.info && m.info.role === "assistant");
+  if (!last) return "";
+  const info = last.info || {};
+  if (info.error) {
+    const raw = info.error.data && info.error.data.message;
+    const text = str(raw) || str(info.error.message) || str(info.error.name) || "the provider rejected the request";
+    return "OpenCode's provider failed: " + text;
+  }
+  const parts = Array.isArray(last.parts) ? last.parts : [];
+  const running = parts.some(
+    (p) => p && p.type === "tool" && p.state && (p.state.status === "pending" || p.state.status === "running" || p.state.status === "streaming")
+  );
+  const completed = !!(info.time && info.time.completed !== undefined && info.time.completed !== null);
+  if (!parts.length && completed && !running && info.finish !== "tool-calls") {
+    return (
+      "OpenCode's provider sent no reply at all: the request was accepted and the answer was empty. " +
+      "That is usually a usage limit, a rejected key or an unavailable model."
+    );
+  }
+  return "";
 }
 
 function modelFromString(s) {
@@ -241,6 +288,8 @@ class OpenCodeClient {
   async send(id, body, opts) {
     const o = opts || {};
     const idleMs = Number(o.idleMs) > 0 ? Number(o.idleMs) : IDLE_TIMEOUT_MS;
+    const emptyMs = Number(o.emptyMs) > 0 ? Number(o.emptyMs) : EMPTY_REPLY_MS;
+    let emptySince = 0;
     const work = this.req("POST", `/session/${encodeURIComponent(id)}/message`, body, 0);
     let settled = null;
     work.then(
@@ -257,12 +306,41 @@ class OpenCodeClient {
     while (!settled) {
       await sleep(pollMs);
       if (settled) break;
+      let msgs = null;
       try {
-        const next = JSON.stringify((await this.messages(id)) || null);
-        if (signature !== null && next !== signature) lastActivity = Date.now();
-        signature = next;
+        msgs = await this.messages(id);
       } catch (e) {
         /* a failed progress read is not progress; the silence allowance decides */
+      }
+      if (msgs) {
+        const next = JSON.stringify(msgs);
+        if (signature !== null && next !== signature) lastActivity = Date.now();
+        signature = next;
+        const failure = sessionFailure(msgs);
+        if (failure) {
+          try {
+            await this.abort(id);
+          } catch (abortError) {
+            /* the abort is cleanup; the provider's words are the error */
+          }
+          throw new Error(failure);
+        }
+        if (emptyAssistant(msgs)) {
+          if (!emptySince) emptySince = Date.now();
+          if (Date.now() - emptySince >= emptyMs) {
+            try {
+              await this.abort(id);
+            } catch (abortError) {
+              /* the abort is cleanup; the empty answer is the error */
+            }
+            throw new Error(
+              "OpenCode's provider sent no reply at all: the request was accepted and the answer was empty. " +
+                "That is usually a usage limit, a rejected key or an unavailable model."
+            );
+          }
+        } else {
+          emptySince = 0;
+        }
       }
       if (Date.now() - lastActivity >= idleMs) {
         // A run that went quiet may still be alive on the server (a model that

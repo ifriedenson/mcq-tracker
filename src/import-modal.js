@@ -275,6 +275,10 @@ class PdfImportModal extends QtModal {
     this.sessionFolders = new Set();
     this.attemptRemoved = 0;
     this.agentSendError = null;
+    // Quota fallback state for the file in progress (reset in runAgent).
+    this.importModel = "";
+    this.triedModels = new Set();
+    this.modelFallbacks = 0;
     this.agentPollMs = 1500;
     this.agentSettleMs = 90 * 1000;
     // How long the agent may write nothing at all (no note, no tool call, no
@@ -282,6 +286,10 @@ class PdfImportModal extends QtModal {
     // allowance a blocking send gets, and it is not a deadline on a working
     // agent: any real action resets it.
     this.agentSilenceMs = 6 * 60 * 1000;
+    // A provider refusal arrives as an assistant message with no parts and no
+    // error. It cannot become progress, so it is reported after this grace
+    // instead of waiting out the whole silence allowance.
+    this.agentEmptyReplyMs = 2 * 60 * 1000;
     this.apiChunkTimeoutMs = 3 * 60 * 1000;
     this.pdfPasswords = init.pdfPasswords instanceof Map ? new Map(init.pdfPasswords) : new Map();
     this.pdfFile = this.file || this.vaultDoc || null;
@@ -458,6 +466,16 @@ class PdfImportModal extends QtModal {
     );
   }
 
+  /** A provider that accepted the request and returned an empty answer. */
+  emptyReplyText() {
+    return (
+      "OpenCode's model sent no reply at all: the provider accepted the request and returned an empty answer. " +
+      "That is usually a usage limit, a rejected key or an unavailable model. " +
+      "Check the AI setup in Settings, Study agent, AI (backend, model and key), then import this file again. " +
+      "Files already imported are kept."
+    );
+  }
+
   lostContactText() {
     return (
       "Lost contact with OpenCode while importing this file: the program that writes the notes stopped answering. " +
@@ -518,6 +536,42 @@ class PdfImportModal extends QtModal {
   disableStopButtons() {
     for (const button of this.stopBtns || []) button.disabled = true;
     if (this.stopBtn) this.stopBtn.disabled = true;
+  }
+
+  /**
+   * The next free model to try after the provider says the current one has no
+   * quota left. Returns "" when the failure is not a quota/rate failure, when
+   * the current model is not a free one (spending paid credit is the owner's
+   * decision), or when every free model was already tried.
+   */
+  async quotaFallback(message, client) {
+    const text = String(message || "");
+    if (!/usage limit|rate limit|quota|429|too many requests|capacity|overloaded|sent no reply/i.test(text)) return "";
+    if (this.agentSawNotes) return "";
+    const current = str(this.importModel).trim();
+    if (!/free/i.test(current)) return "";
+    if (this.modelFallbacks >= 3) return "";
+    let providers = [];
+    try {
+      const answer = await client.providers(8000);
+      providers = (answer && answer.providers) || [];
+    } catch (e) {
+      return "";
+    }
+    const providerID = (modelFromString(current) || {}).providerID || "";
+    for (const prov of providers) {
+      if (providerID && prov.id !== providerID) continue;
+      for (const id of Object.keys((prov && prov.models) || {})) {
+        if (!/free/i.test(id)) continue;
+        const name = prov.id + "/" + id;
+        if (this.triedModels.has(name)) continue;
+        this.triedModels.add(name);
+        this.modelFallbacks++;
+        this.importModel = name;
+        return name;
+      }
+    }
+    return "";
   }
 
   abortAgent() {
@@ -1585,13 +1639,18 @@ class PdfImportModal extends QtModal {
       parts: [{ type: "text", text: agentPrompt({ name: sourceName, textPath, docPath: sourcePath, imagesDir, folder, prefix, meta: this.meta, kind }) }],
       system: AGENT_SYSTEM,
     };
-    const model = modelFromString(ai.model);
+    const configured = str(ai.model).trim();
+    this.importModel = configured;
+    this.triedModels = new Set(configured ? [configured] : []);
+    this.modelFallbacks = 0;
+    const model = modelFromString(this.importModel);
     if (model) body.model = model;
     if (str(ai.agent).trim()) body.agent = ai.agent.trim();
 
     let mySid = this.sid;
     let msgs = null;
     this.agentSendError = null;
+    this.agentSawNotes = false;
     let client = oc;
     let restarted = false;
     for (;;) {
@@ -1601,6 +1660,23 @@ class PdfImportModal extends QtModal {
         break;
       } catch (e) {
         if (this.isStopError(e)) throw e;
+        // A free model that is out of quota is not the end of the file: ask the
+        // provider for its next free model and run this same file again on it.
+        // Nothing was written yet, so nothing can be duplicated.
+        const failingModel = this.importModel || configured;
+        const quota = await this.quotaFallback(e && e.message, client);
+        if (quota) {
+          this.agentSendError = null;
+          this.abortAgent();
+          this.status(`The free model ${failingModel.replace(/^.*\//, "")} is out of quota, so this file is being started again with ${quota.replace(/^.*\//, "")}...`);
+          client = p.openCode();
+          const fresh = await this.awaitCancellable(client.createSession(`Import ${sourceName}`));
+          mySid = fresh && fresh.id;
+          this.sid = mySid;
+          if (!mySid) throw new Error("OpenCode did not return a session id.");
+          body.model = modelFromString(this.importModel);
+          continue;
+        }
         // A stalled agent that wrote nothing can safely be started again: no
         // notes exist yet, so nothing is duplicated. One restart per file.
         if (e && e.agentStalled && !restarted && !this.closed && typeof p.recoverAiConnection === "function") {
@@ -1631,7 +1707,7 @@ class PdfImportModal extends QtModal {
     this.status("Checking the notes...");
     await this.awaitCancellable(sleep(1500));
     this.throwIfCancelled();
-    const model2 = str(ai.model).trim() || modelFromMessages(msgs) || "the AI model set up in OpenCode";
+    const model2 = str(this.importModel).trim() || str(ai.model).trim() || modelFromMessages(msgs) || "the AI model set up in OpenCode";
     const result = await this.awaitCancellable(this.finishAgentNotes(folder, sourceName, {
       model: model2,
       date: localDate(),
@@ -1737,6 +1813,7 @@ class PdfImportModal extends QtModal {
     let sawNotes = false;
     let pollFailures = 0;
     let lastProgress = "";
+    let emptySince = 0;
     while (!this.closed) {
       this.throwIfCancelled();
       await this.awaitCancellable(sleep(this.agentPollMs));
@@ -1767,7 +1844,24 @@ class PdfImportModal extends QtModal {
         lastChange = now;
       }
       if (state.errorText) throw new Error(agentFailureText(state.errorText, lastLines));
-      if (state.noteCount > 0) sawNotes = true;
+      if (state.emptyAssistant) {
+        // A finished empty reply is final: nothing else is coming.
+        if (state.terminal) {
+          this.abortAgent();
+          throw new Error(this.emptyReplyText());
+        }
+        if (!emptySince) emptySince = now;
+        if (now - emptySince >= this.agentEmptyReplyMs) {
+          this.abortAgent();
+          throw new Error(this.emptyReplyText());
+        }
+      } else {
+        emptySince = 0;
+      }
+      if (state.noteCount > 0) {
+        sawNotes = true;
+        this.agentSawNotes = true;
+      }
       if (state.terminal) return;
       if (sawNotes && now - lastChange >= this.agentSettleMs) return;
       // No deadline on a working agent: a 100-page document can take as long as
@@ -1800,13 +1894,17 @@ class PdfImportModal extends QtModal {
       // error and no parts at all. Waiting six minutes for progress that cannot
       // come is wrong: report the provider's own words at once.
       const errorText = assistantErrorText(info);
+      // No parts and no error: the provider took the request and sent nothing
+      // back, finished or not. A real reply always brings at least one part,
+      // so this can never turn into notes and must not be waited on.
+      const emptyAssistant = !!assistant && parts.length === 0 && !running && !errorText && n === 0;
       const signature = JSON.stringify([msgs ? msgs.length : 0, info.id, info.time && info.time.completed, info.finish, n, lines.slice(-3)]);
       // Real progress: a note written, or a tool call started or finished. A
       // model retry inside OpenCode changes none of these, so a server that
       // silently retries a frozen request cannot look busy forever.
       const toolParts = parts.filter((part) => part && part.type === "tool");
       const progress = JSON.stringify([n, toolParts.length, toolParts.map((part) => (part.state && part.state.status) || "").join(","), info.finish || ""]);
-      return { noteCount: n, terminal: completed && !running, signature, progress, lines, errorText };
+      return { noteCount: n, terminal: completed && !running, signature, progress, lines, errorText, emptyAssistant };
     } catch (e) {
       if (this.isStopError(e)) throw e;
       return null;
@@ -1844,6 +1942,7 @@ class PdfImportModal extends QtModal {
         try {
           await this.awaitCancellable(
             this.plugin.verifyDraftQuestions([draft], {
+              model: this.importModel || undefined,
               shouldStop: () => this.stop || this.closed,
               onNotice: (m) => {
                 noteText = str(m);
@@ -2176,6 +2275,7 @@ class PdfImportModal extends QtModal {
     const stopClock = this.waitClock(() => `${label}${noteText ? ` ${noteText}` : ""}`);
     try {
       await this.plugin.verifyDraftQuestions(drafts, {
+        model: this.importModel || undefined,
         onProgress: (n, total) => {
           label = `Checking answer ${n} of ${total} without showing the key...`;
         },

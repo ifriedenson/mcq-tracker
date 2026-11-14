@@ -126,6 +126,64 @@ test("agent wait: there is no time limit, so a quiet agent runs until it finishe
   assert.equal(polls, 60, "the silent agent was polled all the way to its finish");
 });
 
+test("agent wait: an empty provider reply fails fast with a plain reason", async () => {
+  // Regression: a provider refusal arrives as an assistant message with no
+  // parts and no info.error. It used to look like a slow agent and wait out
+  // the whole six-minute silence allowance before a misleading "stopped
+  // answering" report. Nothing was ever coming.
+  const state = await setup();
+  const bytes = await textPdf();
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [file("Unit A.pdf", bytes)] });
+  attach(modal);
+  modal.agentPollMs = 2;
+  modal.agentEmptyReplyMs = 20;
+  let polls = 0;
+  modal.pollAgent = async () => {
+    polls++;
+    return { noteCount: 0, terminal: false, signature: "static", lines: [], emptyAssistant: true };
+  };
+  await assert.rejects(
+    modal.waitForAgent("sid", "Questions/Unit A"),
+    (error) =>
+      /sent no reply/i.test(error.message) &&
+      /usage limit|rejected key|unavailable model/i.test(error.message) &&
+      /already imported are kept/i.test(error.message)
+  );
+  assert.ok(polls < 30, "it gives up in seconds, not after the six-minute silence allowance");
+});
+
+test("agent wait: a finished but empty reply fails at once instead of reporting zero notes", async () => {
+  // The "No notes were written. If the agent was waiting to be allowed to
+  // create files..." screen blamed permissions for a provider that never
+  // answered. A completed assistant message with no parts is that provider
+  // failure, not an agent that declined to write.
+  const state = await setup();
+  const bytes = await textPdf();
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [file("Unit A.pdf", bytes)] });
+  attach(modal);
+  modal.agentPollMs = 2;
+  modal.abortAgent = () => {};
+  modal.pollAgent = async () => ({ noteCount: 0, terminal: true, signature: "done", lines: [], emptyAssistant: true });
+  await assert.rejects(modal.waitForAgent("sid", "Questions/Unit A"), /sent no reply/i);
+});
+
+test("agent wait: an assistant message with parts is never called an empty reply", async () => {
+  const state = await setup();
+  const bytes = await textPdf();
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [file("Unit A.pdf", bytes)] });
+  attach(modal);
+  modal.agentPollMs = 2;
+  let polls = 0;
+  modal.pollAgent = async () => {
+    polls++;
+    return polls < 20
+      ? { noteCount: 0, terminal: false, signature: "static", lines: ["write · running · Unit A-Q01.md"], emptyAssistant: false }
+      : { noteCount: 2, terminal: true, signature: "done", lines: ["write · completed · Unit A-Q02.md"], emptyAssistant: false };
+  };
+  await modal.waitForAgent("sid", "Questions/Unit A");
+  assert.equal(polls, 20);
+});
+
 test("agent wait: a 100-page file has no time limit either", async () => {
   const state = await setup();
   const bytes = await textPdf();

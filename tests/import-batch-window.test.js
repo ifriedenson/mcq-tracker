@@ -1085,7 +1085,14 @@ test("agent import: no notes removes the source copy and the empty folder", asyn
     providers: async () => ({ providers: [{}] }),
     createSession: async () => ({ id: "import-empty" }),
     promptAsync: async () => ({}),
-    messages: async () => agentMessage("done"),
+    // A model that answered but found no questions: a real reply with text,
+    // not a provider that returned an empty message.
+    messages: async () => [
+      {
+        info: { id: "done", role: "assistant", time: { completed: Date.now() }, finish: "stop" },
+        parts: [{ type: "text", text: "I read the document and found no questions in it." }],
+      },
+    ],
     abort: async () => ({}),
   });
 
@@ -1305,4 +1312,138 @@ test("agent import: a key only in the Answer section is still verified", async (
   assert.match(saved, /^answer: B$/m, "the key becomes the answer property");
   assert.match(saved, /verification: match/, "the check result is written to the note");
   assert.match(saved, /verified: true/, "the note is no longer left unverified");
+});
+
+test("batch import: the queue runs every file through the single-file path even when one fails", async () => {
+  // The queue is a list of single-file runs: a file that fails is recorded and
+  // the very next file starts from clean state, exactly as if it had been
+  // imported on its own. A failure in the middle must not swallow the files
+  // queued after it.
+  const state = await setup();
+  const bytes = await textPdf();
+  state.failCreateBinary = (path) => path.startsWith("Questions/Broken/");
+  const modal = new T.PdfImportModal(state.app, state.plugin, {
+    files: [file("Unit A.pdf", bytes), file("Broken.pdf", bytes), file("Unit C.pdf", bytes)],
+  });
+  const dom = attach(modal);
+  modal.onOpen();
+  await modal.startBatch();
+
+  await dom.click("Create 1 note");
+  await waitFor(() => dom.texts().join("\n").includes("File 3 of 3"), "the file queued after the failure");
+  assert.ok(dom.texts().includes("Unit C.pdf"), "the third file is the one that failed in the middle's successor");
+  assert.deepEqual(
+    modal.batchResults.map((row) => row.name),
+    ["Unit A.pdf", "Broken.pdf"],
+    "the failed file is recorded before the next one starts"
+  );
+  assert.ok(modal.batchResults[1].error, "the failed file keeps its reason");
+
+  await dom.clickLast("Create 1 note");
+  await waitFor(() => completionModal(modal), "the completion summary");
+  const complete = completionModal(modal);
+  const completeDom = attach(complete);
+  complete.onOpen();
+  const summary = completeDom.texts().join("\n");
+  assert.match(summary, /2 question notes imported from 2 files/);
+  assert.match(summary, /1 file failed/);
+  assert.deepEqual(
+    modal.batchResults.map((row) => row.name),
+    ["Unit A.pdf", "Broken.pdf", "Unit C.pdf"],
+    "the queue visited every file in order"
+  );
+});
+
+test("agent import: a free model out of quota falls back to the next free model", async () => {
+  const state = await setup();
+  const ai = state.plugin.settings.ai;
+  ai.backend = "opencode";
+  ai.managed = true;
+  ai.enabled = true;
+  ai.model = "opencode/flint-40b-free";
+  ai.verifyPanel = false;
+  ai.binaryPath = require.resolve("./answer-verification.test.js");
+  state.plugin.ensureOpenCode = async () => {};
+  const notePath = "Questions/Unit A/Unit A-Q01.md";
+  const aiNote = AGENT_NOTE.replace("answer_source: pdf", "answer_source: ai").replace(
+    "- A. 3\n- B. 4\n",
+    "- A. 3\n- B. 4\n- C. 5\n- D. 6\n"
+  );
+  const askedModels = [];
+  let sessions = 0;
+  let wrote = false;
+  const quota = [
+    { info: { id: "u", role: "user" }, parts: [{ type: "text", text: "Write the notes" }] },
+    { info: { id: "a", role: "assistant", error: { name: "APIError", data: { message: "Free usage limit reached" } } }, parts: [] },
+  ];
+  state.plugin.openCode = () => ({
+    providers: async () => ({
+      providers: [{ id: "opencode", models: { "flint-40b-free": {}, "nemotron-3.5-lightning-free": {} } }],
+    }),
+    createSession: async () => ({ id: "fb-" + ++sessions }),
+    promptAsync: async (id, body) => {
+      const model = body && body.model ? body.model.modelID : "";
+      askedModels.push(model);
+      if (model === "nemotron-3.5-lightning-free") {
+        wrote = true;
+        await state.app.vault.create(notePath, aiNote);
+      }
+      return {};
+    },
+    messages: async () => (wrote ? agentMessage("done") : quota),
+    abort: async () => ({}),
+  });
+
+  const bytes = await textPdf();
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [file("Unit A.pdf", bytes)] });
+  const dom = attach(modal);
+  modal.onOpen();
+  modal.agentPollMs = 5;
+  modal.agentSettleMs = 20;
+  const statuses = [];
+  const status = modal.status.bind(modal);
+  modal.status = (text, ...args) => {
+    statuses.push(String(text));
+    return status(text, ...args);
+  };
+  await modal.start();
+  modal.onOpen();
+  await waitFor(() => dom.texts().join("\n").match(/Found 1 question|Created 1|No questions/), "the fallback agent's result", 20000);
+
+  assert.deepEqual(askedModels, ["flint-40b-free", "nemotron-3.5-lightning-free"], "the same file is asked of the next free model");
+  assert.ok(statuses.some((text) => /out of quota.*started again with/i.test(text)), "the window says why the model changed");
+  assert.equal(state.files.has(notePath), true, "the fallback model writes the note");
+  assert.equal(modal.importModel, "opencode/nemotron-3.5-lightning-free", "the note and checks carry the model that replied");
+});
+
+test("quota fallback: only free models rotate, and only on quota-shaped failures", async () => {
+  const state = await setup();
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [] });
+  const client = {
+    providers: async () => ({
+      providers: [{ id: "opencode", models: { "flint-40b-free": {}, "nemotron-3.5-lightning-free": {}, "gpt-paid": {} } }],
+    }),
+  };
+  modal.importModel = "opencode/flint-40b-free";
+  modal.triedModels = new Set(["opencode/flint-40b-free"]);
+  modal.modelFallbacks = 0;
+  assert.equal(await modal.quotaFallback("The disk is full.", client), "", "a non-quota failure is not a model problem");
+  assert.equal(await modal.quotaFallback("Free usage limit reached", client), "opencode/nemotron-3.5-lightning-free");
+  modal.importModel = "opencode/gpt-paid";
+  modal.triedModels = new Set(["opencode/gpt-paid"]);
+  assert.equal(await modal.quotaFallback("Free usage limit reached", client), "", "a paid model is never charged to dodge a free limit");
+  const broken = { providers: async () => { throw new Error("server down"); } };
+  modal.importModel = "opencode/flint-40b-free";
+  modal.triedModels = new Set(["opencode/flint-40b-free"]);
+  assert.equal(await modal.quotaFallback("Free usage limit reached", broken), "", "a failed model list does not mask the original error");
+});
+
+test("quota fallback: a file that already has notes is never started again", async () => {
+  const state = await setup();
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [] });
+  const client = { providers: async () => ({ providers: [{ id: "opencode", models: { "other-free": {} } }] }) };
+  modal.importModel = "opencode/flint-40b-free";
+  modal.triedModels = new Set(["opencode/flint-40b-free"]);
+  modal.agentSawNotes = true;
+  assert.equal(await modal.quotaFallback("Free usage limit reached", client), "", "notes on disk make a retry unsafe");
 });

@@ -98,7 +98,7 @@ class ImportCompleteModal extends QtModal {
     }
     this.busy = true;
     if (button) {
-      button.setDisabled(true);
+      button.disabled = true;
       button.setText("Checking...");
     }
     if (this.checkEl) this.checkEl.setText("Checking whether OpenCode is running...");
@@ -110,7 +110,7 @@ class ImportCompleteModal extends QtModal {
       if (this.checkEl) this.checkEl.setText(`OpenCode could not be checked: ${String(e && e.message ? e.message : e)}`);
     } finally {
       this.busy = false;
-      if (button) button.setDisabled(false);
+      if (button) button.disabled = false;
     }
   }
 

@@ -49,6 +49,31 @@ class Base {
     this.args = a;
   }
 }
+class Component extends Base {
+  constructor() {
+    super();
+    this.loaded = false;
+    this.unloaded = false;
+    this._children = [];
+  }
+  load() {
+    this.loaded = true;
+    if (this.onload) this.onload();
+  }
+  onload() {}
+  unload() {
+    this.unloaded = true;
+    this.loaded = false;
+    if (this.onunload) this.onunload();
+  }
+  onunload() {}
+  addChild(c) {
+    this._children.push(c);
+    return c;
+  }
+  register() {}
+  registerEvent() {}
+}
 class MarkdownRenderChild extends Base {
   constructor(containerEl) {
     super(containerEl);
@@ -217,7 +242,12 @@ const obsidian = {
       this.hidden = true;
     }
   },
-  MarkdownRenderer: { render: async () => {} },
+  Component,
+  MarkdownRenderer: {
+    render: async (app, markdown, el, sourcePath, component) => {
+      obsidian.lastMarkdownComponent = component;
+    },
+  },
   Platform: { isDesktopApp: true, isMobile: false },
   TFile,
   TFolder,

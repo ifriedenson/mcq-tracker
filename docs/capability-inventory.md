@@ -51,7 +51,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `MixedReviewModal` | 0 | `tests/mixed-review.test.js` |
 | `NewFrqNoteModal` | 0 | `tests/frq.test.js` |
 | `NoteReviewDock` | 0 | `tests/feature-surfaces.test.js` |
-| `NoteReviewModal` | 0 | `tests/spaced-everything.test.js` |
+| `NoteReviewModal` | 0 | `tests/render-markdown-component.test.js`, `tests/spaced-everything.test.js` |
 | `OcrModal` | 0 | `tests/feature-surfaces.test.js`, `tests/import-edge-robustness.test.js` |
 | `OpenCodeClient` | 0 | `tests/chat-stream.test.js`, `tests/opencode-compat.test.js`, `tests/opencode-lifecycle.test.js` |
 | `OpenCodeManager` | 0 | `tests/opencode-compat.test.js`, `tests/opencode-lifecycle.test.js`, `tests/opencode-permissions.test.js` |
@@ -378,7 +378,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `renderAssignmentsSettings` | 0 | `tests/feature-surfaces.test.js` |
 | `renderDailySettings` | 0 | `tests/feature-surfaces.test.js` |
 | `renderDashboardEmbed` | 0 | `tests/analytics-embed.test.js` |
-| `renderMarkdownInto` | 0 | `tests/math-rendering.test.js`, `tests/stem-diagrams.test.js` |
+| `renderMarkdownInto` | 0 | `tests/math-rendering.test.js`, `tests/render-markdown-component.test.js`, `tests/stem-diagrams.test.js` |
 | `renderReferenceSettings` | 0 | `tests/feature-surfaces.test.js` |
 | `renderSettingsTabs` | 0 | `tests/calendar.test.js` |
 | `replaceMyNotes` | 0 | `tests/feature-surfaces.test.js` |

@@ -1,5 +1,5 @@
 "use strict";
-const { MarkdownRenderer } = require("obsidian");
+const { Component, MarkdownRenderer } = require("obsidian");
 const { findAnswerKey, inferMode, parseSections } = require("./notes");
 const { normalizeAnswerKey } = require("./answer-types");
 const { str } = require("./util");
@@ -25,12 +25,31 @@ function isExamReady(streak, passes) {
   return Number(streak) >= needed;
 }
 
+/**
+ * The Component that should own a rendered markdown block. Views are
+ * Components already; dialogs are not, so they hand over their own markdown
+ * Component. A caller with neither falls back to the active view so Obsidian
+ * never gets an ownerless render (which warns and leaks handlers).
+ */
+function markdownOwner(app, component) {
+  if (component instanceof Component) return component;
+  const own = component && component.mdComponent;
+  if (own instanceof Component) return own;
+  if (component && typeof component.markdownComponent === "function") {
+    const made = component.markdownComponent();
+    if (made instanceof Component) return made;
+  }
+  const view = app && app.workspace && app.workspace.activeLeaf && app.workspace.activeLeaf.view;
+  return view instanceof Component ? view : null;
+}
+
 function renderMarkdownInto(app, markdown, el, sourcePath, component) {
   const source = prepareMathMarkdown(normalizeFigureMarkers(markdown));
+  const owner = markdownOwner(app, component);
   try {
     const p = MarkdownRenderer.render
-      ? MarkdownRenderer.render(app, source, el, sourcePath, component)
-      : MarkdownRenderer.renderMarkdown(source, el, sourcePath, component);
+      ? MarkdownRenderer.render(app, source, el, sourcePath, owner)
+      : MarkdownRenderer.renderMarkdown(source, el, sourcePath, owner);
     Promise.resolve(p).catch(() => el.setText(markdown));
   } catch (e) {
     el.setText(markdown);

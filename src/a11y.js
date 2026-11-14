@@ -9,7 +9,7 @@
  * rendered. The static audit in tests/helpers/a11y-audit.js fails when a modal
  * class bypasses this layer.
  */
-const { FuzzySuggestModal, Modal } = require("obsidian");
+const { Component, FuzzySuggestModal, Modal } = require("obsidian");
 
 let dialogTitleSeq = 0;
 
@@ -90,10 +90,34 @@ function describeDialog(modal, fallback) {
 
 /** A Modal whose container is named after it renders. */
 class QtModal extends Modal {
+  /**
+   * Obsidian's Modal is not a Component, so handing `this` to
+   * MarkdownRenderer warns and leaks whatever the rendered markdown registers.
+   * Every dialog owns one Component for its rendered markdown instead, loaded
+   * when the dialog opens and unloaded when it closes.
+   */
+  markdownComponent() {
+    if (!(this.mdComponent instanceof Component)) {
+      this.mdComponent = new Component();
+      this.mdComponent.load();
+    }
+    return this.mdComponent;
+  }
   open() {
+    this.markdownComponent();
     const result = super.open();
     describeDialog(this);
     return result;
+  }
+  close() {
+    try {
+      return super.close();
+    } finally {
+      if (this.mdComponent instanceof Component) {
+        this.mdComponent.unload();
+        this.mdComponent = null;
+      }
+    }
   }
 }
 

@@ -6,6 +6,35 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.302.2",
+    date: "November 14, 2026",
+    title: "An exhausted free model no longer stops an import",
+    summary:
+      "A free OpenCode model that hits its usage limit used to end the file. The import now asks the same file of the next free model, up to three times, and the checks follow whichever model actually replied. Dead providers are also reported in seconds instead of minutes.",
+    highlights: [
+      {
+        title: "Another free model, same file",
+        body: "A quota, rate-limit or empty reply now sends the same file prompt to the next free model in your provider's list, in a fresh session, up to three switches. Nothing was written yet, so no note can be duplicated.",
+      },
+      {
+        title: "Only free models, only quota errors",
+        body: "The next model must be free and come from the same provider. A paid model is never charged to dodge a limit, and a disk or PDF error still ends the file with its own reason instead of rotating models.",
+      },
+      {
+        title: "Checks follow the model that replied",
+        body: "Blind answer checks for that file now use the fallback model, and the note records it, so a switched import is verified by the same model that wrote it instead of failing on the exhausted one.",
+      },
+      {
+        title: "Failures arrive in seconds",
+        body: "A provider error inside a live request is reported at once, an assistant message with no content fails after 90 seconds, and an empty import reply stops after 2 minutes instead of the old 6-minute wait.",
+      },
+      {
+        title: "Fewer detours per file",
+        body: "The import prompt now reads the extracted text, writes the notes immediately and runs one folder check last, so the agent spends its time writing notes rather than exploring the vault.",
+      },
+    ],
+  },
+  {
     version: "1.302.1",
     date: "November 14, 2026",
     title: "Multi-PDF imports finish",

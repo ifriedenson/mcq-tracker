@@ -70,8 +70,13 @@ test("the failed-import summary offers Check OpenCode and shows its answer", asy
   modal.modalEl = dom.root;
   modal.onOpen();
   assert.ok(dom.texts().includes("Check OpenCode"), "the lost-contact failure offers the check");
+  // A plain Obsidian DOM button has `disabled`, not a ButtonComponent's
+  // setDisabled(); the live window used to throw "button.setDisabled is not a
+  // function" on this press.
+  const button = dom.find("Check OpenCode").at(-1);
   await dom.click("Check OpenCode");
   assert.equal(checked.length, 1, "pressing it runs the real check");
+  assert.equal(button.disabled, false, "the button uses the plain DOM disabled flag and is usable again");
   assert.ok(
     dom.texts().some((text) => /OpenCode is running 1\.19\.5/.test(text)),
     "the plain answer is shown in the same window"

@@ -57,8 +57,38 @@ test("every renderMarkdownInto call passes a component", () => {
   assert.deepEqual(misses, [], `renderMarkdownInto without a Component: ${misses.join(", ")}`);
 });
 
-test("the shared helper hands the component to Obsidian", () => {
-  const source = fs.readFileSync(path.join(SRC, "view-helpers.js"), "utf8");
-  assert.match(source, /MarkdownRenderer\.render\(app, source, el, sourcePath, component\)/);
-  assert.match(source, /MarkdownRenderer\.renderMarkdown\(source, el, sourcePath, component\)/);
+test("the shared helper hands a real Component to Obsidian, not a Modal", () => {
+  const { load } = require("./helpers/load");
+  const { T, obsidian } = load();
+  const el = { createDiv() {}, setText() {} };
+  // Obsidian's Modal is not a Component; a dialog that passes itself triggers
+  // "not passing Component in renderMarkdown", which also leaks handlers.
+  const dialog = { app: {}, mdComponent: new obsidian.Component() };
+  dialog.mdComponent.load();
+  T.renderMarkdownInto({ workspace: {} }, "# Hi", el, "a.md", dialog);
+  assert.ok(obsidian.lastMarkdownComponent instanceof obsidian.Component, "the dialog's markdown Component is used");
+  assert.notEqual(obsidian.lastMarkdownComponent, dialog, "the Modal itself is never passed");
+
+  const view = new obsidian.Component();
+  T.renderMarkdownInto({ workspace: {} }, "# Hi", el, "a.md", view);
+  assert.equal(obsidian.lastMarkdownComponent, view, "a view is already a Component and is passed through");
+});
+
+test("a dialog loads its markdown Component on open and unloads it on close", async () => {
+  const { load } = require("./helpers/load");
+  const { makeApp, makeDom } = require("./helpers/fake");
+  const { T, Plugin: QT } = load();
+  const plugin = new QT(makeApp([]));
+  await plugin.onload();
+  const modal = new T.NoteReviewModal(plugin.app, plugin);
+  const dom = makeDom();
+  modal.containerEl = dom.root;
+  modal.modalEl = dom.root;
+  modal.contentEl = makeDom().root;
+  modal.open();
+  const component = modal.mdComponent;
+  assert.ok(component, "the dialog owns a markdown Component");
+  assert.equal(component.loaded, true, "it is loaded while the dialog is open");
+  modal.close();
+  assert.equal(component.unloaded, true, "it is unloaded when the dialog closes");
 });

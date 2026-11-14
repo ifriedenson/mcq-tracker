@@ -36,3 +36,21 @@ test("importer prompt: the format, naming and done-line rules are unchanged", ()
   assert.match(prompt, /question_id match the file name/);
   assert.match(prompt, /how many notes you created/);
 });
+
+test("importer prompt: the agent reads only the supplied text file", () => {
+  // A live run with a weaker model spent minutes unzipping export bundles and
+  // reading unrelated vault notes instead of the extracted text, because the
+  // prompt listed the files without saying not to go looking for more.
+  const prompt = T.importer.agentPrompt(PROMPT_ARGS);
+  assert.match(prompt, /Read this one file:/i);
+  assert.match(prompt, /Do not open the original document/i);
+  assert.match(prompt, /do not search the vault/i);
+});
+
+test("importer prompt: notes are written immediately after one read, before any command", () => {
+  const prompt = T.importer.agentPrompt(PROMPT_ARGS);
+  assert.match(prompt, /Do exactly these three steps, in this order/i);
+  assert.match(prompt, /Read this one file: import-text\.txt/);
+  assert.match(prompt, /Write every note from it, starting immediately/i);
+  assert.match(prompt, /Never run a command before the notes exist/i);
+});
