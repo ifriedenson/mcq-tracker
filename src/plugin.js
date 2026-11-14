@@ -6188,13 +6188,13 @@ class QuestionTrackerPlugin extends Plugin {
     // this same question again with the same model.
     const ask = async (prompt) => {
       try {
-        return await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model });
+        return await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model, deleteSession: o.deleteSession === true });
       } catch (e) {
         if (o.noRetry === true || !isConnectionFailure(e)) throw e;
         if (typeof o.shouldStop === "function" && o.shouldStop()) throw e;
         const recovered = await this.recoverForSlowCheck(e, { onNotice: o.onNotice });
         if (!recovered) throw e;
-        return await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model });
+        return await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model, deleteSession: o.deleteSession === true });
       }
     };
     const rawKey = str(data.answer).trim();
@@ -6283,85 +6283,97 @@ class QuestionTrackerPlugin extends Plugin {
     const onProgress = typeof o.onProgress === "function" ? o.onProgress : null;
     const shouldStop = typeof o.shouldStop === "function" ? o.shouldStop : null;
     const onNotice = typeof o.onNotice === "function" ? o.onNotice : null;
-    const checkOptions = { shouldStop, onNotice };
+    const checkOptions = { shouldStop, onNotice, deleteSession: true };
     const mode = normalizeVerificationMode(this.settings.ai.verification);
     const model = this.aiModelLabel("verification");
     const date = localDate();
     let checked = 0;
     let dropped = 0;
     let failed = 0;
-    let position = 0;
-    for (const item of list) {
-      if (shouldStop && shouldStop()) break;
-      if (!item || typeof item !== "object") continue;
-      position++;
-      if (onProgress) onProgress(position, list.length);
-      const answerText = str(item.answer).trim();
-      const quality = checkDistractorQuality(item);
-      if (!quality.ok) {
-        // Structural distractor defects are never written, even in "mark"
-        // mode: a question with an invalid option is not usable practice.
-        item.verification = {
-          status: "mismatch",
-          match: false,
-          reasons: quality.reasons,
-          answer: "",
-          key: answerText,
-          model: "local quality rule",
-          date,
-          drop: true,
-          quality: true,
-        };
-        checked++;
-        dropped++;
-        failed++;
-        continue;
+    const slots = Math.max(1, Math.min(4, Math.floor(Number(o.concurrency) > 0 ? Number(o.concurrency) : 1)));
+    let nextIndex = 0;
+    let completed = 0;
+    const checkOne = async () => {
+      for (;;) {
+        if (shouldStop && shouldStop()) return;
+        const index = nextIndex++;
+        if (index >= list.length) return;
+        const item = list[index];
+        if (!item || typeof item !== "object") {
+          completed++;
+          if (onProgress) onProgress(completed, list.length);
+          continue;
+        }
+        const answerText = str(item.answer).trim();
+        const quality = checkDistractorQuality(item);
+        if (!quality.ok) {
+          // Structural distractor defects are never written, even in "mark"
+          // mode: a question with an invalid option is not usable practice.
+          item.verification = {
+            status: "mismatch",
+            match: false,
+            reasons: quality.reasons,
+            answer: "",
+            key: answerText,
+            model: "local quality rule",
+            date,
+            drop: true,
+            quality: true,
+          };
+          checked++;
+          dropped++;
+          failed++;
+          continue;
+        }
+        const numeric = Number(answerText.replace(/[^0-9+-.eE]/g, ""));
+        if (!answerText || (!(Array.isArray(item.choices) && item.choices.length) && !Number.isFinite(numeric))) {
+          item.verification = { status: "unchecked", match: null, answer: "", key: answerText, model, date, drop: false };
+          continue;
+        }
+        try {
+          let result = await this.verifyQuestionDraft(item, checkOptions);
+          // One disagreement is not proof. Put it to two more blind checks and
+          // verify only on a real majority, so a single odd reply does not cost a
+          // correct note its answer and a genuinely wrong one is named.
+          if (!result.match) result = await this.verifyByConsensus(item, result, checkOptions);
+          const status = result.match ? "match" : "mismatch";
+          // Name the panel when it voted, so a note says which AIs checked it.
+          const votedBy =
+            result.method === "consensus"
+              ? [model, ...normalizePanelModels(this.settings.ai && this.settings.ai.verifyPanelModels)].filter(Boolean).join(" + ").slice(0, 200)
+              : model;
+          item.verification = {
+            status,
+            match: result.match,
+            answer: result.answer,
+            key: result.key,
+            confidence: result.confidence,
+            model: votedBy,
+            date,
+            method: result.method,
+            votes: result.votes,
+            drop: !result.match && mode === "drop",
+          };
+          checked++;
+          if (item.verification.drop) dropped++;
+        } catch (e) {
+          item.verification = {
+            status: "error",
+            match: null,
+            answer: "",
+            key: str(item.answer).trim(),
+            error: str(e && e.message ? e.message : e),
+            model,
+            date,
+            drop: false,
+          };
+          failed++;
+        }
+        completed++;
+        if (onProgress) onProgress(completed, list.length);
       }
-      const numeric = Number(answerText.replace(/[^0-9+-.eE]/g, ""));
-      if (!answerText || (!(Array.isArray(item.choices) && item.choices.length) && !Number.isFinite(numeric))) {
-        item.verification = { status: "unchecked", match: null, answer: "", key: answerText, model, date, drop: false };
-        continue;
-      }
-      try {
-        let result = await this.verifyQuestionDraft(item, checkOptions);
-        // One disagreement is not proof. Put it to two more blind checks and
-        // verify only on a real majority, so a single odd reply does not cost a
-        // correct note its answer and a genuinely wrong one is named.
-        if (!result.match) result = await this.verifyByConsensus(item, result, checkOptions);
-        const status = result.match ? "match" : "mismatch";
-        // Name the panel when it voted, so a note says which AIs checked it.
-        const votedBy =
-          result.method === "consensus"
-            ? [model, ...normalizePanelModels(this.settings.ai && this.settings.ai.verifyPanelModels)].filter(Boolean).join(" + ").slice(0, 200)
-            : model;
-        item.verification = {
-          status,
-          match: result.match,
-          answer: result.answer,
-          key: result.key,
-          confidence: result.confidence,
-          model: votedBy,
-          date,
-          method: result.method,
-          votes: result.votes,
-          drop: !result.match && mode === "drop",
-        };
-        checked++;
-        if (item.verification.drop) dropped++;
-      } catch (e) {
-        item.verification = {
-          status: "error",
-          match: null,
-          answer: "",
-          key: str(item.answer).trim(),
-          error: str(e && e.message ? e.message : e),
-          model,
-          date,
-          drop: false,
-        };
-        failed++;
-      }
-    }
+    };
+    await Promise.all(Array.from({ length: Math.min(slots, Math.max(list.length, 1)) }, () => checkOne()));
     return { checked, dropped, failed, mode };
   }
 
@@ -6389,7 +6401,7 @@ class QuestionTrackerPlugin extends Plugin {
       if (typeof o.shouldStop === "function" && o.shouldStop()) break;
       const model = panelModelFor(models, i);
       try {
-        const again = await this.verifyQuestionDraft(item, { model, noRetry: true, shouldStop: o.shouldStop, onNotice: o.onNotice });
+        const again = await this.verifyQuestionDraft(item, { model, noRetry: true, shouldStop: o.shouldStop, onNotice: o.onNotice, deleteSession: o.deleteSession === true });
         votes.push({ answer: str(again.answer).trim() });
       } catch (e) {
         votes.push({ answer: "" });
@@ -10320,6 +10332,13 @@ ${body}
         const last = [...turns].reverse().find((turn) => turn.role === "assistant");
         const text = last ? last.texts.join("\n").trim() : "";
         if (!text) throw new Error("OpenCode returned an empty reply.");
+        if (o.deleteSession === true && typeof oc.deleteSession === "function") {
+          try {
+            await oc.deleteSession(session.id);
+          } catch (cleanupError) {
+            /* the session already ended or the server never tracked it */
+          }
+        }
         return text;
       }
       const client = new ApiClient(ai, this.app, { model });
