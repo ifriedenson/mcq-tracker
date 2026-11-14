@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.301.30",
+    date: "November 13, 2026",
+    title: "A provider error is reported when it happens",
+    summary:
+      "When OpenCode's provider refuses a file (a rate limit, a rejected key, an overloaded model), the import now says so at once with the provider's own words instead of waiting minutes and calling it a frozen server.",
+    highlights: [
+      {
+        title: "The real reason, immediately",
+        body: "OpenCode reports provider failures as an assistant message with an error and no content. The import reads that error and shows it, so a rate limit or a key problem is no longer mistaken for silence.",
+      },
+      {
+        title: "What to do next",
+        body: "A rate or usage limit says to wait a few minutes and import the file again; anything else points at the AI settings, backend, model and key. Files already imported are kept either way.",
+      },
+      {
+        title: "No pointless restart",
+        body: "A provider error is not a server problem, so OpenCode is not restarted and the batch does not wait six minutes twice before failing.",
+      },
+      {
+        title: "Nothing else changed",
+        body: "The silent-server guard, the answer-check recovery, Stop/Undo/Discard and the note format all behave exactly as in 1.301.29.",
+      },
+    ],
+  },
+  {
     version: "1.301.29",
     date: "November 13, 2026",
     title: "An import cannot sit on a silent agent forever",

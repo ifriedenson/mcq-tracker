@@ -864,6 +864,47 @@ test("batch import: a long answer check shows how long it has been waiting", asy
   assert.equal(text, kept, "stopping the clock leaves the last line on screen");
 });
 
+test("batch import: a provider error inside OpenCode is reported at once, not waited out", async () => {
+  const state = await setup();
+  state.plugin.settings.ai.backend = "opencode";
+  state.plugin.settings.ai.managed = true;
+  state.plugin.settings.ai.enabled = true;
+  state.plugin.settings.ai.binaryPath = require.resolve("./answer-verification.test.js");
+  let restarts = 0;
+  state.plugin.ensureOpenCode = async () => {};
+  state.plugin.recoverAiConnection = async () => {
+    restarts++;
+    return true;
+  };
+  // The shape OpenCode returns for a provider failure: an assistant message
+  // with an error and no parts.
+  const failed = [
+    { info: { id: "u", role: "user" }, parts: [{ type: "text", text: "Write the notes" }] },
+    { info: { id: "a", role: "assistant", error: { name: "APIError", data: { message: "429 rate limit exceeded" } } }, parts: [] },
+  ];
+  state.plugin.openCode = () => ({
+    providers: async () => ({ providers: [{}] }),
+    createSession: async () => ({ id: "refused" }),
+    promptAsync: async () => ({}),
+    messages: async () => failed,
+    abort: async () => ({}),
+  });
+
+  const bytes = await textPdf();
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [file("Unit A.pdf", bytes), file("Unit B.pdf", bytes)] });
+  const dom = attach(modal);
+  modal.onOpen();
+  modal.agentPollMs = 5;
+  modal.agentSilenceMs = 60000;
+  await modal.startBatch();
+  await waitFor(() => completionModal(modal), "the batch summary after a provider error", 20000);
+
+  assert.equal(restarts, 0, "a provider error is not a server problem, so nothing is restarted");
+  const text = JSON.stringify(modal.batchResults);
+  assert.match(text, /could not write this file: 429 rate limit exceeded/i, "the provider's own words are shown");
+  assert.match(text, /waiting a few minutes/i, "a rate limit says what to do next");
+});
+
 test("batch import: a silent agent is restarted once and the file is written on the retry", async () => {
   const state = await setup();
   state.plugin.settings.ai.backend = "opencode";

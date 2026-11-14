@@ -198,6 +198,26 @@ class ImportProgressNotice {
     }
   }
 }
+/** The provider's own words from an OpenCode assistant message, or "" when it has none. */
+function assistantErrorText(info) {
+  const error = info && info.error;
+  if (!error) return "";
+  const data = error.data && typeof error.data === "object" ? error.data : {};
+  const text = str(data.message || error.message || data.error || error.name || "").trim();
+  if (!text) return "OpenCode reported an error with no details.";
+  return /^(APIError|UnknownError|ProviderError)$/i.test(text) ? "OpenCode reported a provider error." : text.slice(0, 300);
+}
+
+/** A plain reason for a file the provider refused to write. */
+function agentFailureText(message, lastLines) {
+  const seen = Array.isArray(lastLines) && lastLines.length ? ` It was last doing: ${str(lastLines[lastLines.length - 1]).slice(0, 160)}.` : "";
+  const rate = /rate|quota|429|too many|limit|capacity|overloaded/i.test(message);
+  const advice = rate
+    ? "That is a rate or usage limit, so waiting a few minutes and importing this file again usually works. Files already imported are kept."
+    : "Check the AI setup in Settings, Study agent, AI (backend, model and key), then import this file again. Files already imported are kept.";
+  return `OpenCode could not write this file: ${message}.${seen} ${advice}`;
+}
+
 class PdfImportModal extends QtModal {
   constructor(app, plugin, options) {
     super(app);
@@ -1470,7 +1490,9 @@ class PdfImportModal extends QtModal {
             continue;
           }
         }
-        throw new Error(friendlyError(e, client.base()));
+        // A client always has base() in the plugin; keep the message intact
+        // rather than turning it into "base is not a function" elsewhere.
+        throw new Error(friendlyError(e, typeof client.base === "function" ? client.base() : ""));
       }
     }
     try {
@@ -1617,6 +1639,7 @@ class PdfImportModal extends QtModal {
         lastProgress = state.progress;
         lastChange = now;
       }
+      if (state.errorText) throw new Error(agentFailureText(state.errorText, lastLines));
       if (state.noteCount > 0) sawNotes = true;
       if (state.terminal) return;
       if (sawNotes && now - lastChange >= this.agentSettleMs) return;
@@ -1646,13 +1669,17 @@ class PdfImportModal extends QtModal {
       // A completed assistant step that ends in tool-calls is not the end of the
       // file: OpenCode will send another assistant message after the tools run.
       const completed = info.finish !== "tool-calls" && (!!(info.time && info.time.completed !== undefined && info.time.completed !== null) || !!(info.finish && info.finish !== "tool-calls"));
+      // OpenCode reports a provider failure as an assistant message with an
+      // error and no parts at all. Waiting six minutes for progress that cannot
+      // come is wrong: report the provider's own words at once.
+      const errorText = assistantErrorText(info);
       const signature = JSON.stringify([msgs ? msgs.length : 0, info.id, info.time && info.time.completed, info.finish, n, lines.slice(-3)]);
       // Real progress: a note written, or a tool call started or finished. A
       // model retry inside OpenCode changes none of these, so a server that
       // silently retries a frozen request cannot look busy forever.
       const toolParts = parts.filter((part) => part && part.type === "tool");
       const progress = JSON.stringify([n, toolParts.length, toolParts.map((part) => (part.state && part.state.status) || "").join(","), info.finish || ""]);
-      return { noteCount: n, terminal: completed && !running, signature, progress, lines };
+      return { noteCount: n, terminal: completed && !running, signature, progress, lines, errorText };
     } catch (e) {
       if (this.isStopError(e)) throw e;
       return null;
