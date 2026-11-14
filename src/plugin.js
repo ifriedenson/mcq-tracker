@@ -194,6 +194,7 @@ const { WELCOME_EXAMPLE, WELCOME_NOTE_PATH, WELCOME_PRESETS, markWelcomeSeen, we
 const { applyAttempt, applySkip, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setAttemptError, setLastErrorType } = require("./notes");
 const { parseChoiceSet } = require("./answer-types");
 const { addVerificationBanner, buildBlindVerificationPrompt, consensusVerdict, normalizePanelModels, normalizeVerificationMode, panelModelFor, parseBlindVerification, parseBlindVerificationNumber, parseBlindVerificationSet, verificationFields } = require("./answer-verification");
+const { checkConcurrency } = require("./overnight-checks");
 const { computedVerification } = require("./computed-verification");
 const { renderSmilesSvg } = require("./smiles");
 const { renderBiologyDiagram, renderChemistryDiagram, renderCircuitDiagram } = require("./stem-diagrams");
@@ -6290,7 +6291,8 @@ class QuestionTrackerPlugin extends Plugin {
     let checked = 0;
     let dropped = 0;
     let failed = 0;
-    const slots = Math.max(1, Math.min(4, Math.floor(Number(o.concurrency) > 0 ? Number(o.concurrency) : 1)));
+    const asked = Number(o.concurrency);
+    const slots = Number.isFinite(asked) && asked > 0 ? Math.max(1, Math.min(4, Math.floor(asked))) : checkConcurrency(this.settings && this.settings.ai);
     let nextIndex = 0;
     let completed = 0;
     const checkOne = async () => {

@@ -5,6 +5,7 @@ const { API_PRESETS, ApiClient, friendlyApiError } = require("./api-client");
 const { localModelGuide } = require("./local-models");
 const { errorDetail, str } = require("./util");
 const { OPENCODE_REPO, PROVIDERS } = require("./opencode-manager");
+const { normalizeConcurrency } = require("./overnight-checks");
 const { HEALTH_TIMEOUT_MS } = require("./opencode-client");
 const { fvals, hasFilters } = require("./filters");
 const { NameModal } = require("./modals");
@@ -941,6 +942,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           .setDynamicTooltip()
           .onChange(async (v) => {
             ai.thinkFirstSeconds = normalizeThinkFirstSeconds(v);
+            await this.plugin.save();
+          })
+      );
+    new Setting(section)
+      .setName("Simultaneous answer checks")
+      .setDesc("How many blind answer checks run at once when notes are verified (1-4). Two is the default: a second pass still finishes overnight, and the provider sees no more parallel load than a small batch.")
+      .addSlider((s) =>
+        s
+          .setLimits(1, 4, 1)
+          .setValue(normalizeConcurrency(ai.checkConcurrency))
+          .setDynamicTooltip()
+          .onChange(async (v) => {
+            ai.checkConcurrency = normalizeConcurrency(v);
             await this.plugin.save();
           })
       );

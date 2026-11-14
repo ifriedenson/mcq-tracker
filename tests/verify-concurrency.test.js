@@ -94,6 +94,31 @@ test("verify concurrency: a stop between checks leaves the rest unchecked", asyn
   assert.ok(items.every((entry, i) => (i === 3 ? true : entry.verification && entry.verification.status === "match")));
 });
 
+test("verify concurrency: two checks are the default without asking", async () => {
+  const plugin = await setup();
+  assert.equal(plugin.settings.ai.checkConcurrency, 2, "fresh settings check two at a time");
+  const pending = [];
+  let inFlight = 0;
+  let maxInFlight = 0;
+  plugin.aiComplete = async () => {
+    inFlight++;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    await new Promise((resolve) => pending.push(resolve));
+    inFlight--;
+    return '{"answer":"B"}';
+  };
+  const items = [item(), item(), item()];
+  const summary = plugin.verifyDraftQuestions(items, {});
+  await sleep(50);
+  assert.equal(maxInFlight, 2, "the default pools two checks");
+  for (let i = 0; i < 8; i++) {
+    while (pending.length) pending.shift()();
+    await sleep(20);
+  }
+  const done = await summary;
+  assert.equal(done.checked, 3);
+});
+
 test("verify concurrency: the check flag reaches the model call", async () => {
   const plugin = await setup();
   const seen = [];

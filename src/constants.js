@@ -104,6 +104,7 @@ const DEFAULT_SETTINGS = {
     thinkFirstSeconds: DEFAULT_THINK_FIRST_SECONDS, // 5-120; a conservative default, configurable in AI settings
     context: { stats: false, due: false, exams: false }, // read-only aggregate context sent only when a toggle is on
     verification: "mark", // after AI writes an answer: "mark" mismatches for review, or "drop" them
+    checkConcurrency: 2, // blind answer checks running at once: 1-4, two by default
     sessionId: "",
     studyChat: [], // active Direct API study-agent messages, bounded by chat-history.js
     studyChatId: "", // id of the active conversation, so archiving resumes it rather than copying it
