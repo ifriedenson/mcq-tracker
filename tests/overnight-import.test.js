@@ -508,3 +508,35 @@ test("overnight import: Stop ends the run and the journal keeps the queue", asyn
   assert.ok(run, "the run is journaled");
   assert.ok(["stopped", "finished"].includes(run.status), `the journal says ${run.status}`);
 });
+
+test("overnight import: a spent budget pauses the run and keeps the queue", async () => {
+  const state = await setup();
+  const { plugin, app } = state;
+  const cap =
+    "The daily AI request cap (1) has been reached. Raise it in Settings, MCQ Tracker, AI, or try again tomorrow.";
+  plugin.aiChat = async () => {
+    throw new Error(cap);
+  };
+  const bytes = await textPdf();
+  const { leaf } = openOvernight(plugin, app, [file("a.pdf", bytes), file("b.pdf", bytes)]);
+  await waitFor(() => leaf.view && leaf.view.modal, "the import popout");
+  const modal = leaf.view.modal;
+  await waitFor(() => modal.closed, "the run to pause");
+  const run = T.overnightRun.latestOvernightRun(app);
+  assert.ok(run, "the run is journaled");
+  assert.equal(run.status, "paused", "a spent budget pauses the run instead of failing it");
+  assert.ok(
+    run.files.every((f) => f.status === "pending"),
+    "no file is marked failed while the queue waits for the cap"
+  );
+  assert.match(notices(), /paused/i, "the pause is announced");
+  assert.ok(questionNotes(app).length === 0, "nothing half-written is kept");
+  // The cap resets: resume imports everything with no duplicates.
+  plugin.aiChat = async () => NOTE_BLOCK;
+  const second = openOvernight(plugin, app, null, true);
+  await waitFor(() => second.leaf.view && second.leaf.view.modal, "the resume popout");
+  await waitFor(() => second.leaf.view.modal.closed, "the resume to finish");
+  assert.ok(questionNotes(app).length >= 2, "resume writes both files after the pause");
+  const after = T.overnightRun.latestOvernightRun(app);
+  assert.equal(after.status, "finished", "the resumed run finishes");
+});

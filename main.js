@@ -49976,6 +49976,7 @@ const { friendlyApiError } = require("./api-client");
 const { findAnswerKey } = require("./notes");
 const { checkDocumentText, summaryText } = require("./import-preflight");
 const { ImportCompleteModal } = require("./import-complete-modal");
+const { isCapMessage } = require("./overnight-checks");
 
 /** Vault-safe folder segment for a picked file; legal characters and spaces stay as they are. */
 function folderBase(name, fallback) {
@@ -52062,6 +52063,7 @@ class PdfImportModal extends QtModal {
         this.unattendedArtifacts = this.artifacts ? { files: [...this.artifacts.files], folders: [...this.artifacts.folders] } : { files: [], folders: [] };
         const causes = (this.warnings || []).slice(0, 3).join(" ");
         const reason = "No questions found in " + this.currentFileName() + "." + (causes ? " " + causes : "");
+        if (this.pauseUnattendedForCap(reason)) return;
         this.snapshotUnattendedFile({ made: 0, skipped: ["No questions found"], error: reason, paths: [] }, this.target);
       }
       return this.advanceBatch();
@@ -52081,6 +52083,31 @@ class PdfImportModal extends QtModal {
     stop.addEventListener("click", () => this.requestStop(this.plugin, "discard"));
     this.stopBtns = [stop];
     return this.plugin.finishUnattended(this, "resumed");
+  }
+
+  /**
+   * A spent AI budget pauses the overnight queue instead of failing it: the
+   * run journal keeps every unwritten file pending, the morning log records
+   * the pause, and one Notice says the queue waits for the cap. Returns true
+   * when the failure was the cap and the run is now parked.
+   */
+  pauseUnattendedForCap(text) {
+    const run = this.overnightRun;
+    if (!this.unattended || !run) return false;
+    if (!isCapMessage(text)) return false;
+    this.plugin.storeOvernightRunState(run, "paused");
+    this.plugin.writeOvernightLog(run, []).catch(() => {});
+    const summary = this.plugin.overnightSummaryText(run, null);
+    if (this.progress) {
+      this.progress.finish(summary);
+      this.progress = null;
+    } else {
+      new Notice(summary, 12000);
+    }
+    this.batchStarted = false;
+    this.finishedBatch = true;
+    this.close();
+    return true;
   }
 
   /** The next file, or the checks phase when the queue is written. */
@@ -52132,6 +52159,7 @@ class PdfImportModal extends QtModal {
   showError(msg) {
     const text = importErrorText(msg);
     if (this.batchMode) {
+      if (this.pauseUnattendedForCap(text)) return;
       if (this.unattended) this.unattendedArtifacts = this.artifacts ? { files: [...this.artifacts.files], folders: [...this.artifacts.folders] } : { files: [], folders: [] };
       this.recordBatchResult({ made: 0, skipped: [] }, this.folder);
       this.batchResults[this.batchResults.length - 1].error = text;

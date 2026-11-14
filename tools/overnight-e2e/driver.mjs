@@ -68,6 +68,40 @@ if (command === "probe") {
       out.mdNotes = window.app.vault.getMarkdownFiles().map((f) => f.path);
     } catch (e) { out.error = String((e && e.message) || e).slice(0, 300); } return out; })()`)
   );
+} else if (command === "notices") {
+  const res = await fetch(`http://127.0.0.1:${port}/json/list`);
+  const targets = (await res.json()).filter((t) => t.type === "page");
+  const seen = [];
+  for (const t of targets) {
+    const ws = new WebSocket(t.webSocketDebuggerUrl);
+    await new Promise((resolve, reject) => {
+      ws.addEventListener("open", resolve);
+      ws.addEventListener("error", reject);
+    });
+    const id = Math.floor(Math.random() * 1000000);
+    const text = await new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(""), 20000);
+      ws.addEventListener("message", (e) => {
+        try {
+          const m = JSON.parse(e.data);
+          if (m.id === id) {
+            clearTimeout(timer);
+            resolve(m?.result?.result?.value || "");
+          }
+        } catch (err) {
+          /* ignore */
+        }
+      });
+      ws.send(JSON.stringify({ id, method: "Runtime.evaluate", params: { expression: "[...document.querySelectorAll('.notice')].map((n) => n.textContent).join(' || ')", returnByValue: true } }));
+    });
+    try {
+      ws.close();
+    } catch (e) {
+      /* ignore */
+    }
+    if (text) seen.push(text);
+  }
+  out(seen.join(" || ") || "(no notices in " + targets.length + " targets)");
 } else if (command === "eval") {
   out(await evaluate(process.argv.slice(3).join(" ")));
 } else if (command === "shot") {

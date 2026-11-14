@@ -31,6 +31,7 @@ What is ${n} + ${n}?
 export function startStandIn(port) {
   const log = [];
   let fail429 = 0;
+let fail429verify = 0;
   const server = http.createServer((req, res) => {
     let body = "";
     req.on("data", (c) => (body += c));
@@ -38,6 +39,7 @@ export function startStandIn(port) {
       const url = new URL(req.url, "http://x");
       if (url.pathname === "/arm") {
         fail429 = Number(url.searchParams.get("fail429") || 0);
+        fail429verify = Number(url.searchParams.get("fail429verify") || 0);
         res.writeHead(200, { "content-type": "application/json" });
         return res.end(JSON.stringify({ armed: fail429 }));
       }
@@ -54,15 +56,17 @@ export function startStandIn(port) {
         return res.end(JSON.stringify({ object: "list", data: [{ id: "gemini-3.8-flash", object: "model" }] }));
       }
       if (req.method === "POST" && /\/chat\/completions$/.test(req.url)) {
-        if (fail429 > 0) {
-          fail429--;
+        const messages = (payload && payload.messages) || [];
+        const system = String((messages[0] && messages[0].content) || "");
+        const verifyKind = /independent exam answer checker/i.test(system);
+        if (fail429 > 0 || (verifyKind && fail429verify > 0)) {
+          if (verifyKind && fail429verify > 0 && fail429 <= 0) fail429verify--;
+          else fail429--;
           entry.injected = 429;
           res.writeHead(429, { "content-type": "application/json", "retry-after": "1" });
           return res.end(JSON.stringify({ error: { code: 429, message: "rate limit, please retry", status: "RESOURCE_EXHAUSTED" } }));
         }
-        const messages = (payload && payload.messages) || [];
-        const system = String((messages[0] && messages[0].content) || "");
-        entry.kind = /independent exam answer checker/i.test(system) ? "verify" : "note";
+        entry.kind = verifyKind ? "verify" : "note";
         const text = entry.kind === "verify" ? VERIFY_REPLY : noteReply();
         res.writeHead(200, { "content-type": "application/json" });
         return res.end(
