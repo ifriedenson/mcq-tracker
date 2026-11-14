@@ -281,6 +281,57 @@ test("overnight import: the setup screen starts the same unattended run", async 
   assert.ok(questionNotes(app).length >= 1, "the button starts the unattended run");
 });
 
+test("overnight import: an open review keeps its window when a run resumes", async () => {
+  const state = await setup();
+  const { plugin, app } = state;
+  const bytes = await textPdf();
+  const run = T.overnightRun.makeOvernightRun([{ sourcePath: "a.pdf", hash: "h" }]);
+  const reviewLeaf = { app, view: {}, detached: false, detach() { this.detached = true; } };
+  let revealed = 0;
+  let popouts = 0;
+  app.workspace.getLeavesOfType = (type) => (type === VIEW_TYPE_IMPORT_WINDOW ? [reviewLeaf] : []);
+  app.workspace.openPopoutLeaf = () => { popouts++; return { app, view: null, setViewState: async () => {} }; };
+  app.workspace.revealLeaf = () => { revealed++; };
+  // The user is mid-review: the resume must not touch their window.
+  plugin.importSession = { modal: { closed: false, overnightRun: null, unattended: false, batchStarted: true, reviewing: true } };
+  plugin.openPdfImport({ files: [file("a.pdf", bytes)], unattended: true, overnightRun: run });
+  await sleep(50);
+  assert.equal(revealed, 1, "the review is shown instead");
+  assert.equal(reviewLeaf.detached, false, "the review leaf survives");
+  assert.equal(popouts, 0, "no second window opens");
+});
+
+test("overnight import: a live setup screen is not the resumed run", async () => {
+  const state = await setup();
+  const { plugin, app } = state;
+  const bytes = await textPdf();
+  const run = T.overnightRun.makeOvernightRun([{ sourcePath: "a.pdf", hash: "h" }]);
+  // A restored leaf rebuilt a setup screen after the reload. It is open, but
+  // it never belonged to the run, so the resume must replace it, not join it.
+  const setupLeaf = { app, view: {}, detached: false, detach() { this.detached = true; } };
+  const dom = makeDom();
+  const fresh = { app, view: null };
+  fresh.setViewState = async () => {
+    const view = plugin.views[VIEW_TYPE_IMPORT_WINDOW](fresh);
+    fresh.view = view;
+    view.contentEl = dom.root;
+    view.containerEl = dom.root;
+    await view.onOpen();
+  };
+  let revealed = 0;
+  app.workspace.getLeavesOfType = (type) => (type === VIEW_TYPE_IMPORT_WINDOW ? [setupLeaf] : []);
+  app.workspace.openPopoutLeaf = () => fresh;
+  app.workspace.revealLeaf = () => { revealed++; };
+  plugin.importSession = { modal: { closed: false, overnightRun: null, unattended: false } };
+  plugin.openPdfImport({ files: [file("a.pdf", bytes)], unattended: true, overnightRun: run });
+  await waitFor(() => fresh.view && fresh.view.modal, "the fresh import window");
+  assert.equal(revealed, 0, "the setup screen is not reattached");
+  assert.equal(setupLeaf.detached, true, "the setup leaf is closed");
+  assert.equal(fresh.view.modal.unattended, true, "the resumed run gets its own modal");
+  await waitFor(() => fresh.view.modal.closed, "the resumed run to finish");
+  assert.ok(questionNotes(app).length >= 1, "the resumed run writes its notes");
+});
+
 test("overnight import: a reload does not reattach the run to the dead import leaf", async () => {
   const state = await setup();
   const { plugin, app } = state;

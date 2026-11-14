@@ -2839,15 +2839,28 @@ class QuestionTrackerPlugin extends Plugin {
     if (Platform.isDesktopApp && workspace && typeof workspace.openPopoutLeaf === "function") {
       try {
         const open = typeof workspace.getLeavesOfType === "function" ? workspace.getLeavesOfType(VIEW_TYPE_IMPORT_WINDOW) : [];
-        const live = this.importSession && this.importSession.modal && !this.importSession.modal.closed;
+        const sessionModal = this.importSession && this.importSession.modal;
+        const sessionAlive = !!sessionModal && !sessionModal.closed;
+        const wantRunId = opts.unattended && opts.overnightRun && opts.overnightRun.id ? String(opts.overnightRun.id) : "";
+        const sessionRunId =
+          sessionModal && sessionModal.overnightRun && sessionModal.overnightRun.id ? String(sessionModal.overnightRun.id) : "";
+        // A reload restores the import-window leaf, but its modal belongs to
+        // the old renderer: a setup screen, never the run. Only a live modal
+        // for this same run counts, or the resume would attach to a setup
+        // screen and stall with no window at all.
+        const sameRun = sessionAlive && !!wantRunId && sessionRunId === wantRunId;
         if (open && open.length && !opts.unattended) {
           workspace.revealLeaf(open[0]);
           return;
         }
-        if (opts.unattended && open && open.length && !live) {
-          // A reload restores the import-window leaf but its modal dies with
-          // the old renderer. Reattaching would stall the resumed run with no
-          // window at all, so close the dead leaves and open a live one.
+        if (opts.unattended && open && open.length && !sameRun) {
+          // Never orphan a window the user is working in: a started batch or
+          // an open review keeps its screen, and the resume waits its turn.
+          const precious = sessionAlive && (sessionModal.batchStarted || sessionModal.reviewing);
+          if (precious) {
+            workspace.revealLeaf(open[0]);
+            return;
+          }
           for (const leaf of open) {
             try {
               if (leaf && typeof leaf.detach === "function") leaf.detach();
@@ -2855,10 +2868,13 @@ class QuestionTrackerPlugin extends Plugin {
               /* a half-restored leaf may already be gone */
             }
           }
+          // The detached leaves owned the stale setup session; the fresh
+          // popout must build the run's modal instead of rejoining it.
+          if (this.importSession && this.importSession.modal === sessionModal) this.importSession = null;
         }
         if (this._importWindowOpening) return;
         this._importWindowOpening = true;
-        if (!live) this.pendingImportOptions = opts;
+        if (opts.unattended ? !sameRun : !sessionAlive) this.pendingImportOptions = opts;
         const leaf = workspace.openPopoutLeaf({ size: { width: 780, height: 900 } });
         if (leaf && typeof leaf.setViewState === "function") {
           const shown = leaf.setViewState({ type: VIEW_TYPE_IMPORT_WINDOW, active: true });
