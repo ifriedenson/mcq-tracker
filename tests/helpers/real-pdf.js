@@ -269,7 +269,7 @@ function makeTrackedApp(notes) {
       const f = files.get(p);
       if (f) f.text = text;
       else {
-        const made = { path: p, basename: p.replace(/^.*\//, "").replace(/\.[^.]+$/, ""), extension: p.replace(/^.*\./, ""), text, fm: {}, headings: [] };
+        const made = { path: p, name: p.replace(/^.*\//, ""), basename: p.replace(/^.*\//, "").replace(/\.[^.]+$/, ""), extension: p.replace(/^.*\./, ""), text, fm: {}, headings: [] };
         files.set(p, made);
         app.files.push(made);
       }

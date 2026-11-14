@@ -194,7 +194,8 @@ const { WELCOME_EXAMPLE, WELCOME_NOTE_PATH, WELCOME_PRESETS, markWelcomeSeen, we
 const { applyAttempt, applySkip, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setAttemptError, setLastErrorType } = require("./notes");
 const { parseChoiceSet } = require("./answer-types");
 const { addVerificationBanner, buildBlindVerificationPrompt, consensusVerdict, normalizePanelModels, normalizeVerificationMode, panelModelFor, parseBlindVerification, parseBlindVerificationNumber, parseBlindVerificationSet, verificationFields } = require("./answer-verification");
-const { checkConcurrency } = require("./overnight-checks");
+const { checkConcurrency, runCheckQueue } = require("./overnight-checks");
+const { loadOvernightRuns, makeOvernightRun, markRunFile, pendingRunFiles, runFileDone, runNotePaths, runTotals, sourceHash, storeOvernightRun, unfinishedOvernightRun } = require("./overnight-run");
 const { computedVerification } = require("./computed-verification");
 const { renderSmilesSvg } = require("./smiles");
 const { renderBiologyDiagram, renderChemistryDiagram, renderCircuitDiagram } = require("./stem-diagrams");
@@ -440,6 +441,7 @@ class QuestionTrackerPlugin extends Plugin {
       }
       if (this.settings.openPracticeOnStartUp && this.mcqEnabled()) this.activateView().catch(() => {});
       this.decorateFileExplorer();
+      this.resumeUnfinishedOvernightRun().catch(() => {});
       this.flushPendingAttempts().then((r) => {
         if (r.sent) new Notice(`Saved ${r.sent} practice result${r.sent === 1 ? "" : "s"} that were waiting offline.`, 5000);
       }).catch(() => {});
@@ -533,6 +535,10 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "export-practice-sheet", name: "Export an answer-free practice sheet", callback: () => this.exportPracticeSheet() });
     this.addCommand({ id: "export-review-sheet", name: "Export an error-log review sheet", callback: () => this.exportReviewSheet() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
+    this.addCommand({ id: "import-overnight", name: "Import files overnight…", callback: () => this.openPdfImport() });
+    this.addCommand({ id: "stop-overnight-import", name: "Stop the overnight import", callback: () => this.stopOvernightImport() });
+    this.addCommand({ id: "resume-overnight-import", name: "Resume the overnight import", callback: () => this.resumeOvernightImport() });
+    this.addCommand({ id: "undo-overnight-import", name: "Undo the last overnight import", callback: () => this.undoOvernightImport() });
     this.addCommand({ id: "check-opencode", name: "Check that OpenCode is running", callback: () => this.checkOpenCodeServer() });
     this.addCommand({ id: "import-service-export", name: "Import notes from an export (Airtable, Notion, Evernote, Keep, Bear, Roam)", callback: () => this.importActiveServiceExport() });
     this.addCommand({ id: "import-service-clipboard", name: "Import notes from a pasted export", callback: () => this.importServiceClipboard() });
@@ -2387,6 +2393,299 @@ class QuestionTrackerPlugin extends Plugin {
     await this.onReferenceToggled();
     this.refreshViews();
     return preset;
+  }
+
+  /**
+   * Queue files for an unattended import: everything writes first, then
+   * every note gets its blind check. Accepts picked device files, vault
+   * paths, or vault file objects. Skips files the run already finished
+   * (same path and bytes), and re-queues a file whose bytes changed.
+   */
+  async startOvernightImport(sources, opts) {
+    if (this.moduleOff("mcq")) return null;
+    const o = opts || {};
+    const list = Array.isArray(sources) ? sources : [];
+    const picked = [];
+    const vaultPaths = [];
+    for (const entry of list) {
+      if (!entry) continue;
+      if (typeof entry === "string") {
+        if (entry.trim()) vaultPaths.push(entry.trim());
+      } else if (typeof entry.arrayBuffer === "function") picked.push(entry);
+      else if (entry.path) vaultPaths.push(String(entry.path));
+    }
+    let run = o.run && o.run.id ? o.run : null;
+    if (!run) {
+      run = makeOvernightRun([
+        ...picked.map((f) => ({ sourcePath: f.name, hash: "" })),
+        ...vaultPaths.map((p) => ({ sourcePath: p, hash: "", vault: true })),
+      ]);
+      run.status = "writing";
+    }
+    for (const p of vaultPaths) {
+      const hash = await sourceHash(this.app, p);
+      const entry = run.files.find((f) => f.sourcePath === p);
+      if (!entry) continue;
+      if (entry.status === "done" && hash && entry.hash && hash !== entry.hash) {
+        markRunFile(run, p, { status: "pending", error: "", checks: { matched: 0, mismatched: 0, errored: 0 }, checked: [], checkMs: 0 });
+      } else if (!entry.hash && hash) markRunFile(run, p, { hash });
+    }
+    storeOvernightRun(this.app, run);
+    const pending = new Set(pendingRunFiles(run).map((f) => f.sourcePath));
+    const usePicked = picked.filter((f) => pending.has(f.name));
+    const useVault = vaultPaths.filter((p) => pending.has(p));
+    const count = usePicked.length + useVault.length;
+    if (!count) {
+      if (run.status === "writing") {
+        run.status = "finished";
+        storeOvernightRun(this.app, run);
+      }
+      new Notice("Overnight import: every file in this queue is already imported.");
+      return run;
+    }
+    const budget = typeof this.aiBudget === "function" ? this.aiBudget() : null;
+    const left = budget && budget.remaining;
+    new Notice(
+      `Overnight import: ${count} file${count === 1 ? "" : "s"} queued · about ${count}+ answer checks after writing · ` +
+        (left == null ? "no request cap set." : `${left} AI requests left today — the queue pauses if they run out.`),
+      10000
+    );
+    this.openPdfImport({ files: usePicked, vaultPaths: useVault, unattended: true, overnightRun: run });
+    return run;
+  }
+
+  /** One file's verdict lands in the journal at once, so a crash loses nothing. */
+  recordOvernightFile(run, sourcePath, patch) {
+    if (!run) return null;
+    const updated = markRunFile(run, sourcePath, patch);
+    storeOvernightRun(this.app, run);
+    return updated;
+  }
+
+  storeOvernightRunState(run, status) {
+    if (!run) return null;
+    run.status = status;
+    return storeOvernightRun(this.app, run);
+  }
+
+  stopOvernightImport() {
+    const session = this.importSession;
+    const modal = session && session.modal;
+    if (modal && modal.unattended && !modal.closed) {
+      modal.requestStop(this, "discard");
+      return true;
+    }
+    new Notice("No overnight import is running.");
+    return false;
+  }
+
+  async resumeOvernightImport() {
+    const run = unfinishedOvernightRun(this.app);
+    if (!run) {
+      new Notice("No paused overnight import to resume.");
+      return null;
+    }
+    const vaultPaths = [];
+    for (const entry of pendingRunFiles(run)) {
+      if (entry.vault) vaultPaths.push(entry.sourcePath);
+      else markRunFile(run, entry.sourcePath, { status: "skipped", error: "That file was chosen from the device, so it can't be re-read. Import it again by hand." });
+    }
+    storeOvernightRun(this.app, run);
+    if (!vaultPaths.length) {
+      new Notice("The paused run's files can't be re-read after a reload. Import them again by hand.", 10000);
+      return null;
+    }
+    new Notice(`Resuming the overnight import: ${vaultPaths.length} file${vaultPaths.length === 1 ? "" : "s"} left.`, 8000);
+    return this.startOvernightImport(vaultPaths, { run });
+  }
+
+  /** After a reload, one notice and the queue continues itself. */
+  async resumeUnfinishedOvernightRun() {
+    if (this._overnightResumed) return null;
+    const run = unfinishedOvernightRun(this.app);
+    if (!run) return null;
+    this._overnightResumed = true;
+    const left = pendingRunFiles(run).length;
+    new Notice(`The overnight import paused with ${left} file${left === 1 ? "" : "s"} left — resuming now.`, 12000);
+    try {
+      return await this.resumeOvernightImport();
+    } catch (e) {
+      new Notice("Couldn't resume the overnight import. Use “Resume the overnight import” when ready.", 10000);
+      return null;
+    }
+  }
+
+  /**
+   * The overnight write phase is done: check every written note in a second
+   * pass, write the morning log, and close with one summary. Never opens a
+   * dialog; Stop and a spent budget end the phase, they never fail it.
+   */
+  async finishUnattended(modal, reason) {
+    const run = modal && modal.overnightRun;
+    const stopped = reason === "stopped" || !!(modal && modal.batchStopped);
+    if (run) {
+      run.status = stopped ? "stopped" : "checking";
+      storeOvernightRun(this.app, run);
+    }
+    let summary = null;
+    let checked = [];
+    if (run && !stopped) {
+      const todo = [];
+      for (const entry of run.files) {
+        if (entry.status !== "done") continue;
+        const already = new Set(entry.checked || []);
+        for (const path of entry.notes || []) {
+          if (!already.has(path)) todo.push({ entry, path, verification: null });
+        }
+      }
+      checked = todo;
+      if (todo.length) {
+        if (modal.headerEl) modal.headerEl.setText(`Checking answers (${todo.length} notes)`);
+        modal.progressLabel = "Checking answers";
+        if (modal.progress) modal.progress.update("Checking answers", "Starting...", 0);
+        new Notice(`Overnight import: checking ${todo.length} answer${todo.length === 1 ? "" : "s"}...`, 8000);
+        const outcome = await runCheckQueue(this, todo.map((item) => item.path), {
+          shouldStop: () => modal.stop || modal.closed,
+          onProgress: (n, total) => {
+            const line = `Checking answer ${n} of ${total}...`;
+            modal.status(line);
+            if (modal.progress) modal.progress.update("Checking answers", line, n / Math.max(1, total));
+          },
+          onNotice: (m) => modal.status(m),
+          onWakeGap: async () => {
+            modal.status("Woke up — making sure OpenCode is still there...");
+            try {
+              if (this.backend() === "opencode") await this.ensureOpenCode();
+            } catch (e) {
+              /* the next check reports it */
+            }
+          },
+        });
+        summary = outcome.summary;
+        for (const result of outcome.results || []) {
+          const found = todo.find((item) => item.path === result.path);
+          if (!found) continue;
+          const entry = found.entry;
+          entry.checkMs = (entry.checkMs || 0) + (result.ms || 0);
+          if (result.status === "match" || result.status === "mismatch") {
+            entry.checked = [...(entry.checked || []), result.path];
+            const tallies = entry.checks || (entry.checks = { matched: 0, mismatched: 0, errored: 0 });
+            if (result.status === "match") tallies.matched++;
+            else tallies.mismatched++;
+            found.verification = result.verification || null;
+          } else if (result.status === "error") {
+            const tallies = entry.checks || (entry.checks = { matched: 0, mismatched: 0, errored: 0 });
+            tallies.errored++;
+            entry.error = result.error || entry.error;
+          }
+        }
+        if (summary.paused) run.status = "paused";
+        else if (summary.stopped) run.status = "stopped";
+        storeOvernightRun(this.app, run);
+      }
+    }
+    if (run && run.status === "checking") run.status = "finished";
+    if (run) storeOvernightRun(this.app, run);
+    if (run) await this.writeOvernightLog(run, checked);
+    const text = this.overnightSummaryText(run, summary);
+    if (modal.progress) {
+      modal.progress.finish(text);
+      modal.progress = null;
+    } else {
+      new Notice(text, 12000);
+    }
+    modal.close();
+    return run;
+  }
+
+  overnightSummaryText(run, summary) {
+    const totals = runTotals(run);
+    const state = !run ? "finished" : run.status === "paused" ? "paused — resume it to continue the checks" : run.status === "stopped" ? "stopped" : "finished";
+    return (
+      `Overnight import ${state}: ${totals.files} file${totals.files === 1 ? "" : "s"}, ${totals.notes} note${totals.notes === 1 ? "" : "s"}, ` +
+      `${totals.matched} matched, ${totals.mismatched} flagged for review${totals.errored ? `, ${totals.errored} check errors` : ""}.`
+    );
+  }
+
+  /** The morning evidence: a per-file table plus every flagged answer. */
+  async writeOvernightLog(run, checked) {
+    const totals = runTotals(run);
+    const lines = ["# Overnight import log", ""];
+    lines.push(`Run ${run.id} · ${run.date} · status: ${run.status}`, "");
+    lines.push(`Files: ${totals.files} (${totals.done} done) · Notes: ${totals.notes} · Matched: ${totals.matched} · Flagged: ${totals.mismatched} · Check errors: ${totals.errored}`, "");
+    lines.push("## Files", "");
+    lines.push("| File | Notes | Matched | Flagged | Status |");
+    lines.push("| --- | ---: | ---: | ---: | --- |");
+    for (const entry of run.files) {
+      const checks = entry.checks || {};
+      const note = `${entry.sourcePath} | ${(entry.notes || []).length} | ${checks.matched || 0} | ${checks.mismatched || 0} | ${entry.status}${entry.error ? ` — ${String(entry.error).slice(0, 200)}` : ""}`;
+      lines.push(`| ${note} |`);
+    }
+    lines.push("", "## Flagged answers", "");
+    const flagged = (checked || []).filter((item) => item.verification && item.verification.status === "mismatch");
+    if (!flagged.length) lines.push("None — every checked answer matched.", "");
+    else {
+      for (const item of flagged) {
+        const v = item.verification;
+        lines.push(`- ${item.path}: the note says ${v.key || "?"}, the check chose ${v.answer || "?"}${v.votes ? ` (${v.votes})` : ""} · ${v.model || "AI"} · ${v.date || ""}`);
+      }
+      lines.push("");
+    }
+    const partial = run.files.filter((f) => (f.status === "stopped" || f.status === "error") && f.folders && f.folders.length);
+    if (partial.length) {
+      lines.push("## Partial files", "", "These did not finish writing. Look inside, keep what you want, then delete the folder:", "");
+      for (const f of partial) lines.push(`- ${f.sourcePath} — ${(f.folders || []).join(", ")}`);
+      lines.push("");
+    }
+    const out = lines.join("\n");
+    const path = "Overnight import log.md";
+    try {
+      const existing = this.app.vault.getAbstractFileByPath(path);
+      if (existing) await this.app.vault.modify(existing, out);
+      else await this.app.vault.create(path, out);
+      return path;
+    } catch (e) {
+      new Notice("Overnight import: the log note couldn't be saved.", 8000);
+      return "";
+    }
+  }
+
+  /**
+   * Undo removes exactly what the run wrote: its notes, source copies and
+   * pictures, then the folders they lived in. Nothing else is touched.
+   */
+  async undoOvernightImport(runId) {
+    const runs = loadOvernightRuns(this.app);
+    const run = (runId && runs.find((r) => r.id === runId)) || runs.find((r) => r.status === "finished") || null;
+    if (!run) {
+      new Notice("No finished overnight import to undo.");
+      return 0;
+    }
+    const adapter = this.app.vault && this.app.vault.adapter;
+    let removed = 0;
+    for (const path of runNotePaths(run)) {
+      try {
+        if (adapter && typeof adapter.exists === "function" && !(await adapter.exists(path))) continue;
+        if (adapter && typeof adapter.remove === "function") {
+          await adapter.remove(path);
+          removed++;
+        }
+      } catch (e) {
+        /* already gone */
+      }
+    }
+    const folders = [...new Set(run.files.flatMap((f) => f.folders || []))].sort((a, b) => b.split("/").length - a.split("/").length);
+    for (const folder of folders) {
+      try {
+        if (adapter && typeof adapter.rmdir === "function") await adapter.rmdir(folder, false);
+      } catch (e) {
+        /* not empty, or already gone */
+      }
+    }
+    run.status = "undone";
+    storeOvernightRun(this.app, run);
+    new Notice(`Undid the overnight import: removed ${removed} file${removed === 1 ? "" : "s"}.`);
+    return removed;
   }
 
   openPdfImport(options) {

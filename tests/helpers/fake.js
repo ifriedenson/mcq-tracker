@@ -27,6 +27,7 @@ function makeApp(notes) {
   const files = notes.map((n) => {
     const f = new obsidian.TFile();
     f.path = n.path;
+    f.name = n.path.replace(/^.*\//, "");
     f.basename = n.path.replace(/^.*\//, "").replace(/\.md$/, "");
     f.extension = "md";
     f.parent = { path: n.path.includes("/") ? n.path.replace(/\/[^/]*$/, "") : "/" };
@@ -54,6 +55,7 @@ function makeApp(notes) {
       create: async (p, text) => {
         const f = new obsidian.TFile();
         f.path = p;
+        f.name = p.replace(/^.*\//, "");
         f.basename = p.replace(/^.*\//, "").replace(/\.md$/, "");
         f.extension = p.replace(/^.*\./, "");
         f.parent = { path: p.includes("/") ? p.replace(/\/[^/]*$/, "") : "/" };

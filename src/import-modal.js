@@ -260,6 +260,11 @@ class PdfImportModal extends QtModal {
     this.headerEl = null;
     this._nextBatchTimer = null;
     this.finishedBatch = false;
+    this.unattended = init.unattended === true;
+    this.unattendedVaultPaths = Array.isArray(init.vaultPaths) ? init.vaultPaths.map((p) => str(p).trim()).filter(Boolean) : [];
+    this.overnightRun = init.overnightRun && typeof init.overnightRun === "object" ? init.overnightRun : null;
+    this.unattendedArtifacts = null;
+    this.unattendedJobStarted = 0;
     this.running = false;
     this.reviewing = false;
     this.cancelGate = null;
@@ -298,9 +303,48 @@ class PdfImportModal extends QtModal {
 
   onOpen() {
     if (this.modalEl && typeof this.modalEl.addClass === "function") this.modalEl.addClass("qt-import-modal");
+    if (this.unattended) {
+      this.startUnattended();
+      return;
+    }
     // File first: the AI gate comes only after the text layer is known to be readable.
     if (importAiState(this.plugin) !== "ready") this.showPreflight();
     else this.showSetup();
+  }
+
+  /**
+   * Overnight entry: vault paths resolve to files, the AI gate is a Notice
+   * (never a screen), then the batch runs with no further clicks. Files that
+   * are gone from the vault are recorded in the run journal, not asked about.
+   */
+  async startUnattended() {
+    const run = this.overnightRun;
+    const pickedKeys = (this.files || []).map((f) => (f && f.name) || "").filter(Boolean);
+    const resolved = [];
+    const goodPaths = [];
+    for (const path of this.unattendedVaultPaths) {
+      const found = this.app.vault.getAbstractFileByPath(path);
+      if (found && typeof found.arrayBuffer !== "function") {
+        resolved.push(found);
+        goodPaths.push(path);
+      } else if (run) this.plugin.recordOvernightFile(run, path, { status: "error", error: "That file is not in the vault any more. Choose it again." });
+    }
+    if (resolved.length) this.files = this.files.concat(resolved);
+    this.unattendedKeys = pickedKeys.concat(goodPaths);
+    this.unattended = true;
+    if (!this.files.length) {
+      new Notice("Overnight import: no files to import.");
+      if (run) this.plugin.storeOvernightRunState(run, "error");
+      this.close();
+      return;
+    }
+    if (importAiState(this.plugin) !== "ready") {
+      new Notice("Overnight import: turn on AI features first, then resume the queue.", 10000);
+      if (run) this.plugin.storeOvernightRunState(run, "paused");
+      this.close();
+      return;
+    }
+    this.startBatch();
   }
 
   /** Rebuild the visible screen after its panel moves into a new popout window. */
@@ -486,6 +530,15 @@ class PdfImportModal extends QtModal {
     if (this.files.length) return this.files.map((file) => ({ file, vaultDoc: "" }));
     if (this.file) return [{ file: this.file, vaultDoc: this.vaultDoc || "" }];
     return [];
+  }
+
+  /** The running file's display name, whether it was picked or lives in the vault. */
+  currentFileName() {
+    if (this.file && this.file.name) return this.file.name;
+    const job = this.batchJobs[this.batchIndex] || {};
+    if (job.file && job.file.name) return job.file.name;
+    if (this.vaultDoc) return String(this.vaultDoc).replace(/^.*\//, "");
+    return "File";
   }
 
   fileSummary() {
@@ -912,6 +965,17 @@ class PdfImportModal extends QtModal {
     row.createEl("button", { text: "Cancel", cls: "qt-grow" }).addEventListener("click", () => this.close());
     const start = row.createEl("button", { text: multiple ? "Import " + this.files.length + " files" : "Start import", cls: "mod-cta qt-grow" });
     start.addEventListener("click", () => { if (this.files.length > 1) this.startBatch(); else this.start(); });
+    if (this.files.length) {
+      const night = row.createEl("button", {
+        text: multiple ? `Start ${this.files.length} files overnight` : "Start overnight",
+        cls: "qt-grow",
+        attr: { title: "Import with no review clicks and no dialogs: every file writes its notes, then every note gets its blind check. A log note summarizes the run in the morning." },
+      });
+      night.addEventListener("click", () => {
+        this.unattended = true;
+        this.startUnattended();
+      });
+    }
   }
 
   /* ---- one import attempt owns its writes until it finishes ---- */
@@ -1144,7 +1208,7 @@ class PdfImportModal extends QtModal {
       used.add(folder.toLowerCase());
       return { file, readFile: capturedFiles[i] || file, folder, preflight: this.preflights[i] || null };
     });
-    this.batchMode = this.batchJobs.length > 1;
+    this.batchMode = this.batchJobs.length > 1 || this.unattended;
     this.batchStopped = false;
     this.batchIndex = 0;
     this.batchResults = [];
@@ -1161,11 +1225,18 @@ class PdfImportModal extends QtModal {
   prepareBatchJob(index) {
     const job = this.batchJobs[index];
     if (!job) return false;
+    this.unattendedJobStarted = Date.now();
     this.batchIndex = index;
-    this.file = job.readFile || job.file;
+    const picked = job.readFile || job.file;
+    if (picked && picked.path && typeof picked.arrayBuffer !== "function") {
+      this.file = null;
+      this.vaultDoc = picked.path;
+    } else {
+      this.file = picked;
+      this.vaultDoc = "";
+    }
     this.pdfFile = job.file;
     this.pdfPassword = this.pdfPasswords.get(job.file) || "";
-    this.vaultDoc = "";
     this.preflight = job.preflight;
     this.folder = job.folder;
     this.items = [];
@@ -1181,6 +1252,45 @@ class PdfImportModal extends QtModal {
     this.progressLabel = "Importing " + (index + 1) + " of " + this.batchJobs.length + " · " + job.file.name;
     if (this.progress) this.progress.update(this.progressLabel, "Starting...", index / this.batchJobs.length);
     return true;
+  }
+
+  /**
+   * File the finished attempt in the run journal: which notes, copies and
+   * pictures it wrote, and how long the write took. Undo removes exactly
+   * these paths. The key follows the queue order, so added files can't
+   * misattribute another file's notes.
+   */
+  snapshotUnattendedFile(result, folder) {
+    const run = this.overnightRun;
+    if (!run) return;
+    const job = this.batchJobs[this.batchIndex] || {};
+    const key = (this.unattendedKeys && this.unattendedKeys[this.batchIndex]) || (job.file && job.file.name) || (this.file && this.file.name) || "";
+    if (!key) return;
+    const extra = this.unattendedArtifacts || { files: [], folders: [] };
+    const notes = [];
+    const copies = [];
+    const pictures = [];
+    for (const path of Array.isArray(result.paths) ? result.paths : []) {
+      if (path && !notes.includes(path)) notes.push(path);
+    }
+    for (const path of extra.files || []) {
+      if (!path || notes.includes(path) || copies.includes(path) || pictures.includes(path)) continue;
+      const lower = String(path).toLowerCase();
+      if (lower.includes("/images/") || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(lower)) pictures.push(path);
+      else if (/\.md$/i.test(lower)) notes.push(path);
+      else copies.push(path);
+    }
+    const folders = Array.isArray(extra.folders) ? extra.folders.slice() : [];
+    if (folder && !folders.includes(folder)) folders.push(folder);
+    this.plugin.recordOvernightFile(run, key, {
+      status: result && result.error ? "error" : "done",
+      notes,
+      copies,
+      pictures,
+      folders,
+      error: result && result.error ? String(result.error).slice(0, 500) : "",
+      writeMs: this.unattendedJobStarted ? Date.now() - this.unattendedJobStarted : 0,
+    });
   }
 
   recordBatchResult(result, folder) {
@@ -1208,6 +1318,7 @@ class PdfImportModal extends QtModal {
     if (this.finishedBatch || !this.batchStarted) return;
     this.finishedBatch = true;
     this.batchStarted = false;
+    if (this.unattended) return this.plugin.finishUnattended(this, reason);
     if (this._nextBatchTimer) {
       const win = this.hostWindow || (typeof activeWindow !== "undefined" ? activeWindow : null);
       if (win) win.clearTimeout(this._nextBatchTimer);
@@ -1284,7 +1395,7 @@ class PdfImportModal extends QtModal {
       new Notice("Type a name for the new folder.");
       return;
     }
-    if (this.folderHasFiles(folderPath)) {
+    if (!this.unattended && this.folderHasFiles(folderPath)) {
       if (this.confirming) return;
       this.confirming = true;
       let useExisting = false;
@@ -1294,7 +1405,7 @@ class PdfImportModal extends QtModal {
         this.confirming = false;
       }
       if (!useExisting) {
-        if (this.batchMode) this.showError("Skipped " + this.file.name + ": the existing folder was not confirmed.");
+        if (this.batchMode) this.showError("Skipped " + this.currentFileName() + ": the existing folder was not confirmed.");
         return;
       }
     }
@@ -1306,7 +1417,7 @@ class PdfImportModal extends QtModal {
 
     const el = this.contentEl;
     el.empty();
-    this.headerEl = el.createEl("h3", { text: this.batchMode ? "Importing " + (this.batchIndex + 1) + " of " + this.batchJobs.length + ": " + this.file.name : "Importing" });
+    this.headerEl = el.createEl("h3", { text: this.batchMode ? "Importing " + (this.batchIndex + 1) + " of " + this.batchJobs.length + ": " + this.currentFileName() : "Importing" });
     this.statusEl = el.createDiv({ cls: "qt-hint", text: "Starting..." });
     this.activityEl = el.createDiv({ cls: "qt-tool" });
     const actions = el.createDiv({ cls: "qt-row qt-small-row" });
@@ -1347,6 +1458,7 @@ class PdfImportModal extends QtModal {
           break;
         } catch (e) {
           if (!this.isPdfPasswordError(e)) throw e;
+          if (this.unattended) throw new Error(`"${this.file ? this.file.name : "This file"}" needs a password. Unlock it first, or import it by hand.`);
           const password = await this.askPdfPassword(e, this.pdfFile);
           if (this.closed) return;
           if (password === null) throw new Error("No password was entered. Nothing was imported.");
@@ -1708,7 +1820,7 @@ class PdfImportModal extends QtModal {
       const preKey = findAnswerKey(parsed.fm, parsed.sec);
       const preFromDocument = str(parsed.fm.answer_source).toLowerCase() === "pdf";
       let verification = null;
-      if (preKey && !preFromDocument && parsed.sec.choices.length && typeof this.plugin.verifyDraftQuestions === "function") {
+      if (!this.unattended && preKey && !preFromDocument && parsed.sec.choices.length && typeof this.plugin.verifyDraftQuestions === "function") {
         const draft = { question: parsed.sec.question, choices: parsed.sec.choices, answer: preKey };
         // The wait counts up, and a frozen server says so on the same line
         // before it is restarted and this same answer is asked again.
@@ -1781,6 +1893,7 @@ class PdfImportModal extends QtModal {
 
   showAgentDone(r, folder) {
     if (this.batchMode) {
+      if (this.unattended) this.unattendedArtifacts = this.artifacts ? { files: [...this.artifacts.files], folders: [...this.artifacts.folders] } : { files: [], folders: [] };
       if (!r.made && (!r.skipped || !r.skipped.length)) {
         for (const w of (this.warnings || []).slice(0, 5)) r.skipped.push(w);
         if (!r.skipped.length) {
@@ -1789,13 +1902,14 @@ class PdfImportModal extends QtModal {
       }
       this.commitArtifacts();
       this.recordBatchResult(r, folder);
+      if (this.unattended) this.snapshotUnattendedFile(r, folder);
       if (this.batchStopped) return this.finishBatch("stopped");
       if (this.batchIndex + 1 < this.batchJobs.length) {
         const el = this.contentEl;
         el.empty();
-        el.createEl("h3", { text: "Imported " + (r.made || 0) + " from " + this.file.name });
+        el.createEl("h3", { text: "Imported " + (r.made || 0) + " from " + this.currentFileName() });
         el.createEl("p", { cls: "qt-hint", text: "File " + (this.batchIndex + 1) + " of " + this.batchJobs.length + " finished. Starting the next file..." });
-        this.status("Finished " + this.file.name + ". Starting the next file...");
+        this.status("Finished " + this.currentFileName() + ". Starting the next file...");
         this.scheduleNextBatch();
         return;
       }
@@ -1953,11 +2067,37 @@ class PdfImportModal extends QtModal {
     if (this.closed) return;
     this.throwIfCancelled();
     this.items = mergeNotes(blocks);
-    await this.awaitCancellable(this.verifyAiAnswers());
+    if (!this.unattended) await this.awaitCancellable(this.verifyAiAnswers());
     this.throwIfCancelled();
     if (this.closed) return;
     if (!this.items.length) await this.cleanupArtifacts();
+    if (this.unattended) return this.acceptUnattendedItems();
     this.showReview();
+  }
+
+  /**
+   * No review screen overnight: everything the AI read is kept, and the
+   * queue moves on. Per-file errors land in the batch results either way.
+   */
+  acceptUnattendedItems() {
+    if (!this.items.length) {
+      this.recordBatchResult({ made: 0, skipped: ["No questions found"] }, this.target);
+      if (this.unattended) this.snapshotUnattendedFile({ made: 0, skipped: [], paths: [] }, this.target);
+      return this.advanceBatch();
+    }
+    for (const q of this.items) q.include = true;
+    return this.createNotes();
+  }
+
+  /** The next file, or the checks phase when the queue is written. */
+  advanceBatch() {
+    if (this.batchStopped) return this.finishBatch("stopped");
+    if (this.batchIndex + 1 < this.batchJobs.length) {
+      this.status(`Finished ${this.file ? this.file.name : "this file"}. Starting the next file...`);
+      this.scheduleNextBatch();
+      return;
+    }
+    return this.finishBatch();
   }
 
   /** Blind-check answers the AI wrote before the review list is shown. */
@@ -1998,12 +2138,16 @@ class PdfImportModal extends QtModal {
   showError(msg) {
     const text = importErrorText(msg);
     if (this.batchMode) {
+      if (this.unattended) this.unattendedArtifacts = this.artifacts ? { files: [...this.artifacts.files], folders: [...this.artifacts.folders] } : { files: [], folders: [] };
       this.recordBatchResult({ made: 0, skipped: [] }, this.folder);
       this.batchResults[this.batchResults.length - 1].error = text;
+      if (this.unattended) this.snapshotUnattendedFile({ made: 0, skipped: [], error: text, paths: [] }, this.folder);
       if (this.progress) this.progress.update(this.progressLabel, "Skipped: " + text, this.batchIndex / Math.max(1, this.batchJobs.length));
       const el = this.contentEl;
       el.empty();
-      el.createEl("h3", { text: "Couldn't import " + this.file.name });
+      const failedJob = this.batchJobs[this.batchIndex] || {};
+      const failedName = (this.file && this.file.name) || (failedJob.file && failedJob.file.name) || this.vaultDoc || "this file";
+      el.createEl("h3", { text: "Couldn't import " + failedName });
       el.createDiv({ cls: "qt-error", text: text });
       el.createEl("p", { cls: "qt-hint", text: "The other files will continue." });
       if (this.batchStopped) this.finishBatch("stopped");
@@ -2026,7 +2170,7 @@ class PdfImportModal extends QtModal {
     el.empty();
     this.lastStatus = "Waiting for your review.";
     if (this.batchMode && this.progress) this.progress.update(this.progressLabel, this.lastStatus, this.batchIndex / Math.max(1, this.batchJobs.length));
-    if (this.batchMode) el.createEl("p", { cls: "qt-hint", text: "File " + (this.batchIndex + 1) + " of " + this.batchJobs.length + " · " + this.file.name });
+    if (this.batchMode) el.createEl("p", { cls: "qt-hint", text: "File " + (this.batchIndex + 1) + " of " + this.batchJobs.length + " · " + this.currentFileName() });
     const items = this.items;
     el.createEl("h3", { text: items.length ? `Found ${items.length} question${items.length === 1 ? "" : "s"}` : "No questions found" });
     for (const w of this.warnings) el.createDiv({ cls: "qt-error", text: w });
@@ -2152,6 +2296,7 @@ class PdfImportModal extends QtModal {
         if (!fl.hasAnswer) result.noAnswer++;
         result.made++;
         this.status(`Created ${result.made} of ${chosen.length}...`);
+        if (this.unattended && result.made % 10 === 0) await sleep(0);
       }
       await this.pruneImages(folder, result);
       result.issues = await this.auditNotes(folder, result.paths);

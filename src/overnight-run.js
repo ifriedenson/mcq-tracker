@@ -11,7 +11,7 @@ const { localDate, str } = require("./util");
 
 const OVERNIGHT_RUNS_KEY = "mcq-tracker-overnight-runs";
 const MAX_OVERNIGHT_RUNS = 10;
-const RUN_FILE_STATUSES = ["pending", "writing", "done", "error", "skipped"];
+const RUN_FILE_STATUSES = ["pending", "writing", "done", "error", "paused", "stopped", "skipped"];
 
 function cleanRunFile(raw) {
   if (!raw || typeof raw !== "object") return null;
@@ -25,9 +25,12 @@ function cleanRunFile(raw) {
     sourcePath,
     hash: str(raw.hash),
     status,
+    vault: raw.vault === true,
     notes: strings(raw.notes),
     copies: strings(raw.copies),
     pictures: strings(raw.pictures),
+    folders: strings(raw.folders),
+    checked: strings(raw.checked),
     error: str(raw.error),
     writeMs: num(raw.writeMs),
     checkMs: num(raw.checkMs),
@@ -70,7 +73,7 @@ function normalizeOvernightRuns(raw) {
 
 function pendingRunFiles(run) {
   if (!run || !Array.isArray(run.files)) return [];
-  return run.files.filter((file) => file.status === "pending" || file.status === "error");
+  return run.files.filter((file) => file.status === "pending" || file.status === "error" || file.status === "paused" || file.status === "stopped");
 }
 
 /** Same source path with the same bytes and a finished entry: do not import twice. */
