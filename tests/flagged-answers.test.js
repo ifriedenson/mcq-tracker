@@ -7,7 +7,7 @@
  */
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { load } = require("./helpers/load");
+const { load, obsidian } = require("./helpers/load");
 const { makeApp, makeDom, NOTE_TEXT } = require("./helpers/fake");
 
 const { T, Plugin: QT } = load();
@@ -82,6 +82,19 @@ async function openSurface(plugin, app) {
   await modal.ready;
   return { modal, dom };
 }
+
+test("flagged answers: the palette command opens the surface", async () => {
+  const { app, plugin } = await setup([note("Q01", "B", FLAGGED("A"))]);
+  const command = plugin.commands.find((c) => c.id === "flagged-answers");
+  assert.ok(command, "Show flagged answers is on the palette");
+  const before = obsidian.modals.length;
+  command.callback();
+  const modal = obsidian.modals[obsidian.modals.length - 1];
+  assert.ok(modal instanceof T.FlaggedAnswersModal, "the command opens the flagged surface");
+  assert.equal(obsidian.modals.length, before + 1);
+  modal.close();
+  void app;
+});
 
 test("flagged answers: mismatches are listed with both answers and the voters", async () => {
   const { plugin } = await setup([

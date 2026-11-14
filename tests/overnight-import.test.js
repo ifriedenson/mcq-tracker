@@ -87,6 +87,26 @@ function questionNotes(app) {
   return app.vault.getMarkdownFiles().filter((f) => /Q\d+(-\d+)?\.md$/.test(f.path) && !/log\.md$/i.test(f.path));
 }
 
+/** Fire every click handler on elements whose text contains the label. */
+function click(el, label) {
+  let fired = 0;
+  const walk = (node) => {
+    const own = node.__own;
+    if (!own) return;
+    if (typeof own.meta.text === "string" && own.meta.text.includes(label)) {
+      for (const h of own.handlers || []) {
+        if (h.ev === "click") {
+          h.fn();
+          fired++;
+        }
+      }
+    }
+    for (const child of own.children || []) walk({ __own: child });
+  };
+  walk(el);
+  return fired;
+}
+
 function logNote(app) {
   return app.vault.getMarkdownFiles().find((f) => /Overnight import log\.md$/i.test(f.path));
 }
@@ -236,6 +256,31 @@ test("overnight import: a reload resumes the unfinished queue", async () => {
   assert.equal(plugin._overnightResumed, true);
 });
 
+test("overnight import: the setup screen starts the same unattended run", async () => {
+  const state = await setup();
+  const { plugin, app } = state;
+  const bytes = await textPdf();
+  const dom = makeDom();
+  const leaf = { app, view: null };
+  leaf.setViewState = async () => {
+    const view = plugin.views[VIEW_TYPE_IMPORT_WINDOW](leaf);
+    leaf.view = view;
+    view.contentEl = dom.root;
+    view.containerEl = dom.root;
+    await view.onOpen();
+  };
+  app.workspace.getLeavesOfType = () => [];
+  app.workspace.openPopoutLeaf = () => leaf;
+  app.workspace.revealLeaf = () => {};
+  plugin.openPdfImport({ files: [file("a.pdf", bytes)] });
+  await waitFor(() => leaf.view && leaf.view.modal, "the import popout");
+  const modal = leaf.view.modal;
+  assert.equal(modal.unattended, false, "choosing files stays attended until asked");
+  assert.equal(click(dom.root, "Start overnight"), 1, "the overnight button is offered");
+  await waitFor(() => modal.closed, "the overnight run to finish");
+  assert.ok(questionNotes(app).length >= 1, "the button starts the unattended run");
+});
+
 test("overnight import: Stop ends the run and the journal keeps the queue", async () => {
   const state = await setup();
   const { plugin, app } = state;
@@ -249,7 +294,9 @@ test("overnight import: Stop ends the run and the journal keeps the queue", asyn
   await waitFor(() => leaf.view && leaf.view.modal && leaf.view.modal.running, "the run to start");
   const modal = leaf.view.modal;
   assert.ok(modal.stopBtns && modal.stopBtns.length, "Stop stays live while unattended");
-  modal.requestStop(plugin, "discard");
+  const stop = plugin.commands.find((c) => c.id === "stop-overnight-import");
+  assert.ok(stop, "Stop the overnight import is on the palette");
+  stop.callback();
   if (release) release();
   await waitFor(() => modal.closed, "the stopped run to close");
   assert.match(notices(), /overnight import (finished|stopped)/i, "the stop is announced");

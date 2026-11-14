@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 446 groups, 3095 exports. **Commands:** 233. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 451 groups, 3147 exports. **Commands:** 238. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -34,6 +34,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `DueQueueModal` | 0 | `tests/due-queue.test.js`, `tests/feature-surfaces.test.js` |
 | `EpubReaderModal` | 0 | `tests/epub.test.js` |
 | `FindQuestionModal` | 0 | `tests/views.test.js` |
+| `FlaggedAnswersModal` | 0 | `tests/flagged-answers.test.js` |
 | `FocusLogModal` | 0 | `tests/feature-surfaces.test.js` |
 | `FolderFilterSuggest` | 0 | `tests/views.test.js` |
 | `FrqGraderModal` | 0 | `tests/frq-handwriting.test.js`, `tests/frq.test.js` |
@@ -107,6 +108,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `analytics` | 18 | `tests/feature-surfaces.test.js`, `tests/p1-knowledge.test.js` |
 | `analyticsEmbed` | 11 | `tests/feature-surfaces.test.js` |
 | `ankiConnect` | 21 | `tests/anki-connect.test.js`, `tests/anki-folder-exclusions.test.js` |
+| `answerCheckQueue` | 4 | `tests/answer-check-queue.test.js` |
 | `answerFromSection` | 0 | `tests/grading.test.js`, `tests/math-rendering.test.js` |
 | `answerSetFromSection` | 0 | `tests/question-types.test.js` |
 | `answerTrueFalseFromSection` | 0 | `tests/question-types.test.js` |
@@ -265,6 +267,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `history` | 23 | `tests/history.test.js`, `tests/needs-fixing.test.js` |
 | `hotkeyAudit` | 6 | `tests/hotkey-audit.test.js` |
 | `importAiState` | 0 | `tests/ai-import-help.test.js` |
+| `importer` | 22 | `tests/importer-prompt.test.js` |
 | `indexOfficialIds` | 0 | `tests/import.test.js` |
 | `inferMode` | 0 | `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/question-types.test.js` |
 | `intervalPreview` | 4 | `tests/interval-preview.test.js` |
@@ -309,6 +312,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `opencodeMajor` | 0 | `tests/opencode-compat.test.js` |
 | `osNotifications` | 7 | `tests/os-notifications.test.js` |
 | `overallStats` | 0 | `tests/p1-knowledge.test.js`, `tests/skip-insights.test.js`, `tests/stats.test.js` |
+| `overnightChecks` | 10 | `tests/overnight-checks.test.js` |
+| `overnightRun` | 16 | `tests/answer-check-queue.test.js`, `tests/overnight-import.test.js`, `tests/overnight-run.test.js` |
 | `packQuickSession` | 0 | `tests/uncited-groups.test.js` |
 | `packTestSession` | 0 | `tests/parameterized.test.js`, `tests/stats.test.js` |
 | `paperScanner` | 10 | `tests/paper-scanner.test.js` |
@@ -476,7 +481,12 @@ the table and fails if a group, export count, command or citing test drifts.
 | `export-results-csv` | Export practice results to CSV | `exportResultsCsv` | `tests/results-export.test.js` |
 | `export-practice-sheet` | Export an answer-free practice sheet | `exportPracticeSheet` | `tests/practice-sheet.test.js` |
 | `export-review-sheet` | Export an error-log review sheet | `exportReviewSheet` | `tests/practice-sheet.test.js`, `tests/views.test.js` |
-| `import-pdf` | Import questions from a file (PDF, PowerPoint, Word) | `openPdfImport` | `tests/ai-beginner-wizard.test.js`, `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/import-batch-window.test.js`, `tests/import-preflight.test.js`, `tests/import-real-pdf.test.js`, `tests/modules.test.js`, `tests/plugin.test.js` |
+| `import-pdf` | Import questions from a file (PDF, PowerPoint, Word) | `openPdfImport` | `tests/ai-beginner-wizard.test.js`, `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/import-batch-window.test.js`, `tests/import-preflight.test.js`, `tests/import-real-pdf.test.js`, `tests/modules.test.js`, `tests/overnight-import.test.js`, `tests/plugin.test.js` |
+| `import-overnight` | Import files overnight… | `openPdfImport` | `tests/ai-beginner-wizard.test.js`, `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/import-batch-window.test.js`, `tests/import-preflight.test.js`, `tests/import-real-pdf.test.js`, `tests/modules.test.js`, `tests/overnight-import.test.js` |
+| `stop-overnight-import` | Stop the overnight import | `stopOvernightImport` | `tests/overnight-import.test.js` |
+| `resume-overnight-import` | Resume the overnight import | `resumeOvernightImport` | `tests/overnight-import.test.js` |
+| `undo-overnight-import` | Undo the last overnight import | `undoOvernightImport` | `tests/overnight-import.test.js` |
+| `flagged-answers` | Show flagged answers | `openFlaggedAnswers` | `tests/answer-check-queue.test.js`, `tests/flagged-answers.test.js` |
 | `check-opencode` | Check that OpenCode is running | `checkOpenCodeServer` | `tests/opencode-status.test.js` |
 | `import-service-export` | Import notes from an export (Airtable, Notion, Evernote, Keep, Bear, Roam) | `importActiveServiceExport` | `tests/error-message-paths.test.js`, `tests/service-import.test.js` |
 | `import-service-clipboard` | Import notes from a pasted export | `importServiceClipboard` | `tests/error-message-paths.test.js`, `tests/service-import.test.js` |

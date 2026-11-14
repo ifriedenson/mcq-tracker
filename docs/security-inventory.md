@@ -56,10 +56,10 @@ Everything else is built with Obsidian's `createEl`/`setText`, which cannot inje
 
 ## 5. Filesystem writes
 
-Fourteen files write to the vault: `src/agent-note.js`, `src/agent-view.js`, `src/calendar-notes.js`,
+Fifteen files write to the vault: `src/agent-note.js`, `src/agent-view.js`, `src/calendar-notes.js`,
 `src/course-notes.js`, `src/graph-3d-panel.js`, `src/import-modal.js`, `src/knowledge-store.js`,
-`src/ocr-modal.js`, `src/paper-scanner.js`, `src/pdf-annotation-modal.js`, `src/pdf-editor-modal.js`,
-`src/pdf-ink-modal.js`, `src/plugin.js`, `src/reference-view.js`.
+`src/ocr-modal.js`, `src/overnight-checks.js`, `src/paper-scanner.js`, `src/pdf-annotation-modal.js`,
+`src/pdf-editor-modal.js`, `src/pdf-ink-modal.js`, `src/plugin.js`, `src/reference-view.js`.
 
 Two contracts keep them bounded:
 
