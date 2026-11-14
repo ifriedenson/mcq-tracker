@@ -518,6 +518,10 @@ QuestionTrackerPlugin.__test = {
   get overnightChecks() {
     return require("./overnight-checks");
   },
+  // Lazy: keeps the overnight run journal out of the startup path.
+  get overnightRun() {
+    return require("./overnight-run");
+  },
   computedVerification,
   figures,
   calculator,
