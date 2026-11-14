@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.302.0",
+    date: "November 14, 2026",
+    title: "Overnight imports",
+    summary:
+      "Queue a hundred PDFs with Import files overnight: every note is written first, every answer is then blind-checked two at a time, and a reload, a spent AI budget or a rate limit pauses the queue instead of failing it. Disagreements land on the Flagged answers surface.",
+    highlights: [
+      {
+        title: "Write first, verify second",
+        body: "The run writes all notes, then checks every answer two at a time and patches only the check frontmatter. Nothing is dropped: a mismatch is kept, flagged and listed with the stored answer, the checker's answer, the models that voted and the date.",
+      },
+      {
+        title: "Pauses instead of failing",
+        body: "A reload, a spent daily or per-run AI budget, or a 429 waits with Retry-After and retries. The run parks as paused with its queue intact, shows one notice, and resumes where it stopped with no duplicate notes.",
+      },
+      {
+        title: "Flagged answers",
+        body: "Show flagged answers lists every disagreement with Open note, Re-check, Accept stored answer and Drop, plus Re-check all. Accepting marks the stored answer as standing; everything reuses the existing frontmatter fields.",
+      },
+      {
+        title: "One log in the morning",
+        body: "Overnight import log.md records a per-file table (notes, matched, flagged, write and check times, median check duration) and the phased progress stays visible in the window: Writing notes, then Checking answers.",
+      },
+    ],
+  },
+  {
     version: "1.301.30",
     date: "November 13, 2026",
     title: "A provider error is reported when it happens",
