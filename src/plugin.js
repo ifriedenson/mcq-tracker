@@ -173,6 +173,7 @@ const chatPricing = require("./chat-pricing");
 const chatMemory = require("./chat-memory");
 const { ChatMemoryModal } = require("./chat-memory-modal");
 const { PdfImportModal } = require("./import-modal");
+const { FlaggedAnswersModal } = require("./flagged-answers-modal");
 const { checkDocumentText } = require("./import-preflight");
 const { readPdfPages, renderPdfPagesAsPng } = require("./pdf");
 const { CourseNotesModal, removeAiSummary } = require("./course-notes");
@@ -193,7 +194,7 @@ const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normali
 const { WELCOME_EXAMPLE, WELCOME_NOTE_PATH, WELCOME_PRESETS, markWelcomeSeen, welcomeNoteMarkdown, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, applySkip, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setAttemptError, setLastErrorType } = require("./notes");
 const { parseChoiceSet } = require("./answer-types");
-const { addVerificationBanner, buildBlindVerificationPrompt, consensusVerdict, normalizePanelModels, normalizeVerificationMode, panelModelFor, parseBlindVerification, parseBlindVerificationNumber, parseBlindVerificationSet, verificationFields } = require("./answer-verification");
+const { addVerificationBanner, buildBlindVerificationPrompt, consensusVerdict, normalizePanelModels, normalizeVerificationMode, panelModelFor, parseBlindVerification, parseBlindVerificationNumber, parseBlindVerificationSet, stripVerificationBanner, verificationFields } = require("./answer-verification");
 const { checkConcurrency, runCheckQueue } = require("./overnight-checks");
 const { loadOvernightRuns, makeOvernightRun, markRunFile, pendingRunFiles, runFileDone, runNotePaths, runTotals, sourceHash, storeOvernightRun, unfinishedOvernightRun } = require("./overnight-run");
 const { computedVerification } = require("./computed-verification");
@@ -539,6 +540,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "stop-overnight-import", name: "Stop the overnight import", callback: () => this.stopOvernightImport() });
     this.addCommand({ id: "resume-overnight-import", name: "Resume the overnight import", callback: () => this.resumeOvernightImport() });
     this.addCommand({ id: "undo-overnight-import", name: "Undo the last overnight import", callback: () => this.undoOvernightImport() });
+    this.addCommand({ id: "flagged-answers", name: "Show flagged answers", callback: () => this.openFlaggedAnswers() });
     this.addCommand({ id: "check-opencode", name: "Check that OpenCode is running", callback: () => this.checkOpenCodeServer() });
     this.addCommand({ id: "import-service-export", name: "Import notes from an export (Airtable, Notion, Evernote, Keep, Bear, Roam)", callback: () => this.importActiveServiceExport() });
     this.addCommand({ id: "import-service-clipboard", name: "Import notes from a pasted export", callback: () => this.importServiceClipboard() });
@@ -2611,6 +2613,7 @@ class QuestionTrackerPlugin extends Plugin {
             entry.error = result.error || entry.error;
           }
         }
+        if (summary && Number(summary.medianMs) > 0) run.checkMedianMs = Math.round(summary.medianMs);
         const phase = summary.paused ? "paused" : summary.stopped ? "stopped" : "";
         if (phase) {
           run.status = phase;
@@ -2725,6 +2728,102 @@ class QuestionTrackerPlugin extends Plugin {
     this.forgetOvernightHandles(run);
     new Notice(`Undid the overnight import: removed ${removed} file${removed === 1 ? "" : "s"}.`);
     return removed;
+  }
+
+  openFlaggedAnswers() {
+    new FlaggedAnswersModal(this.app, this).open();
+  }
+
+  /** Every note whose blind check disagreed with the stored answer. */
+  async flaggedAnswers() {
+    const out = [];
+    const vault = this.app.vault;
+    for (const file of vault.getMarkdownFiles().filter((f) => f && /\.md$/i.test(f.path || ""))) {
+      let fm = {};
+      try {
+        const cache = this.app.metadataCache && typeof this.app.metadataCache.getFileCache === "function" ? this.app.metadataCache.getFileCache(file) : null;
+        fm = (cache && cache.frontmatter) || file.fm || {};
+      } catch (e) {
+        fm = file.fm || {};
+      }
+      if (str(fm.verification) !== "mismatch" && str(fm.verification) !== "review") continue;
+      let question = "";
+      let stored = "";
+      try {
+        const sections = parseSections(await vault.cachedRead(file));
+        question = str(sections.question).trim();
+        stored = str(findAnswerKey(fm, sections)).trim().toUpperCase();
+      } catch (e) {
+        /* keep the row with what frontmatter already says */
+      }
+      out.push({
+        path: file.path,
+        question,
+        stored: stored || str(fm.answer).trim().toUpperCase(),
+        answer: str(fm.verified_answer).trim().toUpperCase(),
+        voters: str(fm.verified_by).trim(),
+        model: str(fm.verified_by).trim() || "AI",
+        date: str(fm.verified_on).trim(),
+      });
+    }
+    return out;
+  }
+
+  /** The learner overrules the checker: the stored answer stands. */
+  async acceptFlaggedAnswer(path) {
+    const file = this.app.vault.getAbstractFileByPath(str(path).trim());
+    if (!(file instanceof TFile)) throw new Error("That note is not in the vault.");
+    const fm = ((this.app.metadataCache.getFileCache(file) || {}).frontmatter) || {};
+    let stored = "";
+    try {
+      const sections = parseSections(await this.app.vault.cachedRead(file));
+      stored = str(findAnswerKey(fm, sections)).trim().toUpperCase();
+    } catch (e) {
+      stored = "";
+    }
+    await this.app.fileManager.processFrontMatter(file, (data) => {
+      data.verified = true;
+      data.verification = "match";
+      data.verified_by = "learner";
+      data.verified_on = localDate();
+      data.verified_answer = stored || str(fm.answer).trim().toUpperCase();
+      delete data.needs_review;
+    });
+    await this.app.vault.modify(file, stripVerificationBanner(await this.app.vault.cachedRead(file)));
+    this.refreshViews();
+    return file.path;
+  }
+
+  /** Drop a flagged note to the trash, like the import review does. */
+  async dropFlaggedAnswer(path) {
+    const file = this.app.vault.getAbstractFileByPath(str(path).trim());
+    if (!(file instanceof TFile)) throw new Error("That note is not in the vault.");
+    await this.app.fileManager.trashFile(file);
+    this.refreshViews();
+    return file.path;
+  }
+
+  recheckFlaggedAnswer(path) {
+    return this.verifyAnswerWithAi(path);
+  }
+
+  /** Ask the checker again for every flagged note, reporting as it goes. */
+  async recheckAllFlagged(onProgress) {
+    const flagged = await this.flaggedAnswers();
+    const outcome = { checked: 0, matched: 0, mismatched: 0, errored: 0 };
+    for (let i = 0; i < flagged.length; i++) {
+      try {
+        const result = await this.verifyAnswerWithAi(flagged[i].path);
+        outcome.checked++;
+        if (result.match) outcome.matched++;
+        else outcome.mismatched++;
+      } catch (e) {
+        outcome.checked++;
+        outcome.errored++;
+      }
+      if (typeof onProgress === "function") onProgress(i + 1, flagged.length, flagged[i].path);
+    }
+    return outcome;
   }
 
   openPdfImport(options) {

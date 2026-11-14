@@ -50,6 +50,7 @@ function makeOvernightRun(files) {
     startedAt: Date.now(),
     date: localDate(),
     status: list.length ? "writing" : "empty",
+    checkMedianMs: 0,
     files: list,
   };
 }
@@ -59,11 +60,13 @@ function normalizeOvernightRun(raw) {
   const files = (Array.isArray(raw.files) ? raw.files : []).map(cleanRunFile).filter(Boolean);
   const id = str(raw.id).trim();
   if (!id || !files.length) return null;
+  const median = Number(raw.checkMedianMs);
   return {
     id,
     startedAt: Math.max(0, Number(raw.startedAt) || 0),
     date: str(raw.date) || localDate(),
     status: str(raw.status) || "writing",
+    checkMedianMs: Number.isFinite(median) && median > 0 ? Math.round(median) : 0,
     files,
   };
 }

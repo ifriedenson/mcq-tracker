@@ -522,6 +522,13 @@ QuestionTrackerPlugin.__test = {
   get overnightRun() {
     return require("./overnight-run");
   },
+  // Lazy: keeps the verification pass out of the startup path.
+  get answerCheckQueue() {
+    return require("./answer-check-queue");
+  },
+  get FlaggedAnswersModal() {
+    return require("./flagged-answers-modal").FlaggedAnswersModal;
+  },
   computedVerification,
   figures,
   calculator,

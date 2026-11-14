@@ -93,7 +93,12 @@ function makeApp(notes) {
     },
     fileManager: {
       processFrontMatter: async (f, fn) => fn(f.fm),
-      trashFile: async (f) => app.trashed.push(f.path),
+      trashFile: async (f) => {
+        app.trashed.push(f.path);
+        // Like Obsidian, a trashed note leaves the vault: later listings skip it.
+        const at = files.findIndex((entry) => entry === f || (entry && entry.path === f.path));
+        if (at >= 0) files.splice(at, 1);
+      },
     },
     workspace: {
       on: (name, cb) => ((handlers["ws:" + name] = cb), name),
