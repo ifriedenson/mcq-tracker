@@ -6411,6 +6411,96 @@ module.exports = {
 };
 };
 
+/* ---- src/answer-check-queue.js ---- */
+__defs["answer-check-queue"] = function (module, exports, require) {
+/*
+ * The verification pass: every question note with a stored answer but no
+ * verdict gets its blind check, a few at a time, with frontmatter-only
+ * write-back. Tracking properties are never touched; a spent request cap
+ * pauses the pass instead of failing it.
+ */
+const { str } = require("./util");
+const { findAnswerKey, parseSections } = require("./notes");
+const { etaLabel, runCheckQueue } = require("./overnight-checks");
+const { latestOvernightRun } = require("./overnight-run");
+
+const CHECKED_VERDICTS = ["match", "mismatch", "review"];
+
+/** Notes that read as questions, have a stored answer, and were never judged. */
+async function findUncheckedNotes(plugin) {
+  const vault = plugin && plugin.app && plugin.app.vault;
+  if (!vault || typeof vault.getMarkdownFiles !== "function") return [];
+  const found = [];
+  for (const file of vault.getMarkdownFiles()) {
+    if (!file || !/\.md$/i.test(file.path || "")) continue;
+    let fm = {};
+    try {
+      const cache = plugin.app.metadataCache && typeof plugin.app.metadataCache.getFileCache === "function"
+        ? plugin.app.metadataCache.getFileCache(file)
+        : null;
+      fm = (cache && cache.frontmatter) || file.fm || {};
+    } catch (e) {
+      fm = file.fm || {};
+    }
+    if (fm.question_id === undefined || fm.question_id === null || fm.question_id === "") continue;
+    if (fm.verified === true) continue;
+    let text = "";
+    try {
+      text = await vault.cachedRead(file);
+    } catch (e) {
+      continue;
+    }
+    let key = "";
+    try {
+      key = str(findAnswerKey(fm, parseSections(str(text)))).trim();
+    } catch (e) {
+      key = "";
+    }
+    if (!key) continue;
+    if (CHECKED_VERDICTS.includes(str(fm.verification))) continue;
+    found.push({ path: file.path, file });
+  }
+  return found;
+}
+
+/** Check every note without a verdict and write each one back to frontmatter. */
+async function checkUncheckedNotes(plugin, opts) {
+  const o = opts || {};
+  const found = await findUncheckedNotes(plugin);
+  const paths = found.map((entry) => entry.path);
+  const outcome = await runCheckQueue(plugin, paths, {
+    concurrency: o.concurrency,
+    shouldStop: o.shouldStop,
+    onProgress: o.onProgress,
+    onNotice: o.onNotice,
+    onItem: o.onItem,
+    onWakeGap: o.onWakeGap,
+    wakeGapMs: o.wakeGapMs,
+    retryBaseMs: o.retryBaseMs,
+  });
+  return { notes: paths, results: outcome.results, summary: outcome.summary };
+}
+
+/** The per-check pace stored by the last finished run, or 0 when unknown. */
+function storedCheckMedianMs(app) {
+  const run = latestOvernightRun(app);
+  const ms = Number(run && run.checkMedianMs);
+  return Number.isFinite(ms) && ms > 0 ? Math.round(ms) : 0;
+}
+
+/** How long a queue of unchecked notes should take at the stored pace. */
+function checkEta(count, medianMs) {
+  return etaLabel(count, medianMs);
+}
+
+module.exports = {
+  findUncheckedNotes,
+  checkUncheckedNotes,
+  storedCheckMedianMs,
+  checkEta,
+};
+};
+
 /* ---- src/answer-types.js ---- */
 __defs["answer-types"] = function (module, exports, require) {
 /*
@@ -32628,6 +32718,7 @@ const DEFAULT_SETTINGS = {
     thinkFirstSeconds: DEFAULT_THINK_FIRST_SECONDS, // 5-120; a conservative default, configurable in AI settings
     context: { stats: false, due: false, exams: false }, // read-only aggregate context sent only when a toggle is on
     verification: "mark", // after AI writes an answer: "mark" mismatches for review, or "drop" them
+    checkConcurrency: 2, // blind answer checks running at once: 1-4, two by default
     sessionId: "",
     studyChat: [], // active Direct API study-agent messages, bounded by chat-history.js
     studyChatId: "", // id of the active conversation, so archiving resumes it rather than copying it
@@ -40130,6 +40221,171 @@ module.exports = {
   findDuplicateIds,
   pickQuestion,
 };
+};
+
+/* ---- src/flagged-answers-modal.js ---- */
+__defs["flagged-answers-modal"] = function (module, exports, require) {
+/*
+ * Flagged answers: every note whose blind check disagreed with the stored
+ * answer, with the question, both answers, who voted, and when. Open the
+ * note, ask the checker again, accept the stored answer, or drop the note —
+ * and re-check everything at once. Frontmatter vocabulary never changes.
+ */
+const { Notice } = require("obsidian");
+const { QtModal } = require("./a11y");
+const { str } = require("./util");
+const { checkEta, findUncheckedNotes, storedCheckMedianMs } = require("./answer-check-queue");
+
+function shortQuestion(text) {
+  const clean = str(text).replace(/\s+/g, " ").trim();
+  return clean.length > 140 ? clean.slice(0, 140) + "…" : clean;
+}
+
+class FlaggedAnswersModal extends QtModal {
+  constructor(app, plugin) {
+    super(app);
+    this.plugin = plugin;
+    this.ready = Promise.resolve();
+    this.busy = false;
+  }
+
+  onOpen() {
+    if (this.modalEl && typeof this.modalEl.addClass === "function") this.modalEl.addClass("qt-flagged-modal");
+    this.ready = this.refresh();
+  }
+
+  async refresh() {
+    const plugin = this.plugin;
+    const flagged = await plugin.flaggedAnswers();
+    let unchecked = 0;
+    try {
+      unchecked = (await findUncheckedNotes(plugin)).length;
+    } catch (e) {
+      unchecked = 0;
+    }
+    const median = storedCheckMedianMs(this.app);
+    const el = this.contentEl;
+    el.empty();
+    el.createEl("h3", { text: `Flagged answers (${flagged.length})` });
+    const pace = unchecked
+      ? median > 0
+        ? `${unchecked} unchecked note${unchecked === 1 ? "" : "s"}${checkEta(unchecked, median) ? ` · ${checkEta(unchecked, median)} at the last pace` : ""}.`
+        : `${unchecked} unchecked note${unchecked === 1 ? "" : "s"} (no finished run to pace them yet).`
+      : "Every other note has its verdict.";
+    el.createDiv({ cls: "qt-hint", text: pace });
+    this.statusEl = el.createDiv({ cls: "qt-hint", text: "" });
+    const list = el.createDiv({ cls: "qt-flagged-list" });
+    for (const entry of flagged) {
+      const row = list.createDiv({ cls: "qt-flagged-row" });
+      row.createDiv({ cls: "qt-flagged-q", text: shortQuestion(entry.question) || entry.path });
+      row.createDiv({
+        cls: "qt-flagged-vs",
+        text: `The note says ${entry.stored || "?"}, the check chose ${entry.answer || "?"}${entry.voters ? ` · ${entry.voters}` : ""}${entry.date ? ` · ${entry.date}` : ""}.`,
+      });
+      const actions = row.createDiv({ cls: "qt-row qt-small-row" });
+      const open = actions.createEl("button", { text: "Open note", cls: "qt-modal-btn" });
+      open.addEventListener("click", () => this.openRow(entry.path));
+      const recheck = actions.createEl("button", { text: "Re-check", cls: "qt-modal-btn" });
+      recheck.addEventListener("click", () => {
+        this.ready = this.recheckRow(entry.path);
+      });
+      const accept = actions.createEl("button", { text: "Accept stored", cls: "qt-modal-btn" });
+      accept.addEventListener("click", () => {
+        this.ready = this.acceptRow(entry.path);
+      });
+      const drop = actions.createEl("button", { text: "Drop", cls: "qt-modal-btn" });
+      drop.addEventListener("click", () => {
+        this.ready = this.dropRow(entry.path);
+      });
+    }
+    if (!flagged.length) el.createDiv({ cls: "qt-hint", text: "Nothing is flagged: every checked answer matched." });
+    const footer = el.createDiv({ cls: "qt-row" });
+    const all = footer.createEl("button", { text: "Re-check all", cls: "mod-cta qt-grow" });
+    all.disabled = !flagged.length || this.busy;
+    all.addEventListener("click", () => {
+      this.ready = this.recheckAllRows();
+    });
+    const close = footer.createEl("button", { text: "Close", cls: "qt-grow" });
+    close.addEventListener("click", () => this.close());
+  }
+
+  status(message) {
+    if (this.statusEl) this.statusEl.setText(message);
+  }
+
+  openRow(path) {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (file && this.app.workspace && typeof this.app.workspace.getLeaf === "function") {
+      this.app.workspace.getLeaf("tab").openFile(file);
+    }
+  }
+
+  async acceptRow(path) {
+    if (this.busy) return;
+    this.busy = true;
+    try {
+      await this.plugin.acceptFlaggedAnswer(path);
+      new Notice("The stored answer stands; the flag is cleared.");
+    } catch (e) {
+      new Notice(`Couldn't accept that answer: ${e && e.message ? e.message : e}`, 8000);
+    } finally {
+      this.busy = false;
+      await this.refresh();
+    }
+  }
+
+  async dropRow(path) {
+    if (this.busy) return;
+    this.busy = true;
+    try {
+      await this.plugin.dropFlaggedAnswer(path);
+      new Notice("Moved the flagged note to the trash.");
+    } catch (e) {
+      new Notice(`Couldn't drop that note: ${e && e.message ? e.message : e}`, 8000);
+    } finally {
+      this.busy = false;
+      await this.refresh();
+    }
+  }
+
+  async recheckRow(path) {
+    if (this.busy) return;
+    this.busy = true;
+    try {
+      this.status("Asking the checker again...");
+      const result = await this.plugin.recheckFlaggedAnswer(path);
+      new Notice(result && result.match ? "The checker agrees with the note now." : "Still flagged: the checker disagrees.");
+    } catch (e) {
+      new Notice(`Couldn't re-check that note: ${e && e.message ? e.message : e}`, 8000);
+    } finally {
+      this.busy = false;
+      await this.refresh();
+    }
+  }
+
+  async recheckAllRows() {
+    if (this.busy) return { checked: 0, matched: 0, mismatched: 0 };
+    this.busy = true;
+    let outcome = { checked: 0, matched: 0, mismatched: 0 };
+    try {
+      this.status("Re-checking every flagged answer...");
+      outcome = await this.plugin.recheckAllFlagged((n, total) => this.status(`Re-checked ${n} of ${total}...`));
+      const left = await this.plugin.flaggedAnswers();
+      new Notice(
+        left.length ? `${outcome.matched} now match, ${left.length} still flagged.` : "Every flagged answer matches now.",
+        8000
+      );
+    } catch (e) {
+      new Notice(`Couldn't re-check: ${e && e.message ? e.message : e}`, 8000);
+    } finally {
+      this.busy = false;
+      await this.refresh();
+    }
+    return outcome;
+  }
+}
+
+module.exports = { FlaggedAnswersModal };
 };
 
 /* ---- src/focus.js ---- */
@@ -49966,6 +50222,11 @@ class PdfImportModal extends QtModal {
     this.headerEl = null;
     this._nextBatchTimer = null;
     this.finishedBatch = false;
+    this.unattended = init.unattended === true;
+    this.unattendedVaultPaths = Array.isArray(init.vaultPaths) ? init.vaultPaths.map((p) => str(p).trim()).filter(Boolean) : [];
+    this.overnightRun = init.overnightRun && typeof init.overnightRun === "object" ? init.overnightRun : null;
+    this.unattendedArtifacts = null;
+    this.unattendedJobStarted = 0;
     this.running = false;
     this.reviewing = false;
     this.cancelGate = null;
@@ -50004,9 +50265,51 @@ class PdfImportModal extends QtModal {
 
   onOpen() {
     if (this.modalEl && typeof this.modalEl.addClass === "function") this.modalEl.addClass("qt-import-modal");
+    if (this.unattended) {
+      this.startUnattended().catch((e) => {
+        if (!this.closed) this.showError(importErrorText(e));
+      });
+      return;
+    }
     // File first: the AI gate comes only after the text layer is known to be readable.
     if (importAiState(this.plugin) !== "ready") this.showPreflight();
     else this.showSetup();
+  }
+
+  /**
+   * Overnight entry: vault paths resolve to files, the AI gate is a Notice
+   * (never a screen), then the batch runs with no further clicks. Files that
+   * are gone from the vault are recorded in the run journal, not asked about.
+   */
+  async startUnattended() {
+    const run = this.overnightRun;
+    const pickedKeys = (this.files || []).map((f) => (f && f.name) || "").filter(Boolean);
+    const resolved = [];
+    const goodPaths = [];
+    for (const path of this.unattendedVaultPaths) {
+      const found = this.app.vault.getAbstractFileByPath(path);
+      if (found && typeof found.arrayBuffer !== "function") {
+        resolved.push(found);
+        goodPaths.push(path);
+      } else if (run) this.plugin.recordOvernightFile(run, path, { status: "error", error: "That file is not in the vault any more. Choose it again." });
+    }
+    if (resolved.length) this.files = this.files.concat(resolved);
+    this.unattendedKeys = pickedKeys.concat(goodPaths);
+    this.unattended = true;
+    if (!this.files.length) {
+      if (run && this.plugin.overnightChecksPending(run)) return this.startUnattendedChecks();
+      new Notice("Overnight import: no files to import.");
+      if (run) this.plugin.storeOvernightRunState(run, "error");
+      this.close();
+      return;
+    }
+    if (importAiState(this.plugin) !== "ready") {
+      new Notice("Overnight import: turn on AI features first, then resume the queue.", 10000);
+      if (run) this.plugin.storeOvernightRunState(run, "paused");
+      this.close();
+      return;
+    }
+    this.startBatch();
   }
 
   /** Rebuild the visible screen after its panel moves into a new popout window. */
@@ -50192,6 +50495,15 @@ class PdfImportModal extends QtModal {
     if (this.files.length) return this.files.map((file) => ({ file, vaultDoc: "" }));
     if (this.file) return [{ file: this.file, vaultDoc: this.vaultDoc || "" }];
     return [];
+  }
+
+  /** The running file's display name, whether it was picked or lives in the vault. */
+  currentFileName() {
+    if (this.file && this.file.name) return this.file.name;
+    const job = this.batchJobs[this.batchIndex] || {};
+    if (job.file && job.file.name) return job.file.name;
+    if (this.vaultDoc) return String(this.vaultDoc).replace(/^.*\//, "");
+    return "File";
   }
 
   fileSummary() {
@@ -50618,6 +50930,17 @@ class PdfImportModal extends QtModal {
     row.createEl("button", { text: "Cancel", cls: "qt-grow" }).addEventListener("click", () => this.close());
     const start = row.createEl("button", { text: multiple ? "Import " + this.files.length + " files" : "Start import", cls: "mod-cta qt-grow" });
     start.addEventListener("click", () => { if (this.files.length > 1) this.startBatch(); else this.start(); });
+    if (this.files.length) {
+      const night = row.createEl("button", {
+        text: multiple ? `Start ${this.files.length} files overnight` : "Start overnight",
+        cls: "qt-grow",
+        attr: { title: "Import with no review clicks and no dialogs: every file writes its notes, then every note gets its blind check. A log note summarizes the run in the morning." },
+      });
+      night.addEventListener("click", () => {
+        this.unattended = true;
+        this.startUnattended();
+      });
+    }
   }
 
   /* ---- one import attempt owns its writes until it finishes ---- */
@@ -50850,7 +51173,7 @@ class PdfImportModal extends QtModal {
       used.add(folder.toLowerCase());
       return { file, readFile: capturedFiles[i] || file, folder, preflight: this.preflights[i] || null };
     });
-    this.batchMode = this.batchJobs.length > 1;
+    this.batchMode = this.batchJobs.length > 1 || this.unattended;
     this.batchStopped = false;
     this.batchIndex = 0;
     this.batchResults = [];
@@ -50867,11 +51190,18 @@ class PdfImportModal extends QtModal {
   prepareBatchJob(index) {
     const job = this.batchJobs[index];
     if (!job) return false;
+    this.unattendedJobStarted = Date.now();
     this.batchIndex = index;
-    this.file = job.readFile || job.file;
+    const picked = job.readFile || job.file;
+    if (picked && picked.path && typeof picked.arrayBuffer !== "function") {
+      this.file = null;
+      this.vaultDoc = picked.path;
+    } else {
+      this.file = picked;
+      this.vaultDoc = "";
+    }
     this.pdfFile = job.file;
     this.pdfPassword = this.pdfPasswords.get(job.file) || "";
-    this.vaultDoc = "";
     this.preflight = job.preflight;
     this.folder = job.folder;
     this.items = [];
@@ -50887,6 +51217,52 @@ class PdfImportModal extends QtModal {
     this.progressLabel = "Importing " + (index + 1) + " of " + this.batchJobs.length + " · " + job.file.name;
     if (this.progress) this.progress.update(this.progressLabel, "Starting...", index / this.batchJobs.length);
     return true;
+  }
+
+  /**
+   * File the finished attempt in the run journal: which notes, copies and
+   * pictures it wrote, and how long the write took. Undo removes exactly
+   * these paths. The key follows the queue order, so added files can't
+   * misattribute another file's notes.
+   */
+  snapshotUnattendedFile(result, folder) {
+    const run = this.overnightRun;
+    if (!run) return;
+    const job = this.batchJobs[this.batchIndex] || {};
+    const key = (this.unattendedKeys && this.unattendedKeys[this.batchIndex]) || (job.file && job.file.name) || (this.file && this.file.name) || "";
+    if (!key) return;
+    const extra = this.unattendedArtifacts || { files: [], folders: [] };
+    const scope = normalizePath(str(folder));
+    const mine = (path) => {
+      const p = normalizePath(str(path));
+      return !!scope && (p === scope || p.startsWith(scope + "/"));
+    };
+    const notes = [];
+    const copies = [];
+    const pictures = [];
+    for (const path of Array.isArray(result.paths) ? result.paths : []) {
+      if (path && mine(path) && !notes.includes(path)) notes.push(path);
+    }
+    for (const path of extra.files || []) {
+      if (!path || !mine(path) || notes.includes(path) || copies.includes(path) || pictures.includes(path)) continue;
+      const lower = String(path).toLowerCase();
+      if (lower.includes("/images/") || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(lower)) pictures.push(path);
+      else if (/\.md$/i.test(lower)) notes.push(path);
+      else copies.push(path);
+    }
+    const folders = Array.isArray(extra.folders) ? extra.folders.slice() : [];
+    if (folder && !folders.includes(folder)) folders.push(folder);
+    const status = result && result.error ? "error" : result && result.stopped ? "stopped" : "done";
+    this.plugin.recordOvernightFile(run, key, {
+      status,
+      written: status === "done",
+      notes,
+      copies,
+      pictures,
+      folders,
+      error: result && result.error ? String(result.error).slice(0, 500) : "",
+      writeMs: this.unattendedJobStarted ? Date.now() - this.unattendedJobStarted : 0,
+    });
   }
 
   recordBatchResult(result, folder) {
@@ -50914,6 +51290,7 @@ class PdfImportModal extends QtModal {
     if (this.finishedBatch || !this.batchStarted) return;
     this.finishedBatch = true;
     this.batchStarted = false;
+    if (this.unattended) return this.plugin.finishUnattended(this, reason);
     if (this._nextBatchTimer) {
       const win = this.hostWindow || (typeof activeWindow !== "undefined" ? activeWindow : null);
       if (win) win.clearTimeout(this._nextBatchTimer);
@@ -50990,7 +51367,7 @@ class PdfImportModal extends QtModal {
       new Notice("Type a name for the new folder.");
       return;
     }
-    if (this.folderHasFiles(folderPath)) {
+    if (!this.unattended && this.folderHasFiles(folderPath)) {
       if (this.confirming) return;
       this.confirming = true;
       let useExisting = false;
@@ -51000,7 +51377,7 @@ class PdfImportModal extends QtModal {
         this.confirming = false;
       }
       if (!useExisting) {
-        if (this.batchMode) this.showError("Skipped " + this.file.name + ": the existing folder was not confirmed.");
+        if (this.batchMode) this.showError("Skipped " + this.currentFileName() + ": the existing folder was not confirmed.");
         return;
       }
     }
@@ -51012,7 +51389,7 @@ class PdfImportModal extends QtModal {
 
     const el = this.contentEl;
     el.empty();
-    this.headerEl = el.createEl("h3", { text: this.batchMode ? "Importing " + (this.batchIndex + 1) + " of " + this.batchJobs.length + ": " + this.file.name : "Importing" });
+    this.headerEl = el.createEl("h3", { text: this.batchMode ? "Importing " + (this.batchIndex + 1) + " of " + this.batchJobs.length + ": " + this.currentFileName() : "Importing" });
     this.statusEl = el.createDiv({ cls: "qt-hint", text: "Starting..." });
     this.activityEl = el.createDiv({ cls: "qt-tool" });
     const actions = el.createDiv({ cls: "qt-row qt-small-row" });
@@ -51053,6 +51430,7 @@ class PdfImportModal extends QtModal {
           break;
         } catch (e) {
           if (!this.isPdfPasswordError(e)) throw e;
+          if (this.unattended) throw new Error(`"${this.file ? this.file.name : "This file"}" needs a password. Unlock it first, or import it by hand.`);
           const password = await this.askPdfPassword(e, this.pdfFile);
           if (this.closed) return;
           if (password === null) throw new Error("No password was entered. Nothing was imported.");
@@ -51126,6 +51504,10 @@ class PdfImportModal extends QtModal {
       await this.cleanupArtifacts();
       if (this.isStopError(e)) {
         if (this.batchMode) {
+          if (this.unattended) {
+            this.unattendedArtifacts = this.artifacts ? { files: [...this.artifacts.files], folders: [...this.artifacts.folders] } : { files: [], folders: [] };
+            this.snapshotUnattendedFile({ made: 0, skipped: ["Stopped before this file finished"], stopped: true, paths: [] }, this.folder);
+          }
           this.recordBatchResult({ made: 0, skipped: ["Stopped before this file finished"] }, this.folder);
           await this.finishBatch("stopped");
         } else if (!this.closed) {
@@ -51414,7 +51796,7 @@ class PdfImportModal extends QtModal {
       const preKey = findAnswerKey(parsed.fm, parsed.sec);
       const preFromDocument = str(parsed.fm.answer_source).toLowerCase() === "pdf";
       let verification = null;
-      if (preKey && !preFromDocument && parsed.sec.choices.length && typeof this.plugin.verifyDraftQuestions === "function") {
+      if (!this.unattended && preKey && !preFromDocument && parsed.sec.choices.length && typeof this.plugin.verifyDraftQuestions === "function") {
         const draft = { question: parsed.sec.question, choices: parsed.sec.choices, answer: preKey };
         // The wait counts up, and a frozen server says so on the same line
         // before it is restarted and this same answer is asked again.
@@ -51487,6 +51869,7 @@ class PdfImportModal extends QtModal {
 
   showAgentDone(r, folder) {
     if (this.batchMode) {
+      if (this.unattended) this.unattendedArtifacts = this.artifacts ? { files: [...this.artifacts.files], folders: [...this.artifacts.folders] } : { files: [], folders: [] };
       if (!r.made && (!r.skipped || !r.skipped.length)) {
         for (const w of (this.warnings || []).slice(0, 5)) r.skipped.push(w);
         if (!r.skipped.length) {
@@ -51495,13 +51878,14 @@ class PdfImportModal extends QtModal {
       }
       this.commitArtifacts();
       this.recordBatchResult(r, folder);
+      if (this.unattended) this.snapshotUnattendedFile(r, folder);
       if (this.batchStopped) return this.finishBatch("stopped");
       if (this.batchIndex + 1 < this.batchJobs.length) {
         const el = this.contentEl;
         el.empty();
-        el.createEl("h3", { text: "Imported " + (r.made || 0) + " from " + this.file.name });
+        el.createEl("h3", { text: "Imported " + (r.made || 0) + " from " + this.currentFileName() });
         el.createEl("p", { cls: "qt-hint", text: "File " + (this.batchIndex + 1) + " of " + this.batchJobs.length + " finished. Starting the next file..." });
-        this.status("Finished " + this.file.name + ". Starting the next file...");
+        this.status("Finished " + this.currentFileName() + ". Starting the next file...");
         this.scheduleNextBatch();
         return;
       }
@@ -51659,11 +52043,55 @@ class PdfImportModal extends QtModal {
     if (this.closed) return;
     this.throwIfCancelled();
     this.items = mergeNotes(blocks);
-    await this.awaitCancellable(this.verifyAiAnswers());
+    if (!this.unattended) await this.awaitCancellable(this.verifyAiAnswers());
     this.throwIfCancelled();
     if (this.closed) return;
     if (!this.items.length) await this.cleanupArtifacts();
+    if (this.unattended) return this.acceptUnattendedItems();
     this.showReview();
+  }
+
+  /**
+   * No review screen overnight: everything the AI read is kept, and the
+   * queue moves on. Per-file errors land in the batch results either way.
+   */
+  acceptUnattendedItems() {
+    if (!this.items.length) {
+      this.recordBatchResult({ made: 0, skipped: ["No questions found"] }, this.target);
+      if (this.unattended) {
+        this.unattendedArtifacts = this.artifacts ? { files: [...this.artifacts.files], folders: [...this.artifacts.folders] } : { files: [], folders: [] };
+        const causes = (this.warnings || []).slice(0, 3).join(" ");
+        const reason = "No questions found in " + this.currentFileName() + "." + (causes ? " " + causes : "");
+        this.snapshotUnattendedFile({ made: 0, skipped: ["No questions found"], error: reason, paths: [] }, this.target);
+      }
+      return this.advanceBatch();
+    }
+    for (const q of this.items) q.include = true;
+    return this.createNotes();
+  }
+
+  /** The checks phase without a write queue: a quiet screen, a live Stop button. */
+  startUnattendedChecks() {
+    const el = this.contentEl;
+    el.empty();
+    this.headerEl = el.createEl("h3", { text: "Checking answers" });
+    this.statusEl = el.createDiv({ cls: "qt-hint", text: "Starting..." });
+    this.lastStatus = "Starting...";
+    const stop = el.createEl("button", { text: "Stop", cls: "qt-modal-btn" });
+    stop.addEventListener("click", () => this.requestStop(this.plugin, "discard"));
+    this.stopBtns = [stop];
+    return this.plugin.finishUnattended(this, "resumed");
+  }
+
+  /** The next file, or the checks phase when the queue is written. */
+  advanceBatch() {
+    if (this.batchStopped) return this.finishBatch("stopped");
+    if (this.batchIndex + 1 < this.batchJobs.length) {
+      this.status(`Finished ${this.file ? this.file.name : "this file"}. Starting the next file...`);
+      this.scheduleNextBatch();
+      return;
+    }
+    return this.finishBatch();
   }
 
   /** Blind-check answers the AI wrote before the review list is shown. */
@@ -51704,12 +52132,16 @@ class PdfImportModal extends QtModal {
   showError(msg) {
     const text = importErrorText(msg);
     if (this.batchMode) {
+      if (this.unattended) this.unattendedArtifacts = this.artifacts ? { files: [...this.artifacts.files], folders: [...this.artifacts.folders] } : { files: [], folders: [] };
       this.recordBatchResult({ made: 0, skipped: [] }, this.folder);
       this.batchResults[this.batchResults.length - 1].error = text;
+      if (this.unattended) this.snapshotUnattendedFile({ made: 0, skipped: [], error: text, paths: [] }, this.folder);
       if (this.progress) this.progress.update(this.progressLabel, "Skipped: " + text, this.batchIndex / Math.max(1, this.batchJobs.length));
       const el = this.contentEl;
       el.empty();
-      el.createEl("h3", { text: "Couldn't import " + this.file.name });
+      const failedJob = this.batchJobs[this.batchIndex] || {};
+      const failedName = (this.file && this.file.name) || (failedJob.file && failedJob.file.name) || this.vaultDoc || "this file";
+      el.createEl("h3", { text: "Couldn't import " + failedName });
       el.createDiv({ cls: "qt-error", text: text });
       el.createEl("p", { cls: "qt-hint", text: "The other files will continue." });
       if (this.batchStopped) this.finishBatch("stopped");
@@ -51732,7 +52164,7 @@ class PdfImportModal extends QtModal {
     el.empty();
     this.lastStatus = "Waiting for your review.";
     if (this.batchMode && this.progress) this.progress.update(this.progressLabel, this.lastStatus, this.batchIndex / Math.max(1, this.batchJobs.length));
-    if (this.batchMode) el.createEl("p", { cls: "qt-hint", text: "File " + (this.batchIndex + 1) + " of " + this.batchJobs.length + " · " + this.file.name });
+    if (this.batchMode) el.createEl("p", { cls: "qt-hint", text: "File " + (this.batchIndex + 1) + " of " + this.batchJobs.length + " · " + this.currentFileName() });
     const items = this.items;
     el.createEl("h3", { text: items.length ? `Found ${items.length} question${items.length === 1 ? "" : "s"}` : "No questions found" });
     for (const w of this.warnings) el.createDiv({ cls: "qt-error", text: w });
@@ -51858,6 +52290,7 @@ class PdfImportModal extends QtModal {
         if (!fl.hasAnswer) result.noAnswer++;
         result.made++;
         this.status(`Created ${result.made} of ${chosen.length}...`);
+        if (this.unattended && result.made % 10 === 0) await sleep(0);
       }
       await this.pruneImages(folder, result);
       result.issues = await this.auditNotes(folder, result.paths);
@@ -51869,6 +52302,10 @@ class PdfImportModal extends QtModal {
       await this.cleanupArtifacts();
       if (this.isStopError(e)) {
         if (this.batchMode) {
+          if (this.unattended) {
+            this.unattendedArtifacts = this.artifacts ? { files: [...this.artifacts.files], folders: [...this.artifacts.folders] } : { files: [], folders: [] };
+            this.snapshotUnattendedFile({ made: 0, skipped: ["Stopped before this file finished"], stopped: true, paths: [] }, this.folder);
+          }
           this.recordBatchResult({ made: 0, skipped: ["Stopped before this file finished"] }, this.folder);
           await this.finishBatch("stopped");
         } else if (!this.closed) {
@@ -52300,7 +52737,7 @@ function agentPrompt(o) {
     "",
     IMPORT_RULES,
     "",
-    "Work through the whole document. Remember that a passage can be on an earlier page than its questions, so read the whole text before deciding which passage a question belongs to. Do not create, change or delete any file outside that folder, and do not delete anything. When you are done, reply with one short line: how many notes you created, and how many contain an answer or explanation you wrote yourself.",
+    "Work through the whole document. Remember that a passage can be on an earlier page than its questions, so read the whole text before deciding which passage a question belongs to. Do not create, change or delete any file outside that folder, and do not delete anything. Write every note first, then run one command over the whole folder that checks all the notes at once (file name matches question_id, one single-letter answer, the right count of choice bullets, answer_source ai) and prints only the files that fail. Do not check notes one at a time, and do not re-run checks for notes that pass. When you are done, reply with one short line: how many notes you created, and how many contain an answer or explanation you wrote yourself.",
   ]
     .filter((l) => l !== undefined)
     .join("\n");
@@ -60701,6 +61138,8 @@ const HEALTH_TIMEOUT_MS = 4000;
 const REQUEST_TIMEOUT_MS = 60 * 1000;
 /** A blocking agent send may run long, but it may not go silent: this is the silence allowance. */
 const IDLE_TIMEOUT_MS = 6 * 60 * 1000;
+/** A blind check may think for many minutes with no visible output, so a slow model is not a stuck one. */
+const VERIFY_IDLE_TIMEOUT_MS = 20 * 60 * 1000;
 /** How often a blocking send asks the session whether anything new was written. */
 const IDLE_POLL_MS = 3000;
 
@@ -60910,6 +61349,10 @@ class OpenCodeClient {
   createSession(title) {
     return this.req("POST", "/session", { title }, this.timeoutMs);
   }
+  /** Drop a finished check session so hundreds of imports do not bloat the server. */
+  deleteSession(id) {
+    return this.req("DELETE", "/session/" + encodeURIComponent(id), undefined, this.timeoutMs);
+  }
   messages(id) {
     return this.req("GET", `/session/${encodeURIComponent(id)}/message`, undefined, this.timeoutMs);
   }
@@ -61018,6 +61461,7 @@ module.exports = {
   HEALTH_TIMEOUT_MS,
   REQUEST_TIMEOUT_MS,
   IDLE_TIMEOUT_MS,
+  VERIFY_IDLE_TIMEOUT_MS,
   modelFromString,
   friendlyError,
   partsToTurns,
@@ -62095,6 +62539,474 @@ module.exports = {
   reminderNotification,
   requestOsPermission,
   showReminderNotification,
+};
+};
+
+/* ---- src/overnight-checks.js ---- */
+__defs["overnight-checks"] = function (module, exports, require) {
+/* Overnight answer checking: every created note gets its blind check in a
+ * second pass, a few at a time, with rate-limit backoff and a budget pause
+ * instead of a failure. A sleep or reload resumes from the saved queue. */
+const { localDate, sleep, str } = require("./util");
+const { addVerificationBanner, verificationFields } = require("./answer-verification");
+const { findAnswerKey } = require("./notes");
+const { parseNote } = require("./importer");
+
+/** A wall-clock gap that means the computer slept: re-probe before judging anything frozen. */
+const WAKE_GAP_MS = 6 * 60 * 1000;
+/** A rate limit waits instead of failing: at most this many tries per note. */
+const MAX_BACKOFF_ATTEMPTS = 8;
+
+function checkConcurrency(ai) {
+  const raw = ai == null ? NaN : Number(ai.checkConcurrency);
+  if (!Number.isFinite(raw)) return 2;
+  return Math.max(1, Math.min(4, Math.round(raw)));
+}
+
+function normalizeConcurrency(value) {
+  const raw = Number(value);
+  if (!Number.isFinite(raw)) return 2;
+  return Math.max(1, Math.min(4, Math.round(raw)));
+}
+
+function isCapMessage(message) {
+  return /request cap|no more AI requests|raise the cap/i.test(str(message));
+}
+
+function isRateLimitMessage(message) {
+  return /429|rate limit|rate-limited|RESOURCE_EXHAUSTED|quota exceeded|exceeded.{0,20}quota|too many requests/i.test(str(message));
+}
+
+/** Seconds the provider asks to wait, else a backoff from `baseMs` with jitter. */
+function retryAfterMs(message, attempt, baseMs) {
+  const base = Number(baseMs) > 0 ? Number(baseMs) : 10000;
+  const text = str(message);
+  const seconds = /retry(?:-| )after\D{0,10}(\d+)s?/i.exec(text) || /try again in (\d+)\s*(second|minute)/i.exec(text);
+  if (seconds) {
+    const n = Number(seconds[1]);
+    const scale = /minute/i.test(seconds[0]) ? 60 : 1;
+    if (Number.isFinite(n) && n > 0) return Math.min(5 * 60 * 1000, n * scale * 1000);
+  }
+  const grown = Math.min(5 * 60 * 1000, base * Math.pow(2, Math.max(0, attempt)));
+  return Math.round(grown * (0.7 + Math.random() * 0.6));
+}
+
+function medianMs(values) {
+  const sorted = (Array.isArray(values) ? values : []).filter((n) => Number.isFinite(n) && n >= 0).sort((a, b) => a - b);
+  if (!sorted.length) return 0;
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+}
+
+function etaLabel(remaining, median) {
+  if (!(remaining > 0) || !(median > 0)) return "";
+  const ms = remaining * median;
+  const minutes = Math.round(ms / 60000);
+  if (minutes < 1) return "under a minute";
+  if (minutes < 60) return `about ${minutes} minute${minutes === 1 ? "" : "s"}`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `about ${hours} hour${hours === 1 ? "" : "s"}${rest ? ` ${rest} min` : ""}`;
+}
+
+async function interruptibleSleep(ms, shouldStop) {
+  const end = Date.now() + Math.max(0, Number(ms) || 0);
+  while (Date.now() < end) {
+    if (typeof shouldStop === "function" && shouldStop()) return false;
+    await sleep(Math.min(1000, Math.max(0, end - Date.now())));
+  }
+  return !(typeof shouldStop === "function" && shouldStop());
+}
+
+/** Read one written note back into the blind-check draft the import would have asked. */
+function draftForNote(text) {
+  let parsed = null;
+  try {
+    parsed = parseNote(str(text));
+  } catch (e) {
+    return null;
+  }
+  const sec = (parsed && parsed.sec) || {};
+  const fm = (parsed && parsed.fm) || {};
+  const key = str(findAnswerKey(fm, sec)).trim();
+  if (!key || !str(sec.question).trim()) return null;
+  return { question: sec.question, choices: Array.isArray(sec.choices) ? sec.choices : [], answer: key };
+}
+
+/** Write one verdict back to its note: frontmatter fields, a needs-review flag and the visible banner. */
+async function writeCheckResult(plugin, file, text, verification) {
+  // The banner first: vault.modify replaces the whole file, so patching the
+  // frontmatter first and modifying after would restore the old verdict.
+  await plugin.app.vault.modify(file, addVerificationBanner(str(text), verification));
+  await plugin.app.fileManager.processFrontMatter(file, (data) => {
+    Object.assign(data, verificationFields(verification));
+    delete data.answer_verified;
+    delete data.answer_verified_on;
+    delete data.answer_verified_model;
+    delete data.answer_verification;
+    if (!verification.match) data.needs_review = true;
+    else if (data.needs_review === true && verification.status === "match") delete data.needs_review;
+  });
+}
+
+/**
+ * Check every note at `paths`, two at a time by default, and write each
+ * verdict back to its frontmatter. A rate limit waits and retries; a spent
+ * request cap pauses the whole queue with { paused } so a later run resumes
+ * it. Results carry per-note timings for the morning log.
+ */
+async function runCheckQueue(plugin, paths, opts) {
+  const o = opts || {};
+  const list = (Array.isArray(paths) ? paths : []).filter(Boolean);
+  const shouldStop = typeof o.shouldStop === "function" ? o.shouldStop : null;
+  const onNotice = typeof o.onNotice === "function" ? o.onNotice : () => {};
+  const onProgress = typeof o.onProgress === "function" ? o.onProgress : null;
+  const onItem = typeof o.onItem === "function" ? o.onItem : null;
+  const onWakeGap = typeof o.onWakeGap === "function" ? o.onWakeGap : null;
+  const wakeGapMs = Number(o.wakeGapMs) > 0 ? Number(o.wakeGapMs) : WAKE_GAP_MS;
+  const retryBaseMs = Number(o.retryBaseMs) > 0 ? Number(o.retryBaseMs) : 10000;
+  const slots = Math.max(1, Math.min(4, Math.floor(Number(o.concurrency) > 0 ? Number(o.concurrency) : checkConcurrency(plugin.settings && plugin.settings.ai))));
+  const results = [];
+  const timings = [];
+  let nextIndex = 0;
+  let completed = 0;
+  let paused = null;
+  let stopped = false;
+  let lastBeat = Date.now();
+
+  const checkOnePath = async (path) => {
+    const file = plugin.app.vault.getAbstractFileByPath(path);
+    if (!file) return { path, status: "missing", ms: 0 };
+    const started = Date.now();
+    let text = "";
+    try {
+      text = await plugin.app.vault.cachedRead(file);
+    } catch (e) {
+      return { path, status: "error", ms: Date.now() - started, error: str(e && e.message ? e.message : e) };
+    }
+    const draft = draftForNote(text);
+    if (!draft) {
+      return { path, status: "skipped", ms: Date.now() - started, error: "This note has no stored answer to check." };
+    }
+    const drafts = [draft];
+    for (let attempt = 0; attempt < MAX_BACKOFF_ATTEMPTS; attempt++) {
+      if (shouldStop && shouldStop()) return { path, status: "stopped", ms: Date.now() - started };
+      await plugin.verifyDraftQuestions(drafts, {
+        shouldStop,
+        onNotice,
+        concurrency: 1,
+      });
+      const current = drafts[0].verification || null;
+      const problem = current && current.status === "error" ? str(current.error) : "";
+      if (problem && isCapMessage(problem)) return { path, status: "paused", ms: Date.now() - started, error: problem };
+      if (problem && isRateLimitMessage(problem) && attempt + 1 < MAX_BACKOFF_ATTEMPTS) {
+        onNotice(`The provider is rate limited, so this check waits before trying again (note ${completed + 1} of ${list.length})...`);
+        const ok = await interruptibleSleep(retryAfterMs(problem, attempt, retryBaseMs), shouldStop);
+        if (!ok) return { path, status: "stopped", ms: Date.now() - started };
+        continue;
+      }
+      break;
+    }
+    const done = drafts[0].verification || null;
+    if (!done) {
+      if (shouldStop && shouldStop()) {
+        stopped = true;
+        return { path, status: "stopped", ms: Date.now() - started };
+      }
+      return { path, status: "error", ms: Date.now() - started, error: "The check returned nothing." };
+    }
+    if (done.status === "error") {
+      if (isCapMessage(done.error)) return { path, status: "paused", ms: Date.now() - started, error: str(done.error) };
+      return { path, status: "error", ms: Date.now() - started, error: str(done.error) };
+    }
+    try {
+      await writeCheckResult(plugin, file, text, done);
+    } catch (e) {
+      return { path, status: "error", ms: Date.now() - started, error: str(e && e.message ? e.message : e) };
+    }
+    return { path, status: done.status, ms: Date.now() - started, verification: done };
+  };
+
+  const worker = async () => {
+    for (;;) {
+      if (paused) return;
+      if (shouldStop && shouldStop()) {
+        if (nextIndex < list.length) stopped = true;
+        return;
+      }
+      if (Date.now() - lastBeat > wakeGapMs) {
+        const gap = Date.now() - lastBeat;
+        lastBeat = Date.now();
+        if (onWakeGap) await onWakeGap(gap);
+      }
+      const index = nextIndex++;
+      if (index >= list.length) return;
+      const outcome = await checkOnePath(list[index]);
+      const beat = Date.now();
+      if (onWakeGap && outcome.ms > wakeGapMs && outcome.status !== "stopped") await onWakeGap(outcome.ms);
+      lastBeat = beat;
+      if (outcome.status === "paused") {
+        paused = outcome;
+        results[index] = outcome;
+        completed++;
+        if (onProgress) onProgress(completed, list.length, list[index]);
+        return;
+      }
+      results[index] = outcome;
+      if (outcome.status !== "stopped" && outcome.status !== "missing" && outcome.status !== "skipped") timings.push(outcome.ms);
+      completed++;
+      if (onItem) {
+        try {
+          onItem({ path: list[index], index, outcome });
+        } catch (e) {
+          /* progress hooks must not fail a check */
+        }
+      }
+      if (onProgress) onProgress(completed, list.length, list[index]);
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(slots, Math.max(list.length, 1)) }, () => worker()));
+  const summary = { checked: 0, matched: 0, mismatched: 0, errored: 0, skipped: 0, stopped, paused: null, medianMs: medianMs(timings) };
+  for (const outcome of results) {
+    if (!outcome) continue;
+    if (outcome.status === "match") {
+      summary.checked++;
+      summary.matched++;
+    } else if (outcome.status === "mismatch") {
+      summary.checked++;
+      summary.mismatched++;
+    } else if (outcome.status === "error") {
+      summary.checked++;
+      summary.errored++;
+    } else if (outcome.status === "skipped" || outcome.status === "missing") {
+      summary.skipped++;
+    } else if (outcome.status === "stopped") {
+      summary.stopped = true;
+      stopped = true;
+    } else if (outcome.status === "paused") {
+      summary.paused = outcome;
+    }
+  }
+  return { results, summary };
+}
+
+module.exports = {
+  writeCheckResult,
+  WAKE_GAP_MS,
+  MAX_BACKOFF_ATTEMPTS,
+  checkConcurrency,
+  normalizeConcurrency,
+  isCapMessage,
+  isRateLimitMessage,
+  retryAfterMs,
+  medianMs,
+  etaLabel,
+  runCheckQueue,
+};
+};
+
+/* ---- src/overnight-run.js ---- */
+__defs["overnight-run"] = function (module, exports, require) {
+/*
+ * An overnight run is the morning-proof journal of a 100-file import: which
+ * source files were queued, what each one wrote, where the checks stand.
+ * The journal lives in device-local storage (paths belong to this vault),
+ * so a reload, a crash or a killed server resumes by skipping finished files
+ * instead of importing them twice — and Undo removes exactly what the run
+ * wrote, nothing else.
+ */
+const { localDate, str } = require("./util");
+
+const OVERNIGHT_RUNS_KEY = "mcq-tracker-overnight-runs";
+const MAX_OVERNIGHT_RUNS = 10;
+const RUN_FILE_STATUSES = ["pending", "writing", "done", "error", "paused", "stopped", "skipped"];
+
+function cleanRunFile(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const sourcePath = str(raw.sourcePath).trim();
+  if (!sourcePath) return null;
+  const status = RUN_FILE_STATUSES.includes(raw.status) ? raw.status : "pending";
+  const strings = (value) => [...new Set((Array.isArray(value) ? value : []).map((p) => str(p).trim()).filter(Boolean))];
+  const checks = raw.checks && typeof raw.checks === "object" ? raw.checks : {};
+  const num = (value) => Math.max(0, Math.round(Number(value) || 0));
+  return {
+    sourcePath,
+    hash: str(raw.hash),
+    status,
+    vault: raw.vault === true,
+    written: raw.written === true,
+    notes: strings(raw.notes),
+    copies: strings(raw.copies),
+    pictures: strings(raw.pictures),
+    folders: strings(raw.folders),
+    checked: strings(raw.checked),
+    error: str(raw.error),
+    writeMs: num(raw.writeMs),
+    checkMs: num(raw.checkMs),
+    checks: { matched: num(checks.matched), mismatched: num(checks.mismatched), errored: num(checks.errored) },
+  };
+}
+
+let overnightRunCounter = 0;
+
+function makeOvernightRun(files) {
+  const list = (Array.isArray(files) ? files : []).map(cleanRunFile).filter(Boolean);
+  overnightRunCounter += 1;
+  const stamp = Date.now().toString(36);
+  return {
+    id: "night-" + stamp + "-" + overnightRunCounter.toString(36) + "-" + list.length,
+    startedAt: Date.now(),
+    date: localDate(),
+    status: list.length ? "writing" : "empty",
+    checkMedianMs: 0,
+    files: list,
+  };
+}
+
+function normalizeOvernightRun(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const files = (Array.isArray(raw.files) ? raw.files : []).map(cleanRunFile).filter(Boolean);
+  const id = str(raw.id).trim();
+  if (!id || !files.length) return null;
+  const median = Number(raw.checkMedianMs);
+  return {
+    id,
+    startedAt: Math.max(0, Number(raw.startedAt) || 0),
+    date: str(raw.date) || localDate(),
+    status: str(raw.status) || "writing",
+    checkMedianMs: Number.isFinite(median) && median > 0 ? Math.round(median) : 0,
+    files,
+  };
+}
+
+function normalizeOvernightRuns(raw) {
+  return (Array.isArray(raw) ? raw : []).map(normalizeOvernightRun).filter(Boolean).slice(0, MAX_OVERNIGHT_RUNS);
+}
+
+function pendingRunFiles(run) {
+  if (!run || !Array.isArray(run.files)) return [];
+  return run.files.filter((file) => file.status === "pending" || file.status === "error" || file.status === "paused" || file.status === "stopped");
+}
+
+/** Same source path with the same bytes and a finished entry: do not import twice. */
+function runFileDone(run, sourcePath, hash) {
+  if (!run || !Array.isArray(run.files)) return false;
+  const want = str(sourcePath).trim();
+  return run.files.some(
+    (file) => file.sourcePath === want && file.status === "done" && (str(hash) === "" || str(file.hash) === "" || file.hash === str(hash))
+  );
+}
+
+function markRunFile(run, sourcePath, patch) {
+  if (!run || !Array.isArray(run.files)) return null;
+  const want = str(sourcePath).trim();
+  const file = run.files.find((entry) => entry.sourcePath === want);
+  if (!file) return null;
+  const next = cleanRunFile({ ...file, ...(patch && typeof patch === "object" ? patch : {}) });
+  if (!next) return null;
+  Object.assign(file, next);
+  return file;
+}
+
+/** Every path the run wrote: notes, source copies and captured pictures. Undo removes exactly these. */
+function entryNeedsChecks(entry) {
+  if (!entry || typeof entry !== "object") return false;
+  if (entry.status !== "done" && entry.status !== "paused" && entry.status !== "stopped" && entry.status !== "error") return false;
+  return (entry.notes || []).length > (entry.checked || []).length;
+}
+
+function runNotePaths(run) {
+  if (!run || !Array.isArray(run.files)) return [];
+  const out = [];
+  for (const file of run.files) {
+    for (const path of [...(file.notes || []), ...(file.copies || []), ...(file.pictures || [])]) {
+      if (path && !out.includes(path)) out.push(path);
+    }
+  }
+  return out;
+}
+
+function runTotals(run) {
+  const totals = { files: 0, done: 0, notes: 0, matched: 0, mismatched: 0, errored: 0 };
+  if (!run || !Array.isArray(run.files)) return totals;
+  totals.files = run.files.length;
+  for (const file of run.files) {
+    if (file.status === "done") totals.done++;
+    totals.notes += (file.notes || []).length;
+    totals.matched += Number(file.checks && file.checks.matched) || 0;
+    totals.mismatched += Number(file.checks && file.checks.mismatched) || 0;
+    totals.errored += Number(file.checks && file.checks.errored) || 0;
+  }
+  return totals;
+}
+
+function loadOvernightRuns(app) {
+  try {
+    return normalizeOvernightRuns(app && typeof app.loadLocalStorage === "function" ? app.loadLocalStorage(OVERNIGHT_RUNS_KEY) : null);
+  } catch (e) {
+    return [];
+  }
+}
+
+function storeOvernightRun(app, run) {
+  const clean = normalizeOvernightRun(run);
+  if (!clean || !app || typeof app.saveLocalStorage !== "function") return null;
+  const kept = [clean, ...loadOvernightRuns(app).filter((entry) => entry.id !== clean.id)].slice(0, MAX_OVERNIGHT_RUNS);
+  try {
+    app.saveLocalStorage(OVERNIGHT_RUNS_KEY, kept);
+  } catch (e) {
+    return null;
+  }
+  return clean;
+}
+
+function latestOvernightRun(app) {
+  return loadOvernightRuns(app)[0] || null;
+}
+
+function unfinishedOvernightRun(app, includeStopped) {
+  return (
+    loadOvernightRuns(app).find(
+      (run) =>
+        run.status !== "finished" &&
+        run.status !== "undone" &&
+        (includeStopped || run.status !== "stopped") &&
+        pendingRunFiles(run).length > 0
+    ) || null
+  );
+}
+
+/** Identify source bytes for resume: size + mtime when the adapter offers it, else nothing (resume falls back to the path). */
+async function sourceHash(app, path) {
+  try {
+    const adapter = app && app.vault && app.vault.adapter;
+    if (!adapter || typeof adapter.stat !== "function") return "";
+    const info = await adapter.stat(path);
+    if (!info || (info.size == null && info.mtime == null)) return "";
+    return `${info.size == null ? "" : info.size}:${info.mtime == null ? "" : info.mtime}`;
+  } catch (e) {
+    return "";
+  }
+}
+
+module.exports = {
+  entryNeedsChecks,
+  OVERNIGHT_RUNS_KEY,
+  MAX_OVERNIGHT_RUNS,
+  makeOvernightRun,
+  normalizeOvernightRun,
+  normalizeOvernightRuns,
+  pendingRunFiles,
+  runFileDone,
+  markRunFile,
+  runNotePaths,
+  runTotals,
+  loadOvernightRuns,
+  storeOvernightRun,
+  latestOvernightRun,
+  unfinishedOvernightRun,
+  sourceHash,
 };
 };
 
@@ -72299,7 +73211,7 @@ const { buildCornellNote } = require("./cornell");
 const studyTools = require("./study-tools");
 const { AssignmentModal } = require("./assignments-modal");
 const { assignmentId, assignmentMarkdown, assignmentStats, categoryFor, estimateMinutes, isAssignmentNote, normalizeAssignmentSettings, normalizeStatus, parseAssignment, safeName, typeId, uniquePath, updateTaskCheckbox, updateTaskDue, updateTaskEstimate, updateTaskTitle } = require("./assignments");
-const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-client");
+const { OpenCodeClient, VERIFY_IDLE_TIMEOUT_MS, modelFromString, partsToTurns } = require("./opencode-client");
 const { ApiClient } = require("./api-client");
 const modelDiscovery = require("./model-discovery");
 const { normalizeThinkFirstSeconds } = require("./think-first");
@@ -72316,6 +73228,7 @@ const chatPricing = require("./chat-pricing");
 const chatMemory = require("./chat-memory");
 const { ChatMemoryModal } = require("./chat-memory-modal");
 const { PdfImportModal } = require("./import-modal");
+const { FlaggedAnswersModal } = require("./flagged-answers-modal");
 const { checkDocumentText } = require("./import-preflight");
 const { readPdfPages, renderPdfPagesAsPng } = require("./pdf");
 const { CourseNotesModal, removeAiSummary } = require("./course-notes");
@@ -72336,7 +73249,9 @@ const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normali
 const { WELCOME_EXAMPLE, WELCOME_NOTE_PATH, WELCOME_PRESETS, markWelcomeSeen, welcomeNoteMarkdown, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, applySkip, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setAttemptError, setLastErrorType } = require("./notes");
 const { parseChoiceSet } = require("./answer-types");
-const { addVerificationBanner, buildBlindVerificationPrompt, consensusVerdict, normalizePanelModels, normalizeVerificationMode, panelModelFor, parseBlindVerification, parseBlindVerificationNumber, parseBlindVerificationSet, verificationFields } = require("./answer-verification");
+const { addVerificationBanner, buildBlindVerificationPrompt, consensusVerdict, normalizePanelModels, normalizeVerificationMode, panelModelFor, parseBlindVerification, parseBlindVerificationNumber, parseBlindVerificationSet, stripVerificationBanner, verificationFields } = require("./answer-verification");
+const { checkConcurrency, runCheckQueue } = require("./overnight-checks");
+const { entryNeedsChecks, loadOvernightRuns, makeOvernightRun, markRunFile, pendingRunFiles, runFileDone, runNotePaths, runTotals, sourceHash, storeOvernightRun, unfinishedOvernightRun } = require("./overnight-run");
 const { computedVerification } = require("./computed-verification");
 const { renderSmilesSvg } = require("./smiles");
 const { renderBiologyDiagram, renderChemistryDiagram, renderCircuitDiagram } = require("./stem-diagrams");
@@ -72582,6 +73497,7 @@ class QuestionTrackerPlugin extends Plugin {
       }
       if (this.settings.openPracticeOnStartUp && this.mcqEnabled()) this.activateView().catch(() => {});
       this.decorateFileExplorer();
+      this.resumeUnfinishedOvernightRun().catch(() => {});
       this.flushPendingAttempts().then((r) => {
         if (r.sent) new Notice(`Saved ${r.sent} practice result${r.sent === 1 ? "" : "s"} that were waiting offline.`, 5000);
       }).catch(() => {});
@@ -72675,6 +73591,11 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "export-practice-sheet", name: "Export an answer-free practice sheet", callback: () => this.exportPracticeSheet() });
     this.addCommand({ id: "export-review-sheet", name: "Export an error-log review sheet", callback: () => this.exportReviewSheet() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
+    this.addCommand({ id: "import-overnight", name: "Import files overnight…", callback: () => this.openPdfImport() });
+    this.addCommand({ id: "stop-overnight-import", name: "Stop the overnight import", callback: () => this.stopOvernightImport() });
+    this.addCommand({ id: "resume-overnight-import", name: "Resume the overnight import", callback: () => this.resumeOvernightImport() });
+    this.addCommand({ id: "undo-overnight-import", name: "Undo the last overnight import", callback: () => this.undoOvernightImport() });
+    this.addCommand({ id: "flagged-answers", name: "Show flagged answers", callback: () => this.openFlaggedAnswers() });
     this.addCommand({ id: "check-opencode", name: "Check that OpenCode is running", callback: () => this.checkOpenCodeServer() });
     this.addCommand({ id: "import-service-export", name: "Import notes from an export (Airtable, Notion, Evernote, Keep, Bear, Roam)", callback: () => this.importActiveServiceExport() });
     this.addCommand({ id: "import-service-clipboard", name: "Import notes from a pasted export", callback: () => this.importServiceClipboard() });
@@ -74531,6 +75452,436 @@ class QuestionTrackerPlugin extends Plugin {
     return preset;
   }
 
+  /**
+   * Queue files for an unattended import: everything writes first, then
+   * every note gets its blind check. Accepts picked device files, vault
+   * paths, or vault file objects. Skips files the run already finished
+   * (same path and bytes), and re-queues a file whose bytes changed.
+   */
+  async startOvernightImport(sources, opts) {
+    if (this.moduleOff("mcq")) return null;
+    const o = opts || {};
+    const list = Array.isArray(sources) ? sources : [];
+    const picked = [];
+    const vaultPaths = [];
+    for (const entry of list) {
+      if (!entry) continue;
+      if (typeof entry === "string") {
+        if (entry.trim()) vaultPaths.push(entry.trim());
+      } else if (typeof entry.arrayBuffer === "function") picked.push(entry);
+      else if (entry.path) vaultPaths.push(String(entry.path));
+    }
+    if (!this._overnightHandles) this._overnightHandles = new Map();
+    for (const f of picked) this._overnightHandles.set(f.name, f);
+    let run = o.run && o.run.id ? o.run : null;
+    if (!run) {
+      run = makeOvernightRun([
+        ...picked.map((f) => ({ sourcePath: f.name, hash: "" })),
+        ...vaultPaths.map((p) => ({ sourcePath: p, hash: "", vault: true })),
+      ]);
+      run.status = "writing";
+    }
+    for (const p of vaultPaths) {
+      const hash = await sourceHash(this.app, p);
+      const entry = run.files.find((f) => f.sourcePath === p);
+      if (!entry) continue;
+      if (entry.status === "done" && hash && entry.hash && hash !== entry.hash) {
+        markRunFile(run, p, { status: "pending", error: "", checks: { matched: 0, mismatched: 0, errored: 0 }, checked: [], checkMs: 0 });
+      } else if (!entry.hash && hash) markRunFile(run, p, { hash });
+    }
+    storeOvernightRun(this.app, run);
+    // Files whose notes are already written skip the write phase; the checks
+    // phase picks them up from the journal instead of importing them twice.
+    const writeQueue = new Set(pendingRunFiles(run).filter((f) => !f.written).map((f) => f.sourcePath));
+    const usePicked = picked.filter((f) => writeQueue.has(f.name));
+    const useVault = vaultPaths.filter((p) => writeQueue.has(p));
+    const count = usePicked.length + useVault.length;
+    if (!count) {
+      if (this.overnightChecksPending(run)) {
+        this.openPdfImport({ files: [], vaultPaths: [], unattended: true, overnightRun: run });
+        return run;
+      }
+      if (run.status === "writing") {
+        run.status = "finished";
+        storeOvernightRun(this.app, run);
+      }
+      this.forgetOvernightHandles(run);
+      new Notice("Overnight import: every file in this queue is already imported.");
+      return run;
+    }
+    const budget = typeof this.aiBudget === "function" ? this.aiBudget() : null;
+    const left = budget && budget.remaining;
+    new Notice(
+      `Overnight import: ${count} file${count === 1 ? "" : "s"} queued · about ${count}+ answer checks after writing · ` +
+        (left == null ? "no request cap set." : `${left} AI requests left today — the queue pauses if they run out.`),
+      10000
+    );
+    this.openPdfImport({ files: usePicked, vaultPaths: useVault, unattended: true, overnightRun: run });
+    return run;
+  }
+
+  /** One file's verdict lands in the journal at once, so a crash loses nothing. */
+  recordOvernightFile(run, sourcePath, patch) {
+    if (!run) return null;
+    const updated = markRunFile(run, sourcePath, patch);
+    storeOvernightRun(this.app, run);
+    return updated;
+  }
+
+  storeOvernightRunState(run, status) {
+    if (!run) return null;
+    run.status = status;
+    return storeOvernightRun(this.app, run);
+  }
+
+  stopOvernightImport() {
+    const session = this.importSession;
+    const modal = session && session.modal;
+    if (modal && modal.unattended && !modal.closed) {
+      modal.requestStop(this, "discard");
+      return true;
+    }
+    new Notice("No overnight import is running.");
+    return false;
+  }
+
+  async resumeOvernightImport() {
+    // A stopped run only resumes when asked: the user stopped it on purpose.
+    const run = unfinishedOvernightRun(this.app, true);
+    if (!run) {
+      new Notice("No paused overnight import to resume.");
+      return null;
+    }
+    const vaultPaths = [];
+    const pickedHandles = [];
+    for (const entry of pendingRunFiles(run)) {
+      if (entry.written) continue;
+      if (entry.vault) vaultPaths.push(entry.sourcePath);
+      else {
+        const handle = this._overnightHandles && this._overnightHandles.get(entry.sourcePath);
+        if (handle) pickedHandles.push(handle);
+        else markRunFile(run, entry.sourcePath, { status: "skipped", error: "That file was chosen from the device, so it can't be re-read. Import it again by hand." });
+      }
+    }
+    storeOvernightRun(this.app, run);
+    if (!vaultPaths.length && !pickedHandles.length && !this.overnightChecksPending(run)) {
+      new Notice("The paused run's files can't be re-read after a reload. Import them again by hand.", 10000);
+      return null;
+    }
+    new Notice(`Resuming the overnight import: ${vaultPaths.length + pickedHandles.length} file${vaultPaths.length + pickedHandles.length === 1 ? "" : "s"} left.`, 8000);
+    return this.startOvernightImport([...pickedHandles, ...vaultPaths], { run });
+  }
+
+  /** Notes written but not yet checked keep a run resumable. */
+  overnightChecksPending(run) {
+    if (!run || !Array.isArray(run.files)) return false;
+    return run.files.some((entry) => entryNeedsChecks(entry));
+  }
+
+  forgetOvernightHandles(run) {
+    if (!this._overnightHandles || !run || !Array.isArray(run.files)) return;
+    for (const entry of run.files) {
+      if (!entry.vault) this._overnightHandles.delete(entry.sourcePath);
+    }
+  }
+
+  /** After a reload, one notice and the queue continues itself. */
+  async resumeUnfinishedOvernightRun() {
+    if (this._overnightResumed) return null;
+    const run = unfinishedOvernightRun(this.app);
+    if (!run) return null;
+    this._overnightResumed = true;
+    const left = pendingRunFiles(run).length;
+    new Notice(`The overnight import paused with ${left} file${left === 1 ? "" : "s"} left — resuming now.`, 12000);
+    try {
+      return await this.resumeOvernightImport();
+    } catch (e) {
+      new Notice("Couldn't resume the overnight import. Use “Resume the overnight import” when ready.", 10000);
+      return null;
+    }
+  }
+
+  /**
+   * The overnight write phase is done: check every written note in a second
+   * pass, write the morning log, and close with one summary. Never opens a
+   * dialog; Stop and a spent budget end the phase, they never fail it.
+   */
+  async finishUnattended(modal, reason) {
+    const run = modal && modal.overnightRun;
+    const stopped = reason === "stopped" || !!(modal && modal.batchStopped);
+    if (run) {
+      run.status = stopped ? "stopped" : "checking";
+      storeOvernightRun(this.app, run);
+    }
+    let summary = null;
+    let checked = [];
+    if (run && !stopped) {
+      const todo = [];
+      for (const entry of run.files) {
+        if (!entryNeedsChecks(entry)) continue;
+        const already = new Set(entry.checked || []);
+        for (const path of entry.notes || []) {
+          if (!already.has(path)) todo.push({ entry, path, verification: null });
+        }
+      }
+      checked = todo;
+      if (todo.length) {
+        if (modal.headerEl) modal.headerEl.setText(`Checking answers (${todo.length} notes)`);
+        modal.progressLabel = "Checking answers";
+        if (modal.progress) modal.progress.update("Checking answers", "Starting...", 0);
+        new Notice(`Overnight import: checking ${todo.length} answer${todo.length === 1 ? "" : "s"}...`, 8000);
+        const outcome = await runCheckQueue(this, todo.map((item) => item.path), {
+          shouldStop: () => modal.stop || modal.closed,
+          onProgress: (n, total) => {
+            const line = `Checking answer ${n} of ${total}...`;
+            modal.status(line);
+            if (modal.progress) modal.progress.update("Checking answers", line, n / Math.max(1, total));
+          },
+          onNotice: (m) => modal.status(m),
+          onWakeGap: async () => {
+            modal.status("Woke up — making sure OpenCode is still there...");
+            try {
+              if (this.backend() === "opencode") await this.ensureOpenCode();
+            } catch (e) {
+              /* the next check reports it */
+            }
+          },
+        });
+        summary = outcome.summary;
+        for (const result of outcome.results || []) {
+          // Several entries may list the same note (a stale journal can share
+          // one path): credit each entry once, never the first one every time.
+          const found = todo.find((item) => item.path === result.path && !item.credited);
+          if (!found) continue;
+          found.credited = true;
+          const entry = found.entry;
+          entry.checkMs = (entry.checkMs || 0) + (result.ms || 0);
+          if (result.status === "match" || result.status === "mismatch") {
+            entry.checked = [...(entry.checked || []), result.path];
+            const tallies = entry.checks || (entry.checks = { matched: 0, mismatched: 0, errored: 0 });
+            if (result.status === "match") tallies.matched++;
+            else tallies.mismatched++;
+            found.verification = result.verification || null;
+          } else if (result.status === "error") {
+            const tallies = entry.checks || (entry.checks = { matched: 0, mismatched: 0, errored: 0 });
+            tallies.errored++;
+            entry.error = result.error || entry.error;
+          }
+        }
+        if (summary && Number(summary.medianMs) > 0) run.checkMedianMs = Math.round(summary.medianMs);
+        const phase = summary.paused ? "paused" : summary.stopped ? "stopped" : "";
+        if (phase) {
+          run.status = phase;
+          for (const entry of run.files) {
+            if ((entry.notes || []).length > (entry.checked || []).length && entry.status !== phase) entry.status = phase;
+          }
+        }
+        storeOvernightRun(this.app, run);
+      }
+    }
+    if (run && run.status === "checking") run.status = "finished";
+    if (run) storeOvernightRun(this.app, run);
+    if (run) await this.writeOvernightLog(run, checked);
+    const text = this.overnightSummaryText(run, summary);
+    if (modal.progress) {
+      modal.progress.finish(text);
+      modal.progress = null;
+    } else {
+      new Notice(text, 12000);
+    }
+    modal.close();
+    if (run && (run.status === "finished" || run.status === "undone" || run.status === "error")) this.forgetOvernightHandles(run);
+    return run;
+  }
+
+  overnightSummaryText(run, summary) {
+    const totals = runTotals(run);
+    const state = !run ? "finished" : run.status === "paused" ? "paused — resume it to continue the checks" : run.status === "stopped" ? "stopped" : "finished";
+    return (
+      `Overnight import ${state}: ${totals.files} file${totals.files === 1 ? "" : "s"}, ${totals.notes} note${totals.notes === 1 ? "" : "s"}, ` +
+      `${totals.matched} matched, ${totals.mismatched} flagged for review${totals.errored ? `, ${totals.errored} check errors` : ""}.`
+    );
+  }
+
+  /** The morning evidence: a per-file table plus every flagged answer. */
+  async writeOvernightLog(run, checked) {
+    const totals = runTotals(run);
+    const lines = ["# Overnight import log", ""];
+    lines.push(`Run ${run.id} · ${run.date} · status: ${run.status}`, "");
+    lines.push(`Files: ${totals.files} (${totals.done} done) · Notes: ${totals.notes} · Matched: ${totals.matched} · Flagged: ${totals.mismatched} · Check errors: ${totals.errored}`, "");
+    lines.push("## Files", "");
+    lines.push("| File | Notes | Matched | Flagged | Status |");
+    lines.push("| --- | ---: | ---: | ---: | --- |");
+    for (const entry of run.files) {
+      const checks = entry.checks || {};
+      const note = `${entry.sourcePath} | ${(entry.notes || []).length} | ${checks.matched || 0} | ${checks.mismatched || 0} | ${entry.status}${entry.error ? ` — ${String(entry.error).slice(0, 200)}` : ""}`;
+      lines.push(`| ${note} |`);
+    }
+    lines.push("", "## Flagged answers", "");
+    const flagged = (checked || []).filter((item) => item.verification && item.verification.status === "mismatch");
+    if (!flagged.length) lines.push("None — every checked answer matched.", "");
+    else {
+      for (const item of flagged) {
+        const v = item.verification;
+        lines.push(`- ${item.path}: the note says ${v.key || "?"}, the check chose ${v.answer || "?"}${v.votes ? ` (${v.votes})` : ""} · ${v.model || "AI"} · ${v.date || ""}`);
+      }
+      lines.push("");
+    }
+    const partial = run.files.filter((f) => (f.status === "stopped" || f.status === "error") && f.folders && f.folders.length);
+    if (partial.length) {
+      lines.push("## Partial files", "", "These did not finish writing. Look inside, keep what you want, then delete the folder:", "");
+      for (const f of partial) lines.push(`- ${f.sourcePath} — ${(f.folders || []).join(", ")}`);
+      lines.push("");
+    }
+    const out = lines.join("\n");
+    const path = "Overnight import log.md";
+    try {
+      const existing = this.app.vault.getAbstractFileByPath(path);
+      if (existing) await this.app.vault.modify(existing, out);
+      else await this.app.vault.create(path, out);
+      return path;
+    } catch (e) {
+      new Notice("Overnight import: the log note couldn't be saved.", 8000);
+      return "";
+    }
+  }
+
+  /**
+   * Undo removes exactly what the run wrote: its notes, source copies and
+   * pictures, then the folders they lived in. Nothing else is touched.
+   */
+  async undoOvernightImport(runId) {
+    const runs = loadOvernightRuns(this.app);
+    const run = (runId && runs.find((r) => r.id === runId)) || runs.find((r) => r.status === "finished") || null;
+    if (!run) {
+      new Notice("No finished overnight import to undo.");
+      return 0;
+    }
+    const adapter = this.app.vault && this.app.vault.adapter;
+    let removed = 0;
+    for (const path of runNotePaths(run)) {
+      try {
+        if (adapter && typeof adapter.exists === "function" && !(await adapter.exists(path))) continue;
+        if (adapter && typeof adapter.remove === "function") {
+          await adapter.remove(path);
+          removed++;
+        }
+      } catch (e) {
+        /* already gone */
+      }
+    }
+    const folders = [...new Set(run.files.flatMap((f) => f.folders || []))].sort((a, b) => b.split("/").length - a.split("/").length);
+    for (const folder of folders) {
+      try {
+        if (adapter && typeof adapter.rmdir === "function") await adapter.rmdir(folder, false);
+      } catch (e) {
+        /* not empty, or already gone */
+      }
+    }
+    run.status = "undone";
+    storeOvernightRun(this.app, run);
+    this.forgetOvernightHandles(run);
+    new Notice(`Undid the overnight import: removed ${removed} file${removed === 1 ? "" : "s"}.`);
+    return removed;
+  }
+
+  openFlaggedAnswers() {
+    new FlaggedAnswersModal(this.app, this).open();
+  }
+
+  /** Every note whose blind check disagreed with the stored answer. */
+  async flaggedAnswers() {
+    const out = [];
+    const vault = this.app.vault;
+    for (const file of vault.getMarkdownFiles().filter((f) => f && /\.md$/i.test(f.path || ""))) {
+      let fm = {};
+      try {
+        const cache = this.app.metadataCache && typeof this.app.metadataCache.getFileCache === "function" ? this.app.metadataCache.getFileCache(file) : null;
+        fm = (cache && cache.frontmatter) || file.fm || {};
+      } catch (e) {
+        fm = file.fm || {};
+      }
+      if (str(fm.verification) !== "mismatch" && str(fm.verification) !== "review") continue;
+      let question = "";
+      let stored = "";
+      try {
+        const sections = parseSections(await vault.cachedRead(file));
+        question = str(sections.question).trim();
+        stored = str(findAnswerKey(fm, sections)).trim().toUpperCase();
+      } catch (e) {
+        /* keep the row with what frontmatter already says */
+      }
+      out.push({
+        path: file.path,
+        question,
+        stored: stored || str(fm.answer).trim().toUpperCase(),
+        answer: str(fm.verified_answer).trim().toUpperCase(),
+        voters: str(fm.verified_by).trim(),
+        model: str(fm.verified_by).trim() || "AI",
+        date: str(fm.verified_on).trim(),
+      });
+    }
+    return out;
+  }
+
+  /** The learner overrules the checker: the stored answer stands. */
+  async acceptFlaggedAnswer(path) {
+    const file = this.app.vault.getAbstractFileByPath(str(path).trim());
+    if (!(file instanceof TFile)) throw new Error("That note is not in the vault.");
+    const fm = ((this.app.metadataCache.getFileCache(file) || {}).frontmatter) || {};
+    let stored = "";
+    try {
+      const sections = parseSections(await this.app.vault.cachedRead(file));
+      stored = str(findAnswerKey(fm, sections)).trim().toUpperCase();
+    } catch (e) {
+      stored = "";
+    }
+    await this.app.fileManager.processFrontMatter(file, (data) => {
+      data.verified = true;
+      data.verification = "match";
+      data.verified_by = "learner";
+      data.verified_on = localDate();
+      data.verified_answer = stored || str(fm.answer).trim().toUpperCase();
+      delete data.needs_review;
+      delete data.verification_method;
+    });
+    await this.app.vault.modify(file, stripVerificationBanner(await this.app.vault.cachedRead(file)));
+    this.refreshViews();
+    return file.path;
+  }
+
+  /** Drop a flagged note to the trash, like the import review does. */
+  async dropFlaggedAnswer(path) {
+    const file = this.app.vault.getAbstractFileByPath(str(path).trim());
+    if (!(file instanceof TFile)) throw new Error("That note is not in the vault.");
+    await this.app.fileManager.trashFile(file);
+    this.refreshViews();
+    return file.path;
+  }
+
+  recheckFlaggedAnswer(path) {
+    return this.verifyAnswerWithAi(path);
+  }
+
+  /** Ask the checker again for every flagged note, reporting as it goes. */
+  async recheckAllFlagged(onProgress) {
+    const flagged = await this.flaggedAnswers();
+    const outcome = { checked: 0, matched: 0, mismatched: 0, errored: 0 };
+    for (let i = 0; i < flagged.length; i++) {
+      try {
+        const result = await this.verifyAnswerWithAi(flagged[i].path);
+        outcome.checked++;
+        if (result.match) outcome.matched++;
+        else outcome.mismatched++;
+      } catch (e) {
+        outcome.checked++;
+        outcome.errored++;
+      }
+      if (typeof onProgress === "function") onProgress(i + 1, flagged.length, flagged[i].path);
+    }
+    return outcome;
+  }
+
   openPdfImport(options) {
     if (this.moduleOff("mcq")) return;
     const opts = options || {};
@@ -74546,14 +75897,42 @@ class QuestionTrackerPlugin extends Plugin {
     if (Platform.isDesktopApp && workspace && typeof workspace.openPopoutLeaf === "function") {
       try {
         const open = typeof workspace.getLeavesOfType === "function" ? workspace.getLeavesOfType(VIEW_TYPE_IMPORT_WINDOW) : [];
-        if (open && open.length) {
+        const sessionModal = this.importSession && this.importSession.modal;
+        const sessionAlive = !!sessionModal && !sessionModal.closed;
+        const wantRunId = opts.unattended && opts.overnightRun && opts.overnightRun.id ? String(opts.overnightRun.id) : "";
+        const sessionRunId =
+          sessionModal && sessionModal.overnightRun && sessionModal.overnightRun.id ? String(sessionModal.overnightRun.id) : "";
+        // A reload restores the import-window leaf, but its modal belongs to
+        // the old renderer: a setup screen, never the run. Only a live modal
+        // for this same run counts, or the resume would attach to a setup
+        // screen and stall with no window at all.
+        const sameRun = sessionAlive && !!wantRunId && sessionRunId === wantRunId;
+        if (open && open.length && !opts.unattended) {
           workspace.revealLeaf(open[0]);
           return;
         }
+        if (opts.unattended && open && open.length && !sameRun) {
+          // Never orphan a window the user is working in: a started batch or
+          // an open review keeps its screen, and the resume waits its turn.
+          const precious = sessionAlive && (sessionModal.batchStarted || sessionModal.reviewing);
+          if (precious) {
+            workspace.revealLeaf(open[0]);
+            return;
+          }
+          for (const leaf of open) {
+            try {
+              if (leaf && typeof leaf.detach === "function") leaf.detach();
+            } catch (e) {
+              /* a half-restored leaf may already be gone */
+            }
+          }
+          // The detached leaves owned the stale setup session; the fresh
+          // popout must build the run's modal instead of rejoining it.
+          if (this.importSession && this.importSession.modal === sessionModal) this.importSession = null;
+        }
         if (this._importWindowOpening) return;
         this._importWindowOpening = true;
-        const live = this.importSession && this.importSession.modal && !this.importSession.modal.closed;
-        if (!live) this.pendingImportOptions = opts;
+        if (opts.unattended ? !sameRun : !sessionAlive) this.pendingImportOptions = opts;
         const leaf = workspace.openPopoutLeaf({ size: { width: 780, height: 900 } });
         if (leaf && typeof leaf.setViewState === "function") {
           const shown = leaf.setViewState({ type: VIEW_TYPE_IMPORT_WINDOW, active: true });
@@ -78296,6 +79675,32 @@ class QuestionTrackerPlugin extends Plugin {
     }
   }
 
+  /**
+   * A check that went quiet is usually a slow provider, not a dead server.
+   * Only a server that stops answering small requests earns a restart: the
+   * probe goes first, and a server that still answers keeps the note alive
+   * without one. A genuinely unreachable server falls through to the usual
+   * recovery, which restarts the managed copy.
+   */
+  async recoverForSlowCheck(error, options) {
+    const o = options || {};
+    const said = typeof o.onNotice === "function" ? o.onNotice : () => {};
+    const message = str(error && error.message ? error.message : error);
+    const unreachable = /Can't reach OpenCode|not running|ECONNREFUSED|ECONNRESET|ERR_CONNECTION|Failed to fetch|fetch failed|net::|socket|network|502|503|504/i.test(
+      message
+    );
+    if (this.backend() === "opencode" && !unreachable) {
+      try {
+        await this.openCode().providers(4000);
+        said("The check is taking a while, so it gets more time; OpenCode is still answering.");
+        return true;
+      } catch (probeError) {
+        /* the probe failed too: the server really is down */
+      }
+    }
+    return this.recoverAiConnection(error, o);
+  }
+
   /** Ask one independent question, without showing the stored key. */
   async verifyQuestionDraft(item, options) {
     const data = item || {};
@@ -78305,13 +79710,13 @@ class QuestionTrackerPlugin extends Plugin {
     // this same question again with the same model.
     const ask = async (prompt) => {
       try {
-        return await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model });
+        return await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model, deleteSession: o.deleteSession === true });
       } catch (e) {
         if (o.noRetry === true || !isConnectionFailure(e)) throw e;
         if (typeof o.shouldStop === "function" && o.shouldStop()) throw e;
-        const recovered = await this.recoverAiConnection(e, { onNotice: o.onNotice });
+        const recovered = await this.recoverForSlowCheck(e, { onNotice: o.onNotice });
         if (!recovered) throw e;
-        return await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model });
+        return await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800, model, deleteSession: o.deleteSession === true });
       }
     };
     const rawKey = str(data.answer).trim();
@@ -78400,85 +79805,95 @@ class QuestionTrackerPlugin extends Plugin {
     const onProgress = typeof o.onProgress === "function" ? o.onProgress : null;
     const shouldStop = typeof o.shouldStop === "function" ? o.shouldStop : null;
     const onNotice = typeof o.onNotice === "function" ? o.onNotice : null;
-    const checkOptions = { shouldStop, onNotice };
+    const checkOptions = { shouldStop, onNotice, deleteSession: true };
     const mode = normalizeVerificationMode(this.settings.ai.verification);
     const model = this.aiModelLabel("verification");
     const date = localDate();
     let checked = 0;
     let dropped = 0;
     let failed = 0;
-    let position = 0;
-    for (const item of list) {
-      if (shouldStop && shouldStop()) break;
-      if (!item || typeof item !== "object") continue;
-      position++;
-      if (onProgress) onProgress(position, list.length);
-      const answerText = str(item.answer).trim();
-      const quality = checkDistractorQuality(item);
-      if (!quality.ok) {
-        // Structural distractor defects are never written, even in "mark"
-        // mode: a question with an invalid option is not usable practice.
-        item.verification = {
-          status: "mismatch",
-          match: false,
-          reasons: quality.reasons,
-          answer: "",
-          key: answerText,
-          model: "local quality rule",
-          date,
-          drop: true,
-          quality: true,
-        };
-        checked++;
-        dropped++;
-        failed++;
-        continue;
+    const asked = Number(o.concurrency);
+    const slots = Number.isFinite(asked) && asked > 0 ? Math.max(1, Math.min(4, Math.floor(asked))) : checkConcurrency(this.settings && this.settings.ai);
+    let nextIndex = 0;
+    const checkOne = async () => {
+      for (;;) {
+        if (shouldStop && shouldStop()) return;
+        const index = nextIndex++;
+        if (index >= list.length) return;
+        const item = list[index];
+        if (!item || typeof item !== "object") continue;
+        // Report when a check starts, not when it lands: the import window
+        // names the answer being checked, and a stop between notes must not
+        // report a check that was never sent.
+        if (onProgress) onProgress(index + 1, list.length);
+        const answerText = str(item.answer).trim();
+        const quality = checkDistractorQuality(item);
+        if (!quality.ok) {
+          // Structural distractor defects are never written, even in "mark"
+          // mode: a question with an invalid option is not usable practice.
+          item.verification = {
+            status: "mismatch",
+            match: false,
+            reasons: quality.reasons,
+            answer: "",
+            key: answerText,
+            model: "local quality rule",
+            date,
+            drop: true,
+            quality: true,
+          };
+          checked++;
+          dropped++;
+          failed++;
+          continue;
+        }
+        const numeric = Number(answerText.replace(/[^0-9+-.eE]/g, ""));
+        if (!answerText || (!(Array.isArray(item.choices) && item.choices.length) && !Number.isFinite(numeric))) {
+          item.verification = { status: "unchecked", match: null, answer: "", key: answerText, model, date, drop: false };
+          continue;
+        }
+        try {
+          let result = await this.verifyQuestionDraft(item, checkOptions);
+          // One disagreement is not proof. Put it to two more blind checks and
+          // verify only on a real majority, so a single odd reply does not cost a
+          // correct note its answer and a genuinely wrong one is named.
+          if (!result.match) result = await this.verifyByConsensus(item, result, checkOptions);
+          const status = result.match ? "match" : "mismatch";
+          // Name the panel when it voted, so a note says which AIs checked it.
+          const votedBy =
+            result.method === "consensus"
+              ? [model, ...normalizePanelModels(this.settings.ai && this.settings.ai.verifyPanelModels)].filter(Boolean).join(" + ").slice(0, 200)
+              : model;
+          item.verification = {
+            status,
+            match: result.match,
+            answer: result.answer,
+            key: result.key,
+            confidence: result.confidence,
+            model: votedBy,
+            date,
+            method: result.method,
+            votes: result.votes,
+            drop: !result.match && mode === "drop",
+          };
+          checked++;
+          if (item.verification.drop) dropped++;
+        } catch (e) {
+          item.verification = {
+            status: "error",
+            match: null,
+            answer: "",
+            key: str(item.answer).trim(),
+            error: str(e && e.message ? e.message : e),
+            model,
+            date,
+            drop: false,
+          };
+          failed++;
+        }
       }
-      const numeric = Number(answerText.replace(/[^0-9+-.eE]/g, ""));
-      if (!answerText || (!(Array.isArray(item.choices) && item.choices.length) && !Number.isFinite(numeric))) {
-        item.verification = { status: "unchecked", match: null, answer: "", key: answerText, model, date, drop: false };
-        continue;
-      }
-      try {
-        let result = await this.verifyQuestionDraft(item, checkOptions);
-        // One disagreement is not proof. Put it to two more blind checks and
-        // verify only on a real majority, so a single odd reply does not cost a
-        // correct note its answer and a genuinely wrong one is named.
-        if (!result.match) result = await this.verifyByConsensus(item, result, checkOptions);
-        const status = result.match ? "match" : "mismatch";
-        // Name the panel when it voted, so a note says which AIs checked it.
-        const votedBy =
-          result.method === "consensus"
-            ? [model, ...normalizePanelModels(this.settings.ai && this.settings.ai.verifyPanelModels)].filter(Boolean).join(" + ").slice(0, 200)
-            : model;
-        item.verification = {
-          status,
-          match: result.match,
-          answer: result.answer,
-          key: result.key,
-          confidence: result.confidence,
-          model: votedBy,
-          date,
-          method: result.method,
-          votes: result.votes,
-          drop: !result.match && mode === "drop",
-        };
-        checked++;
-        if (item.verification.drop) dropped++;
-      } catch (e) {
-        item.verification = {
-          status: "error",
-          match: null,
-          answer: "",
-          key: str(item.answer).trim(),
-          error: str(e && e.message ? e.message : e),
-          model,
-          date,
-          drop: false,
-        };
-        failed++;
-      }
-    }
+    };
+    await Promise.all(Array.from({ length: Math.min(slots, Math.max(list.length, 1)) }, () => checkOne()));
     return { checked, dropped, failed, mode };
   }
 
@@ -78506,7 +79921,7 @@ class QuestionTrackerPlugin extends Plugin {
       if (typeof o.shouldStop === "function" && o.shouldStop()) break;
       const model = panelModelFor(models, i);
       try {
-        const again = await this.verifyQuestionDraft(item, { model, noRetry: true, shouldStop: o.shouldStop, onNotice: o.onNotice });
+        const again = await this.verifyQuestionDraft(item, { model, noRetry: true, shouldStop: o.shouldStop, onNotice: o.onNotice, deleteSession: o.deleteSession === true });
         votes.push({ answer: str(again.answer).trim() });
       } catch (e) {
         votes.push({ answer: "" });
@@ -82429,11 +83844,21 @@ ${body}
         const body = { parts: [{ type: "text", text: (Array.isArray(messages) ? messages : []).map((m) => str(m && m.content)).join("\n\n") }], system };
         const parsed = modelFromString(model);
         if (parsed) body.model = parsed;
-        await oc.send(session.id, body);
+        // A blind check may think for many minutes with no visible output, so
+        // a slow model is given more silence allowance than an agent send.
+        const idleMs = feature === "verification" ? VERIFY_IDLE_TIMEOUT_MS : 0;
+        await oc.send(session.id, body, idleMs > 0 ? { idleMs } : undefined);
         const turns = partsToTurns(await oc.messages(session.id));
         const last = [...turns].reverse().find((turn) => turn.role === "assistant");
         const text = last ? last.texts.join("\n").trim() : "";
         if (!text) throw new Error("OpenCode returned an empty reply.");
+        if (o.deleteSession === true && typeof oc.deleteSession === "function") {
+          try {
+            await oc.deleteSession(session.id);
+          } catch (cleanupError) {
+            /* the session already ended or the server never tracked it */
+          }
+        }
         return text;
       }
       const client = new ApiClient(ai, this.app, { model });
@@ -108145,6 +109570,7 @@ const { API_PRESETS, ApiClient, friendlyApiError } = require("./api-client");
 const { localModelGuide } = require("./local-models");
 const { errorDetail, str } = require("./util");
 const { OPENCODE_REPO, PROVIDERS } = require("./opencode-manager");
+const { normalizeConcurrency } = require("./overnight-checks");
 const { HEALTH_TIMEOUT_MS } = require("./opencode-client");
 const { fvals, hasFilters } = require("./filters");
 const { NameModal } = require("./modals");
@@ -109081,6 +110507,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           .setDynamicTooltip()
           .onChange(async (v) => {
             ai.thinkFirstSeconds = normalizeThinkFirstSeconds(v);
+            await this.plugin.save();
+          })
+      );
+    new Setting(section)
+      .setName("Simultaneous answer checks")
+      .setDesc("How many blind answer checks run at once when notes are verified (1-4). Two is the default: a second pass still finishes overnight, and the provider sees no more parallel load than a small batch.")
+      .addSlider((s) =>
+        s
+          .setLimits(1, 4, 1)
+          .setValue(normalizeConcurrency(ai.checkConcurrency))
+          .setDynamicTooltip()
+          .onChange(async (v) => {
+            ai.checkConcurrency = normalizeConcurrency(v);
             await this.plugin.save();
           })
       );
@@ -137896,6 +139335,29 @@ QuestionTrackerPlugin.__test = {
   aiWrites,
   weakSpot,
   answerVerification,
+  // Lazy: keeps the import prompt testable without loading the agent surface.
+  get importer() {
+    return require("./importer");
+  },
+  // Lazy: keeps the overnight check queue out of the startup path.
+  get overnightChecks() {
+    return require("./overnight-checks");
+  },
+  // Lazy: keeps the overnight run journal out of the startup path.
+  get overnightRun() {
+    return require("./overnight-run");
+  },
+  // Lazy: the unattended snapshot is only exercised by its own tests.
+  get importModal() {
+    return require("./import-modal");
+  },
+  // Lazy: keeps the verification pass out of the startup path.
+  get answerCheckQueue() {
+    return require("./answer-check-queue");
+  },
+  get FlaggedAnswersModal() {
+    return require("./flagged-answers-modal").FlaggedAnswersModal;
+  },
   computedVerification,
   figures,
   calculator,
