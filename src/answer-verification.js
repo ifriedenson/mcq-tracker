@@ -22,12 +22,13 @@ function buildBlindVerificationPrompt(data) {
     return {
       system:
         "You are an independent exam answer checker. Solve the question yourself. " +
-        "Do not assume any answer is correct and do not ask for the answer key. Return only JSON.",
+        "Do not assume any answer is correct and do not ask for the answer key. " +
+        "Do not use any tools. Answer from the question alone. Return only JSON.",
       user: [
         "QUESTION:",
         str(d.question).trim(),
         "",
-        'Return {"answer":"42","confidence":"high|medium|low","reason":"one short sentence"}.',
+        'Return {"answer":"<number>","confidence":"high|medium|low","reason":"one short sentence"}.',
         "Answer with the value only, without units or explanation.",
       ].join("\n"),
     };
@@ -36,7 +37,8 @@ function buildBlindVerificationPrompt(data) {
   return {
     system:
       "You are an independent exam answer checker. Solve the question yourself from the question and choices. " +
-      "Do not assume any answer is correct and do not ask for the answer key. Return only JSON.",
+      "Do not assume any answer is correct and do not ask for the answer key. " +
+      "Do not use any tools. Answer from the question alone. Return only JSON.",
     user: [
       "QUESTION:",
       str(d.question).trim(),
@@ -49,8 +51,8 @@ function buildBlindVerificationPrompt(data) {
       }),
       "",
       multiple
-        ? 'Return {"answer":"A, C","confidence":"high|medium|low","reason":"one short sentence"}.'
-        : 'Return {"answer":"B","confidence":"high|medium|low","reason":"one short sentence"}.',
+        ? 'Return {"answer":"<letters>","confidence":"high|medium|low","reason":"one short sentence"}.'
+        : 'Return {"answer":"<letter>","confidence":"high|medium|low","reason":"one short sentence"}.',
       multiple ? "Use every letter that applies, separated by commas." : "Use exactly one letter from A to the last choice.",
     ].join("\n"),
   };

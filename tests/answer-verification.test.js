@@ -18,6 +18,27 @@ test("answer verification: the prompt shows choices but never the stored key", (
   assert.doesNotMatch(prompt.user, /stored answer/i);
 });
 
+test("answer verification: the check prompt forbids tools and shows no echoable example answer", () => {
+  // Regression: a blind check ran on the full build agent, used bash, then
+  // went silent, wedging a multi-file import on "Checking answer...". The
+  // check needs no tools, and its example must not be a letter a model can echo.
+  const single = verify.buildBlindVerificationPrompt({
+    question: "Who was first?",
+    choices: [{ letter: "A", text: "x" }, { letter: "B", text: "y" }],
+  });
+  assert.match(single.system, /do not use .*tools/i);
+  assert.doesNotMatch(single.user, /"answer":"[A-H]/);
+  const multi = verify.buildBlindVerificationPrompt({
+    question: "Pick both.",
+    choices: [{ letter: "A", text: "x" }, { letter: "B", text: "y" }],
+    multiple: true,
+  });
+  assert.doesNotMatch(multi.user, /"answer":"[A-H]/);
+  const numeric = verify.buildBlindVerificationPrompt({ question: "How many?" });
+  assert.match(numeric.system, /do not use .*tools/i);
+  assert.doesNotMatch(numeric.user, /"answer":"[0-9]/);
+});
+
 test("answer verification: replies are read as letters with optional confidence", () => {
   assert.equal(verify.parseBlindVerification('{"answer":"B","confidence":"high"}').answer, "B");
   assert.equal(verify.parseBlindVerification("```json\n{\"answer\":\"c\"}\n```").answer, "C");

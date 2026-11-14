@@ -6671,12 +6671,13 @@ function buildBlindVerificationPrompt(data) {
     return {
       system:
         "You are an independent exam answer checker. Solve the question yourself. " +
-        "Do not assume any answer is correct and do not ask for the answer key. Return only JSON.",
+        "Do not assume any answer is correct and do not ask for the answer key. " +
+        "Do not use any tools. Answer from the question alone. Return only JSON.",
       user: [
         "QUESTION:",
         str(d.question).trim(),
         "",
-        'Return {"answer":"42","confidence":"high|medium|low","reason":"one short sentence"}.',
+        'Return {"answer":"<number>","confidence":"high|medium|low","reason":"one short sentence"}.',
         "Answer with the value only, without units or explanation.",
       ].join("\n"),
     };
@@ -6685,7 +6686,8 @@ function buildBlindVerificationPrompt(data) {
   return {
     system:
       "You are an independent exam answer checker. Solve the question yourself from the question and choices. " +
-      "Do not assume any answer is correct and do not ask for the answer key. Return only JSON.",
+      "Do not assume any answer is correct and do not ask for the answer key. " +
+      "Do not use any tools. Answer from the question alone. Return only JSON.",
     user: [
       "QUESTION:",
       str(d.question).trim(),
@@ -6698,8 +6700,8 @@ function buildBlindVerificationPrompt(data) {
       }),
       "",
       multiple
-        ? 'Return {"answer":"A, C","confidence":"high|medium|low","reason":"one short sentence"}.'
-        : 'Return {"answer":"B","confidence":"high|medium|low","reason":"one short sentence"}.',
+        ? 'Return {"answer":"<letters>","confidence":"high|medium|low","reason":"one short sentence"}.'
+        : 'Return {"answer":"<letter>","confidence":"high|medium|low","reason":"one short sentence"}.',
       multiple ? "Use every letter that applies, separated by commas." : "Use exactly one letter from A to the last choice.",
     ].join("\n"),
   };
@@ -61464,6 +61466,14 @@ class OpenCodeClient {
         /* a failed progress read is not progress; the silence allowance decides */
       }
       if (Date.now() - lastActivity >= idleMs) {
+        // A run that went quiet may still be alive on the server (a model that
+        // wandered into tool calls, for example), so stop it before reporting
+        // the silence: otherwise a retry stacks onto a zombie session.
+        try {
+          await this.abort(id);
+        } catch (abortError) {
+          /* the abort is cleanup; the silence is the error */
+        }
         throw new Error(
           `OpenCode accepted the request but wrote nothing new for ${durationLabel(idleMs)}. Check that OpenCode is still running and a provider is connected, then try again.`
         );
@@ -137000,6 +137010,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.302.1",
+    date: "November 14, 2026",
+    title: "Multi-PDF imports finish",
+    summary:
+      "A blind answer check that wandered off — using shell tools, then going silent — held a multi-file import on \"Checking answer...\" for tens of minutes. Checks now run with no tools, the example answers can no longer be echoed, and a silent run is stopped before it is reported so the batch moves on.",
+    highlights: [
+      {
+        title: "Checks use no tools",
+        body: "The blind check is a pure question-and-answer task, so the prompt now forbids tool use. A model can no longer list the vault or run shell commands in the middle of a check.",
+      },
+      {
+        title: "Examples nothing can echo",
+        body: "The prompt's example answers were literal letters and numbers a lazy model could repeat. They are neutral placeholders now, so an echoed example can never verify a note.",
+      },
+      {
+        title: "Silent runs are stopped",
+        body: "When a check goes quiet past its allowance, its server session is aborted before the silence is reported, so a retry never stacks onto a zombie run and the import keeps moving.",
+      },
+      {
+        title: "The batch keeps moving",
+        body: "A check that still fails is marked as an error with needs-review instead of holding the batch, and the completion summary keeps its per-file note counts.",
+      },
+    ],
+  },
   {
     version: "1.302.0",
     date: "November 14, 2026",

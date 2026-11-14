@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.302.1",
+    date: "November 14, 2026",
+    title: "Multi-PDF imports finish",
+    summary:
+      "A blind answer check that wandered off — using shell tools, then going silent — held a multi-file import on \"Checking answer...\" for tens of minutes. Checks now run with no tools, the example answers can no longer be echoed, and a silent run is stopped before it is reported so the batch moves on.",
+    highlights: [
+      {
+        title: "Checks use no tools",
+        body: "The blind check is a pure question-and-answer task, so the prompt now forbids tool use. A model can no longer list the vault or run shell commands in the middle of a check.",
+      },
+      {
+        title: "Examples nothing can echo",
+        body: "The prompt's example answers were literal letters and numbers a lazy model could repeat. They are neutral placeholders now, so an echoed example can never verify a note.",
+      },
+      {
+        title: "Silent runs are stopped",
+        body: "When a check goes quiet past its allowance, its server session is aborted before the silence is reported, so a retry never stacks onto a zombie run and the import keeps moving.",
+      },
+      {
+        title: "The batch keeps moving",
+        body: "A check that still fails is marked as an error with needs-review instead of holding the batch, and the completion summary keeps its per-file note counts.",
+      },
+    ],
+  },
+  {
     version: "1.302.0",
     date: "November 14, 2026",
     title: "Overnight imports",

@@ -265,6 +265,14 @@ class OpenCodeClient {
         /* a failed progress read is not progress; the silence allowance decides */
       }
       if (Date.now() - lastActivity >= idleMs) {
+        // A run that went quiet may still be alive on the server (a model that
+        // wandered into tool calls, for example), so stop it before reporting
+        // the silence: otherwise a retry stacks onto a zombie session.
+        try {
+          await this.abort(id);
+        } catch (abortError) {
+          /* the abort is cleanup; the silence is the error */
+        }
         throw new Error(
           `OpenCode accepted the request but wrote nothing new for ${durationLabel(idleMs)}. Check that OpenCode is still running and a provider is connected, then try again.`
         );

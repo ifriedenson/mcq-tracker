@@ -526,6 +526,29 @@ test("OpenCode: a blocking send that writes nothing new is bounded with a next s
   }
 });
 
+test("OpenCode: a send that runs out of silence allowance aborts the runaway session", async () => {
+  // Regression: a check whose model wandered off left its server-side run
+  // going after the idle error, so a retry stacked onto a zombie session.
+  const oc = new T.OpenCodeClient({ url: "http://127.0.0.1:1" }, { timeoutMs: 200 });
+  const calls = [];
+  obsidian.requestImpl = async (req) => {
+    calls.push(`${req.method} ${String(req.url).split("/").slice(-2).join("/")}`);
+    if (req.method === "GET") return { status: 200, json: [{ info: { role: "user" } }] };
+    if (String(req.url).includes("/abort")) return { status: 200, json: {} };
+    if (req.method === "POST") return new Promise(() => {});
+    return { status: 200, json: {} };
+  };
+  try {
+    await assert.rejects(() => oc.send("s1", { parts: [] }, { idleMs: 40 }), (e) => {
+      assert.match(e.message, /OpenCode accepted the request but wrote nothing new for 40ms/);
+      return true;
+    });
+    assert.ok(calls.some((c) => c === "POST s1/abort"), "the stuck session was aborted, got: " + calls.join(", "));
+  } finally {
+    obsidian.requestImpl = null;
+  }
+});
+
 test("OpenCode: a long send that keeps writing to the session is not cut off", async () => {
   const oc = new T.OpenCodeClient({ url: "http://127.0.0.1:1" }, { timeoutMs: 200 });
   let reads = 0;
