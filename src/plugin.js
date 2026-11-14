@@ -2839,13 +2839,25 @@ class QuestionTrackerPlugin extends Plugin {
     if (Platform.isDesktopApp && workspace && typeof workspace.openPopoutLeaf === "function") {
       try {
         const open = typeof workspace.getLeavesOfType === "function" ? workspace.getLeavesOfType(VIEW_TYPE_IMPORT_WINDOW) : [];
-        if (open && open.length) {
+        const live = this.importSession && this.importSession.modal && !this.importSession.modal.closed;
+        if (open && open.length && !opts.unattended) {
           workspace.revealLeaf(open[0]);
           return;
         }
+        if (opts.unattended && open && open.length && !live) {
+          // A reload restores the import-window leaf but its modal dies with
+          // the old renderer. Reattaching would stall the resumed run with no
+          // window at all, so close the dead leaves and open a live one.
+          for (const leaf of open) {
+            try {
+              if (leaf && typeof leaf.detach === "function") leaf.detach();
+            } catch (e) {
+              /* a half-restored leaf may already be gone */
+            }
+          }
+        }
         if (this._importWindowOpening) return;
         this._importWindowOpening = true;
-        const live = this.importSession && this.importSession.modal && !this.importSession.modal.closed;
         if (!live) this.pendingImportOptions = opts;
         const leaf = workspace.openPopoutLeaf({ size: { width: 780, height: 900 } });
         if (leaf && typeof leaf.setViewState === "function") {

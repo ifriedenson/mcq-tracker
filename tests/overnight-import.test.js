@@ -281,6 +281,37 @@ test("overnight import: the setup screen starts the same unattended run", async 
   assert.ok(questionNotes(app).length >= 1, "the button starts the unattended run");
 });
 
+test("overnight import: a reload does not reattach the run to the dead import leaf", async () => {
+  const state = await setup();
+  const { plugin, app } = state;
+  const bytes = await textPdf();
+  const run = T.overnightRun.makeOvernightRun([{ sourcePath: "a.pdf", hash: "h" }]);
+  // After a reload Obsidian restores the import-window leaf, but its modal is
+  // gone with the old renderer. The resumed run must not reattach to it.
+  const dead = { app, view: {}, detached: false, detach() { this.detached = true; } };
+  const dom = makeDom();
+  const fresh = { app, view: null };
+  fresh.setViewState = async () => {
+    const view = plugin.views[VIEW_TYPE_IMPORT_WINDOW](fresh);
+    fresh.view = view;
+    view.contentEl = dom.root;
+    view.containerEl = dom.root;
+    await view.onOpen();
+  };
+  let revealed = 0;
+  app.workspace.getLeavesOfType = (type) => (type === VIEW_TYPE_IMPORT_WINDOW ? [dead] : []);
+  app.workspace.openPopoutLeaf = () => fresh;
+  app.workspace.revealLeaf = () => { revealed++; };
+  plugin.importSession = { modal: { closed: true } };
+  plugin.openPdfImport({ files: [file("a.pdf", bytes)], unattended: true, overnightRun: run });
+  await waitFor(() => fresh.view && fresh.view.modal, "the fresh import window");
+  assert.equal(revealed, 0, "a dead leaf is not reattached");
+  assert.equal(dead.detached, true, "the dead leaf is closed");
+  assert.equal(fresh.view.modal.unattended, true, "the resumed run gets a live modal");
+  await waitFor(() => fresh.view.modal.closed, "the resumed run to finish");
+  assert.ok(questionNotes(app).length >= 1, "the resumed run writes its notes");
+});
+
 test("overnight import: Stop ends the run and the journal keeps the queue", async () => {
   const state = await setup();
   const { plugin, app } = state;
