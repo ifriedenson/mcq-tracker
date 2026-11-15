@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 452 groups, 3151 exports. **Commands:** 239. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 454 groups, 3167 exports. **Commands:** 240. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -35,6 +35,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `EpubReaderModal` | 0 | `tests/epub.test.js` |
 | `FindQuestionModal` | 0 | `tests/views.test.js` |
 | `FlaggedAnswersModal` | 0 | `tests/flagged-answers.test.js` |
+| `FocusDayView` | 0 | `tests/focus-day.test.js` |
 | `FocusLogModal` | 0 | `tests/feature-surfaces.test.js` |
 | `FolderFilterSuggest` | 0 | `tests/views.test.js` |
 | `FrqGraderModal` | 0 | `tests/frq-handwriting.test.js`, `tests/frq.test.js` |
@@ -58,7 +59,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `PdfAnnotationModal` | 0 | `tests/feature-surfaces.test.js` |
 | `PdfImportModal` | 0 | `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/import-batch-window.test.js`, `tests/import-complete-details.test.js`, `tests/import-edge-robustness.test.js`, `tests/import-existing-folder.test.js`, `tests/import-preflight.test.js`, `tests/import-properties.test.js`, `tests/import-real-pdf.test.js`, `tests/import-source-routing.test.js`, `tests/import-source.test.js`, `tests/views.test.js` |
 | `PdfInkModal` | 0 | `tests/pdf-backlinks.test.js`, `tests/pdf-ink.test.js` |
-| `PomodoroView` | 0 | `tests/mobile-module-layout.test.js`, `tests/pomodoro-view.test.js` |
+| `PomodoroView` | 0 | `tests/focus-day.test.js`, `tests/mobile-module-layout.test.js`, `tests/pomodoro-view.test.js` |
 | `PracticeView` | 0 | `tests/closed-book.test.js`, `tests/empty-state.test.js`, `tests/exam-ready.test.js`, `tests/hints.test.js`, `tests/import-batch-window.test.js`, `tests/import-real-pdf.test.js`, `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/mobile-practice.test.js`, `tests/modules.test.js`, `tests/needs-fixing.test.js`, `tests/practice-chrome.test.js`, `tests/practice-fullscreen.test.js`, `tests/practice-keys.test.js`, `tests/practice-tools.test.js`, `tests/study-modes.test.js`, `tests/study-skin.test.js`, `tests/study-status.test.js`, `tests/views.test.js` |
 | `QUICK_COUNT_OPTIONS` | 3 | `tests/uncited-groups.test.js` |
 | `QUICK_START_URL` | 0 | `tests/empty-state.test.js` |
@@ -230,7 +231,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `fmtDate` | 0 | `tests/card-cram.test.js`, `tests/cards.test.js`, `tests/practice-sheet.test.js`, `tests/results-export.test.js`, `tests/uncited-groups.test.js` |
 | `fmtDateTime` | 0 | `tests/uncited-groups.test.js` |
 | `fmtPct` | 0 | `tests/stats.test.js` |
-| `focus` | 15 | `tests/focus.test.js`, `tests/tag-timer.test.js` |
+| `focus` | 15 | `tests/focus-day.test.js`, `tests/focus.test.js`, `tests/tag-timer.test.js` |
+| `focusDay` | 15 | `tests/focus-day.test.js` |
 | `folderChain` | 0 | `tests/filters.test.js` |
 | `folderLabel` | 0 | `tests/filters.test.js` |
 | `friendlyApiError` | 0 | `tests/feature-surfaces.test.js` |
@@ -268,7 +270,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `hotkeyAudit` | 6 | `tests/hotkey-audit.test.js` |
 | `importAiState` | 0 | `tests/ai-import-help.test.js` |
 | `importModal` | 3 | `tests/overnight-import.test.js` |
-| `importer` | 22 | `tests/importer-prompt.test.js` |
+| `importer` | 23 | `tests/importer-prompt.test.js` |
 | `indexOfficialIds` | 0 | `tests/import.test.js` |
 | `inferMode` | 0 | `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/question-types.test.js` |
 | `intervalPreview` | 4 | `tests/interval-preview.test.js` |
@@ -591,6 +593,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `canvas-query-report` | Canvas: report the active board's query groups | `reportCanvasQueryGroups` | `tests/canvas-query-groups.test.js` |
 | `canvas-query-apply` | Canvas: fit the active board's query groups around their matches | `applyCanvasQueryGroups` | `tests/canvas-query-groups.test.js` |
 | `open-task-list` | Open the task list | `activateTaskList` | `tests/plugin.test.js`, `tests/task-list.test.js` |
+| `open-focus-day` | Open Focus day | `activateFocusDay` | `tests/focus-day.test.js` |
 | `open-reading-library` | Reading library: open the bookshelf | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/time-blocks-kairos.test.js` |
 | `new-feynman-cycle` | Feynman Learning: start a cycle | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |
 | `build-recall-queue` | Recall Scheduler: build a queue | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |

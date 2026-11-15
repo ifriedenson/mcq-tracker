@@ -4,7 +4,7 @@ const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
 const { releaseCommandPaletteShortcut } = require("./hotkey-cleanup");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_REVIEW_SIDEBAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST, VIEW_TYPE_WEB_BROWSER, VIEW_TYPE_RECENT_FILES, VIEW_TYPE_AGENT, VIEW_TYPE_IMPORT_WINDOW } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_REVIEW_SIDEBAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_FOCUS_DAY, VIEW_TYPE_TASK_LIST, VIEW_TYPE_WEB_BROWSER, VIEW_TYPE_RECENT_FILES, VIEW_TYPE_AGENT, VIEW_TYPE_IMPORT_WINDOW } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { parseQuickPracticeUri } = require("./quick-practice");
 const practiceFullscreen = require("./practice-fullscreen");
@@ -314,6 +314,8 @@ const reviewSession = () => (_reviewSession || (_reviewSession = require("./revi
 const durability = require("./durability");
 const studyCounters = require("./study-counters");
 const pomodoro = require("./pomodoro");
+const { FocusDayView } = require("./focus-day-view");
+const focusDay = require("./focus-day");
 const { PomodoroView } = require("./pomodoro-view");
 const { applySpacedReview, buildSpacedQueue, normalizeSpacedEverything, renderSpacedTemplate, spacedCaptureText } = require("./spaced-everything");
 const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
@@ -472,6 +474,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_LOCAL_EVENTS, (leaf) => new LocalEventsView(leaf, this));
     this.registerView(VIEW_TYPE_POMODORO, (leaf) => new PomodoroView(leaf, this));
     this.registerView(VIEW_TYPE_TASK_LIST, (leaf) => new TaskListView(leaf, this));
+    this.registerView(VIEW_TYPE_FOCUS_DAY, (leaf) => new FocusDayView(leaf, this));
     this.registerView(VIEW_TYPE_WEB_BROWSER, (leaf) => new (require("./web-browser-view").WebBrowserView)(leaf, this));
     this.registerView(VIEW_TYPE_RECENT_FILES, (leaf) => new RecentFilesView(leaf, this));
     const { AgentView: StudyAgentView } = require("./agent-view");
@@ -704,6 +707,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "canvas-query-report", name: "Canvas: report the active board's query groups", callback: () => this.reportCanvasQueryGroups() });
     this.addCommand({ id: "canvas-query-apply", name: "Canvas: fit the active board's query groups around their matches", callback: () => this.applyCanvasQueryGroups() });
     this.addCommand({ id: "open-task-list", name: "Open the task list", callback: () => this.activateTaskList() });
+    this.addCommand({ id: "open-focus-day", name: "Open Focus day", callback: () => this.activateFocusDay() });
     this.addCommand({ id: "open-reading-library", name: "Reading library: open the bookshelf", callback: () => this.activateStudyWorkspace("readingLibrary") });
     this.addCommand({ id: "new-feynman-cycle", name: "Feynman Learning: start a cycle", callback: () => this.activateStudyWorkspace("feynman") });
     this.addCommand({ id: "build-recall-queue", name: "Recall Scheduler: build a queue", callback: () => this.activateStudyWorkspace("recall") });
@@ -9476,7 +9480,7 @@ ${body}
 
   refreshPomodoro() {
     this.refreshPomodoroStatus();
-    for (const type of [VIEW_TYPE_POMODORO, VIEW_TYPE_REVIEW_SIDEBAR]) {
+    for (const type of [VIEW_TYPE_POMODORO, VIEW_TYPE_FOCUS_DAY, VIEW_TYPE_REVIEW_SIDEBAR]) {
       for (const leaf of this.app.workspace.getLeavesOfType(type)) {
         if (leaf.view && leaf.view.render) leaf.view.render();
       }
@@ -9565,6 +9569,54 @@ ${body}
       return null;
     }
     return this.activateModuleView(VIEW_TYPE_POMODORO);
+  }
+
+  async activateFocusDay() {
+    return this.activateModuleView(VIEW_TYPE_FOCUS_DAY);
+  }
+
+  /**
+   * Create or open the `YYYY-MM-DD.md` daily note for a calendar day: the
+   * Time blocks daily-note folder when one is set, else the vault root. A
+   * new note starts from the Focus day starter template and opens in a new
+   * tab; an existing note just opens. Never touches any other note.
+   */
+  async openDailyNote(dateKey) {
+    const key = focusDay.validFocusDateKey(dateKey);
+    if (!key) {
+      new Notice("Give a calendar date like 2026-11-15.");
+      return null;
+    }
+    const folder = this.timeBlocksSettings().dailyNoteFolder;
+    const path = focusDay.focusDailyNotePath(key, folder);
+    if (!path) {
+      new Notice("That daily-note folder is not usable. Pick another in Settings, Time blocks.");
+      return null;
+    }
+    let file = this.app.vault.getAbstractFileByPath(path);
+    let created = false;
+    if (!file) {
+      const slash = path.lastIndexOf("/");
+      if (slash > 0) {
+        const dir = path.slice(0, slash);
+        if (!this.app.vault.getAbstractFileByPath(dir)) await this.app.vault.createFolder(dir);
+      }
+      file = await this.app.vault.create(path, focusDay.focusDailyNoteTemplate(key));
+      created = true;
+    }
+    await this.app.workspace.getLeaf(false).openFile(file);
+    return { path, created };
+  }
+
+  /** Inline duration edits from the Pomodoro and Focus day views: clamped to 1–180 minutes, saved at once. */
+  async setPomodoroDurations(value) {
+    const src = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    const next = pomodoro.normalizePomodoroSettings({ ...(this.settings.pomodoro || {}), ...src });
+    if (!next.state.running) next.state = { ...next.state, remainingSec: pomodoro.phaseSeconds(next, next.state.phase), startedAt: 0 };
+    this.settings.pomodoro = next;
+    await this.save();
+    this.refreshPomodoro();
+    return this.pomodoroSnapshot();
   }
 
   onPomodoroToggled() {

@@ -7,6 +7,7 @@ class PomodoroView extends ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
+    this.adjusting = false;
   }
 
   getViewType() {
@@ -52,7 +53,7 @@ class PomodoroView extends ItemView {
     progress.setAttr("aria-valuemax", String(data.phaseSeconds));
     progress.setAttr("aria-valuenow", String(elapsed));
     progress.setAttr("aria-valuetext", `${data.display} remaining`);
-    const fill = progress.createDiv({ cls: `qt-meter-fill qt-pomodoro-progress-fill${data.running ? " is-running" : ""}` });
+    const fill = progress.createDiv({ cls: `qt-meter-fill qt-pomodoro-progress-fill${data.running ? " is-running" : ""}${data.phase === "work" ? "" : " is-break"}` });
     fill.style.width = `${percent}%`;
     if (data.running) {
       fill.style.setProperty("--qt-pomodoro-duration", `${data.phaseSeconds}s`);
@@ -67,10 +68,49 @@ class PomodoroView extends ItemView {
     else actions.createEl("button", { text: data.remaining < data.phaseSeconds ? "Resume" : "Start", cls: "mod-cta" }).addEventListener("click", () => this.plugin.startPomodoro());
     actions.createEl("button", { text: "Reset", cls: "qt-pomodoro-secondary" }).addEventListener("click", () => this.plugin.resetPomodoro());
     actions.createEl("button", { text: "Skip phase", cls: "qt-pomodoro-secondary" }).addEventListener("click", () => this.plugin.skipPomodoro());
+    actions.createEl("button", { text: this.adjusting ? "Close" : "Adjust", cls: "qt-pomodoro-secondary" }).addEventListener("click", () => {
+      this.adjusting = !this.adjusting;
+      this.render();
+    });
     const settings = data.settings;
-    card.createDiv({
-      cls: "qt-hint",
-      text: `Focus ${settings.workMinutes} min · short ${settings.shortBreakMinutes} min · long ${settings.longBreakMinutes} min every ${settings.longBreakEvery} sessions`,
+    if (this.adjusting) this.renderAdjust(card, settings);
+    else {
+      card.createDiv({
+        cls: "qt-hint",
+        text: `Focus ${settings.workMinutes} min · short ${settings.shortBreakMinutes} min · long ${settings.longBreakMinutes} min every ${settings.longBreakEvery} sessions`,
+      });
+    }
+  }
+
+  renderAdjust(card, settings) {
+    const form = card.createDiv({ cls: "qt-pomodoro-adjust" });
+    const fields = [
+      { key: "workMinutes", label: "Focus", value: settings.workMinutes },
+      { key: "shortBreakMinutes", label: "Short break", value: settings.shortBreakMinutes },
+      { key: "longBreakMinutes", label: "Long break", value: settings.longBreakMinutes },
+    ];
+    const inputs = {};
+    for (const field of fields) {
+      const row = form.createDiv({ cls: "qt-pomodoro-adjust-row" });
+      row.createEl("label", { text: `${field.label} (min)` });
+      inputs[field.key] = row.createEl("input", {
+        type: "number",
+        cls: "qt-input",
+        attr: { "aria-label": `${field.label} minutes`, min: "1", max: "180" },
+      });
+      inputs[field.key].value = String(field.value);
+    }
+    const buttons = form.createDiv({ cls: "qt-row qt-pomodoro-actions" });
+    buttons.createEl("button", { text: "Save", cls: "mod-cta" }).addEventListener("click", async () => {
+      const durations = {};
+      for (const field of fields) durations[field.key] = Number(inputs[field.key].value);
+      await this.plugin.setPomodoroDurations(durations);
+      this.adjusting = false;
+      this.render();
+    });
+    buttons.createEl("button", { text: "Cancel", cls: "qt-pomodoro-secondary" }).addEventListener("click", () => {
+      this.adjusting = false;
+      this.render();
     });
   }
 }

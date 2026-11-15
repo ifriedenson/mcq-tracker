@@ -19,6 +19,7 @@ const VIEW_TYPE_REVIEW_SIDEBAR = "question-tracker-review-sidebar";
 const VIEW_TYPE_STUDY_STATS = "question-tracker-study-stats";
 const VIEW_TYPE_LOCAL_EVENTS = "question-tracker-local-events";
 const VIEW_TYPE_POMODORO = "question-tracker-pomodoro";
+const VIEW_TYPE_FOCUS_DAY = "question-tracker-focus-day";
 const VIEW_TYPE_TASK_LIST = "question-tracker-task-list";
 const VIEW_TYPE_WEB_BROWSER = "question-tracker-web-browser";
 const VIEW_TYPE_RECENT_FILES = "question-tracker-recent-files";
@@ -317,6 +318,7 @@ module.exports = {
   VIEW_TYPE_STUDY_STATS,
   VIEW_TYPE_LOCAL_EVENTS,
   VIEW_TYPE_POMODORO,
+  VIEW_TYPE_FOCUS_DAY,
   VIEW_TYPE_TASK_LIST,
   VIEW_TYPE_WEB_BROWSER,
   VIEW_TYPE_RECENT_FILES,

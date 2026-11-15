@@ -61,7 +61,10 @@ function normalizeOvernightRun(raw) {
   const id = str(raw.id).trim();
   if (!id || !files.length) return null;
   const median = Number(raw.checkMedianMs);
-  return {
+  // A parked run must still say why after a reload: the pause reason is
+  // part of the journal, not just the log line.
+  const pauseReason = str(raw.pauseReason).trim().slice(0, 300);
+  const out = {
     id,
     startedAt: Math.max(0, Number(raw.startedAt) || 0),
     date: str(raw.date) || localDate(),
@@ -69,6 +72,8 @@ function normalizeOvernightRun(raw) {
     checkMedianMs: Number.isFinite(median) && median > 0 ? Math.round(median) : 0,
     files,
   };
+  if (pauseReason) out.pauseReason = pauseReason;
+  return out;
 }
 
 function normalizeOvernightRuns(raw) {

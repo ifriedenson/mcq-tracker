@@ -6,6 +6,56 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.303.0",
+    date: "November 15, 2026",
+    title: "Focus day: the calendar, the timer and quick tasks in one pane",
+    summary:
+      "A line-by-line comparison with the Deadline plugin showed its month calendar, Pomodoro timer and task list all live here in deeper forms — except four gaps, now closed: a combined Focus day pane, day-click daily notes, inline timer lengths, and a distinct break bar.",
+    highlights: [
+      {
+        title: "One pane for the day",
+        body: "Open Focus day shows a small month calendar, the Pomodoro timer and a quick task list together. The palette command joins the existing view commands; the timer stays live because the shared refresh path repaints it.",
+      },
+      {
+        title: "Any day opens its daily note",
+        body: "Clicking a calendar day creates or opens that date's YYYY-MM-DD note — the Time blocks daily-note folder when one is set, else the vault root — from a starter template with a Schedule section the planner can sync, opened in a new tab with a short confirmation.",
+      },
+      {
+        title: "Timer lengths, edited where the timer lives",
+        body: "Adjust beside the Pomodoro and Focus day controls edits focus, short and long minutes inline with Save and Cancel, clamped to 1–180 minutes, resetting a paused timer to the new length. Break phases now fill the progress bar green so a glance says which kind of interval is running.",
+      },
+      {
+        title: "Deadline parity, MCQ depth kept",
+        body: "Everything else Deadline does already existed here: the month calendar with classes and exams, work/short/long breaks with counts and optional autostart, a persistent tagged task list with due dates, and the completion chime. The new scratch list is deliberately session-only — a complement, not a second task system — and no Deadline code was reused.",
+      },
+    ],
+  },
+  {
+    version: "1.302.7",
+    date: "November 15, 2026",
+    title: "Notes land in the vault no matter where OpenCode runs",
+    summary:
+      "A 100-file overnight run caught the import agent resolving its note folder against its own working directory: with a server started outside the vault, two finished notes landed beside the vault while the file recorded done with zero notes. The prompt now uses absolute vault paths, and a queue parked mid-write names the reason in the log.",
+    highlights: [
+      {
+        title: "Absolute paths in the agent prompt",
+        body: "The prompt told the agent that paths were relative to the folder it works in, which is only the vault for a server the plugin started itself. With your own server started anywhere else, note writes landed outside the vault. The prompt now passes absolute vault paths and says to use them exactly as written, so they resolve the same from any working directory.",
+      },
+      {
+        title: "A parked queue names its reason",
+        body: "A spent free tier parks the queue mid-write as well as mid-check, but only the checks side recorded why. The write-side park now stores the provider's sentence too, so the morning log reads Paused followed by the reason instead of a bare paused status.",
+      },
+      {
+        title: "Proved on a live 100-file queue",
+        body: "One hundred distinct one-page PDFs ran end to end on the current build against an exhausted free tier: the queue parked with its files pending instead of failing them, the journal kept the one attempted file's state, and the log counted every file. The misplaced notes were found outside the vault with matching content, confirming the diagnosis.",
+      },
+      {
+        title: "The notice says what happened",
+        body: "Parking still ends with one plain sentence naming the spent tier and the wait, and waiting files stay pending so a resume retries them. Files already imported are kept.",
+      },
+    ],
+  },
+  {
     version: "1.302.6",
     date: "November 15, 2026",
     title: "Empty folders from failed imports clean up with one command",

@@ -81,7 +81,7 @@ test("study workspace: every section is available in the phone picker", async ()
 test("pomodoro: reset and skip are explicit secondary controls", async () => {
   const { dom } = await mount(T.PomodoroView);
   const secondary = byClass(dom, "qt-pomodoro-secondary").filter((el) => el.meta.tag === "button");
-  assert.deepEqual(secondary.map((el) => el.meta.text), ["Reset", "Skip phase"]);
+  assert.deepEqual(secondary.map((el) => el.meta.text), ["Reset", "Skip phase", "Adjust"]);
 });
 
 test("assignments: first run is one onboarding panel with the only add action", async () => {

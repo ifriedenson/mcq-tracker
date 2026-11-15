@@ -54,3 +54,30 @@ test("importer prompt: notes are written immediately after one read, before any 
   assert.match(prompt, /Write every note from it, starting immediately/i);
   assert.match(prompt, /Never run a command before the notes exist/i);
 });
+
+test("importer prompt: absolute vault paths survive any server working directory", () => {
+  // Live: a user-run OpenCode server started in $HOME resolved the prompt's
+  // vault-relative note folder against its own directory, so two finished
+  // notes landed outside the vault while the file recorded done with 0 notes.
+  const abs = T.importer.absoluteVaultPath;
+  assert.equal(abs("/vault", "Questions/Unit A"), "/vault/Questions/Unit A");
+  assert.equal(abs("/vault/", "Questions/Unit A/_import-text-ab12.txt"), "/vault/Questions/Unit A/_import-text-ab12.txt");
+  assert.equal(abs("", "Questions/Unit A"), "Questions/Unit A");
+  assert.equal(abs("/vault", "/already/abs.md"), "/already/abs.md");
+  assert.equal(abs("C:\\vault", "Questions\\Unit A"), "C:/vault/Questions/Unit A");
+  assert.equal(abs("/vault", ""), "");
+});
+
+test("importer prompt: paths are given exactly as written, never as relative", () => {
+  const prompt = T.importer.agentPrompt({
+    ...PROMPT_ARGS,
+    textPath: "/vault/Questions/Unit A/_import-text-ab12.txt",
+    docPath: "/vault/Unit A.pdf",
+    imagesDir: "/vault/Questions/Unit A/images",
+    folder: "/vault/Questions/Unit A",
+  });
+  assert.match(prompt, /Read this one file: \/vault\/Questions\/Unit A\/_import-text-ab12\.txt/);
+  assert.match(prompt, /Create the notes in this folder, which already exists: \/vault\/Questions\/Unit A/);
+  assert.match(prompt, /exactly as written/);
+  assert.equal(prompt.includes("relative to the folder"), false);
+});

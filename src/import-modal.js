@@ -7,7 +7,7 @@ const { ensureFolder, localDate, sleep, str, uniquePath } = require("./util");
 const { chunkPages, readPdfPages, slugId } = require("./pdf");
 const { DOCUMENT_EXTENSIONS, documentBaseName, documentKind, documentLabel, extensionOf } = require("./documents");
 const { MAX_SOURCE_BYTES, readDocumentSource, readPagesForSource } = require("./document-source");
-const { AGENT_SYSTEM, agentPrompt, aiFlags, answerKeyText, buildReportMarkdown, carryPassages, ensureProviders, extractNotesChunk, finalizeNote, groupIssues, mergeNotes, modelFromMessages, noteIssues, parseNote } = require("./importer");
+const { AGENT_SYSTEM, absoluteVaultPath, agentPrompt, aiFlags, answerKeyText, buildReportMarkdown, carryPassages, ensureProviders, extractNotesChunk, finalizeNote, groupIssues, mergeNotes, modelFromMessages, noteIssues, parseNote } = require("./importer");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { findDuplicateIds, indexOfficialIds, officialIdOf } = require("./filters");
 const { friendlyApiError } = require("./api-client");
@@ -1664,8 +1664,14 @@ class PdfImportModal extends QtModal {
     this.sid = s && s.id;
     if (!this.sid) throw new Error("OpenCode did not return a session id.");
     const ai = p.settings.ai;
+    // A server the user runs can start in any directory, and the agent
+    // resolves note paths against its own working directory: vault-relative
+    // paths then land outside the vault while the import records zero notes.
+    // Absolute paths resolve the same everywhere, so the prompt uses them.
+    const vaultRoot = typeof p.vaultPath === "function" ? p.vaultPath() : "";
+    const abs = (path) => absoluteVaultPath(vaultRoot, path);
     const body = {
-      parts: [{ type: "text", text: agentPrompt({ name: sourceName, textPath, docPath: sourcePath, imagesDir, folder, prefix, meta: this.meta, kind }) }],
+      parts: [{ type: "text", text: agentPrompt({ name: sourceName, textPath: abs(textPath), docPath: abs(sourcePath), imagesDir: abs(imagesDir), folder: abs(folder), prefix, meta: this.meta, kind }) }],
       system: AGENT_SYSTEM,
     };
     const configured = str(ai.model).trim();
@@ -2325,6 +2331,8 @@ class PdfImportModal extends QtModal {
     const run = this.overnightRun;
     if (!this.unattended || !run) return false;
     if (!isCapMessage(text)) return false;
+    const why = str(text).trim().slice(0, 300);
+    if (why) run.pauseReason = why;
     this.plugin.storeOvernightRunState(run, "paused");
     this.plugin.writeOvernightLog(run, []).catch(() => {});
     const summary = this.plugin.overnightSummaryText(run, null);

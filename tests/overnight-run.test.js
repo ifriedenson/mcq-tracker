@@ -114,3 +114,16 @@ test("overnight runs: a run stranded mid-checks still resumes", async () => {
   assert.equal(runs().unfinishedOvernightRun(plugin.app).id, run.id, "done files with unchecked notes keep the run alive");
   assert.equal(runs().unfinishedOvernightRun(plugin.app, true).id, run.id, "the manual command finds it too");
 });
+
+test("overnight runs: a parked run keeps its pause reason through storage", async () => {
+  // Live: the write-side park wrote the reason into the log but the journal
+  // round-trip dropped it, so the stored run said paused with no reason.
+  const plugin = await setup();
+  const run = runs().makeOvernightRun([{ sourcePath: "a.pdf", hash: "h1" }]);
+  run.status = "paused";
+  run.pauseReason = "Free usage exceeded, subscribe to Go";
+  runs().storeOvernightRun(plugin.app, run);
+  const again = runs().latestOvernightRun(plugin.app);
+  assert.equal(again.status, "paused");
+  assert.equal(again.pauseReason, "Free usage exceeded, subscribe to Go");
+});

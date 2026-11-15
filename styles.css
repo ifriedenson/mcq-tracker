@@ -17603,3 +17603,45 @@ body.theme-dark.theme-dark {
 .qt-settings-layout textarea {
   min-height: 44px;
 }
+
+/* Focus day: mini calendar + timer + session tasks in one pane. Theme-aware like the rest. */
+.qt-focus-day { display: flex; flex-direction: column; gap: 12px; }
+.qt-focus-card { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; padding: 16px; border: 1px solid var(--background-modifier-border); border-radius: var(--qt-radius-sm); background: var(--background-secondary); }
+.qt-focus-title { margin: 0; font-size: var(--qt-type-lg); }
+.qt-focus-nav { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 8px; }
+.qt-focus-month { font-weight: 600; }
+.qt-focus-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; width: 100%; }
+.qt-focus-dow { text-align: center; font-size: var(--qt-type-xs); font-weight: 600; color: var(--text-muted); padding: 4px 0; }
+.qt-focus-date { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-size: var(--qt-type-sm); border-radius: var(--qt-radius-xs); border: 1px solid transparent; background: transparent; color: var(--text-normal); cursor: pointer; padding: 0; margin: 0; }
+button.qt-focus-date:hover { background: var(--background-modifier-hover); border-color: var(--background-modifier-border); }
+.qt-focus-date.is-today { background: var(--interactive-accent); color: var(--text-on-accent); font-weight: 700; }
+.qt-focus-date.is-empty { cursor: default; visibility: hidden; }
+.qt-focus-message:empty { display: none; }
+.qt-focus-phase { color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; font-size: var(--qt-type-sm); }
+.qt-focus-clock { font-size: var(--qt-type-5xl); font-weight: 700; font-variant-numeric: tabular-nums; }
+.qt-focus-progress { width: 100%; margin: 2px 0 4px; }
+.qt-focus-progress-fill { background: var(--qt-accent-fill); }
+.qt-focus-progress-fill.is-break { background: var(--color-green); }
+.qt-focus-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.qt-focus-adjust { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.qt-focus-adjust-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.qt-focus-adjust-row input { width: 88px; }
+.qt-pomodoro-adjust { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.qt-pomodoro-adjust-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.qt-pomodoro-adjust-row input { width: 88px; }
+.qt-pomodoro-progress-fill.is-break { background: var(--color-green); }
+.qt-focus-add { display: flex; gap: 8px; width: 100%; }
+.qt-focus-add .qt-input { flex: 1; }
+.qt-focus-list { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.qt-focus-task { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--qt-radius-xs); background: var(--background-primary); border: 1px solid transparent; }
+.qt-focus-task:hover { border-color: var(--background-modifier-border); }
+.qt-focus-task.is-done { opacity: 0.6; }
+.qt-focus-task.is-done .qt-focus-task-text { text-decoration: line-through; color: var(--text-muted); }
+.qt-focus-task-text { flex: 1; font-size: var(--qt-type-sm); }
+.qt-focus-empty { color: var(--text-muted); font-style: italic; }
+@media (max-width: 480px) {
+  .qt-focus-grid { gap: 1px; }
+  .qt-focus-date { font-size: var(--qt-type-xs); }
+  .qt-focus-add { flex-direction: column; }
+  .qt-focus-actions { width: 100%; }
+}

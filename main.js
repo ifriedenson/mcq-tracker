@@ -32659,6 +32659,7 @@ const VIEW_TYPE_REVIEW_SIDEBAR = "question-tracker-review-sidebar";
 const VIEW_TYPE_STUDY_STATS = "question-tracker-study-stats";
 const VIEW_TYPE_LOCAL_EVENTS = "question-tracker-local-events";
 const VIEW_TYPE_POMODORO = "question-tracker-pomodoro";
+const VIEW_TYPE_FOCUS_DAY = "question-tracker-focus-day";
 const VIEW_TYPE_TASK_LIST = "question-tracker-task-list";
 const VIEW_TYPE_WEB_BROWSER = "question-tracker-web-browser";
 const VIEW_TYPE_RECENT_FILES = "question-tracker-recent-files";
@@ -32957,6 +32958,7 @@ module.exports = {
   VIEW_TYPE_STUDY_STATS,
   VIEW_TYPE_LOCAL_EVENTS,
   VIEW_TYPE_POMODORO,
+  VIEW_TYPE_FOCUS_DAY,
   VIEW_TYPE_TASK_LIST,
   VIEW_TYPE_WEB_BROWSER,
   VIEW_TYPE_RECENT_FILES,
@@ -40647,6 +40649,428 @@ module.exports = {
   studyStreak,
   studySummary,
 };
+};
+
+/* ---- src/focus-day.js ---- */
+__defs["focus-day"] = function (module, exports, require) {
+/*
+ * Focus day: one pane that combines a small month calendar, the Pomodoro
+ * timer and a quick session task list. Nothing here copies a community
+ * plugin; the month math, daily-note handling and task rows are local.
+ *
+ * The calendar opens a `YYYY-MM-DD.md` daily note for any clicked day
+ * (creating it from a starter template when it does not exist yet), the
+ * timer reuses the Pomodoro settings and state, and the task list is a
+ * deliberate scratchpad: it lives only for the session, like a slip of
+ * paper, and never writes to a note.
+ */
+const { localDate, str } = require("./util");
+
+const FOCUS_DAY_MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+const FOCUS_DAY_WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+const FOCUS_DATE_RE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+
+const MAX_FOCUS_TASKS = 200;
+
+/** A strict calendar date like 2026-11-15; rejects overflow such as month 13. */
+function validFocusDateKey(value) {
+  const key = str(value).trim();
+  if (!FOCUS_DATE_RE.test(key)) return "";
+  const [y, m, d] = key.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return "";
+  return key;
+}
+
+function focusTodayKey(now) {
+  if (now instanceof Date && !isNaN(now.getTime())) {
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+  return localDate();
+}
+
+function focusDateKey(year, month, day) {
+  const key = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return validFocusDateKey(key);
+}
+
+function shiftFocusMonth(year, month, delta) {
+  const y = Number(year) || 0;
+  const total = y * 12 + (Number(month) || 0) + (Number(delta) || 0);
+  const nextYear = Math.floor(total / 12);
+  const nextMonth = ((total % 12) + 12) % 12;
+  return { year: nextYear, month: nextMonth };
+}
+
+function focusMonthLabel(year, month) {
+  return `${FOCUS_DAY_MONTHS[month] || ""} ${year}`;
+}
+
+/*
+ * One cell per grid position: leading blanks keep the Monday-first columns
+ * aligned, then one cell per day with its date key and today flag.
+ */
+function focusMonthGrid(year, month, todayKey) {
+  const first = new Date(year, month, 1);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const leading = (first.getDay() + 6) % 7;
+  const cells = [];
+  for (let i = 0; i < leading; i++) cells.push({ blank: true, key: "", label: "", today: false });
+  for (let day = 1; day <= daysInMonth; day++) {
+    const key = focusDateKey(year, month, day);
+    cells.push({ blank: false, key, label: String(day), today: key !== "" && key === todayKey });
+  }
+  return cells;
+}
+
+/** Daily-note path for a date key: the configured folder, else the vault root. Never escapes with `..`. */
+function focusDailyNotePath(dateKey, folder) {
+  const key = validFocusDateKey(dateKey);
+  if (!key) return "";
+  const clean = str(folder).trim().replace(/^\/+|\/+$/g, "");
+  if (!clean) return `${key}.md`;
+  if (clean.split("/").some((part) => part === ".." || part === "")) return "";
+  return `${clean}/${key}.md`;
+}
+
+/** Starter note: a dated heading plus a Schedule section the Time blocks sync can read. */
+function focusDailyNoteTemplate(dateKey) {
+  const key = validFocusDateKey(dateKey) || focusTodayKey();
+  return `# ${key}\n\n## Schedule\n\n## Notes\n`;
+}
+
+function normalizeFocusTasks(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  for (const row of value) {
+    if (out.length >= MAX_FOCUS_TASKS) break;
+    if (!row || typeof row !== "object") continue;
+    const text = str(row.text).trim();
+    if (!text) continue;
+    out.push({ id: str(row.id) || `${Date.now()}-${out.length}`, text, done: row.done === true });
+  }
+  return out;
+}
+
+function addFocusTask(tasks, text, id) {
+  const clean = str(text).trim();
+  if (!clean) return normalizeFocusTasks(tasks);
+  const next = normalizeFocusTasks(tasks);
+  if (next.length >= MAX_FOCUS_TASKS) return next;
+  next.push({ id: str(id) || `${Date.now()}-${next.length}`, text: clean, done: false });
+  return next;
+}
+
+function toggleFocusTask(tasks, id) {
+  const want = str(id);
+  return normalizeFocusTasks(tasks).map((task) => (task.id === want ? { ...task, done: !task.done } : task));
+}
+
+function deleteFocusTask(tasks, id) {
+  const want = str(id);
+  return normalizeFocusTasks(tasks).filter((task) => task.id !== want);
+}
+
+module.exports = {
+  FOCUS_DAY_MONTHS,
+  FOCUS_DAY_WEEKDAYS,
+  MAX_FOCUS_TASKS,
+  addFocusTask,
+  deleteFocusTask,
+  focusDailyNotePath,
+  focusDailyNoteTemplate,
+  focusDateKey,
+  focusMonthGrid,
+  focusMonthLabel,
+  focusTodayKey,
+  normalizeFocusTasks,
+  shiftFocusMonth,
+  toggleFocusTask,
+  validFocusDateKey,
+};
+};
+
+/* ---- src/focus-day-view.js ---- */
+__defs["focus-day-view"] = function (module, exports, require) {
+/*
+ * Focus day: one pane combining a small month calendar, the Pomodoro timer
+ * and a quick session task list. The calendar opens a daily note for any
+ * clicked day, the timer drives the shared Pomodoro state, and the task
+ * list is a session scratchpad that never writes to a note.
+ */
+const { ItemView, Notice } = require("obsidian");
+const { VIEW_TYPE_FOCUS_DAY } = require("./constants");
+const { phaseLabel } = require("./pomodoro");
+const {
+  FOCUS_DAY_WEEKDAYS,
+  addFocusTask,
+  deleteFocusTask,
+  focusDailyNotePath,
+  focusMonthGrid,
+  focusMonthLabel,
+  focusTodayKey,
+  normalizeFocusTasks,
+  shiftFocusMonth,
+  toggleFocusTask,
+  validFocusDateKey,
+} = require("./focus-day");
+
+class FocusDayView extends ItemView {
+  constructor(leaf, plugin) {
+    super(leaf);
+    this.plugin = plugin;
+    const now = new Date();
+    this.year = now.getFullYear();
+    this.month = now.getMonth();
+    this.tasks = [];
+    this.taskSeq = 0;
+    this.adjusting = false;
+  }
+
+  getViewType() {
+    return VIEW_TYPE_FOCUS_DAY;
+  }
+
+  getDisplayText() {
+    return "Focus day";
+  }
+
+  getIcon() {
+    return "calendar-days";
+  }
+
+  async onOpen() {
+    this.contentEl.addClass("qt-root");
+    this.render();
+  }
+
+  async onClose() {}
+
+  render() {
+    const el = this.contentEl;
+    el.empty();
+    const root = el.createDiv({ cls: "qt-wrap qt-focus-day qt-screen" });
+    this.renderCalendar(root);
+    this.renderTimer(root);
+    this.renderTasks(root);
+  }
+
+  renderCalendar(root) {
+    const card = root.createDiv({ cls: "qt-focus-card qt-focus-calendar" });
+    card.createEl("h2", { text: "Calendar", cls: "qt-focus-title" });
+    const nav = card.createDiv({ cls: "qt-focus-nav" });
+    nav.createEl("button", { text: "‹ Prev", attr: { "aria-label": "Previous month" } }).addEventListener("click", () => {
+      const next = shiftFocusMonth(this.year, this.month, -1);
+      this.year = next.year;
+      this.month = next.month;
+      this.render();
+    });
+    nav.createDiv({ cls: "qt-focus-month", text: focusMonthLabel(this.year, this.month) });
+    nav.createEl("button", { text: "Next ›", attr: { "aria-label": "Next month" } }).addEventListener("click", () => {
+      const next = shiftFocusMonth(this.year, this.month, 1);
+      this.year = next.year;
+      this.month = next.month;
+      this.render();
+    });
+    const grid = card.createDiv({ cls: "qt-focus-grid", attr: { role: "grid", "aria-label": focusMonthLabel(this.year, this.month) } });
+    for (const name of FOCUS_DAY_WEEKDAYS) grid.createDiv({ cls: "qt-focus-dow", text: name });
+    const today = focusTodayKey();
+    for (const cell of focusMonthGrid(this.year, this.month, today)) {
+      if (cell.blank) {
+        grid.createDiv({ cls: "qt-focus-date is-empty", attr: { "aria-hidden": "true" } });
+        continue;
+      }
+      const day = grid.createEl("button", {
+        cls: `qt-focus-date${cell.today ? " is-today" : ""}`,
+        text: cell.label,
+        attr: { "aria-label": cell.today ? `${cell.key}, today` : cell.key },
+      });
+      if (cell.today) day.setAttr("aria-current", "date");
+      day.addEventListener("click", () => this.openDay(cell.key));
+    }
+    this.messageEl = card.createDiv({ cls: "qt-hint qt-focus-message", attr: { "aria-live": "polite" } });
+  }
+
+  async openDay(dateKey) {
+    if (!this.plugin || typeof this.plugin.openDailyNote !== "function") {
+      new Notice("Update MCQ Tracker to open daily notes from here.");
+      return null;
+    }
+    try {
+      const result = await this.plugin.openDailyNote(dateKey);
+      if (!result) return null;
+      this.say(result.created ? `Created ${result.path}.` : `Opened ${result.path}.`);
+      return result;
+    } catch (error) {
+      this.say(`Could not open the daily note: ${error && error.message ? error.message : error}`);
+      return null;
+    }
+  }
+
+  say(text) {
+    if (this.messageEl) this.messageEl.setText(text);
+  }
+
+  renderTimer(root) {
+    const card = root.createDiv({ cls: "qt-focus-card qt-focus-timer" });
+    card.createEl("h2", { text: "Pomodoro", cls: "qt-focus-title" });
+    if (!this.plugin.pomodoroEnabled()) {
+      card.createDiv({ cls: "qt-hint", text: "Turn on Pomodoro in Settings → Pomodoro." });
+      card.createEl("button", { text: "Open settings" }).addEventListener("click", () => this.plugin.openSettings());
+      return;
+    }
+    const data = this.plugin.pomodoroSnapshot();
+    card.createDiv({ cls: "qt-focus-phase", text: phaseLabel(data.phase) });
+    card.createDiv({ cls: "qt-focus-clock", text: data.display });
+    const progress = card.createDiv({
+      cls: "qt-meter-track qt-focus-progress",
+      attr: {
+        role: "progressbar",
+        "aria-label": `${data.label} progress`,
+        "aria-valuemin": "0",
+        "aria-valuemax": String(data.phaseSeconds),
+        "aria-valuenow": String(Math.min(data.phaseSeconds, Math.max(0, data.phaseSeconds - data.remaining))),
+        "aria-valuetext": `${data.display} remaining`,
+      },
+    });
+    const elapsed = Math.min(data.phaseSeconds, Math.max(0, data.phaseSeconds - data.remaining));
+    const percent = data.phaseSeconds ? Math.round((elapsed / data.phaseSeconds) * 1000) / 10 : 0;
+    const fill = progress.createDiv({ cls: `qt-meter-fill qt-focus-progress-fill${data.running ? " is-running" : ""}${data.phase === "work" ? "" : " is-break"}` });
+    fill.style.width = `${percent}%`;
+    card.createDiv({
+      cls: "qt-hint",
+      text: `${data.completed} completed · ${data.workSessions} work session${data.workSessions === 1 ? "" : "s"} · ${data.running ? "running" : "paused"}`,
+    });
+    const actions = card.createDiv({ cls: "qt-row qt-focus-actions" });
+    if (data.running) {
+      actions.createEl("button", { text: "Pause", cls: "mod-cta" }).addEventListener("click", async () => {
+        await this.plugin.pausePomodoro();
+        this.render();
+      });
+    } else {
+      actions.createEl("button", { text: data.remaining < data.phaseSeconds ? "Resume" : "Start", cls: "mod-cta" }).addEventListener("click", async () => {
+        await this.plugin.startPomodoro();
+        this.render();
+      });
+    }
+    actions.createEl("button", { text: "Reset" }).addEventListener("click", async () => {
+      await this.plugin.resetPomodoro();
+      this.render();
+    });
+    actions.createEl("button", { text: "Skip phase" }).addEventListener("click", async () => {
+      await this.plugin.skipPomodoro();
+      this.render();
+    });
+    actions.createEl("button", { text: this.adjusting ? "Close" : "Adjust" }).addEventListener("click", () => {
+      this.adjusting = !this.adjusting;
+      this.render();
+    });
+    if (this.adjusting) this.renderAdjust(card, data.settings);
+    else {
+      card.createDiv({
+        cls: "qt-hint",
+        text: `Focus ${data.settings.workMinutes} min · short ${data.settings.shortBreakMinutes} min · long ${data.settings.longBreakMinutes} min every ${data.settings.longBreakEvery} sessions`,
+      });
+    }
+  }
+
+  renderAdjust(card, settings) {
+    const form = card.createDiv({ cls: "qt-focus-adjust" });
+    const fields = [
+      { key: "workMinutes", label: "Focus", value: settings.workMinutes },
+      { key: "shortBreakMinutes", label: "Short break", value: settings.shortBreakMinutes },
+      { key: "longBreakMinutes", label: "Long break", value: settings.longBreakMinutes },
+    ];
+    const inputs = {};
+    for (const field of fields) {
+      const row = form.createDiv({ cls: "qt-focus-adjust-row" });
+      row.createEl("label", { text: `${field.label} (min)` });
+      inputs[field.key] = row.createEl("input", {
+        type: "number",
+        cls: "qt-input",
+        attr: { "aria-label": `${field.label} minutes`, min: "1", max: "180" },
+      });
+      inputs[field.key].value = String(field.value);
+    }
+    const buttons = form.createDiv({ cls: "qt-row qt-focus-actions" });
+    buttons.createEl("button", { text: "Save", cls: "mod-cta" }).addEventListener("click", async () => {
+      const durations = {};
+      for (const field of fields) durations[field.key] = Number(inputs[field.key].value);
+      await this.plugin.setPomodoroDurations(durations);
+      this.adjusting = false;
+      this.render();
+    });
+    buttons.createEl("button", { text: "Cancel" }).addEventListener("click", () => {
+      this.adjusting = false;
+      this.render();
+    });
+  }
+
+  renderTasks(root) {
+    const card = root.createDiv({ cls: "qt-focus-card qt-focus-tasks" });
+    card.createEl("h2", { text: "Quick tasks", cls: "qt-focus-title" });
+    card.createDiv({ cls: "qt-hint", text: "A session scratchpad — tasks vanish when the view closes and never touch a note." });
+    const form = card.createDiv({ cls: "qt-focus-add" });
+    const input = form.createEl("input", {
+      type: "text",
+      cls: "qt-input",
+      attr: { placeholder: "Add a task...", "aria-label": "New quick task" },
+    });
+    const add = () => {
+      const text = input.value;
+      if (!String(text || "").trim()) return;
+      this.taskSeq += 1;
+      this.tasks = addFocusTask(this.tasks, text, `focus-${Date.now()}-${this.taskSeq}`);
+      this.render();
+    };
+    form.createEl("button", { text: "Add", cls: "mod-cta" }).addEventListener("click", add);
+    input.addEventListener("keydown", (event) => {
+      if (!event || event.key !== "Enter") return;
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      add();
+    });
+    this.tasks = normalizeFocusTasks(this.tasks);
+    if (!this.tasks.length) {
+      card.createDiv({ cls: "qt-focus-empty", text: "No tasks yet. Add your first one above." });
+      return;
+    }
+    const list = card.createDiv({ cls: "qt-focus-list" });
+    for (const task of this.tasks) {
+      const row = list.createDiv({ cls: `qt-focus-task${task.done ? " is-done" : ""}` });
+      const box = row.createEl("input", { type: "checkbox", attr: { "aria-label": task.text } });
+      box.checked = task.done;
+      box.addEventListener("change", () => {
+        this.tasks = toggleFocusTask(this.tasks, task.id);
+        this.render();
+      });
+      row.createDiv({ cls: "qt-focus-task-text", text: task.text });
+      row.createEl("button", { text: "Delete", attr: { "aria-label": `Delete ${task.text}` } }).addEventListener("click", () => {
+        this.tasks = deleteFocusTask(this.tasks, task.id);
+        this.render();
+      });
+    }
+  }
+}
+
+module.exports = { FocusDayView };
 };
 
 /* ---- src/focus-modal.js ---- */
@@ -50042,7 +50466,7 @@ const { ensureFolder, localDate, sleep, str, uniquePath } = require("./util");
 const { chunkPages, readPdfPages, slugId } = require("./pdf");
 const { DOCUMENT_EXTENSIONS, documentBaseName, documentKind, documentLabel, extensionOf } = require("./documents");
 const { MAX_SOURCE_BYTES, readDocumentSource, readPagesForSource } = require("./document-source");
-const { AGENT_SYSTEM, agentPrompt, aiFlags, answerKeyText, buildReportMarkdown, carryPassages, ensureProviders, extractNotesChunk, finalizeNote, groupIssues, mergeNotes, modelFromMessages, noteIssues, parseNote } = require("./importer");
+const { AGENT_SYSTEM, absoluteVaultPath, agentPrompt, aiFlags, answerKeyText, buildReportMarkdown, carryPassages, ensureProviders, extractNotesChunk, finalizeNote, groupIssues, mergeNotes, modelFromMessages, noteIssues, parseNote } = require("./importer");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { findDuplicateIds, indexOfficialIds, officialIdOf } = require("./filters");
 const { friendlyApiError } = require("./api-client");
@@ -51699,8 +52123,14 @@ class PdfImportModal extends QtModal {
     this.sid = s && s.id;
     if (!this.sid) throw new Error("OpenCode did not return a session id.");
     const ai = p.settings.ai;
+    // A server the user runs can start in any directory, and the agent
+    // resolves note paths against its own working directory: vault-relative
+    // paths then land outside the vault while the import records zero notes.
+    // Absolute paths resolve the same everywhere, so the prompt uses them.
+    const vaultRoot = typeof p.vaultPath === "function" ? p.vaultPath() : "";
+    const abs = (path) => absoluteVaultPath(vaultRoot, path);
     const body = {
-      parts: [{ type: "text", text: agentPrompt({ name: sourceName, textPath, docPath: sourcePath, imagesDir, folder, prefix, meta: this.meta, kind }) }],
+      parts: [{ type: "text", text: agentPrompt({ name: sourceName, textPath: abs(textPath), docPath: abs(sourcePath), imagesDir: abs(imagesDir), folder: abs(folder), prefix, meta: this.meta, kind }) }],
       system: AGENT_SYSTEM,
     };
     const configured = str(ai.model).trim();
@@ -52360,6 +52790,8 @@ class PdfImportModal extends QtModal {
     const run = this.overnightRun;
     if (!this.unattended || !run) return false;
     if (!isCapMessage(text)) return false;
+    const why = str(text).trim().slice(0, 300);
+    if (why) run.pauseReason = why;
     this.plugin.storeOvernightRunState(run, "paused");
     this.plugin.writeOvernightLog(run, []).catch(() => {});
     const summary = this.plugin.overnightSummaryText(run, null);
@@ -53013,6 +53445,23 @@ const IMPORT_RULES = `Rules:
   These labels are often shown as a small table: a header row (Assessment, Test, Domain, Skill, Difficulty) and a row of values underneath. Match each value to the label above it. A bar or icon graphic drawn next to the difficulty is decoration, not a picture: use the word and ignore the graphic.
 - Leave out anything that is not a question (directions, ads, blank pages).`;
 
+/**
+ * The import agent resolves note paths against ITS working directory, which
+ * is the vault only for a server the plugin started itself: a server the
+ * user runs can start anywhere, and vault-relative note paths then land
+ * outside the vault while the import records zero notes. Absolute vault
+ * paths resolve the same from any working directory, so the import prompt
+ * always uses them on desktop (where the vault path is known).
+ */
+function absoluteVaultPath(root, path) {
+  const t = str(path).replace(/\\/g, "/").trim();
+  if (!t) return t;
+  const base = str(root).replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!base) return t;
+  if (/^[A-Za-z]:\//.test(t) || t.startsWith("/")) return t;
+  return base + "/" + t.replace(/^\/+/, "");
+}
+
 function agentPrompt(o) {
   const meta = [["test", o.meta.test], ["course", o.meta.course], ["section", o.meta.section], ["domain", o.meta.domain], ["unit", o.meta.unit], ["difficulty", o.meta.difficulty], ["skill", o.meta.skill]]
     .filter(([, v]) => v)
@@ -53028,7 +53477,7 @@ function agentPrompt(o) {
     "",
     "Do not open the original document, do not read any other note, do not search the vault for examples, and do not run any command before step 2. Everything you need is in that text file.",
     "",
-    "Paths are relative to the folder you are working in:",
+    "Use the paths below exactly as written (they are absolute, so do not trim or re-root them):",
     `- The document's text (read this, once): ${o.textPath}`,
     `- The original file (reference only, never open it): ${o.docPath}`,
     `- Pictures cut from the PDF (when there are any) are in ${o.imagesDir}. Their paths appear in the text as [FIGURE ...] markers, so you don't need to open them.`,
@@ -53363,6 +53812,7 @@ module.exports = {
   finalizeNote,
   ensureProviders,
   modelFromMessages,
+  absoluteVaultPath,
 };
 };
 
@@ -63417,7 +63867,10 @@ function normalizeOvernightRun(raw) {
   const id = str(raw.id).trim();
   if (!id || !files.length) return null;
   const median = Number(raw.checkMedianMs);
-  return {
+  // A parked run must still say why after a reload: the pause reason is
+  // part of the journal, not just the log line.
+  const pauseReason = str(raw.pauseReason).trim().slice(0, 300);
+  const out = {
     id,
     startedAt: Math.max(0, Number(raw.startedAt) || 0),
     date: str(raw.date) || localDate(),
@@ -63425,6 +63878,8 @@ function normalizeOvernightRun(raw) {
     checkMedianMs: Number.isFinite(median) && median > 0 ? Math.round(median) : 0,
     files,
   };
+  if (pauseReason) out.pauseReason = pauseReason;
+  return out;
 }
 
 function normalizeOvernightRuns(raw) {
@@ -73606,7 +74061,7 @@ const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
 const { releaseCommandPaletteShortcut } = require("./hotkey-cleanup");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_REVIEW_SIDEBAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST, VIEW_TYPE_WEB_BROWSER, VIEW_TYPE_RECENT_FILES, VIEW_TYPE_AGENT, VIEW_TYPE_IMPORT_WINDOW } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_REVIEW_SIDEBAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_FOCUS_DAY, VIEW_TYPE_TASK_LIST, VIEW_TYPE_WEB_BROWSER, VIEW_TYPE_RECENT_FILES, VIEW_TYPE_AGENT, VIEW_TYPE_IMPORT_WINDOW } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { parseQuickPracticeUri } = require("./quick-practice");
 const practiceFullscreen = require("./practice-fullscreen");
@@ -73916,6 +74371,8 @@ const reviewSession = () => (_reviewSession || (_reviewSession = require("./revi
 const durability = require("./durability");
 const studyCounters = require("./study-counters");
 const pomodoro = require("./pomodoro");
+const { FocusDayView } = require("./focus-day-view");
+const focusDay = require("./focus-day");
 const { PomodoroView } = require("./pomodoro-view");
 const { applySpacedReview, buildSpacedQueue, normalizeSpacedEverything, renderSpacedTemplate, spacedCaptureText } = require("./spaced-everything");
 const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
@@ -74074,6 +74531,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_LOCAL_EVENTS, (leaf) => new LocalEventsView(leaf, this));
     this.registerView(VIEW_TYPE_POMODORO, (leaf) => new PomodoroView(leaf, this));
     this.registerView(VIEW_TYPE_TASK_LIST, (leaf) => new TaskListView(leaf, this));
+    this.registerView(VIEW_TYPE_FOCUS_DAY, (leaf) => new FocusDayView(leaf, this));
     this.registerView(VIEW_TYPE_WEB_BROWSER, (leaf) => new (require("./web-browser-view").WebBrowserView)(leaf, this));
     this.registerView(VIEW_TYPE_RECENT_FILES, (leaf) => new RecentFilesView(leaf, this));
     const { AgentView: StudyAgentView } = require("./agent-view");
@@ -74306,6 +74764,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "canvas-query-report", name: "Canvas: report the active board's query groups", callback: () => this.reportCanvasQueryGroups() });
     this.addCommand({ id: "canvas-query-apply", name: "Canvas: fit the active board's query groups around their matches", callback: () => this.applyCanvasQueryGroups() });
     this.addCommand({ id: "open-task-list", name: "Open the task list", callback: () => this.activateTaskList() });
+    this.addCommand({ id: "open-focus-day", name: "Open Focus day", callback: () => this.activateFocusDay() });
     this.addCommand({ id: "open-reading-library", name: "Reading library: open the bookshelf", callback: () => this.activateStudyWorkspace("readingLibrary") });
     this.addCommand({ id: "new-feynman-cycle", name: "Feynman Learning: start a cycle", callback: () => this.activateStudyWorkspace("feynman") });
     this.addCommand({ id: "build-recall-queue", name: "Recall Scheduler: build a queue", callback: () => this.activateStudyWorkspace("recall") });
@@ -83078,7 +83537,7 @@ ${body}
 
   refreshPomodoro() {
     this.refreshPomodoroStatus();
-    for (const type of [VIEW_TYPE_POMODORO, VIEW_TYPE_REVIEW_SIDEBAR]) {
+    for (const type of [VIEW_TYPE_POMODORO, VIEW_TYPE_FOCUS_DAY, VIEW_TYPE_REVIEW_SIDEBAR]) {
       for (const leaf of this.app.workspace.getLeavesOfType(type)) {
         if (leaf.view && leaf.view.render) leaf.view.render();
       }
@@ -83167,6 +83626,54 @@ ${body}
       return null;
     }
     return this.activateModuleView(VIEW_TYPE_POMODORO);
+  }
+
+  async activateFocusDay() {
+    return this.activateModuleView(VIEW_TYPE_FOCUS_DAY);
+  }
+
+  /**
+   * Create or open the `YYYY-MM-DD.md` daily note for a calendar day: the
+   * Time blocks daily-note folder when one is set, else the vault root. A
+   * new note starts from the Focus day starter template and opens in a new
+   * tab; an existing note just opens. Never touches any other note.
+   */
+  async openDailyNote(dateKey) {
+    const key = focusDay.validFocusDateKey(dateKey);
+    if (!key) {
+      new Notice("Give a calendar date like 2026-11-15.");
+      return null;
+    }
+    const folder = this.timeBlocksSettings().dailyNoteFolder;
+    const path = focusDay.focusDailyNotePath(key, folder);
+    if (!path) {
+      new Notice("That daily-note folder is not usable. Pick another in Settings, Time blocks.");
+      return null;
+    }
+    let file = this.app.vault.getAbstractFileByPath(path);
+    let created = false;
+    if (!file) {
+      const slash = path.lastIndexOf("/");
+      if (slash > 0) {
+        const dir = path.slice(0, slash);
+        if (!this.app.vault.getAbstractFileByPath(dir)) await this.app.vault.createFolder(dir);
+      }
+      file = await this.app.vault.create(path, focusDay.focusDailyNoteTemplate(key));
+      created = true;
+    }
+    await this.app.workspace.getLeaf(false).openFile(file);
+    return { path, created };
+  }
+
+  /** Inline duration edits from the Pomodoro and Focus day views: clamped to 1–180 minutes, saved at once. */
+  async setPomodoroDurations(value) {
+    const src = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    const next = pomodoro.normalizePomodoroSettings({ ...(this.settings.pomodoro || {}), ...src });
+    if (!next.state.running) next.state = { ...next.state, remainingSec: pomodoro.phaseSeconds(next, next.state.phase), startedAt: 0 };
+    this.settings.pomodoro = next;
+    await this.save();
+    this.refreshPomodoro();
+    return this.pomodoroSnapshot();
   }
 
   onPomodoroToggled() {
@@ -89522,6 +90029,7 @@ class PomodoroView extends ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
+    this.adjusting = false;
   }
 
   getViewType() {
@@ -89567,7 +90075,7 @@ class PomodoroView extends ItemView {
     progress.setAttr("aria-valuemax", String(data.phaseSeconds));
     progress.setAttr("aria-valuenow", String(elapsed));
     progress.setAttr("aria-valuetext", `${data.display} remaining`);
-    const fill = progress.createDiv({ cls: `qt-meter-fill qt-pomodoro-progress-fill${data.running ? " is-running" : ""}` });
+    const fill = progress.createDiv({ cls: `qt-meter-fill qt-pomodoro-progress-fill${data.running ? " is-running" : ""}${data.phase === "work" ? "" : " is-break"}` });
     fill.style.width = `${percent}%`;
     if (data.running) {
       fill.style.setProperty("--qt-pomodoro-duration", `${data.phaseSeconds}s`);
@@ -89582,10 +90090,49 @@ class PomodoroView extends ItemView {
     else actions.createEl("button", { text: data.remaining < data.phaseSeconds ? "Resume" : "Start", cls: "mod-cta" }).addEventListener("click", () => this.plugin.startPomodoro());
     actions.createEl("button", { text: "Reset", cls: "qt-pomodoro-secondary" }).addEventListener("click", () => this.plugin.resetPomodoro());
     actions.createEl("button", { text: "Skip phase", cls: "qt-pomodoro-secondary" }).addEventListener("click", () => this.plugin.skipPomodoro());
+    actions.createEl("button", { text: this.adjusting ? "Close" : "Adjust", cls: "qt-pomodoro-secondary" }).addEventListener("click", () => {
+      this.adjusting = !this.adjusting;
+      this.render();
+    });
     const settings = data.settings;
-    card.createDiv({
-      cls: "qt-hint",
-      text: `Focus ${settings.workMinutes} min · short ${settings.shortBreakMinutes} min · long ${settings.longBreakMinutes} min every ${settings.longBreakEvery} sessions`,
+    if (this.adjusting) this.renderAdjust(card, settings);
+    else {
+      card.createDiv({
+        cls: "qt-hint",
+        text: `Focus ${settings.workMinutes} min · short ${settings.shortBreakMinutes} min · long ${settings.longBreakMinutes} min every ${settings.longBreakEvery} sessions`,
+      });
+    }
+  }
+
+  renderAdjust(card, settings) {
+    const form = card.createDiv({ cls: "qt-pomodoro-adjust" });
+    const fields = [
+      { key: "workMinutes", label: "Focus", value: settings.workMinutes },
+      { key: "shortBreakMinutes", label: "Short break", value: settings.shortBreakMinutes },
+      { key: "longBreakMinutes", label: "Long break", value: settings.longBreakMinutes },
+    ];
+    const inputs = {};
+    for (const field of fields) {
+      const row = form.createDiv({ cls: "qt-pomodoro-adjust-row" });
+      row.createEl("label", { text: `${field.label} (min)` });
+      inputs[field.key] = row.createEl("input", {
+        type: "number",
+        cls: "qt-input",
+        attr: { "aria-label": `${field.label} minutes`, min: "1", max: "180" },
+      });
+      inputs[field.key].value = String(field.value);
+    }
+    const buttons = form.createDiv({ cls: "qt-row qt-pomodoro-actions" });
+    buttons.createEl("button", { text: "Save", cls: "mod-cta" }).addEventListener("click", async () => {
+      const durations = {};
+      for (const field of fields) durations[field.key] = Number(inputs[field.key].value);
+      await this.plugin.setPomodoroDurations(durations);
+      this.adjusting = false;
+      this.render();
+    });
+    buttons.createEl("button", { text: "Cancel", cls: "qt-pomodoro-secondary" }).addEventListener("click", () => {
+      this.adjusting = false;
+      this.render();
     });
   }
 }
@@ -137641,6 +138188,56 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.303.0",
+    date: "November 15, 2026",
+    title: "Focus day: the calendar, the timer and quick tasks in one pane",
+    summary:
+      "A line-by-line comparison with the Deadline plugin showed its month calendar, Pomodoro timer and task list all live here in deeper forms — except four gaps, now closed: a combined Focus day pane, day-click daily notes, inline timer lengths, and a distinct break bar.",
+    highlights: [
+      {
+        title: "One pane for the day",
+        body: "Open Focus day shows a small month calendar, the Pomodoro timer and a quick task list together. The palette command joins the existing view commands; the timer stays live because the shared refresh path repaints it.",
+      },
+      {
+        title: "Any day opens its daily note",
+        body: "Clicking a calendar day creates or opens that date's YYYY-MM-DD note — the Time blocks daily-note folder when one is set, else the vault root — from a starter template with a Schedule section the planner can sync, opened in a new tab with a short confirmation.",
+      },
+      {
+        title: "Timer lengths, edited where the timer lives",
+        body: "Adjust beside the Pomodoro and Focus day controls edits focus, short and long minutes inline with Save and Cancel, clamped to 1–180 minutes, resetting a paused timer to the new length. Break phases now fill the progress bar green so a glance says which kind of interval is running.",
+      },
+      {
+        title: "Deadline parity, MCQ depth kept",
+        body: "Everything else Deadline does already existed here: the month calendar with classes and exams, work/short/long breaks with counts and optional autostart, a persistent tagged task list with due dates, and the completion chime. The new scratch list is deliberately session-only — a complement, not a second task system — and no Deadline code was reused.",
+      },
+    ],
+  },
+  {
+    version: "1.302.7",
+    date: "November 15, 2026",
+    title: "Notes land in the vault no matter where OpenCode runs",
+    summary:
+      "A 100-file overnight run caught the import agent resolving its note folder against its own working directory: with a server started outside the vault, two finished notes landed beside the vault while the file recorded done with zero notes. The prompt now uses absolute vault paths, and a queue parked mid-write names the reason in the log.",
+    highlights: [
+      {
+        title: "Absolute paths in the agent prompt",
+        body: "The prompt told the agent that paths were relative to the folder it works in, which is only the vault for a server the plugin started itself. With your own server started anywhere else, note writes landed outside the vault. The prompt now passes absolute vault paths and says to use them exactly as written, so they resolve the same from any working directory.",
+      },
+      {
+        title: "A parked queue names its reason",
+        body: "A spent free tier parks the queue mid-write as well as mid-check, but only the checks side recorded why. The write-side park now stores the provider's sentence too, so the morning log reads Paused followed by the reason instead of a bare paused status.",
+      },
+      {
+        title: "Proved on a live 100-file queue",
+        body: "One hundred distinct one-page PDFs ran end to end on the current build against an exhausted free tier: the queue parked with its files pending instead of failing them, the journal kept the one attempted file's state, and the log counted every file. The misplaced notes were found outside the vault with matching content, confirming the diagnosis.",
+      },
+      {
+        title: "The notice says what happened",
+        body: "Parking still ends with one plain sentence naming the spent tier and the wait, and waiting files stay pending so a resume retries them. Files already imported are kept.",
+      },
+    ],
+  },
+  {
     version: "1.302.6",
     date: "November 15, 2026",
     title: "Empty folders from failed imports clean up with one command",
@@ -139888,6 +140485,8 @@ const pomodoro = require("./pomodoro");
 const noteReviewDock = require("./note-review-dock");
 const sessionReport = require("./session-report");
 const { PomodoroView } = require("./pomodoro-view");
+const { FocusDayView } = require("./focus-day-view");
+const focusDay = require("./focus-day");
 const { NoteReviewDock } = require("./note-review-dock");
 const { ReviewCalendarView } = require("./review-calendar-view");
 const { StudyStatsView } = require("./study-stats-view");
@@ -140337,6 +140936,8 @@ QuestionTrackerPlugin.__test = {
   studyCounters,
   pomodoro,
   PomodoroView,
+  focusDay,
+  FocusDayView,
   NoteReviewDock,
   ReviewCalendarView,
   StudyStatsView,

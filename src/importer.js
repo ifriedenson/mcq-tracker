@@ -158,6 +158,23 @@ const IMPORT_RULES = `Rules:
   These labels are often shown as a small table: a header row (Assessment, Test, Domain, Skill, Difficulty) and a row of values underneath. Match each value to the label above it. A bar or icon graphic drawn next to the difficulty is decoration, not a picture: use the word and ignore the graphic.
 - Leave out anything that is not a question (directions, ads, blank pages).`;
 
+/**
+ * The import agent resolves note paths against ITS working directory, which
+ * is the vault only for a server the plugin started itself: a server the
+ * user runs can start anywhere, and vault-relative note paths then land
+ * outside the vault while the import records zero notes. Absolute vault
+ * paths resolve the same from any working directory, so the import prompt
+ * always uses them on desktop (where the vault path is known).
+ */
+function absoluteVaultPath(root, path) {
+  const t = str(path).replace(/\\/g, "/").trim();
+  if (!t) return t;
+  const base = str(root).replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!base) return t;
+  if (/^[A-Za-z]:\//.test(t) || t.startsWith("/")) return t;
+  return base + "/" + t.replace(/^\/+/, "");
+}
+
 function agentPrompt(o) {
   const meta = [["test", o.meta.test], ["course", o.meta.course], ["section", o.meta.section], ["domain", o.meta.domain], ["unit", o.meta.unit], ["difficulty", o.meta.difficulty], ["skill", o.meta.skill]]
     .filter(([, v]) => v)
@@ -173,7 +190,7 @@ function agentPrompt(o) {
     "",
     "Do not open the original document, do not read any other note, do not search the vault for examples, and do not run any command before step 2. Everything you need is in that text file.",
     "",
-    "Paths are relative to the folder you are working in:",
+    "Use the paths below exactly as written (they are absolute, so do not trim or re-root them):",
     `- The document's text (read this, once): ${o.textPath}`,
     `- The original file (reference only, never open it): ${o.docPath}`,
     `- Pictures cut from the PDF (when there are any) are in ${o.imagesDir}. Their paths appear in the text as [FIGURE ...] markers, so you don't need to open them.`,
@@ -508,4 +525,5 @@ module.exports = {
   finalizeNote,
   ensureProviders,
   modelFromMessages,
+  absoluteVaultPath,
 };
