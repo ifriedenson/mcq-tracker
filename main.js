@@ -76265,6 +76265,8 @@ class QuestionTrackerPlugin extends Plugin {
         const phase = summary.paused ? "paused" : summary.stopped ? "stopped" : "";
         if (phase) {
           run.status = phase;
+          const why = summary.paused && str(summary.paused.error).trim();
+          if (why) run.pauseReason = why.slice(0, 300);
           for (const entry of run.files) {
             if ((entry.notes || []).length > (entry.checked || []).length && entry.status !== phase) entry.status = phase;
           }
@@ -76329,6 +76331,7 @@ class QuestionTrackerPlugin extends Plugin {
     const totals = runTotals(run);
     const lines = ["# Overnight import log", ""];
     lines.push(`Run ${run.id} · ${run.date} · status: ${run.status}`, "");
+    if (run.pauseReason) lines.push(`Paused: ${run.pauseReason}`, "");
     lines.push(`Files: ${totals.files} (${totals.done} done) · Notes: ${totals.notes} · Matched: ${totals.matched} · Flagged: ${totals.mismatched} · Check errors: ${totals.errored}`, "");
     lines.push("## Files", "");
     lines.push("| File | Notes | Matched | Flagged | Status |");
@@ -137565,7 +137568,7 @@ const RELEASES = [
       },
       {
         title: "Overnight queues park instead of failing a hundred files",
-        body: "A spent free tier lasts until it resets, so the overnight queue now pauses with the reason and keeps its place, exactly as it does for a spent request cap. Waiting files are not marked failed and the morning log names the pause.",
+        body: "A spent free tier lasts until it resets, so the overnight queue now pauses with the reason and keeps its place, exactly as it does for a spent request cap. Waiting files are not marked failed, and the morning log names the pause and the reason the provider gave.",
       },
       {
         title: "A long chapter gets the time it needs",

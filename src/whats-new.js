@@ -18,7 +18,7 @@ const RELEASES = [
       },
       {
         title: "Overnight queues park instead of failing a hundred files",
-        body: "A spent free tier lasts until it resets, so the overnight queue now pauses with the reason and keeps its place, exactly as it does for a spent request cap. Waiting files are not marked failed and the morning log names the pause.",
+        body: "A spent free tier lasts until it resets, so the overnight queue now pauses with the reason and keeps its place, exactly as it does for a spent request cap. Waiting files are not marked failed, and the morning log names the pause and the reason the provider gave.",
       },
       {
         title: "A long chapter gets the time it needs",
