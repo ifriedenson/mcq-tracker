@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.6",
+    date: "November 15, 2026",
+    title: "The task list lines up",
+    summary:
+      "The task list's repeat and delete controls had no styles of their own, so the row grid dropped them into extra lines as full-width bars, and the Add button did the same under the date field. Each row now keeps its controls in one aligned column, the checkbox has a real 32px target, completed titles stay legible, and Primary dark reads every label clearly.",
+    highlights: [
+      {
+        title: "Rows that line up",
+        body: "Star, repeat and delete now share one right-hand column at 32px each, so a row is a single tidy line instead of three. The Add button spans the add form instead of stretching under the date field, and the form stacks on narrow panes.",
+      },
+      {
+        title: "A real checkbox target",
+        body: "The box stays light at 18px inside a 32px label, so pointing at it no longer demands precision, and the focus ring draws around the control.",
+      },
+      {
+        title: "Completed tasks stay readable",
+        body: "Completed rows used to dim the whole card to 62% opacity, which pushed the title to 4.21:1. The strikethrough and muted rule carry the state now without hurting legibility.",
+      },
+      {
+        title: "Primary dark reads every label",
+        body: "The badge, count, tip, empty copy and the row pills were 4.06:1 in Primary dark, and the overdue pill 1.72:1. They now borrow the normal ink, and overdue mixes its red with it, so all eight audited states measure zero contrast failures in both themes.",
+      },
+    ],
+  },
+  {
     version: "1.307.5",
     date: "November 15, 2026",
     title: "Dim dark labels read clearly",

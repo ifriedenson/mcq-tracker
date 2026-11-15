@@ -217,7 +217,8 @@ class TaskListView extends ItemView {
     else if (overdue) row.addClass("is-overdue");
     else if (dueToday) row.addClass("is-today");
 
-    const box = row.createEl("input", {
+    const checkWrap = row.createEl("label", { cls: "qt-task-check-wrap" });
+    const box = checkWrap.createEl("input", {
       type: "checkbox",
       cls: "qt-task-check",
       attr: { "aria-label": task.done ? `Reopen ${task.title}` : `Complete ${task.title}` },
@@ -285,7 +286,8 @@ class TaskListView extends ItemView {
       input.addEventListener("blur", () => save());
     }
 
-    const star = row.createEl("button", {
+    const actions = row.createDiv({ cls: "qt-task-list-actions" });
+    const star = actions.createEl("button", {
       text: isHighPriority(task) ? "★" : "☆",
       cls: "qt-task-list-star",
       attr: {
@@ -298,7 +300,7 @@ class TaskListView extends ItemView {
       this.render();
     });
     const repeatLabel = task.repeat === "daily" ? "🔁 daily" : task.repeat === "weekday" ? "🔁 weekdays" : task.repeat === "weekly" ? "🔁 weekly" : "🔁 off";
-    const repeat = row.createEl("button", {
+    const repeat = actions.createEl("button", {
       text: repeatLabel,
       cls: "qt-task-list-repeat",
       attr: { "aria-label": `Repeat for ${task.title}: ${task.repeat || "off"}`, title: "Cycle repeat: off, daily, weekdays, weekly" },
@@ -308,7 +310,7 @@ class TaskListView extends ItemView {
       await this.plugin.updateStudyTask(task.id, { repeat: next });
       this.render();
     });
-    row
+    actions
       .createEl("button", { text: "×", cls: "qt-task-list-remove", attr: { "aria-label": `Delete ${task.title}`, title: "Delete task" } })
       .addEventListener("click", async () => {
         await this.plugin.removeStudyTask(task.id);

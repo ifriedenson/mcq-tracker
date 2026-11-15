@@ -149,6 +149,29 @@ body.theme-dark .qt-field label {
   color: var(--text-normal);
 }
 
+/* The task list reads its secondary text from the same dim ink: the count,
+   badge, tip and empty copy measured 4.06:1 in Primary dark, and the row
+   pills sat there too at 11px. Overdue keeps its meaning but mixes the red
+   with the normal ink so it stays readable on a dim dark background. */
+body.theme-dark .qt-task-list-badge,
+body.theme-dark .qt-task-list-count,
+body.theme-dark .qt-task-list-hint,
+body.theme-dark .qt-task-list-empty,
+body.theme-dark .qt-task-pill,
+body.theme-dark .qt-task-tag-edit,
+body.theme-dark .qt-task-list-actions button {
+  color: var(--text-normal);
+}
+
+body.theme-dark .qt-task-pill.is-overdue,
+body.theme-dark .qt-task-list-row.is-overdue {
+  border-color: var(--color-red);
+}
+
+body.theme-dark .qt-task-pill.is-overdue {
+  color: color-mix(in srgb, var(--color-red) 58%, var(--text-normal));
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root {
     --qt-duration-instant: 0ms;
@@ -11989,7 +12012,15 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 }
 
 .qt-task-list-add-button {
+  grid-column: 1 / -1;
+  min-height: 36px;
   min-width: 52px;
+}
+
+@media (max-width: 520px) {
+  .qt-task-list-add-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .qt-task-list-filters {
@@ -12057,13 +12088,70 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   border-left-color: var(--qt-link);
 }
 
-.qt-task-list-row.is-done {
-  opacity: 0.62;
+/* The action buttons need their own column: without a container the row grid
+   pushed the repeat and delete controls into implicit rows as full-width bars. */
+.qt-task-list-actions {
+  align-items: center;
+  display: flex;
+  gap: 2px;
+  margin: -3px -4px -3px 0;
+}
+
+.qt-task-list-actions button {
+  background: none;
+  border: none;
+  border-radius: var(--qt-radius-xs);
+  box-shadow: none;
+  color: var(--qt-text-faint);
+  line-height: 1;
+  min-height: 32px;
+  min-width: 32px;
+  padding: 0;
+}
+
+.qt-task-list-actions button:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.qt-task-list-star {
+  font-size: var(--qt-type-em-sm);
+}
+
+.qt-task-list-star:hover {
+  color: var(--color-yellow);
+}
+
+.qt-task-list-repeat {
+  font-size: var(--qt-type-2xs);
+}
+
+.qt-task-list-remove {
+  font-size: var(--qt-type-em-sm);
+}
+
+/* A 32px hit area around an 18px box: the native control stays light while
+   the label keeps the target usable, and the label is what the pointer hits. */
+.qt-task-check-wrap {
+  align-items: center;
+  border-radius: var(--qt-radius-xs);
+  cursor: pointer;
+  display: flex;
+  height: 32px;
+  justify-content: center;
+  margin: -3px 0 -3px -6px;
+  width: 32px;
+}
+
+.qt-task-check-wrap:hover {
+  background: var(--background-modifier-hover);
 }
 
 .qt-task-check {
   accent-color: var(--qt-link);
-  margin: 2px 0 0;
+  height: 18px;
+  margin: 0;
+  width: 18px;
 }
 
 .qt-task-list-main {
@@ -12081,8 +12169,8 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 }
 
 .qt-task-list-row.is-done .qt-task-list-title {
-  color: var(--text-muted);
-  text-decoration: line-through;
+  color: var(--text-normal);
+  text-decoration: line-through var(--qt-text-faint);
 }
 
 .qt-task-list-meta {
@@ -12149,15 +12237,7 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 }
 
 .qt-task-list-remove {
-  background: none;
-  border: none;
-  border-radius: var(--qt-radius-xs);
-  box-shadow: none;
-  color: var(--qt-text-faint);
   cursor: pointer;
-  font-size: var(--qt-type-em-sm);
-  line-height: 1;
-  padding: 4px 5px;
 }
 
 .qt-task-list-remove:hover {

@@ -75,6 +75,21 @@ test("danger and success soft surfaces survive themes without their rgb channels
   assert.match(css, /--qt-success-soft: rgba\(var\(--color-green-rgb, 52, 199, 89\)/);
 });
 
+test("the task row keeps its actions in one aligned column with a real hit target", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "task-list-view.js"), "utf8");
+  assert.match(source, /const actions = row\.createDiv\(\{ cls: "qt-task-list-actions" \}\)/);
+  assert.match(source, /const checkWrap = row\.createEl\("label", \{ cls: "qt-task-check-wrap" \}\)/);
+  assert.equal((source.match(/actions\.createEl\("button"/g) || []).length, 2, "star and repeat sit in the actions column");
+  assert.match(source, /actions\s*\.\s*createEl\("button", \{ text: "×"/);
+  assert.match(css, /\.qt-task-list-actions \{[\s\S]*display: flex/);
+  assert.match(css, /\.qt-task-list-actions button \{[\s\S]*min-height: 32px[\s\S]*min-width: 32px/);
+  assert.match(css, /\.qt-task-check-wrap \{[\s\S]*height: 32px[\s\S]*width: 32px/);
+  assert.match(css, /\.qt-task-list-add-button \{[\s\S]*grid-column: 1 \/ -1/);
+  assert.match(css, /@media \(max-width: 520px\)[\s\S]*\.qt-task-list-add-row \{[\s\S]*grid-template-columns: minmax\(0, 1fr\)/);
+  assert.doesNotMatch(css, /\.qt-task-list-row\.is-done \{\s*opacity:/);
+  assert.match(css, /\.qt-task-list-row\.is-done \.qt-task-list-title \{[\s\S]*color: var\(--text-normal\)/);
+});
+
 test("narrow exam surfaces wrap instead of bursting out of the pane", () => {
   assert.match(css, /@media \(max-width: 520px\)[\s\S]*\.qt-exam-bar \{[\s\S]*flex-wrap: wrap/);
   assert.match(css, /@media \(max-width: 520px\)[\s\S]*\.qt-exam-tool-label \{[\s\S]*display: none/);
@@ -88,4 +103,17 @@ test("dim-muted dark themes keep link and secondary text above AA", () => {
   for (const cls of [".qt-label", ".qt-meta", ".qt-empty", ".qt-paused", ".qt-field label"]) {
     assert.ok(css.includes(`body.theme-dark ${cls}`), `${cls} borrows normal ink in dark`);
   }
+  for (const cls of [
+    ".qt-task-list-badge",
+    ".qt-task-list-count",
+    ".qt-task-list-hint",
+    ".qt-task-list-empty",
+    ".qt-task-pill",
+  ]) {
+    assert.ok(css.includes(`body.theme-dark ${cls}`), `${cls} borrows normal ink in dark`);
+  }
+  assert.match(
+    css,
+    /body\.theme-dark \.qt-task-pill\.is-overdue \{[\s\S]*color: color-mix\(in srgb, var\(--color-red\) 58%, var\(--text-normal\)\)/
+  );
 });

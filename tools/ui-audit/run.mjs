@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 
 const port = process.env.CDP_PORT || "9222";
@@ -10,7 +11,12 @@ const only = process.argv[4] || "";
 const outRoot = path.join(process.cwd(), "artifacts/ui-quality/runs");
 fs.mkdirSync(outRoot, { recursive: true });
 
-const jobs = JSON.parse(fs.readFileSync(jobsFile, "utf8")).filter((job) => {
+const unverified = [];
+const jobsRaw = jobsFile.endsWith(".mjs")
+  ? (await import(pathToFileURL(path.resolve(jobsFile)).href)).default
+  : JSON.parse(fs.readFileSync(jobsFile, "utf8"));
+if (!Array.isArray(jobsRaw)) throw new Error(`${jobsFile} must export an array of jobs`);
+const jobs = jobsRaw.filter((job) => {
   if (only && !job.name.includes(only)) return false;
   if (filter && (job.theme || "light") !== filter) return false;
   return true;
@@ -128,8 +134,15 @@ async function cleanup() {
   }
 }
 
-const metricsExpression = `(() => {
+function metricsExpression(viewType) {
+  return `(() => {
+  const targetType = ${JSON.stringify(viewType || "")};
   const root = (() => {
+    if (targetType) {
+      const host = document.querySelector('.workspace-leaf-content[data-type="' + targetType + '"]');
+      const content = host && host.querySelector(".view-content");
+      if (content) return content;
+    }
     const modals = [...document.querySelectorAll(".modal-container")].filter((el) => el.getBoundingClientRect().width > 0);
     if (modals.length) return modals[modals.length - 1].querySelector(".modal") || modals[modals.length - 1];
     const visibleViews = [...document.querySelectorAll(".workspace-leaf.mod-active .view-content, .workspace-leaf .view-content")].filter((el) => {
@@ -165,11 +178,12 @@ const metricsExpression = `(() => {
     return parseFloat(style.fontSize) < 10;
   }).map((el) => ({ el: label(el), text: textOf(el), size: getComputedStyle(el).fontSize })).slice(0, 20);
   const controls = all.filter((el) => /^(BUTTON|A|INPUT|SELECT|TEXTAREA|SUMMARY)$/.test(el.tagName) || el.getAttribute("role") === "button");
+  const hitArea = (el) => el.closest("label") || el;
   const touch = controls.filter((el) => {
-    const rect = el.getBoundingClientRect();
+    const rect = hitArea(el).getBoundingClientRect();
     return rect.height < 44 && (innerWidth <= 760 || rect.width < 32);
   }).map((el) => {
-    const rect = el.getBoundingClientRect();
+    const rect = hitArea(el).getBoundingClientRect();
     return { el: label(el), text: textOf(el) || el.getAttribute("aria-label") || el.getAttribute("title") || "", w: Math.round(rect.width), h: Math.round(rect.height) };
   }).slice(0, 30);
 
@@ -250,9 +264,11 @@ const metricsExpression = `(() => {
     touch,
     contrastFailures: contrastFailures.slice(0, 30),
     contrastFailureCount: contrastFailures.length,
+    dataType: (root.closest("[data-type]") || { getAttribute: () => "" }).getAttribute("data-type") || "",
     text: textOf(root),
   };
 })()`;
+}
 
 async function focusPass() {
   await evaluate(`(() => {
@@ -349,27 +365,119 @@ for (const job of jobs) {
     })()`);
   }
 
-  const metrics = await evaluate(metricsExpression);
-  const shot = await send("Page.captureScreenshot", { format: "png", fromSurface: true, captureBeyondViewport: false });
-  const focus = job.focus === false ? [] : await focusPass();
-  await evaluate(`(() => { const active = document.activeElement; if (active && active.blur) active.blur(); return true; })()`);
-  const prefix = `${job.name}-${width}-${theme}`;
-  fs.writeFileSync(path.join(dir, `${prefix}.png`), Buffer.from(shot.data, "base64"));
-  fs.writeFileSync(path.join(dir, `${prefix}.json`), JSON.stringify({ job, metrics, focus }, null, 2));
-  console.log(
-    JSON.stringify({
-      name: prefix,
-      root: metrics.root,
-      box: metrics.rootBox,
-      overflow: [metrics.documentOverflowX, metrics.rootOverflowX, metrics.rootOverflowY],
-      wide: metrics.wide.length,
-      clipped: metrics.clipped.length,
-      tiny: metrics.tiny.length,
-      touch: metrics.touch.length,
-      contrast: metrics.contrastFailureCount,
-      focus: focus.length,
-    })
-  );
+  if (job.viewType) {
+    const focused = await evaluate(`(async () => {
+      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      let leaf = (app.workspace.getLeavesOfType(${JSON.stringify(job.viewType)}) || [])[0];
+      if (!leaf) return { ok: false, reason: "no leaf of type " + ${JSON.stringify(job.viewType)} };
+      if (${job.placement === "main"}) {
+        const root = app.workspace.rootSplit;
+        const group = root.children[0];
+        const target = app.workspace.createLeafInParent(group, group.children.length);
+        await target.setViewState({ type: ${JSON.stringify(job.viewType)}, active: true });
+        await sleep(800);
+        for (const other of app.workspace.getLeavesOfType(${JSON.stringify(job.viewType)})) {
+          if (other !== target) other.detach();
+        }
+        for (const child of [...root.children]) {
+          if (child === group) continue;
+          for (const spare of [...(child.children || [])]) {
+            try { app.workspace.removeLeaf(spare); } catch (error) {}
+          }
+        }
+        await sleep(400);
+        leaf = app.workspace.getLeavesOfType(${JSON.stringify(job.viewType)})[0] || target;
+      }
+      app.workspace.setActiveLeaf(leaf, { focus: true });
+      if (app.workspace.revealLeaf) app.workspace.revealLeaf(leaf);
+      await sleep(600);
+      const host = leaf.view && leaf.view.containerEl && leaf.view.containerEl.closest("[data-type]");
+      const box = host ? host.getBoundingClientRect() : { width: 0, height: 0 };
+      return {
+        ok: true,
+        type: leaf.view.getViewType(),
+        leafId: leaf.id,
+        dataType: host ? host.getAttribute("data-type") : "",
+        width: Math.round(box.width),
+        height: Math.round(box.height),
+      };
+    })()`);
+    if (!focused || !focused.ok || focused.type !== job.viewType) {
+      unverified.push({ job: job.name, reason: (focused && focused.reason) || "leaf did not report the expected view type" });
+    } else if (focused.width < 200) {
+      unverified.push({ job: job.name, reason: `leaf rendered only ${focused.width}px wide (hidden tab or collapsed split)` });
+    }
+  }
+
+  const states = Array.isArray(job.states) && job.states.length ? job.states : [{ name: "", script: "" }];
+  for (const state of states) {
+    if (state.script) {
+      await evaluate(state.script);
+      await sleep(state.wait || 700);
+    }
+    if (state.focus) {
+      const focused = await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(state.focus)}); if (!el) return false; el.focus({ preventScroll: false }); return document.activeElement === el || el.contains(document.activeElement); })()`);
+      if (!focused) unverified.push({ job: job.name, state: state.name || "main", reason: `focus target ${state.focus} was not found` });
+      await sleep(150);
+    }
+    if (state.type) {
+      await send("Input.insertText", { text: state.type });
+      await sleep(120);
+    }
+    if (state.press) {
+      const names = { Enter: ["Enter", 13], Space: [" ", 32], Tab: ["Tab", 9], Escape: ["Escape", 27] };
+      const [keyName, keyCode] = names[state.press] || [state.press, 0];
+      await key(keyName, state.press === "Space" ? "Space" : state.press, keyCode);
+      await sleep(state.wait || 500);
+    }
+    const metrics = await evaluate(metricsExpression(job.viewType));
+    const pluginLabel = JSON.stringify(job.viewType || "");
+    const pluginDom = job.expectClass
+      ? await evaluate(`(() => {
+          const host = document.querySelector('.workspace-leaf-content[data-type="' + ${pluginLabel} + '"]');
+          const content = host && host.querySelector(".view-content");
+          const found = !!(content && content.querySelector(${JSON.stringify(job.expectClass)}));
+          return { found, selector: ${JSON.stringify(job.expectClass)} };
+        })()`)
+      : null;
+    if (pluginDom && !pluginDom.found) {
+      unverified.push({ job: job.name, state: state.name || "main", reason: `plugin DOM marker ${pluginDom.selector} is missing` });
+    }
+    if (job.viewType && metrics.dataType !== job.viewType) {
+      unverified.push({ job: job.name, state: state.name || "main", reason: `measured a ${metrics.dataType || "foreign"} surface, not ${job.viewType}` });
+    }
+    const checks = job.checks ? await evaluate(job.checks) : null;
+    const shot = await send("Page.captureScreenshot", { format: "png", fromSurface: true, captureBeyondViewport: false });
+    const focus = job.focus === false ? [] : await focusPass();
+    await evaluate(`(() => { const active = document.activeElement; if (active && active.blur) active.blur(); return true; })()`);
+    const prefix = `${job.name}-${width}-${theme}${state.name ? "-" + state.name : ""}`;
+    fs.writeFileSync(path.join(dir, `${prefix}.png`), Buffer.from(shot.data, "base64"));
+    fs.writeFileSync(
+      path.join(dir, `${prefix}.json`),
+      JSON.stringify({ job: { ...job, states: undefined }, state: state.name || "", pluginDom, checks, metrics, focus }, null, 2)
+    );
+    console.log(
+      JSON.stringify({
+        name: prefix,
+        root: metrics.root,
+        dataType: metrics.dataType,
+        pluginDom: pluginDom ? pluginDom.found : null,
+        box: metrics.rootBox,
+        overflow: [metrics.documentOverflowX, metrics.rootOverflowX, metrics.rootOverflowY],
+        wide: metrics.wide.length,
+        clipped: metrics.clipped.length,
+        tiny: metrics.tiny.length,
+        touch: metrics.touch.length,
+        contrast: metrics.contrastFailureCount,
+        focus: focus.length,
+        checks: checks || undefined,
+      })
+    );
+  }
 }
 
 ws.close();
+if (unverified.length) {
+  console.error(JSON.stringify({ unverified }, null, 2));
+  process.exitCode = 1;
+}

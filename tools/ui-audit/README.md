@@ -37,6 +37,38 @@ node tools/ui-audit/run.mjs tools/ui-audit/jobs.example.json light
 
 Each job may set `width` (default 1280), `height` (default 900), `theme`
 (`light`/`dark`), `command` (an Obsidian command id) and `focus: false`.
+
+A job that audits a plugin view should pin it, so the run can never measure a
+neighbouring Obsidian surface:
+
+```json
+{
+  "name": "task-list",
+  "command": "mcq-tracker:open-task-list",
+  "viewType": "question-tracker-task-list",
+  "placement": "main",
+  "expectClass": ".qt-task-list",
+  "states": [
+    { "name": "empty", "script": "(() => { /* arrange */ })()" },
+    { "name": "typed", "focus": ".qt-task-list-new", "type": "Read chapter 4", "press": "Enter" }
+  ],
+  "checks": "(() => ({ rows: document.querySelectorAll('.qt-task-list-row').length }))()"
+}
+```
+
+- `viewType` measures only `.workspace-leaf-content[data-type=…]` (the tab
+  header carries the same attribute, which is what the old selector hit),
+  focuses that leaf and fails the run when the measured surface is foreign or
+  narrower than 200px.
+- `placement: "main"` moves the view into the main tab group so a 1280
+  measurement is a full-width pane; without it a sidebar view is 0px here.
+- `expectClass` asserts plugin DOM on every state.
+- `states` run in order; each writes `<name>-<width>-<theme>[-<state>].{png,json}`.
+  `focus`, `type` and `press` drive real input (typed text plus Enter/Space).
+- `checks` is an expression whose result is stored beside the metrics.
+
+Jobs can also be an `.mjs` module exporting the array, which keeps those
+scripts readable: `node tools/ui-audit/run.mjs tools/ui-audit/jobs-task-list.mjs light`.
 Screenshots and measurements are written to
 `artifacts/ui-quality/runs/<job>/<job>-<width>-<theme>.{png,json}`.
 
@@ -59,6 +91,8 @@ CDP_TITLE=Settings node tools/ui-audit/cdp.mjs shot artifacts/settings.png 675 7
   including `color(srgb …)` and alpha backgrounds.
 - Sixteen Tab stops with computed outline, offset, ring and the winning focus
   rules.
+- A control's wrapping `label` counts as its hit area, so a small native box in
+  a large label is measured as the target a person actually hits.
 
 ## Limits
 
