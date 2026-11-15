@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 459 groups, 3194 exports. **Commands:** 242. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 459 groups, 3196 exports. **Commands:** 242. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -439,7 +439,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `tagTimer` | 26 | `tests/tag-timer.test.js` |
 | `tally` | 15 | `tests/tally.test.js` |
 | `taskDates` | 10 | `tests/study-tasks-plus.test.js`, `tests/task-dates.test.js`, `tests/task-recurrence.test.js`, `tests/task-times.test.js` |
-| `taskMirror` | 4 | `tests/study-tasks-plus.test.js`, `tests/task-recurrence.test.js`, `tests/task-times.test.js` |
+| `taskMirror` | 6 | `tests/study-tasks-plus.test.js`, `tests/task-recurrence.test.js`, `tests/task-times.test.js` |
 | `taskTags` | 5 | `tests/task-tags.test.js` |
 | `testSections` | 6 | `tests/test-sections.test.js` |
 | `text2anki` | 7 | `tests/text2anki-openai.test.js` |

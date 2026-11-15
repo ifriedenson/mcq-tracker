@@ -40,12 +40,46 @@ function studyTaskLine(task) {
   return course ? `${parts.join(" ")} · ${course}` : parts.join(" ");
 }
 
+/** A title safe inside a wikilink and on one checklist line. */
+function linkTitle(text) {
+  return str(text)
+    .replace(/\s+/g, " ")
+    .replace(/\|/g, "-")
+    .replace(/\]/g, "")
+    .replace(/\[\[/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * One checklist line for a due-queue item (question, flashcard or vocabulary):
+ * `- [ ] [[Questions/Enzymes|Enzymes]] 📅 2026-11-15 · Question · Biology`.
+ * The link is what buys backlinks and the graph; the date is the day the item
+ * is due, and an item that has never been reviewed is due today.
+ */
+function dueItemLine(row, today) {
+  const source = row && typeof row === "object" ? row : {};
+  const title = linkTitle(source.title);
+  if (!title) return "";
+  const path = str(source.path).trim();
+  const label = path ? `[[${path}|${title}]]` : title;
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(str(source.dueDate)) ? str(source.dueDate) : str(today);
+  const parts = ["- [ ]", label];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(day)) parts.push("📅", day);
+  // The queue's own meta can name the same course twice (deck and course).
+  const meta = [...new Set(str(source.meta).split(" · ").map((bit) => bit.trim()).filter(Boolean))].join(" · ");
+  return meta ? `${parts.join(" ")} · ${meta}` : parts.join(" ");
+}
+
 /**
  * The whole mirror note: open tasks first (high priority, then due),
  * done tasks after, plus a footer naming the one-way rule.
  */
-function mirrorMarkdown(tasks, today) {
+function mirrorMarkdown(tasks, today, options) {
   const list = Array.isArray(tasks) ? tasks : [];
+  const opts = options && typeof options === "object" ? options : {};
+  // Due questions, cards and vocabulary: the other half of the study loop.
+  const dueRows = Array.isArray(opts.dueItems) ? opts.dueItems : [];
   const day = /^\d{4}-\d{2}-\d{2}$/.test(str(today)) ? str(today) : localDate();
   const rank = (task) => [
     task.done === true ? 1 : 0,
@@ -76,7 +110,17 @@ function mirrorMarkdown(tasks, today) {
       }
     }
   }
-  lines.push("", `_Mirrored ${day} · ${open.length} open · ${done.length} done._`);
+  const dueLines = [];
+  for (const row of dueRows) {
+    const line = dueItemLine(row, day);
+    if (line) dueLines.push(line);
+  }
+  if (dueLines.length) {
+    lines.push("", "## Due today");
+    for (const line of dueLines) lines.push(line);
+  }
+  const dueText = dueLines.length ? ` · ${dueLines.length} due` : "";
+  lines.push("", `_Mirrored ${day} · ${open.length} open · ${done.length} done${dueText}._`);
   return `${lines.join("\n")}\n`;
 }
 
@@ -87,6 +131,8 @@ function defaultMirrorPath() {
 
 module.exports = {
   defaultMirrorPath,
+  dueItemLine,
+  linkTitle,
   mirrorMarkdown,
   mirrorTitle,
   studyTaskLine,

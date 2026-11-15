@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.2",
+    date: "November 15, 2026",
+    title: "The whole study loop in one note",
+    summary:
+      "The mirror note now carries exam-plan tasks and today's due questions, cards and vocabulary beside your study tasks, as linked Tasks-compatible lines. data.json stays the source of truth.",
+    highlights: [
+      {
+        title: "Due work shows up too",
+        body: "A new Due today section lists every question, flashcard and vocabulary item the due queue is holding, each as \"- [ ] [[path|title]] 📅 2026-11-15 · Question · Biology\". The link is what gives you backlinks and a place in the graph, and the date makes the line readable by Smart Gantt and other plugins.",
+      },
+      {
+        title: "Exam plans are just tasks",
+        body: "Tasks made by the exam planner already lived in the same list, and now they land in the note the moment they are made: completion, deletion and a repeat successor all rewrite it. One note setting, one writer, no second mirror.",
+      },
+      {
+        title: "Never appended, always rebuilt",
+        body: "Every refresh regenerates the note from current plugin data, so refreshing ten times leaves exactly one line per item. A reviewed question leaves the due list on its own, and a finished task moves under Done.",
+      },
+      {
+        title: "The note cannot change your data",
+        body: "The mirror is a projection: ticking a line or typing in the note changes nothing in data.json, and the next refresh puts the note back. Finished and stale items read the same way the study-task mirror always has.",
+      },
+    ],
+  },
+  {
     version: "1.307.1",
     date: "November 15, 2026",
     title: "Review work that comes back on its own",

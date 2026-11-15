@@ -321,7 +321,7 @@ const PAGES = {
       {
         type: "text",
         name: "Mirror note",
-        desc: "One-way copy of the study tasks into this note (Tasks-compatible lines for search and other plugins). Edits in the note are overwritten; leave empty for Study tasks.md.",
+        desc: "One-way copy of the study loop into this note: study tasks, exam-plan tasks and today's due questions, cards and vocabulary as Tasks-compatible lines (with links, for search, backlinks and the graph). Edits in the note are overwritten; leave empty for Study tasks.md.",
         placeholder: "Study tasks.md",
         get: (plugin) => studyWorkspace.normalizeStudyTasks(plugin.settings.studyTasks).mirrorNote,
         set: async (plugin, v) => update(plugin, "studyTasks", studyWorkspace.normalizeStudyTasks, { mirrorNote: v }),

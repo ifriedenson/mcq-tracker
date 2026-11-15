@@ -87007,6 +87007,12 @@ ${body}
       new Notice("SM-2 couldn't schedule this item, so the simple ladder was used.");
     }
     this.refreshKnowledgeRecordFor(file).catch(() => {});
+    // The due queue moved: keep the mirror note in step (best effort, never fatal).
+    // The metadata cache catches up a moment after the write, so the first pass
+    // may still see the old next_review; the second pass is the accurate one.
+    this.refreshTaskMirror().catch(() => {});
+    const settle = setTimeout(() => this.refreshTaskMirror().catch(() => {}), 1200);
+    if (settle && typeof settle.unref === "function") settle.unref();
     return { ...summary, queued: false, attemptId: attempt.attemptId };
   }
 
@@ -88891,6 +88897,7 @@ ${body}
     });
     await this.save();
     this.refreshViews();
+    await this.refreshTaskMirror();
     return task;
   }
 
@@ -88929,10 +88936,10 @@ ${body}
           this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({ ...latest, tasks: latest.tasks.concat(made) });
           await this.save();
           this.refreshViews();
-          await this.refreshTaskMirror();
         }
       }
     }
+    await this.refreshTaskMirror();
     return after;
   }
 
@@ -88944,6 +88951,7 @@ ${body}
     });
     await this.save();
     this.refreshViews();
+    await this.refreshTaskMirror();
   }
 
   /**
@@ -88960,12 +88968,32 @@ ${body}
     }
   }
 
-  /** One-way copy of the study tasks into a note, for search and other plugins. */
+  /**
+   * Due-queue rows for the mirror: questions, flashcards and vocabulary due
+   * today, exactly as Today and the due-queue window list them. Read-only.
+   */
+  mirrorDueItems() {
+    try {
+      if (this.moduleOff("mcq") && this.moduleOff("cards")) return [];
+      const queue = this.getDueQueue({ limit: 0 });
+      return Array.isArray(queue && queue.all) ? queue.all : [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  /**
+   * One-way copy of the study loop into a note, for search and other plugins:
+   * study tasks (exam-plan tasks included) and today's due questions, cards
+   * and vocabulary. data.json stays the source of truth; the note is rewritten
+   * from it every time, so repeating this never stacks duplicate lines.
+   */
   async syncStudyTasksToNote() {
     const data = studyWorkspace.normalizeStudyTasks(this.settings.studyTasks);
     const raw = str(data.mirrorNote).trim() || taskMirror.defaultMirrorPath();
     const path = raw.endsWith(".md") ? raw : `${raw}.md`;
-    const text = taskMirror.mirrorMarkdown(data.tasks, localDate());
+    const dueItems = this.mirrorDueItems();
+    const text = taskMirror.mirrorMarkdown(data.tasks, localDate(), { dueItems });
     const existing = this.app.vault.getAbstractFileByPath(path);
     if (existing) await this.app.vault.modify(existing, text);
     else {
@@ -88975,13 +89003,14 @@ ${body}
     }
     this.refreshViews();
     const open = data.tasks.filter((task) => !task.done).length;
-    return { ok: true, path, open, done: data.tasks.length - open };
+    return { ok: true, path, open, done: data.tasks.length - open, due: dueItems.length };
   }
 
   async mirrorStudyTasksCommand() {
     try {
       const result = await this.syncStudyTasksToNote();
-      new Notice(`Mirrored ${result.open} open task${result.open === 1 ? "" : "s"} to ${result.path}.`);
+      const due = result.due ? ` and ${result.due} due item${result.due === 1 ? "" : "s"}` : "";
+      new Notice(`Mirrored ${result.open} open task${result.open === 1 ? "" : "s"}${due} to ${result.path}.`);
     } catch (error) {
       new Notice(`Could not mirror the tasks: ${errorDetail(error)}.`);
     }
@@ -89007,6 +89036,7 @@ ${body}
     });
     await this.save();
     this.refreshViews();
+    await this.refreshTaskMirror();
     return tasks;
   }
 
@@ -121191,7 +121221,7 @@ const PAGES = {
       {
         type: "text",
         name: "Mirror note",
-        desc: "One-way copy of the study tasks into this note (Tasks-compatible lines for search and other plugins). Edits in the note are overwritten; leave empty for Study tasks.md.",
+        desc: "One-way copy of the study loop into this note: study tasks, exam-plan tasks and today's due questions, cards and vocabulary as Tasks-compatible lines (with links, for search, backlinks and the graph). Edits in the note are overwritten; leave empty for Study tasks.md.",
         placeholder: "Study tasks.md",
         get: (plugin) => studyWorkspace.normalizeStudyTasks(plugin.settings.studyTasks).mirrorNote,
         set: async (plugin, v) => update(plugin, "studyTasks", studyWorkspace.normalizeStudyTasks, { mirrorNote: v }),
@@ -132507,12 +132537,46 @@ function studyTaskLine(task) {
   return course ? `${parts.join(" ")} · ${course}` : parts.join(" ");
 }
 
+/** A title safe inside a wikilink and on one checklist line. */
+function linkTitle(text) {
+  return str(text)
+    .replace(/\s+/g, " ")
+    .replace(/\|/g, "-")
+    .replace(/\]/g, "")
+    .replace(/\[\[/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * One checklist line for a due-queue item (question, flashcard or vocabulary):
+ * `- [ ] [[Questions/Enzymes|Enzymes]] 📅 2026-11-15 · Question · Biology`.
+ * The link is what buys backlinks and the graph; the date is the day the item
+ * is due, and an item that has never been reviewed is due today.
+ */
+function dueItemLine(row, today) {
+  const source = row && typeof row === "object" ? row : {};
+  const title = linkTitle(source.title);
+  if (!title) return "";
+  const path = str(source.path).trim();
+  const label = path ? `[[${path}|${title}]]` : title;
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(str(source.dueDate)) ? str(source.dueDate) : str(today);
+  const parts = ["- [ ]", label];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(day)) parts.push("📅", day);
+  // The queue's own meta can name the same course twice (deck and course).
+  const meta = [...new Set(str(source.meta).split(" · ").map((bit) => bit.trim()).filter(Boolean))].join(" · ");
+  return meta ? `${parts.join(" ")} · ${meta}` : parts.join(" ");
+}
+
 /**
  * The whole mirror note: open tasks first (high priority, then due),
  * done tasks after, plus a footer naming the one-way rule.
  */
-function mirrorMarkdown(tasks, today) {
+function mirrorMarkdown(tasks, today, options) {
   const list = Array.isArray(tasks) ? tasks : [];
+  const opts = options && typeof options === "object" ? options : {};
+  // Due questions, cards and vocabulary: the other half of the study loop.
+  const dueRows = Array.isArray(opts.dueItems) ? opts.dueItems : [];
   const day = /^\d{4}-\d{2}-\d{2}$/.test(str(today)) ? str(today) : localDate();
   const rank = (task) => [
     task.done === true ? 1 : 0,
@@ -132543,7 +132607,17 @@ function mirrorMarkdown(tasks, today) {
       }
     }
   }
-  lines.push("", `_Mirrored ${day} · ${open.length} open · ${done.length} done._`);
+  const dueLines = [];
+  for (const row of dueRows) {
+    const line = dueItemLine(row, day);
+    if (line) dueLines.push(line);
+  }
+  if (dueLines.length) {
+    lines.push("", "## Due today");
+    for (const line of dueLines) lines.push(line);
+  }
+  const dueText = dueLines.length ? ` · ${dueLines.length} due` : "";
+  lines.push("", `_Mirrored ${day} · ${open.length} open · ${done.length} done${dueText}._`);
   return `${lines.join("\n")}\n`;
 }
 
@@ -132554,6 +132628,8 @@ function defaultMirrorPath() {
 
 module.exports = {
   defaultMirrorPath,
+  dueItemLine,
+  linkTitle,
   mirrorMarkdown,
   mirrorTitle,
   studyTaskLine,
@@ -139497,6 +139573,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.307.2",
+    date: "November 15, 2026",
+    title: "The whole study loop in one note",
+    summary:
+      "The mirror note now carries exam-plan tasks and today's due questions, cards and vocabulary beside your study tasks, as linked Tasks-compatible lines. data.json stays the source of truth.",
+    highlights: [
+      {
+        title: "Due work shows up too",
+        body: "A new Due today section lists every question, flashcard and vocabulary item the due queue is holding, each as \"- [ ] [[path|title]] 📅 2026-11-15 · Question · Biology\". The link is what gives you backlinks and a place in the graph, and the date makes the line readable by Smart Gantt and other plugins.",
+      },
+      {
+        title: "Exam plans are just tasks",
+        body: "Tasks made by the exam planner already lived in the same list, and now they land in the note the moment they are made: completion, deletion and a repeat successor all rewrite it. One note setting, one writer, no second mirror.",
+      },
+      {
+        title: "Never appended, always rebuilt",
+        body: "Every refresh regenerates the note from current plugin data, so refreshing ten times leaves exactly one line per item. A reviewed question leaves the due list on its own, and a finished task moves under Done.",
+      },
+      {
+        title: "The note cannot change your data",
+        body: "The mirror is a projection: ticking a line or typing in the note changes nothing in data.json, and the next refresh puts the note back. Finished and stale items read the same way the study-task mirror always has.",
+      },
+    ],
+  },
   {
     version: "1.307.1",
     date: "November 15, 2026",

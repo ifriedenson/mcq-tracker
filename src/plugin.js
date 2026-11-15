@@ -12576,6 +12576,12 @@ ${body}
       new Notice("SM-2 couldn't schedule this item, so the simple ladder was used.");
     }
     this.refreshKnowledgeRecordFor(file).catch(() => {});
+    // The due queue moved: keep the mirror note in step (best effort, never fatal).
+    // The metadata cache catches up a moment after the write, so the first pass
+    // may still see the old next_review; the second pass is the accurate one.
+    this.refreshTaskMirror().catch(() => {});
+    const settle = setTimeout(() => this.refreshTaskMirror().catch(() => {}), 1200);
+    if (settle && typeof settle.unref === "function") settle.unref();
     return { ...summary, queued: false, attemptId: attempt.attemptId };
   }
 
@@ -14460,6 +14466,7 @@ ${body}
     });
     await this.save();
     this.refreshViews();
+    await this.refreshTaskMirror();
     return task;
   }
 
@@ -14498,10 +14505,10 @@ ${body}
           this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({ ...latest, tasks: latest.tasks.concat(made) });
           await this.save();
           this.refreshViews();
-          await this.refreshTaskMirror();
         }
       }
     }
+    await this.refreshTaskMirror();
     return after;
   }
 
@@ -14513,6 +14520,7 @@ ${body}
     });
     await this.save();
     this.refreshViews();
+    await this.refreshTaskMirror();
   }
 
   /**
@@ -14529,12 +14537,32 @@ ${body}
     }
   }
 
-  /** One-way copy of the study tasks into a note, for search and other plugins. */
+  /**
+   * Due-queue rows for the mirror: questions, flashcards and vocabulary due
+   * today, exactly as Today and the due-queue window list them. Read-only.
+   */
+  mirrorDueItems() {
+    try {
+      if (this.moduleOff("mcq") && this.moduleOff("cards")) return [];
+      const queue = this.getDueQueue({ limit: 0 });
+      return Array.isArray(queue && queue.all) ? queue.all : [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  /**
+   * One-way copy of the study loop into a note, for search and other plugins:
+   * study tasks (exam-plan tasks included) and today's due questions, cards
+   * and vocabulary. data.json stays the source of truth; the note is rewritten
+   * from it every time, so repeating this never stacks duplicate lines.
+   */
   async syncStudyTasksToNote() {
     const data = studyWorkspace.normalizeStudyTasks(this.settings.studyTasks);
     const raw = str(data.mirrorNote).trim() || taskMirror.defaultMirrorPath();
     const path = raw.endsWith(".md") ? raw : `${raw}.md`;
-    const text = taskMirror.mirrorMarkdown(data.tasks, localDate());
+    const dueItems = this.mirrorDueItems();
+    const text = taskMirror.mirrorMarkdown(data.tasks, localDate(), { dueItems });
     const existing = this.app.vault.getAbstractFileByPath(path);
     if (existing) await this.app.vault.modify(existing, text);
     else {
@@ -14544,13 +14572,14 @@ ${body}
     }
     this.refreshViews();
     const open = data.tasks.filter((task) => !task.done).length;
-    return { ok: true, path, open, done: data.tasks.length - open };
+    return { ok: true, path, open, done: data.tasks.length - open, due: dueItems.length };
   }
 
   async mirrorStudyTasksCommand() {
     try {
       const result = await this.syncStudyTasksToNote();
-      new Notice(`Mirrored ${result.open} open task${result.open === 1 ? "" : "s"} to ${result.path}.`);
+      const due = result.due ? ` and ${result.due} due item${result.due === 1 ? "" : "s"}` : "";
+      new Notice(`Mirrored ${result.open} open task${result.open === 1 ? "" : "s"}${due} to ${result.path}.`);
     } catch (error) {
       new Notice(`Could not mirror the tasks: ${errorDetail(error)}.`);
     }
@@ -14576,6 +14605,7 @@ ${body}
     });
     await this.save();
     this.refreshViews();
+    await this.refreshTaskMirror();
     return tasks;
   }
 
