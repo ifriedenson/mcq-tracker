@@ -1165,7 +1165,7 @@ class StudyWorkspaceView extends ItemView {
       main.createDiv({
         cls: "qt-study-row-meta",
         text: `${task.course ? `${task.course} · ` : ""}${task.due || "No due date"}${task.source === "exam" ? " · exam plan" : task.source === "repeat" ? " · repeats" : ""}${
-          task.repeat === "daily" || task.repeat === "weekly" ? ` · 🔁 ${task.repeat}` : ""
+          task.repeat ? ` · 🔁 ${task.repeat === "weekday" ? "weekdays" : task.repeat}` : ""
         }`,
       });
       const buttons = row.createDiv({ cls: "qt-study-row-actions" });

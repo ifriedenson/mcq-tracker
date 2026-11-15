@@ -29,6 +29,7 @@ function studyTaskLine(task) {
   if (/^([01]\d|2[0-3]):[0-5]\d$/.test(str(source.time))) parts.push("⏰", str(source.time));
   if (str(source.priority).trim().toLowerCase() === "high") parts.push("⏫");
   if (source.repeat === "daily") parts.push("🔁", "every day");
+  else if (source.repeat === "weekday") parts.push("🔁", "every weekday");
   else if (source.repeat === "weekly") parts.push("🔁", "every week");
   for (const tag of Array.isArray(source.tags) ? source.tags : []) {
     const clean = str(tag).trim();

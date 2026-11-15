@@ -156,13 +156,14 @@ function ruleInSpan(text, base) {
 function parseTaskRepeat(text) {
   const input = str(text);
   if (!input.trim()) return { repeat: "", matched: "", keep: "" };
-  const every = new RegExp(`\\bevery\\s+(day|week|${WEEKDAY_NAMES})\\b`, "i").exec(input);
+  const every = new RegExp(`\\bevery\\s+(weekday|week\\s*day|day|week|${WEEKDAY_NAMES})\\b`, "i").exec(input);
   if (every) {
-    const word = every[1].toLowerCase();
+    const word = every[1].toLowerCase().replace(/\s+/g, "");
     const weekday = weekdayIndex(word) >= 0;
     // "every Tuesday" stays weekly but keeps the weekday for the due parser.
-    return { repeat: word === "day" ? "daily" : "weekly", matched: every[0], keep: weekday ? every[1] : "" };
+    return { repeat: word === "day" ? "daily" : word === "weekday" ? "weekday" : "weekly", matched: every[0], keep: weekday ? every[1] : "" };
   }
+  if (/\bweekdays\b/i.test(input)) return { repeat: "weekday", matched: /\bweekdays\b/i.exec(input)[0], keep: "" };
   if (/\bdaily\b/i.test(input)) return { repeat: "daily", matched: /\bdaily\b/i.exec(input)[0], keep: "" };
   if (/\bweekly\b/i.test(input)) return { repeat: "weekly", matched: /\bweekly\b/i.exec(input)[0], keep: "" };
   return { repeat: "", matched: "", keep: "" };

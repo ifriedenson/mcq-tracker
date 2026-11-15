@@ -216,7 +216,8 @@ class TaskListView extends ItemView {
     if (overdue) due.addClass("is-overdue");
     else if (dueToday) due.addClass("is-today");
     if (isHighPriority(task)) meta.createSpan({ cls: "qt-task-pill qt-task-high", text: "★ High" });
-    if (task.repeat === "daily" || task.repeat === "weekly") meta.createSpan({ cls: "qt-task-pill qt-task-repeat", text: `🔁 ${task.repeat}` });
+    const repeatName = task.repeat === "weekday" ? "weekdays" : task.repeat;
+    if (repeatName) meta.createSpan({ cls: "qt-task-pill qt-task-repeat", text: `🔁 ${repeatName}` });
     if (task.source === "exam") meta.createSpan({ cls: "qt-task-pill qt-task-source", text: "exam plan" });
 
     const tags = this.tagsOf(task);
@@ -275,14 +276,14 @@ class TaskListView extends ItemView {
       await this.plugin.updateStudyTask(task.id, { priority: isHighPriority(task) ? "" : "high" });
       this.render();
     });
-    const repeatLabel = task.repeat === "daily" ? "🔁 daily" : task.repeat === "weekly" ? "🔁 weekly" : "🔁 off";
+    const repeatLabel = task.repeat === "daily" ? "🔁 daily" : task.repeat === "weekday" ? "🔁 weekdays" : task.repeat === "weekly" ? "🔁 weekly" : "🔁 off";
     const repeat = row.createEl("button", {
       text: repeatLabel,
       cls: "qt-task-list-repeat",
-      attr: { "aria-label": `Repeat for ${task.title}: ${task.repeat || "off"}`, title: "Cycle repeat: off, daily, weekly" },
+      attr: { "aria-label": `Repeat for ${task.title}: ${task.repeat || "off"}`, title: "Cycle repeat: off, daily, weekdays, weekly" },
     });
     repeat.addEventListener("click", async () => {
-      const next = !task.repeat ? "daily" : task.repeat === "daily" ? "weekly" : "";
+      const next = !task.repeat ? "daily" : task.repeat === "daily" ? "weekday" : task.repeat === "weekday" ? "weekly" : "";
       await this.plugin.updateStudyTask(task.id, { repeat: next });
       this.render();
     });

@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 459 groups, 3192 exports. **Commands:** 242. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 459 groups, 3194 exports. **Commands:** 242. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -83,7 +83,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `StudyStatusModal` | 0 | `tests/feature-surfaces.test.js` |
 | `StudyToolsView` | 0 | `tests/lecture-links.test.js`, `tests/mobile-module-layout.test.js`, `tests/study-tools.test.js` |
 | `StudyWorkspaceView` | 0 | `tests/citations.test.js`, `tests/fsrs-fit.test.js`, `tests/glossary.test.js`, `tests/mobile-module-layout.test.js`, `tests/reading-library.test.js`, `tests/settings-consolidation.test.js`, `tests/study-modules-2.test.js`, `tests/study-modules-3.test.js`, `tests/study-tasks-plus.test.js`, `tests/study-workspace-health.test.js`, `tests/study-workspace-layout.test.js`, `tests/study-workspace-tabs.test.js`, `tests/study-workspace.test.js`, `tests/task-tags.test.js`, `tests/time-blocks.test.js`, `tests/vault-task-index.test.js`, `tests/wordnet.test.js`, `tests/writing-sessions.test.js` |
-| `TaskListView` | 0 | `tests/study-tasks-plus.test.js`, `tests/task-dates.test.js`, `tests/task-list.test.js`, `tests/task-times.test.js` |
+| `TaskListView` | 0 | `tests/study-tasks-plus.test.js`, `tests/task-dates.test.js`, `tests/task-list.test.js`, `tests/task-recurrence.test.js`, `tests/task-times.test.js` |
 | `TestView` | 0 | `tests/error-message-paths.test.js`, `tests/views.test.js` |
 | `TodayView` | 0 | `tests/ap-exam-resources.test.js`, `tests/core-values.test.js`, `tests/daily-quiz-freeze.test.js`, `tests/daily-quiz.test.js`, `tests/focus.test.js`, `tests/frq-review.test.js`, `tests/reading-plan.test.js`, `tests/study-plan.test.js`, `tests/study-tools.test.js`, `tests/today-dom.test.js`, `tests/today.test.js` |
 | `TranscriptPracticeModal` | 0 | `tests/feature-surfaces.test.js` |
@@ -428,7 +428,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `studyStatus` | 18 | `tests/study-status.test.js` |
 | `studyToolSettings` | 4 | `tests/calendar.test.js`, `tests/modules.test.js`, `tests/reading-library.test.js`, `tests/settings-consolidation.test.js`, `tests/settings-navigation.test.js`, `tests/study-tool-settings.test.js`, `tests/table-editor.test.js` |
 | `studyTools` | 19 | `tests/core-values.test.js`, `tests/study-modules-2.test.js`, `tests/study-tools.test.js` |
-| `studyWorkspace` | 84 | `tests/core-values.test.js`, `tests/quiz-attempts.test.js`, `tests/settings-consolidation.test.js`, `tests/study-tasks-plus.test.js`, `tests/study-workspace-health.test.js`, `tests/study-workspace.test.js`, `tests/subject-projects.test.js`, `tests/task-times.test.js`, `tests/vocab-stats.test.js` |
+| `studyWorkspace` | 86 | `tests/core-values.test.js`, `tests/quiz-attempts.test.js`, `tests/settings-consolidation.test.js`, `tests/study-tasks-plus.test.js`, `tests/study-workspace-health.test.js`, `tests/study-workspace.test.js`, `tests/subject-projects.test.js`, `tests/task-recurrence.test.js`, `tests/task-times.test.js`, `tests/vocab-stats.test.js` |
 | `suggestMinutes` | 0 | `tests/stats.test.js` |
 | `support` | 8 | `tests/support.test.js` |
 | `survey` | 4 | `tests/survey.test.js` |
@@ -438,8 +438,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `tableEditor` | 59 | `tests/advanced-tables-executable-parity.test.js`, `tests/advanced-tables-upstream.test.js`, `tests/table-commands.test.js`, `tests/table-editor.test.js` |
 | `tagTimer` | 26 | `tests/tag-timer.test.js` |
 | `tally` | 15 | `tests/tally.test.js` |
-| `taskDates` | 10 | `tests/study-tasks-plus.test.js`, `tests/task-dates.test.js`, `tests/task-times.test.js` |
-| `taskMirror` | 4 | `tests/study-tasks-plus.test.js`, `tests/task-times.test.js` |
+| `taskDates` | 10 | `tests/study-tasks-plus.test.js`, `tests/task-dates.test.js`, `tests/task-recurrence.test.js`, `tests/task-times.test.js` |
+| `taskMirror` | 4 | `tests/study-tasks-plus.test.js`, `tests/task-recurrence.test.js`, `tests/task-times.test.js` |
 | `taskTags` | 5 | `tests/task-tags.test.js` |
 | `testSections` | 6 | `tests/test-sections.test.js` |
 | `text2anki` | 7 | `tests/text2anki-openai.test.js` |

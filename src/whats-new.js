@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.1",
+    date: "November 15, 2026",
+    title: "Review work that comes back on its own",
+    summary:
+      "A study task can now repeat: daily, every weekday or weekly. Completing it schedules exactly one next instance, with the same due time, in the task list and the mirror note.",
+    highlights: [
+      {
+        title: "Three rules, no grammar to learn",
+        body: "The repeat button on each task cycles off, daily, weekdays and weekly. Typing it works too: \"Review Biochem every weekday\" or \"drill weekdays\" sets the rule and leaves a clean title.",
+      },
+      {
+        title: "The next one lands on the right day",
+        body: "Daily steps a day, weekdays skip Saturday and Sunday, and weekly keeps the weekday it was set on. Month ends, year ends and leap days are handled: 31 January repeats into 1 February, 28 February 2028 into the 29th, and 29 February into 1 March.",
+      },
+      {
+        title: "The due time comes along",
+        body: "A task at 08:15 repeats at 08:15. Its course, tags and high-priority star carry over too, and the next instance shows up in the task list and the due queue immediately.",
+      },
+      {
+        title: "One successor, never two",
+        body: "Finishing the same task twice, or finishing, reopening and finishing again, still schedules a single next instance. The mirror note writes it as \"- [ ] Review Biochem 📅 2026-11-23 ⏰ 08:15 🔁 every weekday\".",
+      },
+    ],
+  },
+  {
     version: "1.307.0",
     date: "November 15, 2026",
     title: "Tasks learn the clock",

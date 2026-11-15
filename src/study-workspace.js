@@ -942,9 +942,12 @@ function timeValue(value) {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(clean) ? clean : "";
 }
 
+/** The three narrow repeat rules: every day, every weekday, every week. */
 function repeatValue(value) {
   const clean = str(value).trim().toLowerCase();
-  return clean === "daily" || clean === "weekly" ? clean : "";
+  if (clean === "daily" || clean === "weekly") return clean;
+  if (clean === "weekday" || clean === "weekdays") return "weekday";
+  return "";
 }
 
 function normalizeStudyTask(value) {
@@ -1032,24 +1035,74 @@ function compareStudyTasks(a, b) {
   return (left.due || "9999-12-31").localeCompare(right.due || "9999-12-31") || (left.createdAt || 0) - (right.createdAt || 0);
 }
 
-/** Next instance for a repeating task finished today: daily +1, weekly +7. */
+/** A YYYY-MM-DD day as a UTC millisecond stamp, for whole-day arithmetic. */
+function dayNumber(day) {
+  const text = dayValue(day);
+  if (!text) return NaN;
+  const [year, month, date] = text.split("-").map(Number);
+  return Date.UTC(year, month - 1, date);
+}
+
+/** The next Monday-to-Friday day after this one: Friday and the weekend land on Monday. */
+function nextWeekday(day) {
+  let next = addDays(day, 1);
+  for (let step = 0; next && step < 7; step++) {
+    const [year, month, date] = next.split("-").map(Number);
+    const weekday = new Date(year, month - 1, date).getDay();
+    if (weekday !== 0 && weekday !== 6) return next;
+    next = addDays(next, 1);
+  }
+  return next;
+}
+
+/**
+ * Next instance for a repeating task finished today: daily +1, every weekday
+ * skips the weekend, weekly +7 (so it keeps the weekday of its due date). The
+ * due time, course, tags and priority come along; the finished task keeps its
+ * own row, so the same completion can never schedule two successors.
+ */
 function repeatFollowUp(task, today) {
   const source = task && typeof task === "object" ? task : null;
   const repeat = source ? repeatValue(source.repeat) : "";
   if (!repeat || source.done !== true) return null;
   const day = dayValue(today) || localDate();
-  const base = source.due && source.due >= day ? source.due : day;
-  const due = repeat === "daily" ? addDays(base, 1) : addDays(base, 7);
+  // Advance from the due date, not from today, so an overdue weekly task keeps
+  // the weekday it was set on. Every rule lands strictly after today: a
+  // finished task never schedules an instance in the past.
+  const base = dayValue(source.due) || day;
+  let due = "";
+  if (repeat === "weekly") {
+    const gap = Math.floor((dayNumber(day) - dayNumber(base)) / 86400000);
+    due = addDays(base, 7 * (gap < 0 ? 1 : Math.floor(gap / 7) + 1));
+  } else if (repeat === "daily") {
+    due = addDays(base > day ? base : day, 1);
+  } else {
+    due = nextWeekday(base > day ? base : day);
+  }
   if (!due) return null;
   return {
     title: source.title,
     course: source.course,
     tags: Array.isArray(source.tags) ? source.tags.slice() : [],
     due,
+    time: str(source.time),
     priority: priorityValue(source.priority),
     repeat,
     source: "repeat",
   };
+}
+
+/** True when an open copy of this successor is already queued. */
+function hasFollowUp(tasks, followUp) {
+  const wanted = followUp && typeof followUp === "object" ? followUp : {};
+  return (Array.isArray(tasks) ? tasks : []).some(
+    (task) =>
+      task &&
+      !task.done &&
+      str(task.title) === str(wanted.title) &&
+      dayValue(task.due) === dayValue(wanted.due) &&
+      repeatValue(task.repeat) === repeatValue(wanted.repeat)
+  );
 }
 
 function taskSummary(tasks, today) {
@@ -1442,6 +1495,8 @@ module.exports = {
   planSummary,
   recallDueUnits,
   recallStats,
+  hasFollowUp,
+  nextWeekday,
   repeatFollowUp,
   repeatValue,
   reviewRecallUnit,

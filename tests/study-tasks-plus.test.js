@@ -44,7 +44,8 @@ test("study tasks: finishing a repeating task schedules its next instance", () =
   const daily = { ...W.createStudyTask({ title: "Drill", repeat: "daily", due: "2026-11-10" }, 1), done: true };
   assert.equal(W.repeatFollowUp(daily, "2026-11-10").due, "2026-11-11");
   const overdue = { ...W.createStudyTask({ title: "Late", repeat: "weekly", due: "2026-01-01" }, 1), done: true };
-  assert.equal(W.repeatFollowUp(overdue, "2026-11-10").due, "2026-11-17");
+  // 2026-01-01 is a Thursday, so the overdue weekly lands on the next Thursday.
+  assert.equal(W.repeatFollowUp(overdue, "2026-11-10").due, "2026-11-12");
   const undated = { ...W.createStudyTask({ title: "Soon", repeat: "weekly" }, 1), done: true };
   assert.equal(W.repeatFollowUp(undated, "2026-11-10").due, "2026-11-17");
   assert.equal(W.repeatFollowUp({ ...daily, repeat: "" }, "2026-11-10"), null);
@@ -133,10 +134,14 @@ test("plugin: completing a repeating task spawns the next one, once", async () =
   const late = await plugin.addStudyTask({ title: "Late", repeat: "weekly", due: "2000-01-01" });
   await plugin.updateStudyTask(late.id, { done: true });
   const lateNext = plugin.settings.studyTasks.tasks.find((row) => row.title === "Late" && !row.done);
+  // 2000-01-01 is a Saturday: the overdue weekly keeps its weekday, in the future.
+  const start = new Date(2000, 0, 1);
   const now = new Date();
-  const plus7 = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7);
-  const key = `${plus7.getFullYear()}-${String(plus7.getMonth() + 1).padStart(2, "0")}-${String(plus7.getDate()).padStart(2, "0")}`;
-  assert.equal(lateNext.due, key, "an overdue repeat restarts from today");
+  const step = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  while (step <= now) step.setDate(step.getDate() + 7);
+  const key = `${step.getFullYear()}-${String(step.getMonth() + 1).padStart(2, "0")}-${String(step.getDate()).padStart(2, "0")}`;
+  assert.equal(lateNext.due, key, "an overdue weekly keeps its weekday and stays in the future");
+  assert.equal(new Date(`${lateNext.due}T12:00:00`).getDay(), 6, "still a Saturday");
 });
 
 test("plugin: completing a plain task spawns nothing", async () => {

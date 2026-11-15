@@ -14492,11 +14492,13 @@ ${body}
       const followUp = studyWorkspace.repeatFollowUp(after, localDate());
       if (followUp) {
         const made = studyWorkspace.createStudyTask(followUp, Date.now());
-        if (made) {
-          const latest = this.studyWorkspaceSettings().studyTasks;
+        const latest = this.studyWorkspaceSettings().studyTasks;
+        // A slow save or a second click must never queue the same successor twice.
+        if (made && !studyWorkspace.hasFollowUp(latest.tasks, followUp)) {
           this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({ ...latest, tasks: latest.tasks.concat(made) });
           await this.save();
           this.refreshViews();
+          await this.refreshTaskMirror();
         }
       }
     }
@@ -14511,6 +14513,20 @@ ${body}
     });
     await this.save();
     this.refreshViews();
+  }
+
+  /**
+   * Keep the note the user already picked for the task mirror in step after a
+   * repeat schedules its next instance. No path, no note: nothing is created.
+   */
+  async refreshTaskMirror() {
+    const data = studyWorkspace.normalizeStudyTasks(this.settings.studyTasks);
+    if (!str(data.mirrorNote).trim()) return null;
+    try {
+      return await this.syncStudyTasksToNote();
+    } catch (error) {
+      return null;
+    }
   }
 
   /** One-way copy of the study tasks into a note, for search and other plugins. */

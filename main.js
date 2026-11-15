@@ -88923,11 +88923,13 @@ ${body}
       const followUp = studyWorkspace.repeatFollowUp(after, localDate());
       if (followUp) {
         const made = studyWorkspace.createStudyTask(followUp, Date.now());
-        if (made) {
-          const latest = this.studyWorkspaceSettings().studyTasks;
+        const latest = this.studyWorkspaceSettings().studyTasks;
+        // A slow save or a second click must never queue the same successor twice.
+        if (made && !studyWorkspace.hasFollowUp(latest.tasks, followUp)) {
           this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({ ...latest, tasks: latest.tasks.concat(made) });
           await this.save();
           this.refreshViews();
+          await this.refreshTaskMirror();
         }
       }
     }
@@ -88942,6 +88944,20 @@ ${body}
     });
     await this.save();
     this.refreshViews();
+  }
+
+  /**
+   * Keep the note the user already picked for the task mirror in step after a
+   * repeat schedules its next instance. No path, no note: nothing is created.
+   */
+  async refreshTaskMirror() {
+    const data = studyWorkspace.normalizeStudyTasks(this.settings.studyTasks);
+    if (!str(data.mirrorNote).trim()) return null;
+    try {
+      return await this.syncStudyTasksToNote();
+    } catch (error) {
+      return null;
+    }
   }
 
   /** One-way copy of the study tasks into a note, for search and other plugins. */
@@ -123608,9 +123624,12 @@ function timeValue(value) {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(clean) ? clean : "";
 }
 
+/** The three narrow repeat rules: every day, every weekday, every week. */
 function repeatValue(value) {
   const clean = str(value).trim().toLowerCase();
-  return clean === "daily" || clean === "weekly" ? clean : "";
+  if (clean === "daily" || clean === "weekly") return clean;
+  if (clean === "weekday" || clean === "weekdays") return "weekday";
+  return "";
 }
 
 function normalizeStudyTask(value) {
@@ -123698,24 +123717,74 @@ function compareStudyTasks(a, b) {
   return (left.due || "9999-12-31").localeCompare(right.due || "9999-12-31") || (left.createdAt || 0) - (right.createdAt || 0);
 }
 
-/** Next instance for a repeating task finished today: daily +1, weekly +7. */
+/** A YYYY-MM-DD day as a UTC millisecond stamp, for whole-day arithmetic. */
+function dayNumber(day) {
+  const text = dayValue(day);
+  if (!text) return NaN;
+  const [year, month, date] = text.split("-").map(Number);
+  return Date.UTC(year, month - 1, date);
+}
+
+/** The next Monday-to-Friday day after this one: Friday and the weekend land on Monday. */
+function nextWeekday(day) {
+  let next = addDays(day, 1);
+  for (let step = 0; next && step < 7; step++) {
+    const [year, month, date] = next.split("-").map(Number);
+    const weekday = new Date(year, month - 1, date).getDay();
+    if (weekday !== 0 && weekday !== 6) return next;
+    next = addDays(next, 1);
+  }
+  return next;
+}
+
+/**
+ * Next instance for a repeating task finished today: daily +1, every weekday
+ * skips the weekend, weekly +7 (so it keeps the weekday of its due date). The
+ * due time, course, tags and priority come along; the finished task keeps its
+ * own row, so the same completion can never schedule two successors.
+ */
 function repeatFollowUp(task, today) {
   const source = task && typeof task === "object" ? task : null;
   const repeat = source ? repeatValue(source.repeat) : "";
   if (!repeat || source.done !== true) return null;
   const day = dayValue(today) || localDate();
-  const base = source.due && source.due >= day ? source.due : day;
-  const due = repeat === "daily" ? addDays(base, 1) : addDays(base, 7);
+  // Advance from the due date, not from today, so an overdue weekly task keeps
+  // the weekday it was set on. Every rule lands strictly after today: a
+  // finished task never schedules an instance in the past.
+  const base = dayValue(source.due) || day;
+  let due = "";
+  if (repeat === "weekly") {
+    const gap = Math.floor((dayNumber(day) - dayNumber(base)) / 86400000);
+    due = addDays(base, 7 * (gap < 0 ? 1 : Math.floor(gap / 7) + 1));
+  } else if (repeat === "daily") {
+    due = addDays(base > day ? base : day, 1);
+  } else {
+    due = nextWeekday(base > day ? base : day);
+  }
   if (!due) return null;
   return {
     title: source.title,
     course: source.course,
     tags: Array.isArray(source.tags) ? source.tags.slice() : [],
     due,
+    time: str(source.time),
     priority: priorityValue(source.priority),
     repeat,
     source: "repeat",
   };
+}
+
+/** True when an open copy of this successor is already queued. */
+function hasFollowUp(tasks, followUp) {
+  const wanted = followUp && typeof followUp === "object" ? followUp : {};
+  return (Array.isArray(tasks) ? tasks : []).some(
+    (task) =>
+      task &&
+      !task.done &&
+      str(task.title) === str(wanted.title) &&
+      dayValue(task.due) === dayValue(wanted.due) &&
+      repeatValue(task.repeat) === repeatValue(wanted.repeat)
+  );
 }
 
 function taskSummary(tasks, today) {
@@ -124108,6 +124177,8 @@ module.exports = {
   planSummary,
   recallDueUnits,
   recallStats,
+  hasFollowUp,
+  nextWeekday,
   repeatFollowUp,
   repeatValue,
   reviewRecallUnit,
@@ -125288,7 +125359,7 @@ class StudyWorkspaceView extends ItemView {
       main.createDiv({
         cls: "qt-study-row-meta",
         text: `${task.course ? `${task.course} · ` : ""}${task.due || "No due date"}${task.source === "exam" ? " · exam plan" : task.source === "repeat" ? " · repeats" : ""}${
-          task.repeat === "daily" || task.repeat === "weekly" ? ` · 🔁 ${task.repeat}` : ""
+          task.repeat ? ` · 🔁 ${task.repeat === "weekday" ? "weekdays" : task.repeat}` : ""
         }`,
       });
       const buttons = row.createDiv({ cls: "qt-study-row-actions" });
@@ -131810,13 +131881,14 @@ function ruleInSpan(text, base) {
 function parseTaskRepeat(text) {
   const input = str(text);
   if (!input.trim()) return { repeat: "", matched: "", keep: "" };
-  const every = new RegExp(`\\bevery\\s+(day|week|${WEEKDAY_NAMES})\\b`, "i").exec(input);
+  const every = new RegExp(`\\bevery\\s+(weekday|week\\s*day|day|week|${WEEKDAY_NAMES})\\b`, "i").exec(input);
   if (every) {
-    const word = every[1].toLowerCase();
+    const word = every[1].toLowerCase().replace(/\s+/g, "");
     const weekday = weekdayIndex(word) >= 0;
     // "every Tuesday" stays weekly but keeps the weekday for the due parser.
-    return { repeat: word === "day" ? "daily" : "weekly", matched: every[0], keep: weekday ? every[1] : "" };
+    return { repeat: word === "day" ? "daily" : word === "weekday" ? "weekday" : "weekly", matched: every[0], keep: weekday ? every[1] : "" };
   }
+  if (/\bweekdays\b/i.test(input)) return { repeat: "weekday", matched: /\bweekdays\b/i.exec(input)[0], keep: "" };
   if (/\bdaily\b/i.test(input)) return { repeat: "daily", matched: /\bdaily\b/i.exec(input)[0], keep: "" };
   if (/\bweekly\b/i.test(input)) return { repeat: "weekly", matched: /\bweekly\b/i.exec(input)[0], keep: "" };
   return { repeat: "", matched: "", keep: "" };
@@ -132304,7 +132376,8 @@ class TaskListView extends ItemView {
     if (overdue) due.addClass("is-overdue");
     else if (dueToday) due.addClass("is-today");
     if (isHighPriority(task)) meta.createSpan({ cls: "qt-task-pill qt-task-high", text: "★ High" });
-    if (task.repeat === "daily" || task.repeat === "weekly") meta.createSpan({ cls: "qt-task-pill qt-task-repeat", text: `🔁 ${task.repeat}` });
+    const repeatName = task.repeat === "weekday" ? "weekdays" : task.repeat;
+    if (repeatName) meta.createSpan({ cls: "qt-task-pill qt-task-repeat", text: `🔁 ${repeatName}` });
     if (task.source === "exam") meta.createSpan({ cls: "qt-task-pill qt-task-source", text: "exam plan" });
 
     const tags = this.tagsOf(task);
@@ -132363,14 +132436,14 @@ class TaskListView extends ItemView {
       await this.plugin.updateStudyTask(task.id, { priority: isHighPriority(task) ? "" : "high" });
       this.render();
     });
-    const repeatLabel = task.repeat === "daily" ? "🔁 daily" : task.repeat === "weekly" ? "🔁 weekly" : "🔁 off";
+    const repeatLabel = task.repeat === "daily" ? "🔁 daily" : task.repeat === "weekday" ? "🔁 weekdays" : task.repeat === "weekly" ? "🔁 weekly" : "🔁 off";
     const repeat = row.createEl("button", {
       text: repeatLabel,
       cls: "qt-task-list-repeat",
-      attr: { "aria-label": `Repeat for ${task.title}: ${task.repeat || "off"}`, title: "Cycle repeat: off, daily, weekly" },
+      attr: { "aria-label": `Repeat for ${task.title}: ${task.repeat || "off"}`, title: "Cycle repeat: off, daily, weekdays, weekly" },
     });
     repeat.addEventListener("click", async () => {
-      const next = !task.repeat ? "daily" : task.repeat === "daily" ? "weekly" : "";
+      const next = !task.repeat ? "daily" : task.repeat === "daily" ? "weekday" : task.repeat === "weekday" ? "weekly" : "";
       await this.plugin.updateStudyTask(task.id, { repeat: next });
       this.render();
     });
@@ -132423,6 +132496,7 @@ function studyTaskLine(task) {
   if (/^([01]\d|2[0-3]):[0-5]\d$/.test(str(source.time))) parts.push("⏰", str(source.time));
   if (str(source.priority).trim().toLowerCase() === "high") parts.push("⏫");
   if (source.repeat === "daily") parts.push("🔁", "every day");
+  else if (source.repeat === "weekday") parts.push("🔁", "every weekday");
   else if (source.repeat === "weekly") parts.push("🔁", "every week");
   for (const tag of Array.isArray(source.tags) ? source.tags : []) {
     const clean = str(tag).trim();
@@ -139423,6 +139497,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.307.1",
+    date: "November 15, 2026",
+    title: "Review work that comes back on its own",
+    summary:
+      "A study task can now repeat: daily, every weekday or weekly. Completing it schedules exactly one next instance, with the same due time, in the task list and the mirror note.",
+    highlights: [
+      {
+        title: "Three rules, no grammar to learn",
+        body: "The repeat button on each task cycles off, daily, weekdays and weekly. Typing it works too: \"Review Biochem every weekday\" or \"drill weekdays\" sets the rule and leaves a clean title.",
+      },
+      {
+        title: "The next one lands on the right day",
+        body: "Daily steps a day, weekdays skip Saturday and Sunday, and weekly keeps the weekday it was set on. Month ends, year ends and leap days are handled: 31 January repeats into 1 February, 28 February 2028 into the 29th, and 29 February into 1 March.",
+      },
+      {
+        title: "The due time comes along",
+        body: "A task at 08:15 repeats at 08:15. Its course, tags and high-priority star carry over too, and the next instance shows up in the task list and the due queue immediately.",
+      },
+      {
+        title: "One successor, never two",
+        body: "Finishing the same task twice, or finishing, reopening and finishing again, still schedules a single next instance. The mirror note writes it as \"- [ ] Review Biochem 📅 2026-11-23 ⏰ 08:15 🔁 every weekday\".",
+      },
+    ],
+  },
   {
     version: "1.307.0",
     date: "November 15, 2026",
