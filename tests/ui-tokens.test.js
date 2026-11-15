@@ -85,4 +85,7 @@ test("dim-muted dark themes keep link and secondary text above AA", () => {
   assert.match(css, /body\.theme-dark \.qt-exam \.qt-choice-mark,[\s\S]*color: var\(--text-normal\)/);
   assert.match(css, /body\.theme-dark \{[\s\S]*--qt-link: color-mix\(in srgb, var\(--text-accent-hover/);
   assert.match(css, /body\.theme-dark \.qt-hint,[\s\S]*color: var\(--text-normal\)/);
+  for (const cls of [".qt-label", ".qt-meta", ".qt-empty", ".qt-paused", ".qt-field label"]) {
+    assert.ok(css.includes(`body.theme-dark ${cls}`), `${cls} borrows normal ink in dark`);
+  }
 });

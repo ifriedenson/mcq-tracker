@@ -137,9 +137,15 @@ body.theme-dark .qt-exam .qt-foot-left .qt-foot-more {
   color: var(--text-normal);
 }
 
-/* Primary dark keeps its warm dim secondary ink below AA on 13px labels. */
+/* Primary dark keeps its warm dim secondary ink below AA on 13px labels,
+   so hint, count, field label, meta and empty text borrow the normal ink. */
 body.theme-dark .qt-hint,
-body.theme-dark .qt-count {
+body.theme-dark .qt-count,
+body.theme-dark .qt-label,
+body.theme-dark .qt-meta,
+body.theme-dark .qt-empty,
+body.theme-dark .qt-paused,
+body.theme-dark .qt-field label {
   color: var(--text-normal);
 }
 

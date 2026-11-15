@@ -139606,6 +139606,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.5",
+    date: "November 15, 2026",
+    title: "Dim dark labels read clearly",
+    summary:
+      "The same Primary pass turned up more secondary text that dim-muted dark themes push below AA: quick-practice field labels, inline meta lines, empty states and the paused-timer line. They now borrow the normal ink in dark, and every audited surface measures zero contrast failures again.",
+    highlights: [
+      {
+        title: "Labels, meta and empty states",
+        body: "Quick Practice's Session length and other field labels, inline meta lines, empty-state copy and the paused-timer notice were 4.06:1 in Primary dark. In dark they now use the normal reading colour, so small text clears AA everywhere it appears.",
+      },
+      {
+        title: "Nothing else moved",
+        body: "A styles-only change: no setting key, note format, command, review schedule or network path changed, and light themes render exactly as before.",
+      },
+      {
+        title: "Re-checked on the released build",
+        body: "The whole plugin was driven again in Obsidian 1.15.1 under Primary: 242 commands, 20 views, 61 settings pages, no failures, with hubs and practice reporting zero overflow in light and dark.",
+      },
+      {
+        title: "One pin per class",
+        body: "A new test names each dark-ink class, so a future muted label that lands under AA in Primary dark fails the suite instead of shipping quietly.",
+      },
+    ],
+  },
+  {
     version: "1.307.4",
     date: "November 15, 2026",
     title: "Polished for Primary, calm in the dark",
