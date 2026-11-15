@@ -7,6 +7,7 @@
  */
 const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_FOCUS_DAY } = require("./constants");
+const { dueChipLabel, extractTaskDue } = require("./task-dates");
 const { phaseLabel } = require("./pomodoro");
 const {
   FOCUS_DAY_WEEKDAYS,
@@ -216,7 +217,7 @@ class FocusDayView extends ItemView {
   renderTasks(root) {
     const card = root.createDiv({ cls: "qt-focus-card qt-focus-tasks" });
     card.createEl("h2", { text: "Quick tasks", cls: "qt-focus-title" });
-    card.createDiv({ cls: "qt-hint", text: "A session scratchpad — tasks vanish when the view closes and never touch a note." });
+    card.createDiv({ cls: "qt-hint", text: "A session scratchpad — tasks vanish when the view closes and never touch a note. Name a day ('tomorrow', 'Tuesday') to date one." });
     const form = card.createDiv({ cls: "qt-focus-add" });
     const input = form.createEl("input", {
       type: "text",
@@ -227,7 +228,7 @@ class FocusDayView extends ItemView {
       const text = input.value;
       if (!String(text || "").trim()) return;
       this.taskSeq += 1;
-      this.tasks = addFocusTask(this.tasks, text, `focus-${Date.now()}-${this.taskSeq}`);
+      this.tasks = addFocusTask(this.tasks, extractTaskDue(text).title || text, `focus-${Date.now()}-${this.taskSeq}`, extractTaskDue(text).due);
       this.render();
     };
     form.createEl("button", { text: "Add", cls: "mod-cta" }).addEventListener("click", add);
@@ -251,6 +252,8 @@ class FocusDayView extends ItemView {
         this.render();
       });
       row.createDiv({ cls: "qt-focus-task-text", text: task.text });
+      const chip = dueChipLabel(task.due);
+      if (chip) row.createDiv({ cls: "qt-focus-due", text: chip });
       row.createEl("button", { text: "Delete", attr: { "aria-label": `Delete ${task.text}` } }).addEventListener("click", () => {
         this.tasks = deleteFocusTask(this.tasks, task.id);
         this.render();

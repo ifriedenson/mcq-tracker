@@ -1043,7 +1043,7 @@ class StudyWorkspaceView extends ItemView {
     const summary = taskSummary(data.tasks, localDate());
     const add = root.createDiv({ cls: "qt-study-card" });
     add.createEl("h3", { text: "Add a study task" });
-    add.createDiv({ cls: "qt-hint", text: "Tasks are local. Remind shows due work inside Obsidian; it does not use OS notifications." });
+    add.createDiv({ cls: "qt-hint", text: "Tasks are local. Remind shows due work inside Obsidian; it does not use OS notifications. Name a day in the task (tomorrow, Tuesday) to set its due date." });
     const form = add.createDiv({ cls: "qt-study-form" });
     const title = this.renderField(form, "Task", "text", "Review cell respiration");
     const course = this.renderField(form, "Course", "text", "Biology");

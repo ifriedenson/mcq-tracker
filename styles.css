@@ -17645,3 +17645,5 @@ button.qt-focus-date:hover { background: var(--background-modifier-hover); borde
   .qt-focus-add { flex-direction: column; }
   .qt-focus-actions { width: 100%; }
 }
+.qt-task-list-hint { font-size: var(--qt-type-xs); color: var(--text-muted); }
+.qt-focus-due { font-size: var(--qt-type-xs); color: var(--text-muted); border: 1px solid var(--background-modifier-border); border-radius: var(--qt-radius-pill); padding: 1px 8px; white-space: nowrap; }

@@ -40765,17 +40765,17 @@ function normalizeFocusTasks(value) {
     if (!row || typeof row !== "object") continue;
     const text = str(row.text).trim();
     if (!text) continue;
-    out.push({ id: str(row.id) || `${Date.now()}-${out.length}`, text, done: row.done === true });
+    out.push({ id: str(row.id) || `${Date.now()}-${out.length}`, text, done: row.done === true, due: validFocusDateKey(row.due) || "" });
   }
   return out;
 }
 
-function addFocusTask(tasks, text, id) {
+function addFocusTask(tasks, text, id, due) {
   const clean = str(text).trim();
   if (!clean) return normalizeFocusTasks(tasks);
   const next = normalizeFocusTasks(tasks);
   if (next.length >= MAX_FOCUS_TASKS) return next;
-  next.push({ id: str(id) || `${Date.now()}-${next.length}`, text: clean, done: false });
+  next.push({ id: str(id) || `${Date.now()}-${next.length}`, text: clean, done: false, due: validFocusDateKey(due) || "" });
   return next;
 }
 
@@ -40818,6 +40818,7 @@ __defs["focus-day-view"] = function (module, exports, require) {
  */
 const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_FOCUS_DAY } = require("./constants");
+const { dueChipLabel, extractTaskDue } = require("./task-dates");
 const { phaseLabel } = require("./pomodoro");
 const {
   FOCUS_DAY_WEEKDAYS,
@@ -41027,7 +41028,7 @@ class FocusDayView extends ItemView {
   renderTasks(root) {
     const card = root.createDiv({ cls: "qt-focus-card qt-focus-tasks" });
     card.createEl("h2", { text: "Quick tasks", cls: "qt-focus-title" });
-    card.createDiv({ cls: "qt-hint", text: "A session scratchpad — tasks vanish when the view closes and never touch a note." });
+    card.createDiv({ cls: "qt-hint", text: "A session scratchpad — tasks vanish when the view closes and never touch a note. Name a day ('tomorrow', 'Tuesday') to date one." });
     const form = card.createDiv({ cls: "qt-focus-add" });
     const input = form.createEl("input", {
       type: "text",
@@ -41038,7 +41039,7 @@ class FocusDayView extends ItemView {
       const text = input.value;
       if (!String(text || "").trim()) return;
       this.taskSeq += 1;
-      this.tasks = addFocusTask(this.tasks, text, `focus-${Date.now()}-${this.taskSeq}`);
+      this.tasks = addFocusTask(this.tasks, extractTaskDue(text).title || text, `focus-${Date.now()}-${this.taskSeq}`, extractTaskDue(text).due);
       this.render();
     };
     form.createEl("button", { text: "Add", cls: "mod-cta" }).addEventListener("click", add);
@@ -41062,6 +41063,8 @@ class FocusDayView extends ItemView {
         this.render();
       });
       row.createDiv({ cls: "qt-focus-task-text", text: task.text });
+      const chip = dueChipLabel(task.due);
+      if (chip) row.createDiv({ cls: "qt-focus-due", text: chip });
       row.createEl("button", { text: "Delete", attr: { "aria-label": `Delete ${task.text}` } }).addEventListener("click", () => {
         this.tasks = deleteFocusTask(this.tasks, task.id);
         this.render();
@@ -74373,6 +74376,7 @@ const studyCounters = require("./study-counters");
 const pomodoro = require("./pomodoro");
 const { FocusDayView } = require("./focus-day-view");
 const focusDay = require("./focus-day");
+const taskDates = require("./task-dates");
 const { PomodoroView } = require("./pomodoro-view");
 const { applySpacedReview, buildSpacedQueue, normalizeSpacedEverything, renderSpacedTemplate, spacedCaptureText } = require("./spaced-everything");
 const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
@@ -88371,7 +88375,17 @@ ${body}
   /* ---- Study tasks ----------------------------------------------------- */
 
   async addStudyTask(input) {
-    const task = studyWorkspace.createStudyTask(input, Date.now());
+    const source = input && typeof input === "object" && !Array.isArray(input) ? { ...input } : {};
+    // A date in the title ("Practice 8 AP World questions today") sets the
+    // due date when no explicit date was picked; its words leave the title.
+    if (!studyTools.dayValue(source.due) && str(source.title).trim()) {
+      const parsed = taskDates.extractTaskDue(source.title);
+      if (parsed.due) {
+        source.title = parsed.title;
+        source.due = parsed.due;
+      }
+    }
+    const task = studyWorkspace.createStudyTask(source, Date.now());
     if (!task) return null;
     const current = this.studyWorkspaceSettings().studyTasks;
     this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({
@@ -124531,7 +124545,7 @@ class StudyWorkspaceView extends ItemView {
     const summary = taskSummary(data.tasks, localDate());
     const add = root.createDiv({ cls: "qt-study-card" });
     add.createEl("h3", { text: "Add a study task" });
-    add.createDiv({ cls: "qt-hint", text: "Tasks are local. Remind shows due work inside Obsidian; it does not use OS notifications." });
+    add.createDiv({ cls: "qt-hint", text: "Tasks are local. Remind shows due work inside Obsidian; it does not use OS notifications. Name a day in the task (tomorrow, Tuesday) to set its due date." });
     const form = add.createDiv({ cls: "qt-study-form" });
     const title = this.renderField(form, "Task", "text", "Review cell respiration");
     const course = this.renderField(form, "Course", "text", "Biology");
@@ -130986,6 +131000,234 @@ async function renderTallyBlock(plugin, source, el, ctx) {
 module.exports = { TallyBlock, renderTallyBlock };
 };
 
+/* ---- src/task-dates.js ---- */
+__defs["task-dates"] = function (module, exports, require) {
+/*
+ * Natural-language due dates for task input: "Practice 8 AP World questions
+ * today" gets today's date, "tomorrow" the next day, "Tuesday" the upcoming
+ * Tuesday. Dependency-free and date-only: the parser returns YYYY-MM-DD and
+ * the exact words it matched, so callers can strip them from the title.
+ * Times of day are never read — a task keeps no time, only a due date.
+ */
+const { localDate, str } = require("./util");
+
+const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+const WEEKDAY_ALIASES = {
+  sun: 0,
+  mon: 1,
+  tue: 2,
+  tues: 2,
+  wed: 3,
+  thu: 4,
+  thur: 4,
+  thurs: 4,
+  fri: 5,
+  sat: 6,
+};
+
+const MONTHS = [
+  "january",
+  "february",
+  "march",
+  "april",
+  "may",
+  "june",
+  "july",
+  "august",
+  "september",
+  "october",
+  "november",
+  "december",
+];
+
+function pad(n) {
+  return String(n).padStart(2, "0");
+}
+
+function keyOf(year, month, day) {
+  return `${year}-${pad(month + 1)}-${pad(day)}`;
+}
+
+function parseKey(key) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str(key));
+  if (!m) return null;
+  const date = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (date.getFullYear() !== Number(m[1]) || date.getMonth() !== Number(m[2]) - 1 || date.getDate() !== Number(m[3])) return null;
+  return date;
+}
+
+/** Reference day as a Date: a Date, a YYYY-MM-DD key, or today. Time is ignored. */
+function refDate(ref) {
+  if (ref instanceof Date && !isNaN(ref.getTime())) return new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());
+  const parsed = parseKey(ref);
+  if (parsed) return parsed;
+  const today = parseKey(localDate());
+  return today || new Date(2026, 10, 15);
+}
+
+function shiftDays(base, n) {
+  const date = new Date(base.getFullYear(), base.getMonth(), base.getDate() + n);
+  return keyOf(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function daysInMonth(year, month) {
+  return new Date(year, month + 1, 0).getDate();
+}
+
+function shiftMonths(base, n) {
+  const total = base.getFullYear() * 12 + base.getMonth() + n;
+  const year = Math.floor(total / 12);
+  const month = ((total % 12) + 12) % 12;
+  const day = Math.min(base.getDate(), daysInMonth(year, month));
+  return keyOf(year, month, day);
+}
+
+function weekdayIndex(name) {
+  const clean = str(name).toLowerCase();
+  const full = WEEKDAYS.indexOf(clean);
+  if (full >= 0) return full;
+  return WEEKDAY_ALIASES[clean] == null ? -1 : WEEKDAY_ALIASES[clean];
+}
+
+function monthIndex(name) {
+  const clean = str(name).toLowerCase();
+  const full = MONTHS.indexOf(clean);
+  if (full >= 0) return full;
+  const short = MONTHS.findIndex((month) => month.slice(0, 3) === clean.slice(0, 3) && clean.length >= 3);
+  return short;
+}
+
+function escapeRe(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const WEEKDAY_NAMES = [...WEEKDAYS, ...Object.keys(WEEKDAY_ALIASES)].sort((a, b) => b.length - a.length).map(escapeRe).join("|");
+const MONTH_NAMES = [...MONTHS, ...MONTHS.map((month) => month.slice(0, 3))].map(escapeRe).join("|");
+
+/*
+ * Each rule returns { date, matched } or null. Rules run in order, so an
+ * ISO date beats a weekday and "next Tuesday" beats a bare "Tuesday".
+ */
+function ruleIso(text, base) {
+  const m = /\b(\d{4})-(\d{2})-(\d{2})\b/.exec(text);
+  if (!m) return null;
+  const key = `${m[1]}-${m[2]}-${m[3]}`;
+  if (!parseKey(key)) return null;
+  return { date: key, matched: m[0] };
+}
+
+function ruleRelative(text, base) {
+  const m = /\b(day after tomorrow|today|tonight|tomorrow|tmrw|tmr|yesterday)\b/i.exec(text);
+  if (!m) return null;
+  const word = m[1].toLowerCase();
+  if (word === "today" || word === "tonight") return { date: shiftDays(base, 0), matched: m[0] };
+  if (word === "tomorrow" || word === "tmr" || word === "tmrw") return { date: shiftDays(base, 1), matched: m[0] };
+  if (word === "yesterday") return { date: shiftDays(base, -1), matched: m[0] };
+  return { date: shiftDays(base, 2), matched: m[0] };
+}
+
+function ruleWeekend(text, base) {
+  if (!/\b(weekend|this weekend)\b/i.test(text)) return null;
+  const dow = base.getDay();
+  const offset = dow === 0 || dow === 6 ? 0 : 6 - dow;
+  const m = /\b(?:this\s+)?weekend\b/i.exec(text);
+  return { date: shiftDays(base, offset), matched: m[0] };
+}
+
+function ruleNextSpan(text, base) {
+  const m = /\bnext\s+(week|month)\b/i.exec(text);
+  if (!m) return null;
+  return { date: m[1].toLowerCase() === "week" ? shiftDays(base, 7) : shiftMonths(base, 1), matched: m[0] };
+}
+
+function ruleInSpan(text, base) {
+  const m = /\bin\s+(a|an|\d+)\s+(day|days|week|weeks)\b/i.exec(text);
+  if (!m) return null;
+  const amount = /^\d+$/.test(m[1]) ? Number(m[1]) : 1;
+  const days = /week/i.test(m[2]) ? amount * 7 : amount;
+  return { date: shiftDays(base, Math.min(366, days)), matched: m[0] };
+}
+
+function ruleWeekday(text, base, nextOnly) {
+  const pattern = nextOnly ? `\\bnext\\s+(${WEEKDAY_NAMES})\\b` : `\\b(?:this\\s+)?(${WEEKDAY_NAMES})\\b`;
+  const m = new RegExp(pattern, "i").exec(text);
+  if (!m) return null;
+  const want = weekdayIndex(m[1]);
+  if (want < 0) return null;
+  const offset = (want - base.getDay() + 7) % 7;
+  return { date: shiftDays(base, nextOnly ? offset + 7 : offset), matched: m[0] };
+}
+
+function ruleMonthDay(text, base) {
+  const m = new RegExp(`\\bon\\s+(${MONTH_NAMES})\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:\\s*,?\\s*(\\d{4}))?`, "i").exec(text);
+  const bare = m ? null : new RegExp(`\\b(${MONTH_NAMES})\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`, "i").exec(text);
+  const hit = m || bare;
+  if (!hit) return null;
+  const month = monthIndex(hit[1]);
+  const day = Number(hit[2]);
+  if (month < 0 || day < 1 || day > daysInMonth(base.getFullYear(), month)) return null;
+  let year = hit[3] ? Number(hit[3]) : base.getFullYear();
+  if (!hit[3]) {
+    const candidate = keyOf(year, month, day);
+    if (candidate < keyOf(base.getFullYear(), base.getMonth(), base.getDate())) year += 1;
+    if (day > daysInMonth(year, month)) return null;
+  }
+  const date = new Date(year, month, day);
+  if (date.getMonth() !== month || date.getDate() !== day) return null;
+  return { date: keyOf(year, month, day), matched: hit[0] };
+}
+
+/** First date expression in the text, or an empty date when there is none. */
+function parseTaskDate(text, ref) {
+  const input = str(text);
+  if (!input.trim()) return { date: "", matched: "" };
+  const base = refDate(ref);
+  const rules = [ruleIso, ruleRelative, ruleWeekend, ruleNextSpan, ruleInSpan, (t, b) => ruleWeekday(t, b, true), (t, b) => ruleWeekday(t, b, false), ruleMonthDay];
+  for (const rule of rules) {
+    const hit = rule(input, base);
+    if (hit) return hit;
+  }
+  return { date: "", matched: "" };
+}
+
+/**
+ * Split a task title into a clean title and a due date: the first date
+ * expression sets the due date and its words come out of the title.
+ */
+function extractTaskDue(title, ref) {
+  const input = str(title);
+  const hit = parseTaskDate(input, ref);
+  if (!hit.date) return { title: input.trim(), due: "" };
+  // A preposition belongs to the date ("read it by Friday"), so it leaves too.
+  const withPrep = new RegExp(`\\b(?:by|on|for|due)\\s+${escapeRe(hit.matched)}`, "i");
+  const cleaned = input
+    .replace(withPrep, " ")
+    .replace(hit.matched, " ")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .trim();
+  return { title: cleaned, due: hit.date };
+}
+
+/** Short chip for a due date next to a task: Due today, Overdue, or the date. */
+function dueChipLabel(due, today) {
+  const key = str(due);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return "";
+  const day = str(today) || localDate();
+  if (key === day) return "Due today";
+  if (key < day) return `Overdue · ${key}`;
+  if (key === shiftDays(parseKey(day) || refDate(), 1)) return `Due tomorrow · ${key}`;
+  return `Due ${key}`;
+}
+
+module.exports = {
+  dueChipLabel,
+  extractTaskDue,
+  parseTaskDate,
+};
+};
+
 /* ---- src/task-list-view.js ---- */
 __defs["task-list-view"] = function (module, exports, require) {
 const { ItemView } = require("obsidian");
@@ -131113,6 +131355,7 @@ class TaskListView extends ItemView {
         add();
       });
     }
+    root.createDiv({ cls: "qt-task-list-hint", text: "Tip: name a day in the task (tomorrow, Tuesday) to set its due date." });
 
     const tagNames = [];
     for (const task of tasks) {
@@ -138188,6 +138431,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.304.0",
+    date: "November 15, 2026",
+    title: "Tasks understand days",
+    summary:
+      "Task input now reads the day you type: today, tomorrow, Tuesday or next month sets the due date and the words leave the title. It works everywhere tasks are added, an explicitly picked date always wins, and the parser is local and date-only.",
+    highlights: [
+      {
+        title: "Type the day, get the due date",
+        body: "Write Practice 8 AP World questions today and the task is due today; tomorrow, Tuesday, next week, in 3 days, weekend and on Nov 20 all resolve, including next Tuesday versus this Tuesday and January dates that roll to next year. A leading by, on, for or due leaves with the date, so Read it by Friday keeps a clean title.",
+      },
+      {
+        title: "Everywhere tasks are added",
+        body: "The Task list, the Study Workspace task form and the Focus day scratchpad all read the title the same way. The scratchpad chips the result as Due today, Due tomorrow or Overdue, and both full surfaces hint at the trick under their add forms.",
+      },
+      {
+        title: "An explicit date always wins",
+        body: "Picking a date in the date field keeps the title exactly as typed — the words are only read when no date was chosen. Ordinary words never parse: may need review and plain titles stay dateless, and only the first date expression in a title is used.",
+      },
+      {
+        title: "Local and date-only by design",
+        body: "Surveyed MIT plugins solve this with chrono or a server-shaped engine, which would blow the startup bundle budget this plugin holds. The closed expression set here is dependency-free original code, times of day are never read, and nothing leaves the device.",
+      },
+    ],
+  },
+  {
     version: "1.303.0",
     date: "November 15, 2026",
     title: "Focus day: the calendar, the timer and quick tasks in one pane",
@@ -140487,6 +140755,7 @@ const sessionReport = require("./session-report");
 const { PomodoroView } = require("./pomodoro-view");
 const { FocusDayView } = require("./focus-day-view");
 const focusDay = require("./focus-day");
+const taskDates = require("./task-dates");
 const { NoteReviewDock } = require("./note-review-dock");
 const { ReviewCalendarView } = require("./review-calendar-view");
 const { StudyStatsView } = require("./study-stats-view");
@@ -140938,6 +141207,7 @@ QuestionTrackerPlugin.__test = {
   PomodoroView,
   focusDay,
   FocusDayView,
+  taskDates,
   NoteReviewDock,
   ReviewCalendarView,
   StudyStatsView,

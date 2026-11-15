@@ -124,6 +124,7 @@ class TaskListView extends ItemView {
         add();
       });
     }
+    root.createDiv({ cls: "qt-task-list-hint", text: "Tip: name a day in the task (tomorrow, Tuesday) to set its due date." });
 
     const tagNames = [];
     for (const task of tasks) {

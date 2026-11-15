@@ -316,6 +316,7 @@ const studyCounters = require("./study-counters");
 const pomodoro = require("./pomodoro");
 const { FocusDayView } = require("./focus-day-view");
 const focusDay = require("./focus-day");
+const taskDates = require("./task-dates");
 const { PomodoroView } = require("./pomodoro-view");
 const { applySpacedReview, buildSpacedQueue, normalizeSpacedEverything, renderSpacedTemplate, spacedCaptureText } = require("./spaced-everything");
 const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
@@ -14314,7 +14315,17 @@ ${body}
   /* ---- Study tasks ----------------------------------------------------- */
 
   async addStudyTask(input) {
-    const task = studyWorkspace.createStudyTask(input, Date.now());
+    const source = input && typeof input === "object" && !Array.isArray(input) ? { ...input } : {};
+    // A date in the title ("Practice 8 AP World questions today") sets the
+    // due date when no explicit date was picked; its words leave the title.
+    if (!studyTools.dayValue(source.due) && str(source.title).trim()) {
+      const parsed = taskDates.extractTaskDue(source.title);
+      if (parsed.due) {
+        source.title = parsed.title;
+        source.due = parsed.due;
+      }
+    }
+    const task = studyWorkspace.createStudyTask(source, Date.now());
     if (!task) return null;
     const current = this.studyWorkspaceSettings().studyTasks;
     this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({

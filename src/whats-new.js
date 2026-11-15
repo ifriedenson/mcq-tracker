@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.304.0",
+    date: "November 15, 2026",
+    title: "Tasks understand days",
+    summary:
+      "Task input now reads the day you type: today, tomorrow, Tuesday or next month sets the due date and the words leave the title. It works everywhere tasks are added, an explicitly picked date always wins, and the parser is local and date-only.",
+    highlights: [
+      {
+        title: "Type the day, get the due date",
+        body: "Write Practice 8 AP World questions today and the task is due today; tomorrow, Tuesday, next week, in 3 days, weekend and on Nov 20 all resolve, including next Tuesday versus this Tuesday and January dates that roll to next year. A leading by, on, for or due leaves with the date, so Read it by Friday keeps a clean title.",
+      },
+      {
+        title: "Everywhere tasks are added",
+        body: "The Task list, the Study Workspace task form and the Focus day scratchpad all read the title the same way. The scratchpad chips the result as Due today, Due tomorrow or Overdue, and both full surfaces hint at the trick under their add forms.",
+      },
+      {
+        title: "An explicit date always wins",
+        body: "Picking a date in the date field keeps the title exactly as typed — the words are only read when no date was chosen. Ordinary words never parse: may need review and plain titles stay dateless, and only the first date expression in a title is used.",
+      },
+      {
+        title: "Local and date-only by design",
+        body: "Surveyed MIT plugins solve this with chrono or a server-shaped engine, which would blow the startup bundle budget this plugin holds. The closed expression set here is dependency-free original code, times of day are never read, and nothing leaves the device.",
+      },
+    ],
+  },
+  {
     version: "1.303.0",
     date: "November 15, 2026",
     title: "Focus day: the calendar, the timer and quick tasks in one pane",
