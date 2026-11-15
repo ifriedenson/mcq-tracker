@@ -108,6 +108,7 @@ class FocusDayView extends ItemView {
       const result = await this.plugin.openDailyNote(dateKey);
       if (!result) return null;
       this.say(result.created ? `Created ${result.path}.` : `Opened ${result.path}.`);
+      this.clearDayMessageSoon();
       return result;
     } catch (error) {
       this.say(`Could not open the daily note: ${error && error.message ? error.message : error}`);
@@ -117,6 +118,15 @@ class FocusDayView extends ItemView {
 
   say(text) {
     if (this.messageEl) this.messageEl.setText(text);
+  }
+
+  /** Success confirmations fade like Deadline's: errors stay until the next action. */
+  clearDayMessageSoon() {
+    this.messageToken = (this.messageToken || 0) + 1;
+    const token = this.messageToken;
+    setTimeout(() => {
+      if (this.messageToken === token && this.messageEl) this.messageEl.setText("");
+    }, 3000);
   }
 
   renderTimer(root) {

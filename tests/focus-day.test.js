@@ -152,3 +152,30 @@ test("focus day: the command is registered and opens through the module view", a
   assert.ok(command, "Open Focus day is registered");
   assert.equal(typeof plugin.activateFocusDay, "function");
 });
+
+test("focus day: a ribbon button opens the pane like every module view", async () => {
+  const { plugin } = await setup();
+  const ribbon = [];
+  plugin.addRibbonIcon = (icon, title, onClick) => {
+    ribbon.push({ icon, title, onClick });
+    return { remove() {} };
+  };
+  plugin.ribbonAdded = {};
+  plugin.ribbonButtons = {};
+  plugin.refreshRibbon();
+  assert.ok(ribbon.some((item) => item.icon === "calendar-days" && item.title === "Open Focus day"));
+});
+
+test("focus day: opening a day confirms, then the note reopens", async () => {
+  const { plugin } = await setup();
+  const dom = makeDom();
+  const view = new T.FocusDayView({ app: plugin.app }, plugin);
+  view.contentEl = dom.root;
+  await view.onOpen();
+  const first = await view.openDay("2026-11-15");
+  assert.equal(first.created, true);
+  assert.ok(dom.texts().includes("Created 2026-11-15.md."));
+  const second = await view.openDay("2026-11-15");
+  assert.equal(second.created, false);
+  assert.ok(dom.texts().includes("Opened 2026-11-15.md."));
+});

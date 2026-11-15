@@ -4304,6 +4304,7 @@ class QuestionTrackerPlugin extends Plugin {
     else this.removeModuleRibbon("local-events");
     if (this.pomodoroEnabled()) this.addModuleRibbon("pomodoro", "timer", "Open Pomodoro timer", () => this.activatePomodoro());
     else this.removeModuleRibbon("pomodoro");
+    this.addModuleRibbon("focus-day", "calendar-days", "Open Focus day", () => this.activateFocusDay());
     if (this.settings.ai.enabled) this.addModuleRibbon("agent", "bot", "Open Study agent", () => this.activateAgent());
     else this.removeModuleRibbon("agent");
     this.refreshStudyNudgeLabel();

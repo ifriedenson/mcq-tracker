@@ -40919,6 +40919,7 @@ class FocusDayView extends ItemView {
       const result = await this.plugin.openDailyNote(dateKey);
       if (!result) return null;
       this.say(result.created ? `Created ${result.path}.` : `Opened ${result.path}.`);
+      this.clearDayMessageSoon();
       return result;
     } catch (error) {
       this.say(`Could not open the daily note: ${error && error.message ? error.message : error}`);
@@ -40928,6 +40929,15 @@ class FocusDayView extends ItemView {
 
   say(text) {
     if (this.messageEl) this.messageEl.setText(text);
+  }
+
+  /** Success confirmations fade like Deadline's: errors stay until the next action. */
+  clearDayMessageSoon() {
+    this.messageToken = (this.messageToken || 0) + 1;
+    const token = this.messageToken;
+    setTimeout(() => {
+      if (this.messageToken === token && this.messageEl) this.messageEl.setText("");
+    }, 3000);
   }
 
   renderTimer(root) {
@@ -78364,6 +78374,7 @@ class QuestionTrackerPlugin extends Plugin {
     else this.removeModuleRibbon("local-events");
     if (this.pomodoroEnabled()) this.addModuleRibbon("pomodoro", "timer", "Open Pomodoro timer", () => this.activatePomodoro());
     else this.removeModuleRibbon("pomodoro");
+    this.addModuleRibbon("focus-day", "calendar-days", "Open Focus day", () => this.activateFocusDay());
     if (this.settings.ai.enabled) this.addModuleRibbon("agent", "bot", "Open Study agent", () => this.activateAgent());
     else this.removeModuleRibbon("agent");
     this.refreshStudyNudgeLabel();
@@ -138430,6 +138441,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.304.1",
+    date: "November 15, 2026",
+    title: "Deadline parity: the last two pieces",
+    summary:
+      "A second line-by-line pass over the Deadline plugin closed its last two gaps: Focus day has the same ribbon entry as every module view, and day-open confirmations fade after three seconds while errors stay put.",
+    highlights: [
+      {
+        title: "Focus day joins the ribbon",
+        body: "The calendar-days ribbon button opens Focus day beside the Pomodoro, task list and calendar entries, using the same module-ribbon path with the same accessible name.",
+      },
+      {
+        title: "Confirmations fade, errors stay",
+        body: "Created and Opened confirmations clear after three seconds like Deadline's, guarded so a newer message is never wiped; a failed open keeps its reason on screen until the next action.",
+      },
+      {
+        title: "The full parity table",
+        body: "Everything else in Deadline already lives here: month calendar with navigation and today highlight, day-click daily notes in a new tab, start/pause/reset timer with editable lengths and live info, animated phase-coloured bar, completion chime, quick tasks with empty state, theme-aware styles. Defaults that differ on purpose — 25-minute focus blocks, opt-in autostart, persistent task lists, Schedule-section note templates — are the deeper MCQ Tracker equivalents, not gaps.",
+      },
+      {
+        title: "Timer accuracy matches",
+        body: "Both timers measure against the wall clock instead of counting ticks, so a throttled tab cannot drift the countdown; the completion path advances the phase, counts the session and sounds the chime.",
+      },
+    ],
+  },
   {
     version: "1.304.0",
     date: "November 15, 2026",
