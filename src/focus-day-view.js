@@ -239,9 +239,15 @@ class FocusDayView extends ItemView {
       if (!String(text || "").trim()) return;
       this.taskSeq += 1;
       this.tasks = addFocusTask(this.tasks, extractTaskDue(text).title || text, `focus-${Date.now()}-${this.taskSeq}`, extractTaskDue(text).due);
+      // Keep the cursor in the box so the next task needs no mouse, like Deadline.
+      this.focusTasksAfterRender = true;
       this.render();
     };
     form.createEl("button", { text: "Add", cls: "mod-cta" }).addEventListener("click", add);
+    if (this.focusTasksAfterRender) {
+      this.focusTasksAfterRender = false;
+      if (typeof input.focus === "function") input.focus();
+    }
     input.addEventListener("keydown", (event) => {
       if (!event || event.key !== "Enter") return;
       if (typeof event.preventDefault === "function") event.preventDefault();

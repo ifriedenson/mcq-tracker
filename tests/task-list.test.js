@@ -149,3 +149,18 @@ test("the task list command and ribbon entry are registered with the view", asyn
   assert.ok(plugin.commands.some((command) => command.id === "open-task-list"));
   assert.ok(plugin.views["question-tracker-task-list"]);
 });
+
+test("adding a task with Enter keeps the cursor in the new-task box", async () => {
+  const { plugin, dom, view } = await setup();
+  view.render();
+  const input = byLabel(dom, "New task");
+  assert.ok(input, "the new-task box exists");
+  input.value = "Buy milk";
+  const keydown = input.handlers.find((h) => h.ev === "keydown");
+  await keydown.fn({ key: "Enter", preventDefault() {} });
+  for (let i = 0; i < 100 && !(byLabel(dom, "New task") || {}).focused; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.ok(plugin.settings.studyTasks.tasks.some((task) => task.title === "Buy milk"), "Enter adds the task");
+  assert.equal(byLabel(dom, "New task").focused, true, "the fresh box is focused for the next task");
+});

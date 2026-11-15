@@ -2358,15 +2358,27 @@ class StudyWorkspaceView extends ItemView {
     }
     const addTask = card.createDiv({ cls: "qt-row qt-time-block-task-add" });
     const input = addTask.createEl("input", { cls: "qt-input", type: "text", attr: { placeholder: "Add a task inside this block", "aria-label": "New task inside this block" } });
-    addTask.createEl("button", { text: "Add task" }).addEventListener("click", async () => {
+    const addBlockTask = async () => {
       if (!str(input.value).trim()) {
         this.saveMessage("Name the task first.");
         this.render();
         return;
       }
       await this.plugin.addTimeBlockTask(block.id, { title: input.value });
+      // Keep the cursor in the box so the next task needs no mouse, like Deadline.
+      this.focusBlockTaskAfterRender = block.id;
       this.render();
+    };
+    addTask.createEl("button", { text: "Add task" }).addEventListener("click", addBlockTask);
+    input.addEventListener("keydown", (event) => {
+      if (!event || event.key !== "Enter") return;
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      addBlockTask();
     });
+    if (this.focusBlockTaskAfterRender === block.id) {
+      this.focusBlockTaskAfterRender = "";
+      if (typeof input.focus === "function") input.focus();
+    }
   }
 
   renderTimeBlockWeek(root, data) {

@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 455 groups, 3170 exports. **Commands:** 240. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 455 groups, 3171 exports. **Commands:** 240. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -441,7 +441,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `text2anki` | 7 | `tests/text2anki-openai.test.js` |
 | `textTimer` | 12 | `tests/text-timer.test.js` |
 | `thinkFirst` | 6 | `tests/think-first.test.js` |
-| `timeBlocks` | 102 | `tests/time-blocks-kairos.test.js`, `tests/time-blocks-parity.test.js`, `tests/time-blocks.test.js` |
+| `timeBlocks` | 103 | `tests/time-blocks-kairos.test.js`, `tests/time-blocks-parity.test.js`, `tests/time-blocks.test.js` |
 | `transcript` | 10 | `tests/adaptive-parity.test.js`, `tests/ai-write-guard.test.js`, `tests/transcript.test.js` |
 | `trendBy` | 0 | `tests/stats.test.js` |
 | `trendDelta` | 0 | `tests/stats.test.js` |

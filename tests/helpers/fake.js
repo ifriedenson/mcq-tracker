@@ -241,6 +241,9 @@ function makeDom() {
           }
           return element;
         };
+        if (k === "focus") return () => {
+          own.focused = true;
+        };
         if (k === "createEl") return (tag, opts) => child(tag, opts);
         if (k === "createDiv") return (opts) => child("div", opts);
         if (k === "createSpan") return (opts) => child("span", opts);

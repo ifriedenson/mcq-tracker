@@ -6,6 +6,27 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.304.2",
+    date: "November 15, 2026",
+    title: "Keep typing: task boxes hold the cursor",
+    summary:
+      "Adding a task with Enter leaves the cursor in the new-task box on every quick-add surface, so tasks can be entered back to back with no mouse, like Deadline. The Study Workspace block input also learns Enter, and a missing export that crashed the Day plan on blocks with tasks is fixed.",
+    highlights: [
+      {
+        title: "Type, Enter, type again",
+        body: "The Task list, Focus day scratchpad and per-block task boxes refocus their fresh input after each add, whether the task came from Enter or the Add button.",
+      },
+      {
+        title: "Enter works inside time blocks",
+        body: "The block task box previously needed the Add task button; Enter now adds the task there too, matching the other surfaces.",
+      },
+      {
+        title: "Day plan no longer crashes on tasked blocks",
+        body: "Rendering a block with tasks called an unexported time-blocks helper and threw; `statusChar` is now exported, and the new tests render a tasked block through the real Day view.",
+      },
+    ],
+  },
+  {
     version: "1.304.1",
     date: "November 15, 2026",
     title: "Deadline parity: the last two pieces",

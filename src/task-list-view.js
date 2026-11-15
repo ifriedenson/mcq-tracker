@@ -114,6 +114,8 @@ class TaskListView extends ItemView {
     const add = async () => {
       const task = await this.plugin.addStudyTask({ title: title.value, due: due.value, tags: tags.value });
       if (!task) return;
+      // Keep the cursor in the box so the next task needs no mouse, like Deadline.
+      this.focusNewAfterRender = true;
       this.render();
     };
     addRow.createEl("button", { text: "Add", cls: "mod-cta qt-task-list-add-button" }).addEventListener("click", add);
@@ -125,6 +127,10 @@ class TaskListView extends ItemView {
       });
     }
     root.createDiv({ cls: "qt-task-list-hint", text: "Tip: name a day in the task (tomorrow, Tuesday) to set its due date." });
+    if (this.focusNewAfterRender) {
+      this.focusNewAfterRender = false;
+      if (typeof title.focus === "function") title.focus();
+    }
 
     const tagNames = [];
     for (const task of tasks) {

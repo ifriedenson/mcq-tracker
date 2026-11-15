@@ -41050,9 +41050,15 @@ class FocusDayView extends ItemView {
       if (!String(text || "").trim()) return;
       this.taskSeq += 1;
       this.tasks = addFocusTask(this.tasks, extractTaskDue(text).title || text, `focus-${Date.now()}-${this.taskSeq}`, extractTaskDue(text).due);
+      // Keep the cursor in the box so the next task needs no mouse, like Deadline.
+      this.focusTasksAfterRender = true;
       this.render();
     };
     form.createEl("button", { text: "Add", cls: "mod-cta" }).addEventListener("click", add);
+    if (this.focusTasksAfterRender) {
+      this.focusTasksAfterRender = false;
+      if (typeof input.focus === "function") input.focus();
+    }
     input.addEventListener("keydown", (event) => {
       if (!event || event.key !== "Enter") return;
       if (typeof event.preventDefault === "function") event.preventDefault();
@@ -125871,15 +125877,27 @@ class StudyWorkspaceView extends ItemView {
     }
     const addTask = card.createDiv({ cls: "qt-row qt-time-block-task-add" });
     const input = addTask.createEl("input", { cls: "qt-input", type: "text", attr: { placeholder: "Add a task inside this block", "aria-label": "New task inside this block" } });
-    addTask.createEl("button", { text: "Add task" }).addEventListener("click", async () => {
+    const addBlockTask = async () => {
       if (!str(input.value).trim()) {
         this.saveMessage("Name the task first.");
         this.render();
         return;
       }
       await this.plugin.addTimeBlockTask(block.id, { title: input.value });
+      // Keep the cursor in the box so the next task needs no mouse, like Deadline.
+      this.focusBlockTaskAfterRender = block.id;
       this.render();
+    };
+    addTask.createEl("button", { text: "Add task" }).addEventListener("click", addBlockTask);
+    input.addEventListener("keydown", (event) => {
+      if (!event || event.key !== "Enter") return;
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      addBlockTask();
     });
+    if (this.focusBlockTaskAfterRender === block.id) {
+      this.focusBlockTaskAfterRender = "";
+      if (typeof input.focus === "function") input.focus();
+    }
   }
 
   renderTimeBlockWeek(root, data) {
@@ -131356,6 +131374,8 @@ class TaskListView extends ItemView {
     const add = async () => {
       const task = await this.plugin.addStudyTask({ title: title.value, due: due.value, tags: tags.value });
       if (!task) return;
+      // Keep the cursor in the box so the next task needs no mouse, like Deadline.
+      this.focusNewAfterRender = true;
       this.render();
     };
     addRow.createEl("button", { text: "Add", cls: "mod-cta qt-task-list-add-button" }).addEventListener("click", add);
@@ -131367,6 +131387,10 @@ class TaskListView extends ItemView {
       });
     }
     root.createDiv({ cls: "qt-task-list-hint", text: "Tip: name a day in the task (tomorrow, Tuesday) to set its due date." });
+    if (this.focusNewAfterRender) {
+      this.focusNewAfterRender = false;
+      if (typeof title.focus === "function") title.focus();
+    }
 
     const tagNames = [];
     for (const task of tasks) {
@@ -133759,6 +133783,7 @@ module.exports = {
   routinesMarkdown,
   scheduleMarkdown,
   startOfWeek,
+  statusChar,
   stripFrontmatter,
   subjectColorFor,
   subjectColorRows,
@@ -138441,6 +138466,27 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.304.2",
+    date: "November 15, 2026",
+    title: "Keep typing: task boxes hold the cursor",
+    summary:
+      "Adding a task with Enter leaves the cursor in the new-task box on every quick-add surface, so tasks can be entered back to back with no mouse, like Deadline. The Study Workspace block input also learns Enter, and a missing export that crashed the Day plan on blocks with tasks is fixed.",
+    highlights: [
+      {
+        title: "Type, Enter, type again",
+        body: "The Task list, Focus day scratchpad and per-block task boxes refocus their fresh input after each add, whether the task came from Enter or the Add button.",
+      },
+      {
+        title: "Enter works inside time blocks",
+        body: "The block task box previously needed the Add task button; Enter now adds the task there too, matching the other surfaces.",
+      },
+      {
+        title: "Day plan no longer crashes on tasked blocks",
+        body: "Rendering a block with tasks called an unexported time-blocks helper and threw; `statusChar` is now exported, and the new tests render a tasked block through the real Day view.",
+      },
+    ],
+  },
   {
     version: "1.304.1",
     date: "November 15, 2026",

@@ -179,3 +179,23 @@ test("focus day: opening a day confirms, then the note reopens", async () => {
   assert.equal(second.created, false);
   assert.ok(dom.texts().includes("Opened 2026-11-15.md."));
 });
+
+test("focus day: adding a quick task with Enter keeps the cursor in the box", async () => {
+  const { plugin } = await setup();
+  const dom = makeDom();
+  const view = new T.FocusDayView({ app: plugin.app }, plugin);
+  view.contentEl = dom.root;
+  await view.onOpen();
+  const boxes = () =>
+    dom.all.filter((o) => {
+      const attrs = o.meta.attrs || o.meta.attr;
+      return attrs && attrs["aria-label"] === "New quick task";
+    });
+  const input = boxes().pop();
+  assert.ok(input, "the quick-task box exists");
+  input.value = "Review flashcards";
+  const keydown = input.handlers.find((h) => h.ev === "keydown");
+  keydown.fn({ key: "Enter", preventDefault() {} });
+  assert.ok(view.tasks.some((task) => task.text === "Review flashcards"), "Enter adds the task");
+  assert.equal(boxes().pop().focused, true, "the fresh box is focused for the next task");
+});

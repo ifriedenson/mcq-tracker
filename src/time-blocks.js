@@ -1780,6 +1780,7 @@ module.exports = {
   routinesMarkdown,
   scheduleMarkdown,
   startOfWeek,
+  statusChar,
   stripFrontmatter,
   subjectColorFor,
   subjectColorRows,

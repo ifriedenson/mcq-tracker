@@ -302,3 +302,34 @@ test("time blocks: the workspace shows subject colours and tag chips", async () 
   assert.equal(plugin.timeBlocksSettings().subjectColors.biology, undefined, "Clear removes only the colour");
   assert.equal(plugin.timeBlocksSettings().blocks.find((row) => row.id === block.id).tags[0], "focus");
 });
+
+test("time blocks: adding a block task with Enter keeps the cursor in the box", async () => {
+  const plugin = await setup();
+  const block = B.createTimeBlock({ date: "2026-11-03", start: "09:00", end: "10:30", title: "Study" });
+  plugin.settings.timeBlocks = { enabled: true, blocks: [block] };
+  const view = new T.StudyWorkspaceView({ app: plugin.app }, plugin);
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "timeBlocks";
+  view.timeBlockDate = "2026-11-03";
+  view.render();
+  const boxes = () =>
+    dom.all.filter((o) => {
+      const attrs = o.meta.attrs || o.meta.attr;
+      return attrs && attrs["aria-label"] === "New task inside this block";
+    });
+  const input = boxes().pop();
+  assert.ok(input, "the block task box exists");
+  input.value = "Read chapter 4";
+  const keydown = input.handlers.find((h) => h.ev === "keydown");
+  assert.ok(keydown, "Enter adds a block task");
+  await keydown.fn({ key: "Enter", preventDefault() {} });
+  for (let i = 0; i < 100 && !(boxes().pop() || {}).focused; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.ok(
+    plugin.timeBlocksSettings().blocks.find((row) => row.id === block.id).tasks.some((task) => task.title === "Read chapter 4"),
+    "Enter adds the task to the block",
+  );
+  assert.equal(boxes().pop().focused, true, "the fresh box is focused for the next task");
+});

@@ -1,3 +1,8 @@
+## 1.304.2 - 2026-11-15
+
+- **Keep typing: task boxes hold the cursor.** Every quick-add task box (Task list, Focus day scratchpad, Study Workspace per-block input) now keeps the cursor in its fresh input after an add, so Enter types tasks back to back with no mouse, like Deadline. The block input also accepts Enter (previously Add-button only). The work exposed a real crash: rendering a block with tasks called `timeBlocks.statusChar`, which was never exported — it now is.
+- `node --test` passes 2,922 tests; `npm run check` clean. No note format, existing setting key, review schedule or network default changed.
+
 ## 1.304.1 - 2026-11-15
 
 - **Deadline parity: the last two pieces.** A second line-by-line pass over `saydullayev017/deadline` against this codebase found two remaining gaps and closed them: Focus day now registers the same `calendar-days` ribbon entry as every module view (`refreshRibbon()`), and day-open confirmations fade after three seconds while errors stay on screen (token-guarded, so a newer message is never wiped). Everything else already had an equivalent here — timer wall-clock accuracy, new-tab daily notes, inline durations, phase-coloured progress, chime, session tasks, theme-aware styles — with deliberate differences (25-minute default blocks, opt-in autostart, persistent task lists, Schedule-section templates) kept as the deeper equivalents.
