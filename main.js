@@ -73768,7 +73768,7 @@ const { normalizeTagTimerSettings, stopRunningTagTimers } = require("./tag-timer
 const { normalizeTallySettings } = require("./tally");
 const { normalizeTextTimerSettings } = require("./text-timer");
 const { renderTextTimerBlock } = require("./text-timer-view");
-const { sleep, hashString, localDate, ensureFolder, errorDetail, str } = require("./util");
+const { sleep, hashString, localDate, ensureFolder, errorDetail, str, normalizePath } = require("./util");
 const diagnostics = require("./diagnostics");
 const chatSkills = require("./chat-skills");
 const chatPricing = require("./chat-pricing");
@@ -74142,6 +74142,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "stop-overnight-import", name: "Stop the overnight import", callback: () => this.stopOvernightImport() });
     this.addCommand({ id: "resume-overnight-import", name: "Resume the overnight import", callback: () => this.resumeOvernightImport() });
     this.addCommand({ id: "undo-overnight-import", name: "Undo the last overnight import", callback: () => this.undoOvernightImport() });
+    this.addCommand({ id: "cleanup-empty-import-folders", name: "Clean up empty import folders", callback: () => this.cleanupEmptyImportFolders() });
     this.addCommand({ id: "flagged-answers", name: "Show flagged answers", callback: () => this.openFlaggedAnswers() });
     this.addCommand({ id: "check-opencode", name: "Check that OpenCode is running", callback: () => this.checkOpenCodeServer() });
     this.addCommand({ id: "import-service-export", name: "Import notes from an export (Airtable, Notion, Evernote, Keep, Bear, Roam)", callback: () => this.importActiveServiceExport() });
@@ -76406,6 +76407,90 @@ class QuestionTrackerPlugin extends Plugin {
     storeOvernightRun(this.app, run);
     this.forgetOvernightHandles(run);
     new Notice(`Undid the overnight import: removed ${removed} file${removed === 1 ? "" : "s"}.`);
+    return removed;
+  }
+
+  /**
+   * Earlier failed runs can leave an empty folder per file behind: nothing was
+   * written, so there is nothing to undo, only an empty directory. This
+   * removes every empty folder under the import parent, deepest first. A
+   * folder is removed only after a fresh listing still shows nothing inside,
+   * so a note anywhere inside keeps its whole chain. Refuses while an
+   * import is working, when its target folder can be momentarily empty
+   * between the folder write and the first note.
+   */
+  async cleanupEmptyImportFolders() {
+    const session = this.importSession;
+    const sessionModal = session && session.modal;
+    if (sessionModal && sessionModal.unattended && !sessionModal.closed) {
+      new Notice("An import is running. Clean up its empty folders after it finishes.");
+      return 0;
+    }
+    const workspace = this.app.workspace;
+    const leaves =
+      workspace && typeof workspace.getLeavesOfType === "function" ? workspace.getLeavesOfType(VIEW_TYPE_IMPORT_WINDOW) || [] : [];
+    for (const leaf of leaves) {
+      const modal = leaf && leaf.view && leaf.view.modal;
+      if (modal && !modal.closed && (modal.running || modal.batchStarted)) {
+        new Notice("An import is running. Clean up its empty folders after it finishes.");
+        return 0;
+      }
+    }
+    const adapter = this.app.vault && this.app.vault.adapter;
+    if (!adapter || typeof adapter.list !== "function" || typeof adapter.rmdir !== "function") {
+      new Notice("The vault can't list its folders right now. Try again.");
+      return 0;
+    }
+    const root = normalizePath(str((this.settings && (this.settings.importFolder || this.settings.questionFolder)) || "Questions"));
+    if (!root || !this.app.vault.getAbstractFileByPath(root)) {
+      new Notice(`No ${root || "Questions"} folder yet, so there is nothing to clean up.`);
+      return 0;
+    }
+    const found = [];
+    const seen = new Set([root]);
+    const queue = [root];
+    while (queue.length) {
+      const dir = queue.pop();
+      let listing = null;
+      try {
+        listing = await adapter.list(dir);
+      } catch (e) {
+        continue;
+      }
+      for (const entry of (listing && listing.folders) || []) {
+        const name = normalizePath(str(entry));
+        if (!name) continue;
+        const child = name.startsWith(dir + "/") ? name : dir + "/" + name;
+        if (child === dir || seen.has(child)) continue;
+        seen.add(child);
+        found.push(child);
+        queue.push(child);
+      }
+    }
+    found.sort((a, b) => b.split("/").length - a.split("/").length);
+    let removed = 0;
+    for (const folder of found) {
+      // Real Obsidian refuses a non-recursive remove of any directory
+      // (EISDIR even when empty), so emptiness is re-checked right here and
+      // only a folder still holding nothing is removed. Anything that gained
+      // a file since the walk keeps its folder.
+      let empty = false;
+      try {
+        const listing = await adapter.list(folder);
+        empty = ((listing && listing.files) || []).length === 0 && ((listing && listing.folders) || []).length === 0;
+      } catch (e) {
+        continue;
+      }
+      if (!empty) continue;
+      try {
+        await adapter.rmdir(folder, true);
+        removed++;
+      } catch (e) {
+        /* already gone */
+      }
+    }
+    if (!removed) new Notice(`No empty import folders under ${root}. Notes were not touched.`);
+    else new Notice(`Removed ${removed} empty folder${removed === 1 ? "" : "s"} under ${root}. Notes were not touched.`);
     return removed;
   }
 
@@ -137555,6 +137640,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.302.6",
+    date: "November 15, 2026",
+    title: "Empty folders from failed imports clean up with one command",
+    summary:
+      "A run that fails before writing a note can leave its empty folder behind, and undo has nothing to remove when no notes were kept. Clean up empty import folders deletes every empty folder under the import parent, deepest first, and never touches a folder holding a file.",
+    highlights: [
+      {
+        title: "One command for the leftovers",
+        body: "The command palette's Clean up empty import folders walks the import folder and removes each empty directory, so a chain of empty folders goes too. A notice says how many folders went and that notes were not touched.",
+      },
+      {
+        title: "A note anywhere inside keeps its folder",
+        body: "Each folder is listed again right before removal and only a folder still holding nothing goes: a folder holding any file at all is left alone, whatever the file is. Folders with notes, source copies or anything else stay exactly as they are.",
+      },
+      {
+        title: "Never mid-import",
+        body: "The command refuses while an import is working, when a target folder can be briefly empty between the folder write and the first note, and says to run it after the import finishes.",
+      },
+      {
+        title: "The notice says what happened",
+        body: "Either way the result is one plain sentence: how many empty folders went, or that there were none, always ending with the promise that notes were not touched.",
+      },
+    ],
+  },
   {
     version: "1.302.5",
     date: "November 15, 2026",

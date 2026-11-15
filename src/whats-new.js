@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.302.6",
+    date: "November 15, 2026",
+    title: "Empty folders from failed imports clean up with one command",
+    summary:
+      "A run that fails before writing a note can leave its empty folder behind, and undo has nothing to remove when no notes were kept. Clean up empty import folders deletes every empty folder under the import parent, deepest first, and never touches a folder holding a file.",
+    highlights: [
+      {
+        title: "One command for the leftovers",
+        body: "The command palette's Clean up empty import folders walks the import folder and removes each empty directory, so a chain of empty folders goes too. A notice says how many folders went and that notes were not touched.",
+      },
+      {
+        title: "A note anywhere inside keeps its folder",
+        body: "Each folder is listed again right before removal and only a folder still holding nothing goes: a folder holding any file at all is left alone, whatever the file is. Folders with notes, source copies or anything else stay exactly as they are.",
+      },
+      {
+        title: "Never mid-import",
+        body: "The command refuses while an import is working, when a target folder can be briefly empty between the folder write and the first note, and says to run it after the import finishes.",
+      },
+      {
+        title: "The notice says what happened",
+        body: "Either way the result is one plain sentence: how many empty folders went, or that there were none, always ending with the promise that notes were not touched.",
+      },
+    ],
+  },
+  {
     version: "1.302.5",
     date: "November 15, 2026",
     title: "A spent free tier says so in seconds",

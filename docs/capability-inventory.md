@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 452 groups, 3151 exports. **Commands:** 238. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 452 groups, 3151 exports. **Commands:** 239. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -487,6 +487,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `stop-overnight-import` | Stop the overnight import | `stopOvernightImport` | `tests/overnight-import.test.js` |
 | `resume-overnight-import` | Resume the overnight import | `resumeOvernightImport` | `tests/overnight-import.test.js` |
 | `undo-overnight-import` | Undo the last overnight import | `undoOvernightImport` | `tests/overnight-import.test.js` |
+| `cleanup-empty-import-folders` | Clean up empty import folders | `cleanupEmptyImportFolders` | `tests/cleanup-empty-folders.test.js` |
 | `flagged-answers` | Show flagged answers | `openFlaggedAnswers` | `tests/answer-check-queue.test.js`, `tests/flagged-answers.test.js` |
 | `check-opencode` | Check that OpenCode is running | `checkOpenCodeServer` | `tests/opencode-status.test.js` |
 | `import-service-export` | Import notes from an export (Airtable, Notion, Evernote, Keep, Bear, Roam) | `importActiveServiceExport` | `tests/error-message-paths.test.js`, `tests/service-import.test.js` |
