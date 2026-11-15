@@ -1,3 +1,7 @@
+## 1.307.4 - 2026-11-15
+
+- **A full Primary-theme pass: hubs, narrow exam views, dark ink.** Driven live in Obsidian 1.15.1 under Primary (242 commands, 20 views, 61 settings pages, practice end to end) with zero failures: the hub tab bar moves onto the design tokens with wrapping tabs, 44pt touch targets and arrow-key travel; `--qt-danger-soft`/`--qt-success-soft` gain Apple red/green rgb fallbacks; the Bluebook header/footer wrap under 520px with icon-only tools (aria-labels kept); and dim-muted dark themes borrow normal ink for resting exam controls, hints, counts and links. `node --test` passes 2,985; `npm run check` clean. No setting key, note format, review schedule, recurrence rule or network default changed.
+
 ## 1.307.3 - 2026-11-15
 
 - **The add row can create a high-priority task.** The task list's add row gained a `★ High` toggle (`aria-pressed`, default off) whose state is passed to `addStudyTask({ priority: "high" })`; a task added without it keeps the existing normal default. The per-row star still flips the flag afterwards. The priority field itself, its normalization (`priorityValue`, anything but `high` is normal), the high-first comparator (`compareStudyTasks`) and the mirror's `⏫` marker all shipped in 1.305 — this release closes the missing add-time control rather than adding a second mechanism, and a test now pins the sort order inside each group so normal tasks keep their due order.

@@ -182,3 +182,28 @@ test("pdf++: its three toggles ride in one button's menu", async () => {
   const after = ribbonOf(plugin);
   assert.ok(!after.some((item) => item.title.startsWith("PDF++")), "no PDF++ button without toggles");
 });
+
+test("hubs: tabs are keyboard-operable Apple-style tab controls", async () => {
+  const plugin = await setup();
+  const spec = hubs.hubSpec("plan");
+  const view = new T.QtHubView({ app: plugin.app }, plugin, spec);
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  await view.onOpen();
+  const ids = view.tabs.map((tab) => tab.id);
+  assert.ok(ids.length > 1, "needs more than one tab to move between");
+  const firstButton = view.tabButtons[ids[0]];
+  assert.equal(firstButton.getAttr("type"), "button", "tabs never submit");
+  view.showHubTab(ids[0]);
+  const fire = (button, key) => {
+    const own = button.__own || button;
+    const handlers = (own.handlers || []).filter((entry) => entry.ev === "keydown");
+    assert.ok(handlers.length, "tabs listen for arrow keys");
+    for (const handler of handlers) handler.fn({ key, preventDefault() {} });
+  };
+  fire(firstButton, "ArrowRight");
+  assert.equal(view.activeTab, ids[1], "ArrowRight moves one tab forward");
+  fire(view.tabButtons[ids[1]], "ArrowLeft");
+  assert.equal(view.activeTab, ids[0], "ArrowLeft moves back");
+  await view.onClose();
+});

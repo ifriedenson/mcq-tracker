@@ -86,7 +86,18 @@ class QtHubView extends ItemView {
         text: tab.label,
         attr: { role: "tab", "aria-selected": active ? "true" : "false", title: `${tab.label} inside ${this.spec.title}` },
       });
+      button.setAttr("type", "button");
       button.addEventListener("click", () => this.showHubTab(tab.id));
+      button.addEventListener("keydown", (event) => {
+        if (!event || (event.key !== "ArrowRight" && event.key !== "ArrowLeft")) return;
+        if (typeof event.preventDefault === "function") event.preventDefault();
+        const ids = tabs.map((entry) => entry.id);
+        const at = ids.indexOf(tab.id);
+        const next = event.key === "ArrowRight" ? ids[(at + 1) % ids.length] : ids[(at - 1 + ids.length) % ids.length];
+        this.showHubTab(next);
+        const target = this.tabButtons[next];
+        if (target && typeof target.focus === "function") target.focus();
+      });
       this.tabButtons[tab.id] = button;
     }
     const body = root.createDiv({ cls: "qt-hub-body" });

@@ -87,8 +87,8 @@
   --qt-warning: var(--text-warning, var(--color-orange));
   --qt-accent-soft: rgba(var(--interactive-accent-rgb, 120, 80, 220), 0.12);
   --qt-accent-soft-strong: rgba(var(--interactive-accent-rgb, 120, 80, 220), 0.14);
-  --qt-danger-soft: rgba(var(--color-red-rgb), 0.16);
-  --qt-success-soft: rgba(var(--color-green-rgb), 0.16);
+  --qt-danger-soft: rgba(var(--color-red-rgb, 255, 59, 48), 0.16);
+  --qt-success-soft: rgba(var(--color-green-rgb, 52, 199, 89), 0.16);
   --qt-warning-soft: rgba(var(--color-orange-rgb, 255, 145, 0), 0.12);
   --qt-scrim: rgb(0 0 0 / 45%);
 
@@ -125,9 +125,22 @@ body.theme-light {
 }
 
 body.theme-dark {
-  --qt-link: var(--text-accent);
+  --qt-link: color-mix(in srgb, var(--text-accent-hover, var(--text-accent)) 55%, #fff);
   --qt-accent-fill: var(--interactive-accent);
   --qt-accent-fill-hover: var(--interactive-accent-hover, var(--interactive-accent));
+}
+
+/* Primary and other dim-muted dark themes drop secondary text on filled
+   exam controls below AA, so the resting state borrows the normal ink. */
+body.theme-dark .qt-exam .qt-choice-mark,
+body.theme-dark .qt-exam .qt-foot-left .qt-foot-more {
+  color: var(--text-normal);
+}
+
+/* Primary dark keeps its warm dim secondary ink below AA on 13px labels. */
+body.theme-dark .qt-hint,
+body.theme-dark .qt-count {
+  color: var(--text-normal);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -15417,6 +15430,39 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   display: flex;
 }
 
+/* Narrow panes and phones: the exam header grid bursts out of ~390px
+   panes, so it becomes a wrapping row and the tools go icon-only (each
+   tool keeps its aria-label). The footer wraps too. */
+@media (max-width: 520px) {
+  .qt-exam-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--qt-space-2);
+  }
+
+  .qt-exam-tools {
+    flex-wrap: wrap;
+  }
+
+  .qt-exam-tool {
+    min-width: 0;
+  }
+
+  .qt-exam-tool-label {
+    display: none;
+  }
+
+  .qt-exam .qt-ctl {
+    flex-wrap: wrap;
+  }
+
+  .qt-exam-foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--qt-space-2);
+  }
+}
+
 .qt-foot-menu-heading {
   padding: 7px 9px 3px;
   color: var(--text-muted);
@@ -17668,9 +17714,9 @@ button.qt-focus-date:hover { background: var(--background-modifier-hover); borde
 .qt-hub-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px;
-  padding: 3px;
-  border-radius: var(--radius-m, 8px);
+  gap: var(--qt-space-1);
+  padding: var(--qt-space-1);
+  border-radius: var(--qt-radius-md);
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
 }
@@ -17680,14 +17726,15 @@ button.qt-focus-date:hover { background: var(--background-modifier-hover); borde
   flex: 0 1 auto;
   padding: 5px 12px;
   border: none;
-  border-radius: var(--radius-s, 6px);
+  border-radius: var(--qt-radius-sm);
   background: transparent;
   color: var(--text-muted);
-  font-size: var(--font-ui-small, 13px);
-  font-weight: 500;
-  line-height: 1.4;
+  font-size: var(--qt-type-sm);
+  font-weight: var(--qt-weight-medium);
+  line-height: var(--qt-leading-snug);
   cursor: pointer;
   box-shadow: none;
+  min-height: 32px;
 }
 
 .qt-hub-tab:hover {
@@ -17729,13 +17776,13 @@ button.qt-focus-date:hover { background: var(--background-modifier-hover); borde
   font-size: var(--font-ui-small, 13px);
 }
 
-@media (max-width: 520px) {
+@media (max-width: 520px), (hover: none), (pointer: coarse) {
   .qt-hub-tabs {
-    flex-wrap: nowrap;
-    overflow-x: auto;
+    flex-wrap: wrap;
   }
 
   .qt-hub-tab {
-    padding: 6px 10px;
+    padding: 6px 12px;
+    min-height: var(--qt-touch-target);
   }
 }

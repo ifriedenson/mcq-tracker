@@ -60,3 +60,29 @@ test("the heatmap exposes data cells rather than hundreds of buttons", () => {
   assert.match(source, /column\.setAttr\("role", "row"\)/);
   assert.match(source, /role: "gridcell"/);
 });
+
+test("hub tabs use the token layer and stay touch-sized without a hidden scroller", () => {
+  assert.match(css, /\.qt-hub-tabs \{[\s\S]*flex-wrap: wrap/);
+  assert.doesNotMatch(css, /\.qt-hub-tabs \{[\s\S]*overflow-x: auto/);
+  assert.match(css, /\.qt-hub-tab \{[\s\S]*border-radius: var\(--qt-radius-sm\)/);
+  assert.match(css, /\.qt-hub-tab \{[\s\S]*font-size: var\(--qt-type-sm\)/);
+  assert.match(css, /\.qt-hub-tab \{[\s\S]*min-height: 32px/);
+  assert.match(css, /\.qt-hub-tab \{[\s\S]*min-height: var\(--qt-touch-target\)/);
+});
+
+test("danger and success soft surfaces survive themes without their rgb channels", () => {
+  assert.match(css, /--qt-danger-soft: rgba\(var\(--color-red-rgb, 255, 59, 48\)/);
+  assert.match(css, /--qt-success-soft: rgba\(var\(--color-green-rgb, 52, 199, 89\)/);
+});
+
+test("narrow exam surfaces wrap instead of bursting out of the pane", () => {
+  assert.match(css, /@media \(max-width: 520px\)[\s\S]*\.qt-exam-bar \{[\s\S]*flex-wrap: wrap/);
+  assert.match(css, /@media \(max-width: 520px\)[\s\S]*\.qt-exam-tool-label \{[\s\S]*display: none/);
+  assert.match(css, /@media \(max-width: 520px\)[\s\S]*\.qt-exam-foot \{[\s\S]*flex-wrap: wrap/);
+});
+
+test("dim-muted dark themes keep link and secondary text above AA", () => {
+  assert.match(css, /body\.theme-dark \.qt-exam \.qt-choice-mark,[\s\S]*color: var\(--text-normal\)/);
+  assert.match(css, /body\.theme-dark \{[\s\S]*--qt-link: color-mix\(in srgb, var\(--text-accent-hover/);
+  assert.match(css, /body\.theme-dark \.qt-hint,[\s\S]*color: var\(--text-normal\)/);
+});

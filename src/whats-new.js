@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.4",
+    date: "November 15, 2026",
+    title: "Polished for Primary, calm in the dark",
+    summary:
+      "A full pass through the plugin inside Obsidian 1.15.1 running the Primary theme: hub tabs on the design tokens with proper touch targets and arrow-key travel, exam surfaces that wrap instead of overflowing on narrow panes, and dark-theme ink that stays above AA. Nothing else moves.",
+    highlights: [
+      {
+        title: "Hub tabs you can tap",
+        body: "The Today, Plan and Study tabs use the shared radius and type tokens, wrap instead of hiding in a scroller, hold a 44pt touch target on phones and coarse pointers, and move with the Left and Right arrow keys.",
+      },
+      {
+        title: "Exam views fit narrow panes",
+        body: "The Bluebook header and footer become wrapping rows under 520px, and the tool buttons go icon-only (each keeps its accessible name), so Reference and More stay reachable in a sidebar-width pane.",
+      },
+      {
+        title: "Dark themes stay legible",
+        body: "Warm dim themes like Primary dark drop accent and secondary ink below contrast; resting exam controls, hints and counts now borrow the normal ink there, and links resolve through a lightened accent mix.",
+      },
+      {
+        title: "Nothing else changed",
+        body: "No setting key, note format, review schedule, recurrence rule or network path changed. The whole plugin was driven live — 242 commands, 20 views, 61 settings pages — with no failures.",
+      },
+    ],
+  },
+  {
     version: "1.307.3",
     date: "November 15, 2026",
     title: "Urgent first, typed dates understood",
