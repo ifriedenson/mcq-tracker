@@ -401,6 +401,37 @@ test("overnight import: the setup screen starts the same unattended run", async 
   assert.equal(click(dom.root, "Start overnight"), 1, "the overnight button is offered");
   await waitFor(() => modal.closed, "the overnight run to finish");
   assert.ok(questionNotes(app).length >= 1, "the button starts the unattended run");
+  const run = T.overnightRun.latestOvernightRun(app);
+  assert.ok(run, "the setup screen's run is journaled, not started without one");
+  assert.equal(run.files.length, 1, "the queued file has its own entry");
+  assert.equal(run.files[0].sourcePath, "a.pdf");
+  assert.equal(run.files[0].status, "done", "the entry records the finished file");
+  assert.ok(run.files[0].notes.length >= 1, "the entry names the notes it wrote");
+  assert.ok(logNote(app), "the morning log note is written");
+  assert.doesNotMatch(notices(), /: 0 files, 0 notes/, "the summary counts the run instead of a missing journal");
+});
+
+test("overnight import: a file that writes no notes leaves no empty folder behind", async () => {
+  const state = await setup();
+  const { plugin, app } = state;
+  const modal = new T.importModal.PdfImportModal(app, plugin, {});
+  await app.vault.create("Questions/Unit 1/EXIST-Q01.md", "keep me");
+  modal.target = "Questions/empty";
+  modal.beginArtifacts();
+  modal.agentBefore = new Set();
+  modal.trackFolderChain("Questions/empty");
+  modal.trackFolderChain("Questions/empty/images");
+  await app.vault.createFolder("Questions/empty");
+  await app.vault.createFolder("Questions/empty/images");
+  await app.vault.create("Questions/empty/_import-text.txt", "text");
+  modal.trackArtifact("Questions/empty/_import-text.txt");
+  // A note the agent started and never finished: the agent's own writes are
+  // found after its baseline and removed, so no folder is left holding them.
+  await app.vault.create("Questions/empty/agent-leftover.md", "half a note");
+  await modal.cleanupArtifacts();
+  assert.equal(app.vault.getAbstractFileByPath("Questions/empty"), null, "the attempt's folder is gone");
+  assert.equal(app.vault.getAbstractFileByPath("Questions/empty/images"), null, "its images folder is gone");
+  assert.equal(app.vault.getAbstractFileByPath("Questions/Unit 1/EXIST-Q01.md") !== null, true, "a pre-existing note keeps its folder");
 });
 
 test("overnight import: an open review keeps its window when a run resumes", async () => {

@@ -1031,6 +1031,13 @@ class PdfImportModal extends QtModal {
       });
       night.addEventListener("click", () => {
         this.unattended = true;
+        // The setup screen starts a real run too. Without its journal the
+        // morning summary counted a null run as "0 files, 0 notes", wrote no
+        // log, and could not pause, resume or undo the queue.
+        if (!this.overnightRun && typeof this.plugin.beginOvernightRun === "function") {
+          const queued = this.files.length ? this.files.slice() : [this.vaultDoc].filter(Boolean);
+          this.overnightRun = this.plugin.beginOvernightRun(queued);
+        }
         this.startUnattended();
       });
     }
@@ -1100,6 +1107,14 @@ class PdfImportModal extends QtModal {
     return removed;
   }
 
+  /** Whether this attempt has a note to keep: an error may only clean up an empty attempt. */
+  attemptWroteNotes() {
+    const tracked = this.artifacts;
+    if (!tracked) return false;
+    for (const path of tracked.files) if (/\.md$/i.test(String(path))) return true;
+    return false;
+  }
+
   /** Removes every write this attempt made, newest folders first, never touching pre-existing notes. */
   async cleanupArtifacts() {
     const tracked = this.artifacts;
@@ -1147,7 +1162,7 @@ class PdfImportModal extends QtModal {
         try {
           await adapter.rmdir(path, false);
         } catch (e) {
-          /* not empty, or already gone */
+          /* not empty, or already gone: a pre-existing note keeps its folder */
         }
       }
     }
@@ -2301,7 +2316,14 @@ class PdfImportModal extends QtModal {
       if (this.unattended) this.unattendedArtifacts = this.artifacts ? { files: [...this.artifacts.files], folders: [...this.artifacts.folders] } : { files: [], folders: [] };
       this.recordBatchResult({ made: 0, skipped: [] }, this.folder);
       this.batchResults[this.batchResults.length - 1].error = text;
-      if (this.unattended) this.snapshotUnattendedFile({ made: 0, skipped: [], error: text, paths: [] }, this.folder);
+      if (this.unattended) {
+        this.snapshotUnattendedFile({ made: 0, skipped: [], error: text, paths: [] }, this.folder);
+        // A file that failed before writing a single note must not leave its
+        // folder, copied PDF or images folder in the vault: overnight runs can
+        // fail every file (a spent provider, a dead server) and the queue must
+        // not litter one empty folder per PDF. Notes that were written survive.
+        if (!this.attemptWroteNotes()) this.cleanupArtifacts().catch(() => {});
+      }
       if (this.progress) this.progress.update(this.progressLabel, "Skipped: " + text, this.batchIndex / Math.max(1, this.batchJobs.length));
       const el = this.contentEl;
       el.empty();

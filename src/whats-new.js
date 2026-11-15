@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.302.4",
+    date: "November 15, 2026",
+    title: "An overnight run reports what it really did",
+    summary:
+      "Starting a queue with the window's overnight button now creates the same journal as the command, so the morning summary counts the files and notes it wrote, the log is saved, and a run that fails every file says so instead of reporting zeros. A file that fails before writing a note no longer leaves an empty folder and images folder behind.",
+    highlights: [
+      {
+        title: "The queue is journaled from either start button",
+        body: "Start overnight on the import window used to mark the run unattended without creating its journal. The closing notice then counted a missing run as 0 files and 0 notes, no Overnight import log.md was written, and pause, resume and undo had nothing to work from. Both start buttons now journal the files they hold before anything is written.",
+      },
+      {
+        title: "A failure is reported, not rounded to zero",
+        body: "The summary now says how many notes were written out of how many files, and names the first failure with the provider's own words. A run that imported nothing reads as a stopped run with a reason, not as a successful empty import.",
+      },
+      {
+        title: "No empty folder per failed PDF",
+        body: "A file that fails before writing a note removes its copied PDF, extracted text, images folder and the folder it created, while notes that were written are kept and a folder holding a pre-existing note is never touched.",
+      },
+      {
+        title: "Checked on a real overnight run",
+        body: "Three PDFs were queued with the window's overnight button against an unreachable OpenCode, and all three failed. Each file's folder was removed, the journal recorded all three errors, the log note was written with Files: 3 (0 done), and the closing notice read 0 notes from 0 of 3 files, 3 failed with the provider reason.",
+      },
+    ],
+  },
+  {
     version: "1.302.3",
     date: "November 15, 2026",
     title: "A slow model is no longer mistaken for an empty one",

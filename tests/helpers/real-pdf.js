@@ -282,14 +282,21 @@ function makeTrackedApp(notes) {
       if (at >= 0) app.files.splice(at, 1);
       ops.push(["remove", p]);
     },
-    async rmdir(path) {
+    async rmdir(path, recursive) {
       const p = clean(path);
       const prefix = `${p}/`;
-      const hasChild = [...files.keys()].some((f) => f.startsWith(prefix)) || [...dirs].some((d) => d !== p && d.startsWith(prefix));
-      if (hasChild) {
+      const childFiles = [...files.keys()].filter((f) => f.startsWith(prefix));
+      const childDirs = [...dirs].filter((d) => d !== p && d.startsWith(prefix));
+      if ((childFiles.length || childDirs.length) && !recursive) {
         ops.push(["rmdir-refused", p]);
         throw new Error(`The folder ${p} is not empty.`);
       }
+      for (const f of childFiles) {
+        files.delete(f);
+        const at = app.files.findIndex((file) => file.path === f);
+        if (at >= 0) app.files.splice(at, 1);
+      }
+      for (const d of childDirs) dirs.delete(d);
       dirs.delete(p);
       ops.push(["rmdir", p]);
     },

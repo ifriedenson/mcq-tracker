@@ -2398,6 +2398,32 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   /**
+   * The setup screen's Start overnight button: a journal for the files it holds,
+   * before anything is written, so that run pauses, resumes, undoes and writes
+   * its morning log exactly like one started from the command. Without it the
+   * summary had no totals and reported zeros.
+   */
+  beginOvernightRun(files) {
+    if (this.moduleOff("mcq")) return null;
+    if (!this._overnightHandles) this._overnightHandles = new Map();
+    const entries = [];
+    for (const entry of Array.isArray(files) ? files : []) {
+      if (!entry) continue;
+      if (typeof entry.arrayBuffer === "function" && entry.name) {
+        this._overnightHandles.set(entry.name, entry);
+        entries.push({ sourcePath: String(entry.name), hash: "" });
+      } else if (entry.path) {
+        entries.push({ sourcePath: String(entry.path), hash: "", vault: true });
+      }
+    }
+    if (!entries.length) return null;
+    const run = makeOvernightRun(entries);
+    run.status = "writing";
+    storeOvernightRun(this.app, run);
+    return run;
+  }
+
+  /**
    * Queue files for an unattended import: everything writes first, then
    * every note gets its blind check. Accepts picked device files, vault
    * paths, or vault file objects. Skips files the run already finished
@@ -2643,7 +2669,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (run && run.status === "checking") run.status = "finished";
     if (run) storeOvernightRun(this.app, run);
     if (run) await this.writeOvernightLog(run, checked);
-    const text = this.overnightSummaryText(run, summary);
+    const text = this.overnightSummaryText(run, summary, modal);
     if (modal.progress) {
       modal.progress.finish(text);
       modal.progress = null;
@@ -2655,12 +2681,27 @@ class QuestionTrackerPlugin extends Plugin {
     return run;
   }
 
-  overnightSummaryText(run, summary) {
+  overnightSummaryText(run, summary, modal) {
+    // A window whose run journal is missing must still tell the truth about
+    // what it did, instead of reporting a null run as "0 files, 0 notes".
+    if (!run) {
+      const rows = modal && Array.isArray(modal.batchResults) ? modal.batchResults : [];
+      const notes = Number(modal && modal.batchNotes) || 0;
+      const failed = rows.filter((row) => row && row.error);
+      return (
+        `Overnight import finished: ${rows.length} file${rows.length === 1 ? "" : "s"}, ${notes} note${notes === 1 ? "" : "s"}` +
+        (failed.length ? `, ${failed.length} failed — ${String(failed[0].error).slice(0, 160)}` : "") +
+        "."
+      );
+    }
     const totals = runTotals(run);
-    const state = !run ? "finished" : run.status === "paused" ? "paused — resume it to continue the checks" : run.status === "stopped" ? "stopped" : "finished";
+    const state = run.status === "paused" ? "paused — resume it to continue the checks" : run.status === "stopped" ? "stopped" : "finished";
+    const failed = (run.files || []).filter((entry) => entry.status === "error" && entry.error);
     return (
-      `Overnight import ${state}: ${totals.files} file${totals.files === 1 ? "" : "s"}, ${totals.notes} note${totals.notes === 1 ? "" : "s"}, ` +
-      `${totals.matched} matched, ${totals.mismatched} flagged for review${totals.errored ? `, ${totals.errored} check errors` : ""}.`
+      `Overnight import ${state}: ${totals.notes} note${totals.notes === 1 ? "" : "s"} from ${totals.done} of ${totals.files} file${totals.files === 1 ? "" : "s"}, ` +
+      `${totals.matched} matched, ${totals.mismatched} flagged for review${totals.errored ? `, ${totals.errored} check errors` : ""}` +
+      (failed.length ? `, ${failed.length} failed — ${String(failed[0].error).slice(0, 160)}` : "") +
+      "."
     );
   }
 

@@ -51066,6 +51066,13 @@ class PdfImportModal extends QtModal {
       });
       night.addEventListener("click", () => {
         this.unattended = true;
+        // The setup screen starts a real run too. Without its journal the
+        // morning summary counted a null run as "0 files, 0 notes", wrote no
+        // log, and could not pause, resume or undo the queue.
+        if (!this.overnightRun && typeof this.plugin.beginOvernightRun === "function") {
+          const queued = this.files.length ? this.files.slice() : [this.vaultDoc].filter(Boolean);
+          this.overnightRun = this.plugin.beginOvernightRun(queued);
+        }
         this.startUnattended();
       });
     }
@@ -51135,6 +51142,14 @@ class PdfImportModal extends QtModal {
     return removed;
   }
 
+  /** Whether this attempt has a note to keep: an error may only clean up an empty attempt. */
+  attemptWroteNotes() {
+    const tracked = this.artifacts;
+    if (!tracked) return false;
+    for (const path of tracked.files) if (/\.md$/i.test(String(path))) return true;
+    return false;
+  }
+
   /** Removes every write this attempt made, newest folders first, never touching pre-existing notes. */
   async cleanupArtifacts() {
     const tracked = this.artifacts;
@@ -51182,7 +51197,7 @@ class PdfImportModal extends QtModal {
         try {
           await adapter.rmdir(path, false);
         } catch (e) {
-          /* not empty, or already gone */
+          /* not empty, or already gone: a pre-existing note keeps its folder */
         }
       }
     }
@@ -52336,7 +52351,14 @@ class PdfImportModal extends QtModal {
       if (this.unattended) this.unattendedArtifacts = this.artifacts ? { files: [...this.artifacts.files], folders: [...this.artifacts.folders] } : { files: [], folders: [] };
       this.recordBatchResult({ made: 0, skipped: [] }, this.folder);
       this.batchResults[this.batchResults.length - 1].error = text;
-      if (this.unattended) this.snapshotUnattendedFile({ made: 0, skipped: [], error: text, paths: [] }, this.folder);
+      if (this.unattended) {
+        this.snapshotUnattendedFile({ made: 0, skipped: [], error: text, paths: [] }, this.folder);
+        // A file that failed before writing a single note must not leave its
+        // folder, copied PDF or images folder in the vault: overnight runs can
+        // fail every file (a spent provider, a dead server) and the queue must
+        // not litter one empty folder per PDF. Notes that were written survive.
+        if (!this.attemptWroteNotes()) this.cleanupArtifacts().catch(() => {});
+      }
       if (this.progress) this.progress.update(this.progressLabel, "Skipped: " + text, this.batchIndex / Math.max(1, this.batchJobs.length));
       const el = this.contentEl;
       el.empty();
@@ -75757,6 +75779,32 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   /**
+   * The setup screen's Start overnight button: a journal for the files it holds,
+   * before anything is written, so that run pauses, resumes, undoes and writes
+   * its morning log exactly like one started from the command. Without it the
+   * summary had no totals and reported zeros.
+   */
+  beginOvernightRun(files) {
+    if (this.moduleOff("mcq")) return null;
+    if (!this._overnightHandles) this._overnightHandles = new Map();
+    const entries = [];
+    for (const entry of Array.isArray(files) ? files : []) {
+      if (!entry) continue;
+      if (typeof entry.arrayBuffer === "function" && entry.name) {
+        this._overnightHandles.set(entry.name, entry);
+        entries.push({ sourcePath: String(entry.name), hash: "" });
+      } else if (entry.path) {
+        entries.push({ sourcePath: String(entry.path), hash: "", vault: true });
+      }
+    }
+    if (!entries.length) return null;
+    const run = makeOvernightRun(entries);
+    run.status = "writing";
+    storeOvernightRun(this.app, run);
+    return run;
+  }
+
+  /**
    * Queue files for an unattended import: everything writes first, then
    * every note gets its blind check. Accepts picked device files, vault
    * paths, or vault file objects. Skips files the run already finished
@@ -76002,7 +76050,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (run && run.status === "checking") run.status = "finished";
     if (run) storeOvernightRun(this.app, run);
     if (run) await this.writeOvernightLog(run, checked);
-    const text = this.overnightSummaryText(run, summary);
+    const text = this.overnightSummaryText(run, summary, modal);
     if (modal.progress) {
       modal.progress.finish(text);
       modal.progress = null;
@@ -76014,12 +76062,27 @@ class QuestionTrackerPlugin extends Plugin {
     return run;
   }
 
-  overnightSummaryText(run, summary) {
+  overnightSummaryText(run, summary, modal) {
+    // A window whose run journal is missing must still tell the truth about
+    // what it did, instead of reporting a null run as "0 files, 0 notes".
+    if (!run) {
+      const rows = modal && Array.isArray(modal.batchResults) ? modal.batchResults : [];
+      const notes = Number(modal && modal.batchNotes) || 0;
+      const failed = rows.filter((row) => row && row.error);
+      return (
+        `Overnight import finished: ${rows.length} file${rows.length === 1 ? "" : "s"}, ${notes} note${notes === 1 ? "" : "s"}` +
+        (failed.length ? `, ${failed.length} failed — ${String(failed[0].error).slice(0, 160)}` : "") +
+        "."
+      );
+    }
     const totals = runTotals(run);
-    const state = !run ? "finished" : run.status === "paused" ? "paused — resume it to continue the checks" : run.status === "stopped" ? "stopped" : "finished";
+    const state = run.status === "paused" ? "paused — resume it to continue the checks" : run.status === "stopped" ? "stopped" : "finished";
+    const failed = (run.files || []).filter((entry) => entry.status === "error" && entry.error);
     return (
-      `Overnight import ${state}: ${totals.files} file${totals.files === 1 ? "" : "s"}, ${totals.notes} note${totals.notes === 1 ? "" : "s"}, ` +
-      `${totals.matched} matched, ${totals.mismatched} flagged for review${totals.errored ? `, ${totals.errored} check errors` : ""}.`
+      `Overnight import ${state}: ${totals.notes} note${totals.notes === 1 ? "" : "s"} from ${totals.done} of ${totals.files} file${totals.files === 1 ? "" : "s"}, ` +
+      `${totals.matched} matched, ${totals.mismatched} flagged for review${totals.errored ? `, ${totals.errored} check errors` : ""}` +
+      (failed.length ? `, ${failed.length} failed — ${String(failed[0].error).slice(0, 160)}` : "") +
+      "."
     );
   }
 
@@ -137251,6 +137314,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.302.4",
+    date: "November 15, 2026",
+    title: "An overnight run reports what it really did",
+    summary:
+      "Starting a queue with the window's overnight button now creates the same journal as the command, so the morning summary counts the files and notes it wrote, the log is saved, and a run that fails every file says so instead of reporting zeros. A file that fails before writing a note no longer leaves an empty folder and images folder behind.",
+    highlights: [
+      {
+        title: "The queue is journaled from either start button",
+        body: "Start overnight on the import window used to mark the run unattended without creating its journal. The closing notice then counted a missing run as 0 files and 0 notes, no Overnight import log.md was written, and pause, resume and undo had nothing to work from. Both start buttons now journal the files they hold before anything is written.",
+      },
+      {
+        title: "A failure is reported, not rounded to zero",
+        body: "The summary now says how many notes were written out of how many files, and names the first failure with the provider's own words. A run that imported nothing reads as a stopped run with a reason, not as a successful empty import.",
+      },
+      {
+        title: "No empty folder per failed PDF",
+        body: "A file that fails before writing a note removes its copied PDF, extracted text, images folder and the folder it created, while notes that were written are kept and a folder holding a pre-existing note is never touched.",
+      },
+      {
+        title: "Checked on a real overnight run",
+        body: "Three PDFs were queued with the window's overnight button against an unreachable OpenCode, and all three failed. Each file's folder was removed, the journal recorded all three errors, the log note was written with Files: 3 (0 done), and the closing notice read 0 notes from 0 of 3 files, 3 failed with the provider reason.",
+      },
+    ],
+  },
   {
     version: "1.302.3",
     date: "November 15, 2026",
