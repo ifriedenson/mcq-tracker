@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.10",
+    date: "November 15, 2026",
+    title: "The last four deletes, driven live",
+    summary:
+      "1.307.9 gave every delete a way back, but four controls could not be reached in the test harness, so they were wired and unproven. All four now run live in Obsidian, and the two that had no reachable button \u2014 saved conversations and pending card grades \u2014 gained one that names the record it removes.",
+    highlights: [
+      {
+        title: "Saved conversations can be deleted",
+        body: "Each row in the chat library now carries its own Delete, so an archived or open conversation can be removed without opening it first. The notice says which conversation, and Undo puts the whole transcript back where it was.",
+      },
+      {
+        title: "A pending grade names its card",
+        body: "Discarding a queued typed answer used to say only \u201cthe pending grade\u201d. Both the row and the review panel now name the card, and Undo restores the stored answer with its strictness, locale, model and timestamps.",
+      },
+      {
+        title: "Driven, and then pinned",
+        body: "Saved conversation, chat project, practice preset, pending grade and calendar planned block were each removed and undone live in Obsidian 1.15.1 on Primary: the row disappeared, the notice named it, the stored count returned and the undo refused a second click.",
+      },
+      {
+        title: "Tests for the four paths",
+        body: "tests/undo-everywhere.test.js now covers the saved conversation, the chat project, the practice preset and the pending grade through their rendered controls, with a refusal case proving a newer queued answer is never overwritten.",
+      },
+    ],
+  },
+  {
     version: "1.307.9",
     date: "November 15, 2026",
     title: "Every delete has a way back",

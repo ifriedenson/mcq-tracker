@@ -1062,7 +1062,13 @@ class AgentView extends ItemView {
     const key = str(id).trim();
     if (!ai || !key) return false;
     const saved = (ai.chatSessions || []).find((entry) => str(entry.id) === key);
-    const title = saved && str(saved.title).trim() ? saved.title : "this conversation";
+    const tab = this.tabById(key);
+    const active = this.activeConversation();
+    const title =
+      (saved && str(saved.title).trim()) ||
+      (tab && str(tab.title).trim()) ||
+      (str(active.id) === key && str(active.title).trim()) ||
+      "this conversation";
     this.plugin.deleteWithUndo({
       label: title,
       remove: () => this.deleteChat(key),

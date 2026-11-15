@@ -1506,6 +1506,12 @@ class ChatPanel {
         const archive = actions.createEl("button", { text: "Archive" });
         archive.addEventListener("click", () => this.archiveLibraryRow(row));
       }
+      const remove = actions.createEl("button", {
+        text: "Delete",
+        cls: "qt-chat-library-delete",
+        attr: { "aria-label": `Delete conversation ${row.title}` },
+      });
+      remove.addEventListener("click", () => this.deleteLibraryRow(row));
     }
   }
 
@@ -1576,6 +1582,12 @@ class ChatPanel {
     } catch (e) {
       if (this.status) this.status.setText("That conversation could not be exported.");
     }
+    this.refreshLibrary();
+  }
+
+  deleteLibraryRow(row) {
+    if (this.busy || !row || typeof this.opts.onDeleteChat !== "function") return;
+    this.opts.onDeleteChat(row.id);
     this.refreshLibrary();
   }
 

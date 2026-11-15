@@ -2674,7 +2674,13 @@ class AgentView extends ItemView {
     const key = str(id).trim();
     if (!ai || !key) return false;
     const saved = (ai.chatSessions || []).find((entry) => str(entry.id) === key);
-    const title = saved && str(saved.title).trim() ? saved.title : "this conversation";
+    const tab = this.tabById(key);
+    const active = this.activeConversation();
+    const title =
+      (saved && str(saved.title).trim()) ||
+      (tab && str(tab.title).trim()) ||
+      (str(active.id) === key && str(active.title).trim()) ||
+      "this conversation";
     this.plugin.deleteWithUndo({
       label: title,
       remove: () => this.deleteChat(key),
@@ -24170,6 +24176,15 @@ function revealEnvironment() {
 }
 
 /** A visible, actionable message for the browser's speech-recognition errors. */
+/** Names a queued grade by the card it belongs to, so a notice never says only "the pending grade". */
+function pendingGradeName(entry) {
+  if (!entry) return "";
+  const front = String(entry.front || entry.title || "").trim();
+  if (front) return front.length > 60 ? `${front.slice(0, 57)}…` : front;
+  const path = String(entry.path || "");
+  return path ? path.split("/").pop().replace(/\.md$/i, "") : "";
+}
+
 function speechErrorMessage(code) {
   const reason = String(code || "").trim().toLowerCase();
   if (reason === "not-allowed" || reason === "service-not-allowed") {
@@ -24826,10 +24841,11 @@ class CardView extends ItemView {
           if (file) this.app.workspace.getLeaf("tab").openFile(file);
         });
       }
-      const discard = row.createEl("button", { text: "Discard", cls: "qt-link qt-pending-discard", attr: { "aria-label": `Discard the pending grade for ${entry.title || "this card"}` } });
+      const pendingName = pendingGradeName(entry);
+      const discard = row.createEl("button", { text: "Discard", cls: "qt-link qt-pending-discard", attr: { "aria-label": `Discard the pending grade for ${pendingName}` } });
       discard.addEventListener("click", () => {
         this.plugin.deleteWithUndo({
-          label: entry.title ? `the pending grade for ${entry.title}` : "the pending grade",
+          label: `the pending grade for ${pendingName}`,
           capture: () => this.plugin.readPendingCardGrades(),
           restore: (snapshot) => this.plugin.writePendingCardGrades(snapshot),
           remove: () => this.plugin.discardPendingCardGrade(entry.id),
@@ -24880,8 +24896,10 @@ class CardView extends ItemView {
     discard.addEventListener("click", () => {
       const id = this.pendingGradeId;
       if (!id || !this.plugin || typeof this.plugin.deleteWithUndo !== "function") return this.discardPendingFromReview();
+      const reviewEntry = (this.plugin.readPendingCardGrades ? this.plugin.readPendingCardGrades() : []).find((e) => e && e.id === id);
+      const reviewName = pendingGradeName(reviewEntry) || (this.current && pendingGradeName({ path: this.current.file && this.current.file.path })) || "this card";
       this.plugin.deleteWithUndo({
-        label: "the pending grade",
+        label: `the pending grade for ${reviewName}`,
         capture: () => this.plugin.readPendingCardGrades(),
         restore: (snapshot) => this.plugin.writePendingCardGrades(snapshot),
         remove: () => this.plugin.discardPendingCardGrade(id),
@@ -28718,6 +28736,12 @@ class ChatPanel {
         const archive = actions.createEl("button", { text: "Archive" });
         archive.addEventListener("click", () => this.archiveLibraryRow(row));
       }
+      const remove = actions.createEl("button", {
+        text: "Delete",
+        cls: "qt-chat-library-delete",
+        attr: { "aria-label": `Delete conversation ${row.title}` },
+      });
+      remove.addEventListener("click", () => this.deleteLibraryRow(row));
     }
   }
 
@@ -28788,6 +28812,12 @@ class ChatPanel {
     } catch (e) {
       if (this.status) this.status.setText("That conversation could not be exported.");
     }
+    this.refreshLibrary();
+  }
+
+  deleteLibraryRow(row) {
+    if (this.busy || !row || typeof this.opts.onDeleteChat !== "function") return;
+    this.opts.onDeleteChat(row.id);
     this.refreshLibrary();
   }
 
@@ -139801,6 +139831,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.307.10",
+    date: "November 15, 2026",
+    title: "The last four deletes, driven live",
+    summary:
+      "1.307.9 gave every delete a way back, but four controls could not be reached in the test harness, so they were wired and unproven. All four now run live in Obsidian, and the two that had no reachable button \u2014 saved conversations and pending card grades \u2014 gained one that names the record it removes.",
+    highlights: [
+      {
+        title: "Saved conversations can be deleted",
+        body: "Each row in the chat library now carries its own Delete, so an archived or open conversation can be removed without opening it first. The notice says which conversation, and Undo puts the whole transcript back where it was.",
+      },
+      {
+        title: "A pending grade names its card",
+        body: "Discarding a queued typed answer used to say only \u201cthe pending grade\u201d. Both the row and the review panel now name the card, and Undo restores the stored answer with its strictness, locale, model and timestamps.",
+      },
+      {
+        title: "Driven, and then pinned",
+        body: "Saved conversation, chat project, practice preset, pending grade and calendar planned block were each removed and undone live in Obsidian 1.15.1 on Primary: the row disappeared, the notice named it, the stored count returned and the undo refused a second click.",
+      },
+      {
+        title: "Tests for the four paths",
+        body: "tests/undo-everywhere.test.js now covers the saved conversation, the chat project, the practice preset and the pending grade through their rendered controls, with a refusal case proving a newer queued answer is never overwritten.",
+      },
+    ],
+  },
   {
     version: "1.307.9",
     date: "November 15, 2026",

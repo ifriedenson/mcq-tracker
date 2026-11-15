@@ -40,6 +40,15 @@ function revealEnvironment() {
 }
 
 /** A visible, actionable message for the browser's speech-recognition errors. */
+/** Names a queued grade by the card it belongs to, so a notice never says only "the pending grade". */
+function pendingGradeName(entry) {
+  if (!entry) return "";
+  const front = String(entry.front || entry.title || "").trim();
+  if (front) return front.length > 60 ? `${front.slice(0, 57)}…` : front;
+  const path = String(entry.path || "");
+  return path ? path.split("/").pop().replace(/\.md$/i, "") : "";
+}
+
 function speechErrorMessage(code) {
   const reason = String(code || "").trim().toLowerCase();
   if (reason === "not-allowed" || reason === "service-not-allowed") {
@@ -696,10 +705,11 @@ class CardView extends ItemView {
           if (file) this.app.workspace.getLeaf("tab").openFile(file);
         });
       }
-      const discard = row.createEl("button", { text: "Discard", cls: "qt-link qt-pending-discard", attr: { "aria-label": `Discard the pending grade for ${entry.title || "this card"}` } });
+      const pendingName = pendingGradeName(entry);
+      const discard = row.createEl("button", { text: "Discard", cls: "qt-link qt-pending-discard", attr: { "aria-label": `Discard the pending grade for ${pendingName}` } });
       discard.addEventListener("click", () => {
         this.plugin.deleteWithUndo({
-          label: entry.title ? `the pending grade for ${entry.title}` : "the pending grade",
+          label: `the pending grade for ${pendingName}`,
           capture: () => this.plugin.readPendingCardGrades(),
           restore: (snapshot) => this.plugin.writePendingCardGrades(snapshot),
           remove: () => this.plugin.discardPendingCardGrade(entry.id),
@@ -750,8 +760,10 @@ class CardView extends ItemView {
     discard.addEventListener("click", () => {
       const id = this.pendingGradeId;
       if (!id || !this.plugin || typeof this.plugin.deleteWithUndo !== "function") return this.discardPendingFromReview();
+      const reviewEntry = (this.plugin.readPendingCardGrades ? this.plugin.readPendingCardGrades() : []).find((e) => e && e.id === id);
+      const reviewName = pendingGradeName(reviewEntry) || (this.current && pendingGradeName({ path: this.current.file && this.current.file.path })) || "this card";
       this.plugin.deleteWithUndo({
-        label: "the pending grade",
+        label: `the pending grade for ${reviewName}`,
         capture: () => this.plugin.readPendingCardGrades(),
         restore: (snapshot) => this.plugin.writePendingCardGrades(snapshot),
         remove: () => this.plugin.discardPendingCardGrade(id),
