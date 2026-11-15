@@ -639,6 +639,74 @@ test("a provider error inside a blocking send ends it at once, not after the sil
   }
 });
 
+test("a provider retry on the event stream ends a blocking send at once", async () => {
+  // Live: the answer checks poll the messages, and a spent free tier leaves
+  // those empty and unfinished while the reason sits on the session status.
+  const oc = new T.OpenCodeClient({ url: "http://127.0.0.1:1" });
+  let aborted = 0;
+  oc.watchEvents = (onEvent) => {
+    setTimeout(
+      () =>
+        onEvent({
+          type: "session.status",
+          properties: { sessionID: "s1", status: { type: "retry", message: "Free usage exceeded, subscribe to Go" } },
+        }),
+      10
+    );
+    return () => {};
+  };
+  obsidian.requestImpl = async (opts) => {
+    const url = String(opts.url);
+    if (opts.method === "POST" && /\/message$/.test(url)) return new Promise(() => {});
+    if (opts.method === "GET" && /\/message$/.test(url)) return { status: 200, text: "[]", json: [] };
+    if (/\/abort$/.test(url)) {
+      aborted++;
+      return { status: 200, text: "{}", json: {} };
+    }
+    return { status: 200, text: "{}", json: {} };
+  };
+  try {
+    const started = Date.now();
+    await assert.rejects(oc.send("s1", {}, { idleMs: 60000 }), /Free usage exceeded/);
+    assert.ok(Date.now() - started < 5000, "the provider's words reached the caller at once");
+    assert.equal(aborted, 1, "the dead request is aborted");
+  } finally {
+    obsidian.requestImpl = null;
+  }
+});
+
+test("a busy status keeps a quiet send alive", async () => {
+  const oc = new T.OpenCodeClient({ url: "http://127.0.0.1:1" });
+  oc.watchEvents = (onEvent) => {
+    const timer = setInterval(
+      () => onEvent({ type: "session.status", properties: { sessionID: "s1", status: { type: "busy" } } }),
+      20
+    );
+    return () => clearInterval(timer);
+  };
+  let released = false;
+  obsidian.requestImpl = async (opts) => {
+    const url = String(opts.url);
+    if (opts.method === "POST" && /\/message$/.test(url)) {
+      setTimeout(() => {
+        released = true;
+      }, 300);
+      return new Promise((resolve) => setTimeout(() => resolve({ status: 200, text: "{}", json: { ok: true } }), 300));
+    }
+    if (opts.method === "GET" && /\/message$/.test(url)) {
+      return { status: 200, text: "[]", json: [{ info: { id: "a1", role: "assistant", time: { created: 1 } }, parts: [] }] };
+    }
+    return { status: 200, text: "{}", json: {} };
+  };
+  try {
+    const reply = await oc.send("s1", {}, { idleMs: 150, emptyMs: 100000 });
+    assert.ok(released, "the send outlived the silence allowance because the server said it was working");
+    assert.deepEqual(reply, { ok: true });
+  } finally {
+    obsidian.requestImpl = null;
+  }
+});
+
 test("an empty finished reply inside a blocking send is reported, not waited out", async () => {
   const oc = new T.OpenCodeClient({ url: "http://127.0.0.1:1" });
   obsidian.requestImpl = async (opts) => {

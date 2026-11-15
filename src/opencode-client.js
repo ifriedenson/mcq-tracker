@@ -67,6 +67,14 @@ function emptyAssistant(msgs) {
   );
 }
 
+/** The provider's own words for a session error event, short enough to show. */
+function providerErrorText(error) {
+  const data = error && error.data && typeof error.data === "object" ? error.data : {};
+  const text = str(data.message || (error && error.message) || data.error || (error && error.name) || "").trim();
+  if (!text) return "OpenCode reported an error with no details.";
+  return /^(APIError|UnknownError|ProviderError)$/i.test(text) ? "OpenCode reported a provider error." : text.slice(0, 300);
+}
+
 function sessionFailure(msgs) {
   const last = [...(msgs || [])].reverse().find((m) => m && m.info && m.info.role === "assistant");
   if (!last) return "";
@@ -312,7 +320,30 @@ class OpenCodeClient {
     );
     let signature = null;
     let lastActivity = Date.now();
+    // A provider failure is not written on the messages being polled: it is a
+    // session status on the server's event stream. Reading it here is what
+    // turns a spent quota from a silent wait into the provider's own words.
+    let providerError = "";
+    let busy = false;
+    let stopWatch = () => {};
+    try {
+      stopWatch = this.watchEvents((event) => {
+        const props = (event && event.properties) || {};
+        if (props.sessionID && props.sessionID !== id) return;
+        if (event.type === "session.error") {
+          providerError = providerErrorText(props.error);
+          return;
+        }
+        if (event.type !== "session.status") return;
+        const status = props.status || {};
+        busy = status.type === "busy";
+        if (status.type === "retry") providerError = str(status.message).trim() || "The provider is retrying this request.";
+      });
+    } catch (e) {
+      stopWatch = () => {};
+    }
     const pollMs = Math.max(20, Math.min(IDLE_POLL_MS, Math.floor(idleMs / 4)));
+    try {
     while (!settled) {
       await sleep(pollMs);
       if (settled) break;
@@ -322,6 +353,17 @@ class OpenCodeClient {
       } catch (e) {
         /* a failed progress read is not progress; the silence allowance decides */
       }
+      if (providerError) {
+        try {
+          await this.abort(id);
+        } catch (abortError) {
+          /* the abort is cleanup; the provider's words are the error */
+        }
+        throw new Error(providerError);
+      }
+      // The server says it is working on this session: a quiet message list is
+      // a slow model, not a dead request.
+      if (busy) lastActivity = Date.now();
       if (msgs) {
         const next = JSON.stringify(msgs);
         if (signature !== null && next !== signature) lastActivity = Date.now();
@@ -365,6 +407,9 @@ class OpenCodeClient {
           `OpenCode accepted the request but wrote nothing new for ${durationLabel(idleMs)}. Check that OpenCode is still running and a provider is connected, then try again.`
         );
       }
+    }
+    } finally {
+      stopWatch();
     }
     if (settled.error) throw settled.error;
     return settled.value;

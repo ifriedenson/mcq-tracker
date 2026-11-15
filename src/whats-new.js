@@ -14,7 +14,7 @@ const RELEASES = [
     highlights: [
       {
         title: "The provider's reason is read, not guessed",
-        body: "OpenCode leaves an empty, unfinished message behind a failed request and puts the reason on its event stream as a session status: Free usage exceeded, subscribe to Go; a rate limit; or a rejected key. The import now watches that stream while a file runs and stops the file with those words within seconds instead of waiting out a silence allowance.",
+        body: "OpenCode leaves an empty, unfinished message behind a failed request and puts the reason on its event stream as a session status: Free usage exceeded, subscribe to Go; a rate limit; or a rejected key. Both paths read it now: an import follows that stream while a file runs and stops the file with those words within seconds, and an answer check that is blocked on a send does the same, instead of waiting out a silence allowance each time.",
       },
       {
         title: "Overnight queues park instead of failing a hundred files",
