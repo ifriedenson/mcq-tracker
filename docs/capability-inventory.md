@@ -83,7 +83,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `StudyStatusModal` | 0 | `tests/feature-surfaces.test.js` |
 | `StudyToolsView` | 0 | `tests/lecture-links.test.js`, `tests/mobile-module-layout.test.js`, `tests/study-tools.test.js` |
 | `StudyWorkspaceView` | 0 | `tests/citations.test.js`, `tests/fsrs-fit.test.js`, `tests/glossary.test.js`, `tests/mobile-module-layout.test.js`, `tests/reading-library.test.js`, `tests/settings-consolidation.test.js`, `tests/study-modules-2.test.js`, `tests/study-modules-3.test.js`, `tests/study-tasks-plus.test.js`, `tests/study-workspace-health.test.js`, `tests/study-workspace-layout.test.js`, `tests/study-workspace-tabs.test.js`, `tests/study-workspace.test.js`, `tests/task-tags.test.js`, `tests/time-blocks.test.js`, `tests/vault-task-index.test.js`, `tests/wordnet.test.js`, `tests/writing-sessions.test.js` |
-| `TaskListView` | 0 | `tests/study-tasks-plus.test.js`, `tests/task-dates.test.js`, `tests/task-list.test.js`, `tests/task-recurrence.test.js`, `tests/task-times.test.js` |
+| `TaskListView` | 0 | `tests/study-tasks-plus.test.js`, `tests/task-dates.test.js`, `tests/task-list.test.js`, `tests/task-priority-quickadd.test.js`, `tests/task-recurrence.test.js`, `tests/task-times.test.js` |
 | `TestView` | 0 | `tests/error-message-paths.test.js`, `tests/views.test.js` |
 | `TodayView` | 0 | `tests/ap-exam-resources.test.js`, `tests/core-values.test.js`, `tests/daily-quiz-freeze.test.js`, `tests/daily-quiz.test.js`, `tests/focus.test.js`, `tests/frq-review.test.js`, `tests/reading-plan.test.js`, `tests/study-plan.test.js`, `tests/study-tools.test.js`, `tests/today-dom.test.js`, `tests/today.test.js` |
 | `TranscriptPracticeModal` | 0 | `tests/feature-surfaces.test.js` |
@@ -499,7 +499,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `check-opencode` | Check that OpenCode is running | `checkOpenCodeServer` | `tests/opencode-status.test.js` |
 | `import-service-export` | Import notes from an export (Airtable, Notion, Evernote, Keep, Bear, Roam) | `importActiveServiceExport` | `tests/error-message-paths.test.js`, `tests/service-import.test.js` |
 | `import-service-clipboard` | Import notes from a pasted export | `importServiceClipboard` | `tests/error-message-paths.test.js`, `tests/service-import.test.js` |
-| `quick-add` | Quick add questions from pasted text | `openQuickAdd` | `tests/a11y-labels.test.js`, `tests/ai-import-help.test.js`, `tests/hotkey-audit.test.js`, `tests/import-preflight.test.js`, `tests/note-quiz-clipboard.test.js`, `tests/plugin.test.js`, `tests/quick-add.test.js`, `tests/quiz-generator.test.js`, `tests/starter-pack.test.js` |
+| `quick-add` | Quick add questions from pasted text | `openQuickAdd` | `tests/a11y-labels.test.js`, `tests/ai-import-help.test.js`, `tests/hotkey-audit.test.js`, `tests/import-preflight.test.js`, `tests/note-quiz-clipboard.test.js`, `tests/plugin.test.js`, `tests/quick-add.test.js`, `tests/quiz-generator.test.js`, `tests/starter-pack.test.js`, `tests/task-priority-quickadd.test.js` |
 | `import-quiz-clipboard` | Import a generated quiz from the clipboard | `openQuizClipboardImport` | `tests/note-quiz-clipboard.test.js` |
 | `export-study-bundle` | Export a study bundle (backup of questions and cards) | `exportStudyBundle` | `tests/study-bundle-import.test.js`, `tests/study-bundle.test.js` |
 | `import-study-bundle` | Import a study bundle (restore questions and cards) | `importStudyBundle` | `tests/study-bundle-import.test.js` |

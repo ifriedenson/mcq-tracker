@@ -170,7 +170,7 @@ test("task list: the due chip names the time", async () => {
   view.contentEl = dom.root;
   view.render();
   assert.ok(dom.texts().includes("Due today · 3 PM"), "the chip reads Due today · 3 PM");
-  assert.ok(dom.texts().includes("Tip: name a day (tomorrow, Tuesday), a time (at 3pm, in 2 hours) or a repeat (every Monday, daily) to schedule it. Star the urgent ones."));
+  assert.ok(dom.texts().includes("Tip: name a day (tomorrow, Tuesday), a time (at 3pm, in 2 hours) or a repeat (every Monday, daily) to schedule it. Star the urgent ones, or ★ High before adding."));
 });
 
 test("focus day: a scratch task keeps its time beside the day", () => {

@@ -120,8 +120,29 @@ class TaskListView extends ItemView {
       cls: "qt-input qt-task-list-new-tags",
       attr: { placeholder: "#tags", "aria-label": "Tags", title: "Tags, separated by commas" },
     });
+    // The add row can make the next task high priority; normal stays the default.
+    let addHigh = false;
+    const priority = addRow.createEl("button", {
+      text: "☆ High",
+      cls: "qt-task-list-add-priority",
+      attr: {
+        "aria-label": "Make the next task high priority",
+        "aria-pressed": "false",
+        title: "Mark the next task high priority",
+      },
+    });
+    priority.addEventListener("click", () => {
+      addHigh = !addHigh;
+      priority.setText(addHigh ? "★ High" : "☆ High");
+      priority.setAttribute("aria-pressed", addHigh ? "true" : "false");
+    });
     const add = async () => {
-      const task = await this.plugin.addStudyTask({ title: title.value, due: due.value, tags: tags.value });
+      const task = await this.plugin.addStudyTask({
+        title: title.value,
+        due: due.value,
+        tags: tags.value,
+        priority: addHigh ? "high" : "",
+      });
       if (!task) return;
       // Keep the cursor in the box so the next task needs no mouse, like Deadline.
       this.focusNewAfterRender = true;
@@ -135,7 +156,7 @@ class TaskListView extends ItemView {
         add();
       });
     }
-    root.createDiv({ cls: "qt-task-list-hint", text: "Tip: name a day (tomorrow, Tuesday), a time (at 3pm, in 2 hours) or a repeat (every Monday, daily) to schedule it. Star the urgent ones." });
+    root.createDiv({ cls: "qt-task-list-hint", text: "Tip: name a day (tomorrow, Tuesday), a time (at 3pm, in 2 hours) or a repeat (every Monday, daily) to schedule it. Star the urgent ones, or ★ High before adding." });
     if (this.focusNewAfterRender) {
       this.focusNewAfterRender = false;
       if (typeof title.focus === "function") title.focus();

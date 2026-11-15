@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.3",
+    date: "November 15, 2026",
+    title: "Urgent first, typed dates understood",
+    summary:
+      "The add row can now create a high-priority task in one tap, and quick-add reads the times and spans people actually type. Both build on the code that was already there, so nothing else moves.",
+    highlights: [
+      {
+        title: "★ High before adding",
+        body: "The task list's add row has a priority toggle. Press it and the next task is created high priority; leave it alone and tasks stay normal, exactly as before. The star on each row still flips the flag later.",
+      },
+      {
+        title: "High work stays on top",
+        body: "High-priority tasks sort above normal ones in the list, and each group keeps its own due-date order, so a list never reshuffles itself. Only high tasks carry the ⏫ marker in the mirror note.",
+      },
+      {
+        title: "Spans and times together",
+        body: "\"essay in 16 days\" lands on the right day even across a month boundary, and \"drill at 3pm\" keeps the clock. Leap-day and year-end spans resolve too: 28 February 2028 plus one day is the 29th.",
+      },
+      {
+        title: "Nothing else changed",
+        body: "Every date-only form shipped earlier still parses the same, the mirror is still rebuilt from data.json (never appended), and the repeat rules, review schedule and hub fix are untouched.",
+      },
+    ],
+  },
+  {
     version: "1.307.2",
     date: "November 15, 2026",
     title: "The whole study loop in one note",

@@ -11960,6 +11960,15 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) auto;
 }
 
+.qt-task-list-add-priority {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.qt-task-list-add-priority[aria-pressed="true"] {
+  color: var(--text-accent);
+}
+
 .qt-task-list-add-button {
   min-width: 52px;
 }
