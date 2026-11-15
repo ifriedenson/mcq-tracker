@@ -152,7 +152,7 @@ const noteReviewDock = require("./note-review-dock");
 const sessionReport = require("./session-report");
 const { PomodoroView } = require("./pomodoro-view");
 const { FocusDayView } = require("./focus-day-view");
-const { QtHubView } = require("./hub-view");
+const { hubViewClass, QtHubView } = require("./hub-view");
 const hubs = require("./hubs");
 const focusDay = require("./focus-day");
 const taskDates = require("./task-dates");
@@ -609,6 +609,7 @@ QuestionTrackerPlugin.__test = {
   focusDay,
   FocusDayView,
   hubs,
+  hubViewClass,
   QtHubView,
   taskDates,
   taskMirror,

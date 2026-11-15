@@ -19,16 +19,21 @@ class QtHubView extends ItemView {
     this.activeTab = "";
   }
 
+  /*
+   * Obsidian's View constructor calls getViewType() before this constructor
+   * body runs, so the base class must never reach for `this.spec` there: a
+   * hub is registered through hubViewClass(), which answers from its closure.
+   */
   getViewType() {
-    return this.spec.type;
+    return this.spec && this.spec.type ? this.spec.type : "";
   }
 
   getDisplayText() {
-    return this.spec.title;
+    return this.spec && this.spec.title ? this.spec.title : "Hub";
   }
 
   getIcon() {
-    return this.spec.icon;
+    return this.spec && this.spec.icon ? this.spec.icon : "layout-grid";
   }
 
   async onOpen() {
@@ -172,4 +177,25 @@ class QtHubView extends ItemView {
   }
 }
 
-module.exports = { QtHubView };
+/**
+ * The class Obsidian registers for one hub. The view type, title and icon come
+ * from the spec this closure holds, so they answer correctly even while
+ * Obsidian's View constructor is still running (before our constructor body).
+ */
+function hubViewClass(spec) {
+  return class HubView extends QtHubView {
+    getViewType() {
+      return spec.type;
+    }
+
+    getDisplayText() {
+      return spec.title;
+    }
+
+    getIcon() {
+      return spec.icon;
+    }
+  };
+}
+
+module.exports = { QtHubView, hubViewClass };

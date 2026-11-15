@@ -1,10 +1,12 @@
 "use strict";
 /*
- * Natural-language due dates for task input: "Practice 8 AP World questions
- * today" gets today's date, "tomorrow" the next day, "Tuesday" the upcoming
- * Tuesday. Dependency-free and date-only: the parser returns YYYY-MM-DD and
- * the exact words it matched, so callers can strip them from the title.
- * Times of day are never read — a task keeps no time, only a due date.
+ * Natural-language due dates and times for task input: "Practice 8 AP World
+ * questions today" gets today's date, "tomorrow" the next day, "Tuesday" the
+ * upcoming Tuesday, "at 3pm" three in the afternoon and "in 2 hours" the
+ * clock two hours from now. Dependency-free: dates come back as YYYY-MM-DD,
+ * times as HH:MM, along with the exact words matched so callers can strip
+ * them from the title. A time with no day means the next time it comes round;
+ * "tonight" is the one anchored word and always means this evening.
  */
 const { localDate, str } = require("./util");
 
@@ -221,6 +223,168 @@ function parseTaskDate(text, ref) {
   return { date: "", matched: "" };
 }
 
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/* Words that name an hour. "tonight" is anchored to today: it never rolls. */
+const NAMED_TIMES = [
+  ["midnight", 0, 0],
+  ["tonight", 20, 0],
+  ["evening", 18, 0],
+  ["morning", 9, 0],
+  ["noon", 12, 0],
+  ["midday", 12, 0],
+];
+
+const NAMED_TIME_RE = new RegExp(`\\b(?:this\\s+)?(${NAMED_TIMES.map(([word]) => word).join("|")})\\b`, "i");
+
+/** A valid HH:MM string, or "" for anything else. */
+function validTime(value) {
+  const clean = str(value).trim();
+  return TIME_RE.test(clean) ? clean : "";
+}
+
+/** Minutes past midnight for an HH:MM string, or null. */
+function clockMinutes(value) {
+  const clean = validTime(value);
+  if (!clean) return null;
+  const [hours, minutes] = clean.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+/** "15:30" reads as "3:30 PM" beside a task. */
+function formatTaskTime(value) {
+  const clean = validTime(value);
+  if (!clean) return "";
+  const [hours, minutes] = clean.split(":").map(Number);
+  const suffix = hours < 12 ? "AM" : "PM";
+  const hour = hours % 12 === 0 ? 12 : hours % 12;
+  return minutes === 0 ? `${hour} ${suffix}` : `${hour}:${pad(minutes)} ${suffix}`;
+}
+
+function clockParts(hour, minute, meridiem) {
+  let hours = Number(hour);
+  const minutes = minute == null || minute === "" ? 0 : Number(minute);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes) || minutes < 0 || minutes > 59) return null;
+  const mark = str(meridiem).toLowerCase();
+  if (mark) {
+    if (hours < 1 || hours > 12) return null;
+    const evening = mark === "pm" || mark === "p";
+    hours = (hours % 12) + (evening ? 12 : 0);
+  }
+  if (hours < 0 || hours > 23) return null;
+  return timeKey(hours, minutes);
+}
+
+function timeKey(hours, minutes) {
+  return `${pad(hours)}:${pad(minutes)}`;
+}
+
+/** The clock on "now": an HH:MM string when it carries a real time, else "". */
+function nowClock(now) {
+  if (!(now instanceof Date) || isNaN(now.getTime())) return "";
+  return timeKey(now.getHours(), now.getMinutes());
+}
+
+/**
+ * "in 2 hours", "in 30 minutes", "in an hour": real clock math from now, so
+ * 11pm plus three hours lands on tomorrow at 02:00.
+ */
+function ruleInHours(text, now) {
+  const m = /\bin\s+(a|an|\d+)\s+(hours?|hrs?|minutes?|mins?)\b/i.exec(text);
+  if (!m) return null;
+  const amount = /^\d+$/.test(m[1]) ? Number(m[1]) : 1;
+  const clock = now instanceof Date && !isNaN(now.getTime()) ? new Date(now.getTime()) : new Date();
+  const minutes = /^h/i.test(m[2]) ? amount * 60 : amount;
+  const at = new Date(clock.getTime() + Math.min(24 * 60, Math.max(0, minutes)) * 60000);
+  return {
+    time: timeKey(at.getHours(), at.getMinutes()),
+    date: keyOf(at.getFullYear(), at.getMonth(), at.getDate()),
+    matched: m[0],
+    named: "",
+  };
+}
+
+/**
+ * The first time of day in the text: "3pm", "3:30 pm", "15:00", "at 9",
+ * "3p" and the named hours. Returns the HH:MM, the words matched and, for a
+ * named word, which one.
+ */
+function parseTaskTime(text, now) {
+  const input = str(text);
+  const empty = { time: "", date: "", matched: "", named: "" };
+  if (!input.trim()) return empty;
+  const inHours = ruleInHours(input, now);
+  if (inHours) return inHours;
+  const meridiem = /\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm|a|p)\b/i.exec(input);
+  if (meridiem) {
+    const time = clockParts(meridiem[1], meridiem[2], meridiem[3]);
+    if (time) return { time, date: "", matched: meridiem[0], named: "" };
+  }
+  const named = NAMED_TIME_RE.exec(input);
+  if (named) {
+    const hit = NAMED_TIMES.find(([word]) => word === named[1].toLowerCase());
+    if (hit) return { time: timeKey(hit[1], hit[2]), date: "", matched: named[0], named: hit[0] };
+  }
+  const written = /\b(?:at\s+)?(\d{1,2}):(\d{2})\b/.exec(input);
+  if (written) {
+    const time = clockParts(written[1], written[2], "");
+    if (time) return { time, date: "", matched: written[0], named: "" };
+  }
+  // A bare hour only counts right after "at": "at 9", never "chapter 9".
+  const bare = /\bat\s+(\d{1,2})\b/i.exec(input);
+  if (bare) {
+    const time = clockParts(bare[1], "", "");
+    if (time) return { time, date: "", matched: bare[0], named: "" };
+  }
+  return empty;
+}
+
+/** Take one matched expression, and a preposition in front of it, out of the text. */
+function stripPhrase(text, matched) {
+  const prep = new RegExp(`\\b(?:at|by|on|for|due)\\s+${escapeRe(matched)}`, "i");
+  return text.replace(prep, " ").replace(matched, " ");
+}
+
+function tidyTitle(text) {
+  return text
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .trim();
+}
+
+/**
+ * Split a task title into a clean title, a due date and a due time. The first
+ * date expression sets the day; the first time sets the clock. A clock time
+ * with no day means today, or tomorrow when that hour has already gone by.
+ * Pass { takeDate: false } or { takeTime: false } to leave a half the caller
+ * already has alone: its words then stay in the title.
+ */
+function extractTaskWhen(title, now, options) {
+  const input = str(title);
+  if (!input.trim()) return { title: input.trim(), due: "", time: "" };
+  const take = options && typeof options === "object" ? options : {};
+  const wantDate = take.takeDate !== false;
+  const wantTime = take.takeTime !== false;
+  const timeHit = wantTime ? parseTaskTime(input, now) : { time: "", date: "", matched: "", named: "" };
+  const dateHit = wantDate ? parseTaskDate(input, now) : { date: "", matched: "" };
+  if (!timeHit.matched && !dateHit.matched) return { title: input.trim(), due: "", time: "" };
+  let due = dateHit.date || "";
+  let time = timeHit.time || "";
+  if (timeHit.date) due = timeHit.date;
+  let cleaned = input;
+  for (const matched of [timeHit.matched, dateHit.matched]) {
+    if (matched) cleaned = stripPhrase(cleaned, matched);
+  }
+  if (time && !due && wantDate) {
+    const base = refDate(now);
+    due = keyOf(base.getFullYear(), base.getMonth(), base.getDate());
+    const clock = nowClock(now);
+    // The next time that hour comes round, unless the words anchor it today.
+    if (timeHit.named !== "tonight" && clock && clockMinutes(time) <= clockMinutes(clock)) due = shiftDays(base, 1);
+  }
+  return { title: tidyTitle(cleaned), due, time };
+}
+
 /**
  * Split a task title into a clean title and a due date: the first date
  * expression sets the due date and its words come out of the title.
@@ -241,20 +405,27 @@ function extractTaskDue(title, ref) {
 }
 
 /** Short chip for a due date next to a task: Due today, Overdue, or the date. */
-function dueChipLabel(due, today) {
+function dueChipLabel(due, today, time) {
   const key = str(due);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return "";
   const day = str(today) || localDate();
-  if (key === day) return "Due today";
-  if (key < day) return `Overdue · ${key}`;
-  if (key === shiftDays(parseKey(day) || refDate(), 1)) return `Due tomorrow · ${key}`;
-  return `Due ${key}`;
+  const clock = formatTaskTime(time);
+  const suffix = clock ? ` · ${clock}` : "";
+  if (key === day) return `Due today${suffix}`;
+  if (key < day) return `Overdue · ${key}${suffix}`;
+  if (key === shiftDays(parseKey(day) || refDate(), 1)) return `Due tomorrow · ${key}${suffix}`;
+  return `Due ${key}${suffix}`;
 }
 
 module.exports = {
+  clockMinutes,
   dueChipLabel,
   extractTaskDue,
   extractTaskRepeat,
+  extractTaskWhen,
+  formatTaskTime,
   parseTaskDate,
   parseTaskRepeat,
+  parseTaskTime,
+  validTime,
 };

@@ -2,6 +2,7 @@
 const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_TASK_LIST } = require("./constants");
 const { localDate } = require("./util");
+const { formatTaskTime } = require("./task-dates");
 const { compareStudyTasks, isHighPriority, taskSummary } = require("./study-workspace");
 
 /*
@@ -50,10 +51,12 @@ class TaskListView extends ItemView {
       .sort((a, b) => (a.done === b.done ? 0 : a.done ? 1 : -1) || compareStudyTasks(a, b));
   }
 
-  dueLabel(due, today) {
-    if (due < today) return `Overdue · ${due}`;
-    if (due === today) return "Due today";
-    return `Due ${due}`;
+  dueLabel(due, today, time) {
+    const clock = formatTaskTime(time);
+    const suffix = clock ? ` · ${clock}` : "";
+    if (due < today) return `Overdue · ${due}${suffix}`;
+    if (due === today) return `Due today${suffix}`;
+    return `Due ${due}${suffix}`;
   }
 
   render() {
@@ -132,7 +135,7 @@ class TaskListView extends ItemView {
         add();
       });
     }
-    root.createDiv({ cls: "qt-task-list-hint", text: "Tip: name a day (tomorrow, Tuesday) or a repeat (every Monday, daily) to schedule it. Star the urgent ones." });
+    root.createDiv({ cls: "qt-task-list-hint", text: "Tip: name a day (tomorrow, Tuesday), a time (at 3pm, in 2 hours) or a repeat (every Monday, daily) to schedule it. Star the urgent ones." });
     if (this.focusNewAfterRender) {
       this.focusNewAfterRender = false;
       if (typeof title.focus === "function") title.focus();
@@ -208,7 +211,7 @@ class TaskListView extends ItemView {
     if (task.course) meta.createSpan({ cls: "qt-task-pill qt-task-course", text: task.course });
     const due = meta.createSpan({
       cls: "qt-task-pill qt-task-due",
-      text: task.due ? this.dueLabel(task.due, today) : "No due date",
+      text: task.due ? this.dueLabel(task.due, today, task.time) : formatTaskTime(task.time) || "No due date",
     });
     if (overdue) due.addClass("is-overdue");
     else if (dueToday) due.addClass("is-today");

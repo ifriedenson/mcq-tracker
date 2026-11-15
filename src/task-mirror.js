@@ -2,7 +2,7 @@
 /*
  * One-way mirror of local study tasks into a note. The plugin's data.json
  * stays the source of truth: this module only renders Tasks-compatible
- * checklist lines (`- [ ] Title 📅 2026-11-01 ⏫ 🔁 every week #tag`) so
+ * checklist lines (`- [ ] Title 📅 2026-11-01 ⏰ 15:00 ⏫ 🔁 every week #tag`) so
  * search, backlinks, the graph and other plugins (Tasks, Smart Gantt,
  * Dataview) can see the work. Rewriting the note replaces everything the
  * mirror wrote; hand edits inside it are overwritten.
@@ -13,11 +13,12 @@ const { localDate, str } = require("./util");
 function mirrorTitle(task) {
   return str(task && task.title)
     .replace(/\s+/g, " ")
-    .replace(/[📅⏳🛫🔁✅]/gu, "")
+    .replace(/[📅⏳🛫🔁✅⏰]/gu, "")
+    .replace(/\s{2,}/g, " ")
     .trim();
 }
 
-/** One checklist line for a task: `- [ ] Title 📅 2026-11-01 ⏫ 🔁 every week #tag`. */
+/** One checklist line for a task: `- [ ] Title 📅 2026-11-01 ⏰ 15:00 ⏫ 🔁 every week #tag`. */
 function studyTaskLine(task) {
   const source = task && typeof task === "object" ? task : {};
   const title = mirrorTitle(source);
@@ -25,6 +26,7 @@ function studyTaskLine(task) {
   const box = source.done === true ? "- [x]" : "- [ ]";
   const parts = [box, title];
   if (/^\d{4}-\d{2}-\d{2}$/.test(str(source.due))) parts.push("📅", str(source.due));
+  if (/^([01]\d|2[0-3]):[0-5]\d$/.test(str(source.time))) parts.push("⏰", str(source.time));
   if (str(source.priority).trim().toLowerCase() === "high") parts.push("⏫");
   if (source.repeat === "daily") parts.push("🔁", "every day");
   else if (source.repeat === "weekly") parts.push("🔁", "every week");
@@ -47,7 +49,7 @@ function mirrorMarkdown(tasks, today) {
   const rank = (task) => [
     task.done === true ? 1 : 0,
     str(task.priority).trim().toLowerCase() === "high" ? 0 : 1,
-    /^\d{4}-\d{2}-\d{2}$/.test(str(task.due)) ? str(task.due) : "9999-12-31",
+    /^\d{4}-\d{2}-\d{2}$/.test(str(task.due)) ? `${str(task.due)} ${str(task.time)}` : "9999-12-31",
   ];
   const ordered = list
     .slice()

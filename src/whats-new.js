@@ -6,6 +6,35 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.0",
+    date: "November 15, 2026",
+    title: "Tasks learn the clock",
+    summary:
+      "Quick-add boxes now read times: \"review at 3pm\", \"call 9am\", \"15:30\", \"in 2 hours\", \"tonight\", \"noon\". The task keeps the time, the chip beside it says 3 PM, and the note mirror writes it as a Tasks-compatible ⏰ line.",
+    highlights: [
+      {
+        title: "Type the hour, not just the day",
+        body: "\"Review Biochem at 3pm\", \"call at 9am\", \"standup 15:30\", \"drill 3p\" and \"at 9\" all set a due time and leave a clean title. Named hours work too: noon, midnight, tonight, this morning, this evening.",
+      },
+      {
+        title: "It knows what has already gone by",
+        body: "At four in the afternoon, \"at 3pm\" means tomorrow at three. Tonight stays tonight, so a late-evening \"quiz tonight\" still lands on today at 8 PM.",
+      },
+      {
+        title: "In two hours means two hours",
+        body: "\"in 2 hours\" and \"in 30 minutes\" do real clock math from now, so 11:30pm plus two hours is tomorrow at 1:30 AM rather than a vague \"today\".",
+      },
+      {
+        title: "The hub tabs from 1.306.0 open again",
+        body: "That release drew \"the plugin that created this tab has gone away\" instead of the Today, Plan and Study hubs, because Obsidian asked the view for its type before the view was ready. The hubs now answer first and open normally.",
+      },
+      {
+        title: "The time shows up and mirrors",
+        body: "The Task list chip reads \"Due today · 3 PM\", the Focus day scratchpad shows it beside the day, and the one-way mirror writes ⏰ 15:00 after 📅, so Tasks, Smart Gantt and Dataview read it. A day or time you pick in the boxes always beats what the title says.",
+      },
+    ],
+  },
+  {
     version: "1.306.0",
     date: "November 15, 2026",
     title: "A shorter ribbon: Today, Plan and Study",

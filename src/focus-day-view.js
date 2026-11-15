@@ -7,7 +7,7 @@
  */
 const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_FOCUS_DAY } = require("./constants");
-const { dueChipLabel, extractTaskDue } = require("./task-dates");
+const { dueChipLabel, extractTaskWhen } = require("./task-dates");
 const { phaseLabel } = require("./pomodoro");
 const {
   FOCUS_DAY_WEEKDAYS,
@@ -227,7 +227,7 @@ class FocusDayView extends ItemView {
   renderTasks(root) {
     const card = root.createDiv({ cls: "qt-focus-card qt-focus-tasks" });
     card.createEl("h2", { text: "Quick tasks", cls: "qt-focus-title" });
-    card.createDiv({ cls: "qt-hint", text: "A session scratchpad — tasks vanish when the view closes and never touch a note. Name a day ('tomorrow', 'Tuesday') to date one." });
+    card.createDiv({ cls: "qt-hint", text: "A session scratchpad — tasks vanish when the view closes and never touch a note. Name a day ('tomorrow', 'Tuesday') or a time ('at 3pm', 'in 2 hours') to schedule one." });
     const form = card.createDiv({ cls: "qt-focus-add" });
     const input = form.createEl("input", {
       type: "text",
@@ -238,7 +238,8 @@ class FocusDayView extends ItemView {
       const text = input.value;
       if (!String(text || "").trim()) return;
       this.taskSeq += 1;
-      this.tasks = addFocusTask(this.tasks, extractTaskDue(text).title || text, `focus-${Date.now()}-${this.taskSeq}`, extractTaskDue(text).due);
+      const when = extractTaskWhen(text);
+      this.tasks = addFocusTask(this.tasks, when.title || text, `focus-${Date.now()}-${this.taskSeq}`, when.due, when.time);
       // Keep the cursor in the box so the next task needs no mouse, like Deadline.
       this.focusTasksAfterRender = true;
       this.render();
@@ -268,7 +269,7 @@ class FocusDayView extends ItemView {
         this.render();
       });
       row.createDiv({ cls: "qt-focus-task-text", text: task.text });
-      const chip = dueChipLabel(task.due);
+      const chip = dueChipLabel(task.due, "", task.time);
       if (chip) row.createDiv({ cls: "qt-focus-due", text: chip });
       row.createEl("button", { text: "Delete", attr: { "aria-label": `Delete ${task.text}` } }).addEventListener("click", () => {
         this.tasks = deleteFocusTask(this.tasks, task.id);

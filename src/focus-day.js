@@ -111,17 +111,19 @@ function normalizeFocusTasks(value) {
     if (!row || typeof row !== "object") continue;
     const text = str(row.text).trim();
     if (!text) continue;
-    out.push({ id: str(row.id) || `${Date.now()}-${out.length}`, text, done: row.done === true, due: validFocusDateKey(row.due) || "" });
+    const time = /^([01]\d|2[0-3]):[0-5]\d$/.test(str(row.time).trim()) ? str(row.time).trim() : "";
+    out.push({ id: str(row.id) || `${Date.now()}-${out.length}`, text, done: row.done === true, due: validFocusDateKey(row.due) || "", time });
   }
   return out;
 }
 
-function addFocusTask(tasks, text, id, due) {
+function addFocusTask(tasks, text, id, due, time) {
   const clean = str(text).trim();
   if (!clean) return normalizeFocusTasks(tasks);
   const next = normalizeFocusTasks(tasks);
   if (next.length >= MAX_FOCUS_TASKS) return next;
-  next.push({ id: str(id) || `${Date.now()}-${next.length}`, text: clean, done: false, due: validFocusDateKey(due) || "" });
+  const clock = /^([01]\d|2[0-3]):[0-5]\d$/.test(str(time).trim()) ? str(time).trim() : "";
+  next.push({ id: str(id) || `${Date.now()}-${next.length}`, text: clean, done: false, due: validFocusDateKey(due) || "", time: clock });
   return next;
 }
 

@@ -936,6 +936,12 @@ function priorityValue(value) {
   return str(value).trim().toLowerCase() === "high" ? "high" : "";
 }
 
+/** HH:MM for a task's due time, or "" when it has none. */
+function timeValue(value) {
+  const clean = str(value).trim();
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(clean) ? clean : "";
+}
+
 function repeatValue(value) {
   const clean = str(value).trim().toLowerCase();
   return clean === "daily" || clean === "weekly" ? clean : "";
@@ -951,6 +957,7 @@ function normalizeStudyTask(value) {
     course: boundedText(source.course, MAX_TITLE),
     tags: tagList(source.tags),
     due: dayValue(source.due),
+    time: timeValue(source.time),
     done: source.done === true,
     priority: priorityValue(source.priority),
     repeat: repeatValue(source.repeat),

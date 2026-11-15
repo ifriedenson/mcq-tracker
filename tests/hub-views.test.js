@@ -35,6 +35,20 @@ function ribbonOf(plugin) {
   return ribbon;
 }
 
+test("hubs: a hub answers its view type before its constructor body runs", async () => {
+  const plugin = await setup();
+  // Obsidian's View constructor calls getViewType() during super(), so the
+  // registered class must answer from its closure, not from instance fields.
+  for (const spec of hubs.HUB_SPECS) {
+    const HubClass = T.hubViewClass(spec);
+    assert.equal(HubClass.prototype.getViewType.call({}), spec.type, `${spec.id} view type`);
+    assert.equal(HubClass.prototype.getDisplayText.call({}), spec.title, `${spec.id} title`);
+    assert.equal(HubClass.prototype.getIcon.call({}), spec.icon, `${spec.id} icon`);
+    const view = new HubClass({ app: plugin.app }, plugin, spec);
+    assert.equal(view.getViewType(), spec.type, "and the instance agrees");
+  }
+});
+
 test("hubs: the tab list follows the module switches", async () => {
   const plugin = await setup();
   const plan = hubs.hubSpec("plan");

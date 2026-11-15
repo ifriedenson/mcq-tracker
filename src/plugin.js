@@ -321,7 +321,7 @@ const pomodoro = require("./pomodoro");
 const { FocusDayView } = require("./focus-day-view");
 const focusDay = require("./focus-day");
 const hubs = require("./hubs");
-const { QtHubView } = require("./hub-view");
+const { hubViewClass } = require("./hub-view");
 const taskDates = require("./task-dates");
 const taskMirror = require("./task-mirror");
 const { PomodoroView } = require("./pomodoro-view");
@@ -483,7 +483,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_POMODORO, (leaf) => new PomodoroView(leaf, this));
     this.registerView(VIEW_TYPE_TASK_LIST, (leaf) => new TaskListView(leaf, this));
     for (const spec of hubs.HUB_SPECS) {
-      this.registerView(spec.type, (leaf) => new QtHubView(leaf, this, spec));
+      this.registerView(spec.type, (leaf) => new (hubViewClass(spec))(leaf, this, spec));
     }
     this.registerView(VIEW_TYPE_FOCUS_DAY, (leaf) => new FocusDayView(leaf, this));
     this.registerView(VIEW_TYPE_WEB_BROWSER, (leaf) => new (require("./web-browser-view").WebBrowserView)(leaf, this));
@@ -14438,11 +14438,16 @@ ${body}
           source.repeat = spoken.repeat;
         }
       }
-      if (!studyTools.dayValue(source.due)) {
-        const parsed = taskDates.extractTaskDue(source.title);
-        if (parsed.due) {
-          source.title = parsed.title;
-          source.due = parsed.due;
+      // A day or a time in the title fills what the pickers left empty, and
+      // its words leave the title; an explicit picker choice always wins.
+      const wantDate = !studyTools.dayValue(source.due);
+      const wantTime = !str(source.time).trim();
+      if (wantDate || wantTime) {
+        const when = taskDates.extractTaskWhen(source.title, undefined, { takeDate: wantDate, takeTime: wantTime });
+        if ((wantDate && when.due) || (wantTime && when.time)) {
+          source.title = when.title;
+          if (wantDate && when.due) source.due = when.due;
+          if (wantTime && when.time) source.time = when.time;
         }
       }
     }
