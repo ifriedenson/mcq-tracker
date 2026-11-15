@@ -1,10 +1,14 @@
 "use strict";
 const { QtModal } = require("./a11y");
 const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
-const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
+const { Menu, Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
 const { releaseCommandPaletteShortcut } = require("./hotkey-cleanup");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_REVIEW_SIDEBAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_FOCUS_DAY, VIEW_TYPE_TASK_LIST, VIEW_TYPE_WEB_BROWSER, VIEW_TYPE_RECENT_FILES, VIEW_TYPE_AGENT, VIEW_TYPE_IMPORT_WINDOW } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_REVIEW_SIDEBAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_FOCUS_DAY, VIEW_TYPE_TASK_LIST, VIEW_TYPE_WEB_BROWSER, VIEW_TYPE_RECENT_FILES, VIEW_TYPE_AGENT, VIEW_TYPE_IMPORT_WINDOW,
+  VIEW_TYPE_HUB_TODAY,
+  VIEW_TYPE_HUB_PLAN,
+  VIEW_TYPE_HUB_STUDY,
+} = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { parseQuickPracticeUri } = require("./quick-practice");
 const practiceFullscreen = require("./practice-fullscreen");
@@ -316,6 +320,8 @@ const studyCounters = require("./study-counters");
 const pomodoro = require("./pomodoro");
 const { FocusDayView } = require("./focus-day-view");
 const focusDay = require("./focus-day");
+const hubs = require("./hubs");
+const { QtHubView } = require("./hub-view");
 const taskDates = require("./task-dates");
 const taskMirror = require("./task-mirror");
 const { PomodoroView } = require("./pomodoro-view");
@@ -476,6 +482,9 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_LOCAL_EVENTS, (leaf) => new LocalEventsView(leaf, this));
     this.registerView(VIEW_TYPE_POMODORO, (leaf) => new PomodoroView(leaf, this));
     this.registerView(VIEW_TYPE_TASK_LIST, (leaf) => new TaskListView(leaf, this));
+    for (const spec of hubs.HUB_SPECS) {
+      this.registerView(spec.type, (leaf) => new QtHubView(leaf, this, spec));
+    }
     this.registerView(VIEW_TYPE_FOCUS_DAY, (leaf) => new FocusDayView(leaf, this));
     this.registerView(VIEW_TYPE_WEB_BROWSER, (leaf) => new (require("./web-browser-view").WebBrowserView)(leaf, this));
     this.registerView(VIEW_TYPE_RECENT_FILES, (leaf) => new RecentFilesView(leaf, this));
@@ -711,6 +720,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-task-list", name: "Open the task list", callback: () => this.activateTaskList() });
     this.addCommand({ id: "mirror-study-tasks", name: "Tasks: mirror study tasks to a note", callback: () => this.mirrorStudyTasksCommand() });
     this.addCommand({ id: "open-focus-day", name: "Open Focus day", callback: () => this.activateFocusDay() });
+    this.addCommand({ id: "open-plan-hub", name: "Open Plan (calendar, focus day, events)", callback: () => this.activatePlanHub() });
     this.addCommand({ id: "open-reading-library", name: "Reading library: open the bookshelf", callback: () => this.activateStudyWorkspace("readingLibrary") });
     this.addCommand({ id: "new-feynman-cycle", name: "Feynman Learning: start a cycle", callback: () => this.activateStudyWorkspace("feynman") });
     this.addCommand({ id: "build-recall-queue", name: "Recall Scheduler: build a queue", callback: () => this.activateStudyWorkspace("recall") });
@@ -1538,6 +1548,8 @@ class QuestionTrackerPlugin extends Plugin {
     // module switches and plugin-wide flags are always plain booleans
     this.settings.mcqEnabled = this.settings.mcqEnabled !== false;
     this.settings.showRibbonIcons = this.settings.showRibbonIcons !== false;
+    // One-time migration: every existing install moves to the grouped ribbon.
+    this.settings.ribbonLayout = this.settings.ribbonLayout === "classic" ? "classic" : "grouped";
     this.settings.openPracticeOnStartUp = this.settings.openPracticeOnStartUp === true;
     const migratedSupport = !!saved.support && saved.support.feedbackUrl === LEGACY_FEEDBACK_URL;
     this.settings.support = migrateSupport(saved.support);
@@ -3523,16 +3535,8 @@ class QuestionTrackerPlugin extends Plugin {
 
   async activateToday() {
     if (this.moduleOff("mcq")) return null;
-    const ws = this.app.workspace;
-    let leaf = ws.getLeavesOfType(VIEW_TYPE_TODAY)[0];
-    if (!leaf) {
-      leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
-      await leaf.setViewState({ type: VIEW_TYPE_TODAY, active: true });
-    }
-    if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
-    await ws.revealLeaf(leaf);
-    if (leaf.view && leaf.view.render) leaf.view.render();
-    return leaf.view;
+    if (this.groupedRibbon()) return this.activateHubTab("today", "today");
+    return this.activateModuleView(VIEW_TYPE_TODAY);
   }
 
   refreshViews() {
@@ -3558,7 +3562,7 @@ class QuestionTrackerPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_STUDY_WORKSPACE)) {
       if (leaf.view && leaf.view.render) leaf.view.render();
     }
-    for (const type of [VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_REVIEW_SIDEBAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST]) {
+    for (const type of [VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_REVIEW_SIDEBAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST, VIEW_TYPE_HUB_TODAY, VIEW_TYPE_HUB_PLAN, VIEW_TYPE_HUB_STUDY]) {
       for (const leaf of this.app.workspace.getLeavesOfType(type)) {
         if (leaf.view && leaf.view.render) leaf.view.render();
       }
@@ -4271,45 +4275,139 @@ class QuestionTrackerPlugin extends Plugin {
     if (this.ribbonAdded) delete this.ribbonAdded[id];
   }
 
-  /** Shows exactly the ribbon buttons the modules that are on call for. */
+  /** Whether the ribbon groups views into Today / Plan / Study hubs. */
+  groupedRibbon() {
+    return this.settings.ribbonLayout !== "classic";
+  }
+
+  /** Classic layout: one button for every module view. */
+  ribbonClassicEntries() {
+    return [
+      { id: "today", icon: "sun", title: "Open today", onClick: () => this.activateToday(), enabled: () => this.mcqEnabled() },
+      { id: "mcq", icon: "graduation-cap", title: "Open practice view", onClick: () => this.activateView(), enabled: () => this.mcqEnabled() },
+      { id: "cards", icon: "layers", title: "Open cards", onClick: () => this.activateCards(), enabled: () => this.cardsEnabled() },
+      { id: "calendar", icon: "calendar-days", title: "Open calendar", onClick: () => this.activateCalendar(), enabled: () => this.calendarEnabled() },
+      { id: "reference", icon: "book-open", title: "Open Reference", onClick: () => this.activateReference(), enabled: () => this.referenceEnabled() },
+      { id: "assignments", icon: "clipboard-list", title: "Open assignments and grades", onClick: () => this.activateAssignments(), enabled: () => this.assignmentsEnabled() },
+      { id: "study-tools", icon: "notebook-pen", title: "Open Study Tools", onClick: () => this.activateStudyTools(), enabled: () => this.studyToolsEnabled() },
+      { id: "study-workspace", icon: "workflow", title: "Open Study Workspace", onClick: () => this.activateStudyWorkspace(), enabled: () => this.studyWorkspaceEnabled() },
+      { id: "task-list", icon: "list-checks", title: "Open the task list", onClick: () => this.activateTaskList(), enabled: () => this.studyTasksEnabled() },
+      { id: "note-review", icon: "repeat", title: "Open the next due note", onClick: () => this.openNextDueNote(), enabled: () => this.noteReviewDockEnabled() },
+      { id: "review-calendar", icon: "calendar-clock", title: "Open review calendar", onClick: () => this.activateReviewCalendar(), enabled: () => this.reviewCalendarEnabled() },
+      { id: "review-sidebar", icon: "calendar-check", title: "Open review sidebar", onClick: () => this.activateReviewSidebar(), enabled: () => this.reviewSidebarEnabled() },
+      { id: "study-stats", icon: "bar-chart-3", title: "Open study statistics", onClick: () => this.activateStudyStats(), enabled: () => this.studyStatsEnabled() },
+      { id: "local-events", icon: "calendar-plus", title: "Open local events", onClick: () => this.activateLocalEvents(), enabled: () => this.localEventsEnabled() },
+      { id: "pomodoro", icon: "timer", title: "Open Pomodoro timer", onClick: () => this.activatePomodoro(), enabled: () => this.pomodoroEnabled() },
+      { id: "focus-day", icon: "calendar-days", title: "Open Focus day", onClick: () => this.activateFocusDay() },
+      { id: "agent", icon: "bot", title: "Open Study agent", onClick: () => this.activateAgent(), enabled: () => !!this.settings.ai.enabled },
+    ];
+  }
+
+  /** Grouped layout: one button per hub, plus the views that stand alone. */
+  ribbonHubEntries() {
+    const hubOn = (id) => hubs.enabledTabs(hubs.hubSpec(id), this).length > 0;
+    return [
+      { id: "today", icon: "sun", title: "Open today", onClick: () => this.activateToday(), enabled: () => hubOn("today") },
+      { id: "mcq", icon: "graduation-cap", title: "Open practice view", onClick: () => this.activateView(), enabled: () => this.mcqEnabled() },
+      { id: "cards", icon: "layers", title: "Open cards", onClick: () => this.activateCards(), enabled: () => this.cardsEnabled() },
+      { id: "plan", icon: "calendar-days", title: "Open Plan", onClick: () => this.activatePlanHub(), enabled: () => hubOn("plan") },
+      { id: "reference", icon: "book-open", title: "Open Reference", onClick: () => this.activateReference(), enabled: () => this.referenceEnabled() },
+      { id: "assignments", icon: "clipboard-list", title: "Open assignments and grades", onClick: () => this.activateAssignments(), enabled: () => this.assignmentsEnabled() },
+      { id: "study", icon: "workflow", title: "Open Study Workspace", onClick: () => this.activateStudyWorkspace(), enabled: () => hubOn("study") },
+      { id: "task-list", icon: "list-checks", title: "Open the task list", onClick: () => this.activateTaskList(), enabled: () => this.studyTasksEnabled() },
+      { id: "note-review", icon: "repeat", title: "Open the next due note", onClick: () => this.openNextDueNote(), enabled: () => this.noteReviewDockEnabled() },
+      { id: "review-sidebar", icon: "calendar-check", title: "Open review sidebar", onClick: () => this.activateReviewSidebar(), enabled: () => this.reviewSidebarEnabled() },
+      { id: "agent", icon: "bot", title: "Open Study agent", onClick: () => this.activateAgent(), enabled: () => !!this.settings.ai.enabled },
+    ];
+  }
+
+  /** Shows exactly the ribbon buttons the current layout and modules call for. */
   refreshRibbon() {
-    if (this.mcqEnabled()) {
-      this.addModuleRibbon("today", "sun", "Open today", () => this.activateToday());
-      this.addModuleRibbon("mcq", "graduation-cap", "Open practice view", () => this.activateView());
-    } else {
-      this.removeModuleRibbon("today");
-      this.removeModuleRibbon("mcq");
+    const entries = this.groupedRibbon() ? this.ribbonHubEntries() : this.ribbonClassicEntries();
+    const wanted = new Set();
+    for (const entry of entries) {
+      let on = true;
+      try {
+        on = typeof entry.enabled === "function" ? !!entry.enabled() : true;
+      } catch (error) {
+        on = false;
+      }
+      if (!on) continue;
+      wanted.add(entry.id);
+      this.addModuleRibbon(entry.id, entry.icon, entry.title, entry.onClick);
     }
-    if (this.cardsEnabled()) this.addModuleRibbon("cards", "layers", "Open cards", () => this.activateCards());
-    else this.removeModuleRibbon("cards");
-    if (this.calendarEnabled()) this.addModuleRibbon("calendar", "calendar-days", "Open calendar", () => this.activateCalendar());
-    else this.removeModuleRibbon("calendar");
-    if (this.referenceEnabled()) this.addModuleRibbon("reference", "book-open", "Open Reference", () => this.activateReference());
-    else this.removeModuleRibbon("reference");
-    if (this.assignmentsEnabled()) this.addModuleRibbon("assignments", "clipboard-list", "Open assignments and grades", () => this.activateAssignments());
-    else this.removeModuleRibbon("assignments");
-    if (this.studyToolsEnabled()) this.addModuleRibbon("study-tools", "notebook-pen", "Open Study Tools", () => this.activateStudyTools());
-    else this.removeModuleRibbon("study-tools");
-    if (this.studyWorkspaceEnabled()) this.addModuleRibbon("study-workspace", "workflow", "Open Study Workspace", () => this.activateStudyWorkspace());
-    else this.removeModuleRibbon("study-workspace");
-    if (this.studyTasksEnabled()) this.addModuleRibbon("task-list", "list-checks", "Open the task list", () => this.activateTaskList());
-    else this.removeModuleRibbon("task-list");
-    if (this.noteReviewDockEnabled()) this.addModuleRibbon("note-review", "repeat", "Open the next due note", () => this.openNextDueNote());
-    else this.removeModuleRibbon("note-review");
-    if (this.reviewCalendarEnabled()) this.addModuleRibbon("review-calendar", "calendar-clock", "Open review calendar", () => this.activateReviewCalendar());
-    else this.removeModuleRibbon("review-calendar");
-    if (this.reviewSidebarEnabled()) this.addModuleRibbon("review-sidebar", "calendar-check", "Open review sidebar", () => this.activateReviewSidebar());
-    else this.removeModuleRibbon("review-sidebar");
-    if (this.studyStatsEnabled()) this.addModuleRibbon("study-stats", "bar-chart-3", "Open study statistics", () => this.activateStudyStats());
-    else this.removeModuleRibbon("study-stats");
-    if (this.localEventsEnabled()) this.addModuleRibbon("local-events", "calendar-plus", "Open local events", () => this.activateLocalEvents());
-    else this.removeModuleRibbon("local-events");
-    if (this.pomodoroEnabled()) this.addModuleRibbon("pomodoro", "timer", "Open Pomodoro timer", () => this.activatePomodoro());
-    else this.removeModuleRibbon("pomodoro");
-    this.addModuleRibbon("focus-day", "calendar-days", "Open Focus day", () => this.activateFocusDay());
-    if (this.settings.ai.enabled) this.addModuleRibbon("agent", "bot", "Open Study agent", () => this.activateAgent());
-    else this.removeModuleRibbon("agent");
+    for (const id of Object.keys(this.ribbonAdded || {})) {
+      if (!wanted.has(id)) this.removeModuleRibbon(id);
+    }
+    this.refreshPdfPlusRibbon();
     this.refreshStudyNudgeLabel();
+  }
+
+  /** One PDF++ button instead of its three toggles; the toggles live in its menu. */
+  refreshPdfPlusRibbon() {
+    const items = Array.isArray(this._pdfPlusRibbons) ? this._pdfPlusRibbons : [];
+    if (!items.length) {
+      this.removeModuleRibbon("pdf-plus");
+      return;
+    }
+    this.addModuleRibbon("pdf-plus", "file-text", "PDF++ toggles", (event) => this.openPdfPlusMenu(event, items));
+  }
+
+  openPdfPlusMenu(event, items) {
+    const menu = new Menu();
+    for (const item of items) {
+      menu.addItem((entry) => {
+        entry.setTitle(String(item.title || "PDF++"));
+        if (typeof entry.setIcon === "function") entry.setIcon(item.icon || "file-text");
+        entry.onClick(() => {
+          try {
+            item.callback(event);
+          } catch (error) {
+            new Notice("Could not run that PDF++ toggle.");
+          }
+        });
+      });
+    }
+    if (typeof menu.addSeparator === "function") menu.addSeparator();
+    menu.addItem((entry) => entry.setTitle("PDF++ settings").onClick(() => this.openPdfPlusSettingsTab()));
+    if (event && typeof menu.showAtMouseEvent === "function") menu.showAtMouseEvent(event);
+    else if (typeof menu.showAtPosition === "function") menu.showAtPosition({ x: 0, y: 0 });
+    return menu;
+  }
+
+  /** Opens a hub leaf on one of its tabs, creating the leaf only when needed. */
+  async activateHubTab(hubId, tabId) {
+    const spec = hubs.hubSpec(hubId);
+    if (!spec) return null;
+    const tabs = hubs.enabledTabs(spec, this);
+    if (!tabs.length) {
+      new Notice(`${spec.title} has no sections turned on. Turn them on in Settings, Global, Modules.`);
+      return null;
+    }
+    const want = tabId && tabs.some((tab) => tab.id === tabId) ? tabId : tabs[0].id;
+    const ws = this.app.workspace;
+    let leaf = ws.getLeavesOfType(spec.type)[0];
+    if (!leaf) {
+      leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
+      await leaf.setViewState({ type: spec.type, active: true });
+    }
+    if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
+    await ws.revealLeaf(leaf);
+    const view = leaf.view;
+    if (view && typeof view.showHubTab === "function") view.showHubTab(want);
+    else if (view && typeof view.render === "function") view.render();
+    return view;
+  }
+
+  async activatePlanHub(tab) {
+    return this.activateHubTab("plan", tab || "calendar");
+  }
+
+  /** A hub whose every section is off has nothing to show, so it closes. */
+  refreshHubLeaves() {
+    for (const spec of hubs.HUB_SPECS) {
+      if (!hubs.enabledTabs(spec, this).length) this.detachModuleLeaves([spec.type]);
+    }
   }
 
   setupCalendarRibbon() {
@@ -4526,6 +4624,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   async onStudyToolToggled() {
+    this.refreshHubLeaves();
     this.refreshRibbon();
     if (!this.studyToolsEnabled()) {
       this.detachModuleLeaves([VIEW_TYPE_STUDY_TOOLS]);
@@ -4535,6 +4634,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   async onStudyWorkspaceToggled() {
+    this.refreshHubLeaves();
     this.refreshRibbon();
     if (!this.studyTasksEnabled()) this.detachModuleLeaves([VIEW_TYPE_TASK_LIST]);
     if (!this.studyWorkspaceEnabled()) {
@@ -4545,6 +4645,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   onGlobalSettingsChanged() {
+    this.refreshHubLeaves();
     this.refreshRibbon();
     this.refreshViews();
   }
@@ -4784,6 +4885,7 @@ class QuestionTrackerPlugin extends Plugin {
       this.openSettings();
       return null;
     }
+    if (this.groupedRibbon()) return this.activateHubTab("study", "tools");
     const ws = this.app.workspace;
     let leaf = ws.getLeavesOfType(VIEW_TYPE_STUDY_TOOLS)[0];
     if (!leaf) {
@@ -4802,6 +4904,15 @@ class QuestionTrackerPlugin extends Plugin {
       new Notice("All study workflow modules are off. Turn them on in Settings, Global, Modules.");
       this.openSettings();
       return null;
+    }
+    if (this.groupedRibbon()) {
+      const hub = await this.activateHubTab("study", "workspace");
+      const child = hub && typeof hub.childView === "function" ? hub.childView("workspace") : null;
+      if (child && tab) {
+        if (typeof child.setTab === "function") child.setTab(tab);
+        else if (typeof child.render === "function") child.render();
+      }
+      return hub;
     }
     const ws = this.app.workspace;
     let leaf = ws.getLeavesOfType(VIEW_TYPE_STUDY_WORKSPACE)[0];
@@ -9572,10 +9683,12 @@ ${body}
       new Notice("Turn on Pomodoro in Settings → Pomodoro.");
       return null;
     }
+    if (this.groupedRibbon()) return this.activateHubTab("today", "pomodoro");
     return this.activateModuleView(VIEW_TYPE_POMODORO);
   }
 
   async activateFocusDay() {
+    if (this.groupedRibbon()) return this.activateHubTab("plan", "focus");
     return this.activateModuleView(VIEW_TYPE_FOCUS_DAY);
   }
 
@@ -9711,6 +9824,7 @@ ${body}
       new Notice("Turn on Review calendar in Settings → Review calendar.");
       return null;
     }
+    if (this.groupedRibbon()) return this.activateHubTab("plan", "review");
     return this.activateModuleView(VIEW_TYPE_REVIEW_CALENDAR);
   }
 
@@ -9719,6 +9833,7 @@ ${body}
       new Notice("Turn on Study statistics in Settings → Study statistics.");
       return null;
     }
+    if (this.groupedRibbon()) return this.activateHubTab("today", "stats");
     return this.activateModuleView(VIEW_TYPE_STUDY_STATS);
   }
 
@@ -9727,6 +9842,7 @@ ${body}
       new Notice("Turn on Local events in Settings → Local events.");
       return null;
     }
+    if (this.groupedRibbon()) return this.activateHubTab("plan", "events");
     return this.activateModuleView(VIEW_TYPE_LOCAL_EVENTS);
   }
 
@@ -9895,16 +10011,8 @@ ${body}
 
   async activateCalendar() {
     if (this.moduleOff("calendar")) return null;
-    const ws = this.app.workspace;
-    let leaf = ws.getLeavesOfType(VIEW_TYPE_CALENDAR)[0];
-    if (!leaf) {
-      leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
-      await leaf.setViewState({ type: VIEW_TYPE_CALENDAR, active: true });
-    }
-    if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
-    await ws.revealLeaf(leaf);
-    if (leaf.view && leaf.view.render) leaf.view.render();
-    return leaf.view;
+    if (this.groupedRibbon()) return this.activateHubTab("plan", "calendar");
+    return this.activateModuleView(VIEW_TYPE_CALENDAR);
   }
 
   openCalendarImport() {

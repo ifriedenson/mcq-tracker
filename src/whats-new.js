@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.306.0",
+    date: "November 15, 2026",
+    title: "A shorter ribbon: Today, Plan and Study",
+    summary:
+      "The ribbon dropped from nineteen buttons to twelve. Today, Plan and Study are now single buttons that open their views as tabs, and PDF++'s three toggles share one button with a menu. Every view, command and setting is unchanged.",
+    highlights: [
+      {
+        title: "Three hubs replace nine buttons",
+        body: "Today holds Today, Study statistics and Pomodoro. Plan holds Calendar, Focus day, Review calendar and Local events. Study holds the Study Workspace and Study Tools. Each hub is one tabbed pane, and each tab is the real view, keeping its state when you switch.",
+      },
+      {
+        title: "The commands still go where they say",
+        body: "Open Focus day, Open study statistics, Open Pomodoro timer and the rest now open their hub on the right tab, so the palette behaves exactly as before while the ribbon stays short.",
+      },
+      {
+        title: "One PDF++ button",
+        body: "PDF++'s auto-copy, auto-focus and auto-paste are three entries in one PDF++ menu, with PDF++ settings at the bottom, instead of three ribbon buttons.",
+      },
+      {
+        title: "Nothing is taken away",
+        body: "Settings, Global has a new Ribbon layout choice: Grouped (the default every install moves to) or One button per view, which restores the long ribbon exactly.",
+      },
+    ],
+  },
+  {
     version: "1.305.0",
     date: "November 15, 2026",
     title: "Tasks grow up: mirror, repeats, priorities",

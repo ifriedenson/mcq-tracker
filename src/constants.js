@@ -21,6 +21,9 @@ const VIEW_TYPE_LOCAL_EVENTS = "question-tracker-local-events";
 const VIEW_TYPE_POMODORO = "question-tracker-pomodoro";
 const VIEW_TYPE_FOCUS_DAY = "question-tracker-focus-day";
 const VIEW_TYPE_TASK_LIST = "question-tracker-task-list";
+const VIEW_TYPE_HUB_TODAY = "question-tracker-hub-today";
+const VIEW_TYPE_HUB_PLAN = "question-tracker-hub-plan";
+const VIEW_TYPE_HUB_STUDY = "question-tracker-hub-study";
 const VIEW_TYPE_WEB_BROWSER = "question-tracker-web-browser";
 const VIEW_TYPE_RECENT_FILES = "question-tracker-recent-files";
 const VIEW_TYPE_AGENT = "question-tracker-agent";
@@ -54,6 +57,7 @@ const DEFAULT_SETTINGS = {
   mcqEnabled: true, // the MCQ Tracker module (practice, weak spots, timed tests, import); turned off in Settings, Global
   simpleSettings: true, // new installs show the essentials-only settings path; existing installs keep the full view
   showRibbonIcons: true, // show the plugin's ribbon buttons
+  ribbonLayout: "grouped", // "grouped" (Today/Plan/Study hubs) | "classic" (one button per view)
   openPracticeOnStartUp: false, // open the practice view when the workspace is ready
   support: { ...DEFAULT_SUPPORT }, // optional feedback/donation links; never automatic, never gating
   questionFolder: "",
@@ -320,6 +324,9 @@ module.exports = {
   VIEW_TYPE_POMODORO,
   VIEW_TYPE_FOCUS_DAY,
   VIEW_TYPE_TASK_LIST,
+  VIEW_TYPE_HUB_TODAY,
+  VIEW_TYPE_HUB_PLAN,
+  VIEW_TYPE_HUB_STUDY,
   VIEW_TYPE_WEB_BROWSER,
   VIEW_TYPE_RECENT_FILES,
   VIEW_TYPE_AGENT,

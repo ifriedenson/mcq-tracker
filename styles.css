@@ -17647,3 +17647,86 @@ button.qt-focus-date:hover { background: var(--background-modifier-hover); borde
 }
 .qt-task-list-hint { font-size: var(--qt-type-xs); color: var(--text-muted); }
 .qt-focus-due { font-size: var(--qt-type-xs); color: var(--text-muted); border: 1px solid var(--background-modifier-border); border-radius: var(--qt-radius-pill); padding: 1px 8px; white-space: nowrap; }
+
+/* ---- Hubs: Today / Plan / Study group their views as tabs ----------------- */
+.qt-hub {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2, 8px);
+  min-height: 0;
+}
+
+.qt-hub-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius-m, 8px);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.qt-hub-tab {
+  appearance: none;
+  flex: 0 1 auto;
+  padding: 5px 12px;
+  border: none;
+  border-radius: var(--radius-s, 6px);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small, 13px);
+  font-weight: 500;
+  line-height: 1.4;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.qt-hub-tab:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.qt-hub-tab.is-active {
+  background: var(--background-primary);
+  color: var(--text-normal);
+  box-shadow: var(--shadow-s, none);
+}
+
+.qt-hub-tab:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
+}
+
+.qt-hub-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.qt-hub-pane {
+  display: none;
+  min-height: 0;
+}
+
+.qt-hub-pane.is-active {
+  display: block;
+}
+
+.qt-hub-empty,
+.qt-hub-error {
+  padding: var(--size-4-4, 16px);
+  border-radius: var(--radius-m, 8px);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small, 13px);
+}
+
+@media (max-width: 520px) {
+  .qt-hub-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  .qt-hub-tab {
+    padding: 6px 10px;
+  }
+}

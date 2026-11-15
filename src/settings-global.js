@@ -334,6 +334,22 @@ function renderGeneral(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Ribbon layout")
+    .setDesc("Grouped puts Today, Plan and Study in one button each, with the views as tabs. One button per view restores the longer ribbon.")
+    .addDropdown((d) =>
+      d
+        .addOption("grouped", "Grouped: Today, Plan and Study hubs")
+        .addOption("classic", "One button per view")
+        .setValue(st.ribbonLayout === "classic" ? "classic" : "grouped")
+        .onChange(async (v) => {
+          st.ribbonLayout = v === "classic" ? "classic" : "grouped";
+          await plugin.save();
+          plugin.onGlobalSettingsChanged();
+          redisplay();
+        })
+    );
+
+  new Setting(containerEl)
     .setName("Open the practice view when Obsidian starts")
     .setDesc("Open practice as soon as the workspace is ready, so you can start with one tap. Needs the MCQ Tracker module.")
     .addToggle((t) =>

@@ -153,7 +153,7 @@ test("focus day: the command is registered and opens through the module view", a
   assert.equal(typeof plugin.activateFocusDay, "function");
 });
 
-test("focus day: a ribbon button opens the pane like every module view", async () => {
+test("focus day: its ribbon entry lives in the Plan hub", async () => {
   const { plugin } = await setup();
   const ribbon = [];
   plugin.addRibbonIcon = (icon, title, onClick) => {
@@ -163,7 +163,13 @@ test("focus day: a ribbon button opens the pane like every module view", async (
   plugin.ribbonAdded = {};
   plugin.ribbonButtons = {};
   plugin.refreshRibbon();
-  assert.ok(ribbon.some((item) => item.icon === "calendar-days" && item.title === "Open Focus day"));
+  assert.ok(ribbon.some((item) => item.icon === "calendar-days" && item.title === "Open Plan"), "Plan hub button");
+  assert.ok(!ribbon.some((item) => item.title === "Open Focus day"), "no separate Focus day button");
+  plugin.settings.ribbonLayout = "classic";
+  plugin.ribbonAdded = {};
+  plugin.ribbonButtons = {};
+  plugin.refreshRibbon();
+  assert.ok(ribbon.some((item) => item.icon === "calendar-days" && item.title === "Open Focus day"), "classic layout keeps it");
 });
 
 test("focus day: opening a day confirms, then the note reopens", async () => {

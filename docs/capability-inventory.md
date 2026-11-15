@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 456 groups, 3182 exports. **Commands:** 241. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 458 groups, 3187 exports. **Commands:** 242. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -29,7 +29,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `CardView` | 0 | `tests/card-cram.test.js`, `tests/card-learning.test.js`, `tests/card-mother-cram.test.js`, `tests/card-reveal.test.js`, `tests/card-speech.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/interval-preview.test.js`, `tests/mobile-module-layout.test.js`, `tests/source-recall.test.js`, `tests/study-status.test.js` |
 | `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/chat-branches.test.js`, `tests/chat-panel-copilot.test.js`, `tests/chat-panel-mentions.test.js`, `tests/diagnostics-gauge.test.js`, `tests/memory-export.test.js`, `tests/note-context.test.js`, `tests/quick-ask.test.js`, `tests/security-hardening.test.js`, `tests/skills-pricing.test.js`, `tests/think-first.test.js` |
 | `CourseOverviewModal` | 0 | `tests/core-values.test.js` |
-| `DEFAULT_SETTINGS` | 118 | `tests/grading.test.js` |
+| `DEFAULT_SETTINGS` | 119 | `tests/grading.test.js` |
 | `DocumentReviewModal` | 0 | `tests/feature-surfaces.test.js`, `tests/import-edge-robustness.test.js` |
 | `DueQueueModal` | 0 | `tests/due-queue.test.js`, `tests/feature-surfaces.test.js` |
 | `EpubReaderModal` | 0 | `tests/epub.test.js` |
@@ -64,6 +64,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `QUICK_COUNT_OPTIONS` | 3 | `tests/uncited-groups.test.js` |
 | `QUICK_START_URL` | 0 | `tests/empty-state.test.js` |
 | `QUICK_TIME_OPTIONS` | 3 | `tests/uncited-groups.test.js` |
+| `QtHubView` | 0 | `tests/hub-views.test.js` |
 | `QuestionFolderModal` | 0 | `tests/views.test.js` |
 | `QuestionTrackerSettingTab` | 0 | `tests/feature-surfaces.test.js`, `tests/settings-error-paths.test.js`, `tests/settings-navigation.test.js`, `tests/settings-simple-mode.test.js` |
 | `QuickAddModal` | 0 | `tests/ai-beginner-wizard.test.js`, `tests/feature-surfaces.test.js` |
@@ -268,6 +269,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `hasValidQuestion` | 0 | `tests/empty-state.test.js` |
 | `history` | 23 | `tests/history.test.js`, `tests/needs-fixing.test.js` |
 | `hotkeyAudit` | 6 | `tests/hotkey-audit.test.js` |
+| `hubs` | 4 | `tests/hub-views.test.js` |
 | `importAiState` | 0 | `tests/ai-import-help.test.js` |
 | `importModal` | 3 | `tests/overnight-import.test.js` |
 | `importer` | 23 | `tests/importer-prompt.test.js` |
@@ -539,7 +541,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `review-add-current-folder` | Add current note's folder to review schedule | `addActiveFolderToReview` | `tests/mobile-calendar-agenda.test.js` |
 | `review-calendar-add-note` | Review calendar: add this note to review | `addActiveNoteToReview` | `tests/mobile-calendar-agenda.test.js`, `tests/review-calendar.test.js` |
 | `review-calendar-add-folder` | Review calendar: add this folder to review | `addActiveFolderToReview` | `tests/mobile-calendar-agenda.test.js`, `tests/review-calendar.test.js` |
-| `open-study-stats` | Open study statistics | `activateStudyStats` | `tests/review-calendar.test.js` |
+| `open-study-stats` | Open study statistics | `activateStudyStats` | `tests/hub-views.test.js`, `tests/review-calendar.test.js` |
 | `open-local-events` | Open local events | `activateLocalEvents` | `tests/review-calendar.test.js` |
 | `new-local-event` | Local events: create an event | `openNewLocalEvent` | `tests/review-calendar.test.js` |
 | `open-next-due-note` | Note review: open the next due note | `openNextDueNote` | `tests/review-calendar.test.js` |
@@ -596,7 +598,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `canvas-query-apply` | Canvas: fit the active board's query groups around their matches | `applyCanvasQueryGroups` | `tests/canvas-query-groups.test.js` |
 | `open-task-list` | Open the task list | `activateTaskList` | `tests/plugin.test.js`, `tests/task-list.test.js` |
 | `mirror-study-tasks` | Tasks: mirror study tasks to a note | `mirrorStudyTasksCommand` | `tests/study-tasks-plus.test.js` |
-| `open-focus-day` | Open Focus day | `activateFocusDay` | `tests/focus-day.test.js` |
+| `open-focus-day` | Open Focus day | `activateFocusDay` | `tests/focus-day.test.js`, `tests/hub-views.test.js` |
+| `open-plan-hub` | Open Plan (calendar, focus day, events) | `activatePlanHub` | `tests/hub-views.test.js` |
 | `open-reading-library` | Reading library: open the bookshelf | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/time-blocks-kairos.test.js` |
 | `new-feynman-cycle` | Feynman Learning: start a cycle | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |
 | `build-recall-queue` | Recall Scheduler: build a queue | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |

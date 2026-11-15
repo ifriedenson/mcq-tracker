@@ -116,6 +116,28 @@ function createHost(plugin) {
   // PDF++'s own "Customize..." links call this method and then scroll the
   // returned tab. Send them to MCQ Tracker's PDF++ page, whose mounted vendor
   // instance owns the visible controls.
+  // PDF++ adds three ribbon toggles (auto-copy, auto-focus, auto-paste). Capture
+  // them instead of letting each become its own ribbon button: MCQ Tracker shows
+  // one PDF++ button whose menu holds the three toggles.
+  host.addRibbonIcon = function (icon, title, callback) {
+    const list = (plugin._pdfPlusRibbons = plugin._pdfPlusRibbons || []);
+    if (!list.some((item) => item.title === title)) list.push({ icon, title, callback });
+    // PDF++ keeps the element and calls class helpers on it (its icon reflects
+    // the current mode), so the stand-in answers every method it may reach for.
+    return {
+      remove() {},
+      addClass() {},
+      removeClass() {},
+      toggleClass() {},
+      setAttr() {},
+      setAttribute() {},
+      addEventListener() {},
+      empty() {},
+      createSpan() { return this; },
+      createEl() { return this; },
+    };
+  };
+
   host.openSettingTab = function () {
     if (plugin && typeof plugin.openPdfPlusSettingsTab === "function") {
       plugin.openPdfPlusSettingsTab();

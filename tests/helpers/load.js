@@ -227,6 +227,48 @@ const obsidian = {
     }
   },
   AbstractInputSuggest: class extends Base {},
+  Menu: class Menu {
+    constructor() {
+      this.items = [];
+      this.separators = 0;
+      this.shown = false;
+      obsidian.menus.push(this);
+    }
+    addItem(build) {
+      const entry = {
+        title: "",
+        icon: "",
+        click: null,
+        setTitle(text) {
+          this.title = String(text);
+          return this;
+        },
+        setIcon(icon) {
+          this.icon = icon;
+          return this;
+        },
+        onClick(fn) {
+          this.click = fn;
+          return this;
+        },
+      };
+      if (typeof build === "function") build(entry);
+      this.items.push(entry);
+      return this;
+    }
+    addSeparator() {
+      this.separators += 1;
+      return this;
+    }
+    showAtMouseEvent() {
+      this.shown = true;
+      return this;
+    }
+    showAtPosition() {
+      this.shown = true;
+      return this;
+    }
+  },
   Notice: class {
     constructor(msg, duration) {
       this.message = String(msg);
@@ -259,6 +301,7 @@ const obsidian = {
   normalizePath: (p) => String(p).replace(/\/+/g, "/").replace(/^\/|\/$/g, ""),
   notices: [],
   noticeObjects: [],
+  menus: [],
   modals: [],
   settingNames: [],
 };
