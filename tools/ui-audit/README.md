@@ -65,7 +65,11 @@ neighbouring Obsidian surface:
 - `expectClass` asserts plugin DOM on every state.
 - `states` run in order; each writes `<name>-<width>-<theme>[-<state>].{png,json}`.
   `focus`, `type` and `press` drive real input (typed text plus Enter/Space).
-- `checks` is an expression whose result is stored beside the metrics.
+- `checks` is an expression whose result is stored beside the metrics. The
+  task-list job uses it to record `persisted` (what the plugin actually saved),
+  `focusState` (active control, outline, size) and `notice` (text, text
+  contrast, Undo label contrast and size), so a star, a repeat mode, a saved tag
+  or a delete is proven by stored state rather than by the screenshot.
 
 Jobs can also be an `.mjs` module exporting the array, which keeps those
 scripts readable: `node tools/ui-audit/run.mjs tools/ui-audit/jobs-task-list.mjs light`.

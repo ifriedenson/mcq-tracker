@@ -274,6 +274,24 @@ const obsidian = {
       this.message = String(msg);
       this.duration = duration;
       this.hidden = false;
+      this.noticeEl = {
+        children: [],
+        createEl(tag, opts) {
+          const el = {
+            tag,
+            text: opts && opts.text,
+            cls: opts && opts.cls,
+            attrs: opts && opts.attr,
+            handlers: [],
+            disabled: false,
+            addEventListener(ev, fn) {
+              el.handlers.push({ ev, fn });
+            },
+          };
+          this.children.push(el);
+          return el;
+        },
+      };
       obsidian.notices.push(this.message);
       obsidian.noticeObjects.push(this);
     }

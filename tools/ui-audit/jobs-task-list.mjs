@@ -50,6 +50,85 @@ const checks = `(() => {
   const filter = content && content.querySelector(".qt-task-filter.is-active");
   const badge = content && content.querySelector(".qt-task-list-badge");
   const count = content && content.querySelector(".qt-task-list-count");
+
+  const plugin = app.plugins.getPlugin("mcq-tracker");
+  const persisted = (plugin.settings.studyTasks.tasks || []).map((task) => ({
+    title: task.title,
+    priority: task.priority || "",
+    repeat: task.repeat || "",
+    tags: String(task.tags || ""),
+    due: task.due || "",
+  }));
+
+  const active = document.activeElement;
+  const activeStyle = active ? getComputedStyle(active) : null;
+  const activeBox = active && active !== document.body ? active.getBoundingClientRect() : null;
+  const focusState = activeStyle
+    ? {
+        el: active.tagName.toLowerCase() + (typeof active.className === "string" && active.className ? "." + active.className.trim().split(/\\s+/).slice(0, 2).join(".") : ""),
+        outline: activeStyle.outlineStyle + " " + activeStyle.outlineWidth,
+        offset: activeStyle.outlineOffset,
+        width: Math.round(activeBox ? activeBox.width : 0),
+        height: Math.round(activeBox ? activeBox.height : 0),
+        sameAsField: !!(active.closest && active.closest(".qt-task-list-date")),
+      }
+    : null;
+
+  const parseColor = (value) => {
+    const match = String(value).match(/rgba?\\(([^)]+)\\)/);
+    if (!match) return null;
+    const parts = match[1].split(/[,/ ]+/).filter(Boolean);
+    const alpha = parts[3] === undefined ? 1 : String(parts[3]).endsWith("%") ? Number(String(parts[3]).slice(0, -1)) / 100 : Number(parts[3]);
+    return [Number(parts[0]) || 0, Number(parts[1]) || 0, Number(parts[2]) || 0, alpha];
+  };
+  const blend = (fg, bg) => [fg[0] * fg[3] + bg[0] * (1 - fg[3]), fg[1] * fg[3] + bg[1] * (1 - fg[3]), fg[2] * fg[3] + bg[2] * (1 - fg[3]), 1];
+  const channel = (value) => {
+    const v = value / 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  };
+  const lum = (rgb) => 0.2126 * channel(rgb[0]) + 0.7152 * channel(rgb[1]) + 0.0722 * channel(rgb[2]);
+  const background = (el) => {
+    let current = el;
+    let color = [255, 255, 255, 1];
+    while (current) {
+      const style = getComputedStyle(current);
+      const bg = parseColor(style.backgroundColor);
+      if (bg && bg[3] > 0) {
+        color = blend(bg, color);
+        if (bg[3] >= 0.999) break;
+      }
+      current = current.parentElement;
+    }
+    return color;
+  };
+  const ratioFor = (el) => {
+    if (!el) return null;
+    const fg = parseColor(getComputedStyle(el).color);
+    const bg = background(el);
+    if (!fg || !bg) return null;
+    const front = blend(fg, bg);
+    const l1 = lum(front);
+    const l2 = lum(bg);
+    return Math.round(((Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05)) * 100) / 100;
+  };
+
+  const notice = document.querySelector(".notice-container .notice");
+  const noticeUndo = notice && notice.querySelector(".qt-notice-undo");
+  const noticeState = notice
+    ? {
+        text: String(notice.textContent || "").replace(/\\s+/g, " ").trim().slice(0, 120),
+        textContrast: ratioFor(notice),
+        undo: noticeUndo
+          ? {
+              text: String(noticeUndo.textContent || "").trim(),
+              contrast: ratioFor(noticeUndo),
+              width: Math.round(rect(noticeUndo).width),
+              height: Math.round(rect(noticeUndo).height),
+            }
+          : null,
+      }
+    : null;
+
   return {
     rows: rows.length,
     doneRows: rows.filter((row) => row.classList.contains("is-done")).length,
@@ -66,6 +145,10 @@ const checks = `(() => {
     emptyText: empty ? empty.textContent.trim() : "",
     badge: badge ? badge.getAttribute("aria-label") : "",
     count: count ? count.textContent.trim() : "",
+    persisted,
+    focusState,
+    notice: noticeState,
+    tagEditorOpen: !!(content && content.querySelector(".qt-task-tag-input")),
   };
 })()`;
 
@@ -93,7 +176,7 @@ function job(theme) {
       {
         name: "keyboard-add",
         script: page(`await sleep(50);`),
-        focus: '.workspace-leaf-content[data-type="question-tracker-task-list"] .qt-task-list-new',
+        focus: `.workspace-leaf-content[data-type="${VIEW}"] .qt-task-list-new`,
         type: "Read chapter 4 tomorrow #bio",
         press: "Enter",
         wait: 900,
@@ -132,9 +215,92 @@ function job(theme) {
       {
         name: "keyboard-complete",
         script: page(`await sleep(50);`),
-        focus: '.workspace-leaf-content[data-type="question-tracker-task-list"] .qt-task-list-row .qt-task-check',
+        focus: `.workspace-leaf-content[data-type="${VIEW}"] .qt-task-list-row .qt-task-check`,
         press: "Space",
         wait: 800,
+      },
+      {
+        name: "star-on",
+        script: page(`
+  const star = q(".qt-task-list-star");
+  if (star) star.click();
+  await sleep(700);`),
+      },
+      {
+        name: "star-off",
+        script: page(`
+  const star = q(".qt-task-list-star");
+  if (star) star.click();
+  await sleep(700);`),
+      },
+      {
+        name: "repeat-daily",
+        script: page(`
+  const repeat = q(".qt-task-list-repeat");
+  if (repeat) repeat.click();
+  await sleep(700);`),
+      },
+      {
+        name: "repeat-weekday",
+        script: page(`
+  const repeat = q(".qt-task-list-repeat");
+  if (repeat) repeat.click();
+  await sleep(700);`),
+      },
+      {
+        name: "repeat-weekly",
+        script: page(`
+  const repeat = q(".qt-task-list-repeat");
+  if (repeat) repeat.click();
+  await sleep(700);`),
+      },
+      {
+        name: "repeat-off",
+        script: page(`
+  const repeat = q(".qt-task-list-repeat");
+  if (repeat) repeat.click();
+  await sleep(700);`),
+      },
+      {
+        name: "date-focus",
+        script: page(`await sleep(50);`),
+        focus: `.workspace-leaf-content[data-type="${VIEW}"] .qt-task-list-date`,
+        wait: 500,
+      },
+      {
+        name: "tag-editor",
+        script: page(`
+  const tagged = qa(".qt-task-list-row").find((row) => row.textContent.includes("Explain how"));
+  const edit = tagged && tagged.querySelector(".qt-task-tag-edit");
+  if (edit) edit.click();
+  await sleep(600);`),
+      },
+      {
+        name: "tag-saved",
+        script: page(`
+  const input = q(".qt-task-tag-input");
+  if (input) {
+    input.value = "#bio, #exam, #chem";
+    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  }
+  await sleep(1200);`),
+      },
+      {
+        name: "deleted",
+        script: page(`
+  const rows = qa(".qt-task-list-row");
+  window.__qtDeletedTitle = rows[0] ? rows[0].querySelector(".qt-task-list-title").textContent : "";
+  const remove = q(".qt-task-list-remove");
+  if (remove) remove.click();
+  await sleep(900);`),
+      },
+      {
+        name: "undo-restored",
+        script: page(`
+  const undo = document.querySelector(".notice-container .qt-notice-undo");
+  if (undo) undo.click();
+  await sleep(1200);`),
       },
       {
         name: "mixed",

@@ -85,6 +85,12 @@ test("the task row keeps its actions in one aligned column with a real hit targe
   assert.match(css, /\.qt-task-list-actions button \{[\s\S]*min-height: 32px[\s\S]*min-width: 32px/);
   assert.match(css, /\.qt-task-check-wrap \{[\s\S]*height: 32px[\s\S]*width: 32px/);
   assert.match(css, /\.qt-task-list-add-button \{[\s\S]*grid-column: 1 \/ -1/);
+  assert.match(css, /\.qt-task-list-date:focus,\s*\n\.qt-task-list-date:focus-visible,\s*\n\.qt-task-list-date:focus-within \{[\s\S]*outline: var\(--qt-focus-outline\)/);
+  assert.match(css, /\.qt-task-list-date::-webkit-datetime-edit:focus[\s\S]*outline: none/);
+  assert.match(css, /\.qt-notice-undo \{[\s\S]*min-height: 24px/);
+  assert.match(css, /\.qt-notice-undo:hover \{[\s\S]*background: var\(--background-modifier-hover\)/);
+  assert.match(css, /\.qt-notice-undo:focus-visible \{[\s\S]*outline: var\(--qt-focus-outline\)/);
+  assert.match(css, /@media \(pointer: coarse\) \{[\s\S]*\.qt-notice-undo \{[\s\S]*min-height: var\(--qt-touch-target\)/);
   assert.match(css, /@media \(max-width: 520px\)[\s\S]*\.qt-task-list-add-row \{[\s\S]*grid-template-columns: minmax\(0, 1fr\)/);
   assert.doesNotMatch(css, /\.qt-task-list-row\.is-done \{\s*opacity:/);
   assert.match(css, /\.qt-task-list-row\.is-done \.qt-task-list-title \{[\s\S]*color: var\(--text-normal\)/);

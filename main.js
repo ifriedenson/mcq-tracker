@@ -88956,6 +88956,7 @@ ${body}
 
   async removeStudyTask(id) {
     const current = this.studyWorkspaceSettings().studyTasks;
+    const removed = current.tasks.find((task) => task.id === id) || null;
     this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({
       ...current,
       tasks: current.tasks.filter((task) => task.id !== id),
@@ -88963,6 +88964,23 @@ ${body}
     await this.save();
     this.refreshViews();
     await this.refreshTaskMirror();
+    return removed;
+  }
+
+  /**
+   * Put back a task `removeStudyTask` just returned, keeping its id and fields.
+   * The task list offers this as Undo, so a stray click on delete is reversible
+   * without a confirmation step in front of every row.
+   */
+  async restoreStudyTask(task) {
+    if (!task || !str(task.id)) return null;
+    const current = this.studyWorkspaceSettings().studyTasks;
+    const tasks = current.tasks.filter((entry) => entry.id !== task.id).concat([task]);
+    this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({ ...current, tasks });
+    await this.save();
+    this.refreshViews();
+    await this.refreshTaskMirror();
+    return this.settings.studyTasks.tasks.find((entry) => entry.id === task.id) || null;
   }
 
   /**
@@ -132514,8 +132532,25 @@ class TaskListView extends ItemView {
     actions
       .createEl("button", { text: "×", cls: "qt-task-list-remove", attr: { "aria-label": `Delete ${task.title}`, title: "Delete task" } })
       .addEventListener("click", async () => {
-        await this.plugin.removeStudyTask(task.id);
+        // Deleting a row is one click and no dialog; Undo in the notice is the
+        // way back, so a stray click cannot cost a task.
+        const removed = await this.plugin.removeStudyTask(task.id);
         this.render();
+        if (!removed) return;
+        const notice = new Notice(`Deleted “${removed.title}”.`, 8000);
+        const undo = notice.noticeEl.createEl("button", { text: "Undo", cls: "qt-notice-undo" });
+        undo.addEventListener("click", async () => {
+          undo.disabled = true;
+          try {
+            await this.plugin.restoreStudyTask(removed);
+            this.render();
+            new Notice("Task restored.", 3000);
+          } catch (error) {
+            new Notice("Could not restore that task. Nothing was changed; try again.", 6000);
+          } finally {
+            notice.hide();
+          }
+        });
       });
   }
 
@@ -139607,6 +139642,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.307.7",
+    date: "November 15, 2026",
+    title: "Every task action undoable and reachable",
+    summary:
+      "A full pass over the task list's controls found one way to lose work: deleting a row was final, with no confirm and no way back. Delete now leaves an Undo in its notice that restores the task exactly. The date field also draws one focus ring around the whole control instead of leaving its inner segment unmarked, and every remaining task control now has hover, pressed and focus feedback at a proper target size.",
+    highlights: [
+      {
+        title: "Delete can be undone",
+        body: "Clicking × removes the task and shows its name in a notice with an Undo button for eight seconds. Undo restores the task with its id, tags, priority, repeat and due date intact, and the same button cannot restore twice.",
+      },
+      {
+        title: "One focus ring on the date field",
+        body: "The native date control focuses its inner segments, which drew no ring of their own. The whole field now draws a single ring, so it reads as one control whether you tab into the month, the day or the year.",
+      },
+      {
+        title: "Feedback on every control",
+        body: "The notice's Undo button gains hover, pressed and focus states plus a 44px target on touch screens.",
+      },
+      {
+        title: "Driven, not eyeballed",
+        body: "Nineteen states per theme now run against the real task list: star on and off, every repeat mode, tag edit and save, delete, undo, and the date field's keyboard focus — each with 0 overflow, 0 sub-AA text and 0 small targets in Primary light and dark.",
+      },
+    ],
+  },
   {
     version: "1.307.6",
     date: "November 15, 2026",

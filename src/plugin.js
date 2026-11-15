@@ -14514,6 +14514,7 @@ ${body}
 
   async removeStudyTask(id) {
     const current = this.studyWorkspaceSettings().studyTasks;
+    const removed = current.tasks.find((task) => task.id === id) || null;
     this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({
       ...current,
       tasks: current.tasks.filter((task) => task.id !== id),
@@ -14521,6 +14522,23 @@ ${body}
     await this.save();
     this.refreshViews();
     await this.refreshTaskMirror();
+    return removed;
+  }
+
+  /**
+   * Put back a task `removeStudyTask` just returned, keeping its id and fields.
+   * The task list offers this as Undo, so a stray click on delete is reversible
+   * without a confirmation step in front of every row.
+   */
+  async restoreStudyTask(task) {
+    if (!task || !str(task.id)) return null;
+    const current = this.studyWorkspaceSettings().studyTasks;
+    const tasks = current.tasks.filter((entry) => entry.id !== task.id).concat([task]);
+    this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({ ...current, tasks });
+    await this.save();
+    this.refreshViews();
+    await this.refreshTaskMirror();
+    return this.settings.studyTasks.tasks.find((entry) => entry.id === task.id) || null;
   }
 
   /**

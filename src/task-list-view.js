@@ -313,8 +313,25 @@ class TaskListView extends ItemView {
     actions
       .createEl("button", { text: "×", cls: "qt-task-list-remove", attr: { "aria-label": `Delete ${task.title}`, title: "Delete task" } })
       .addEventListener("click", async () => {
-        await this.plugin.removeStudyTask(task.id);
+        // Deleting a row is one click and no dialog; Undo in the notice is the
+        // way back, so a stray click cannot cost a task.
+        const removed = await this.plugin.removeStudyTask(task.id);
         this.render();
+        if (!removed) return;
+        const notice = new Notice(`Deleted “${removed.title}”.`, 8000);
+        const undo = notice.noticeEl.createEl("button", { text: "Undo", cls: "qt-notice-undo" });
+        undo.addEventListener("click", async () => {
+          undo.disabled = true;
+          try {
+            await this.plugin.restoreStudyTask(removed);
+            this.render();
+            new Notice("Task restored.", 3000);
+          } catch (error) {
+            new Notice("Could not restore that task. Nothing was changed; try again.", 6000);
+          } finally {
+            notice.hide();
+          }
+        });
       });
   }
 

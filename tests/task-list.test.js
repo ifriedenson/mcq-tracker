@@ -1,7 +1,7 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { load } = require("./helpers/load");
+const { load, obsidian } = require("./helpers/load");
 const { makeApp, makeDom } = require("./helpers/fake");
 const { T, Plugin: QT } = load();
 
@@ -65,6 +65,30 @@ test("the sidebar task list completes, reopens and deletes a task", async () => 
   view.render();
   assert.equal(plugin.settings.studyTasks.tasks.length, 0);
   assert.ok(dom.texts().includes("No tasks yet. Add one above, or generate exam tasks in the Study Workspace."));
+});
+
+test("deleting a task from its row offers an Undo that restores every field", async () => {
+  const { plugin, dom, view } = await setup();
+  const task = await plugin.addStudyTask({ title: "Keep me", tags: "#bio", priority: "high", repeat: "weekly", due: day(3) });
+  view.render();
+  const remove = byLabel(dom, "Delete Keep me");
+  assert.ok(remove, "the row has a delete control");
+  await remove.handlers.find((h) => h.ev === "click").fn({});
+  assert.equal(plugin.settings.studyTasks.tasks.length, 0, "the row is gone");
+  assert.ok(obsidian.notices.includes("Deleted “Keep me”."), obsidian.notices.join(" | "));
+
+  const notice = obsidian.noticeObjects.find((entry) => entry.message === "Deleted “Keep me”.");
+  const undo = notice.noticeEl.children.find((el) => el.cls === "qt-notice-undo");
+  assert.ok(undo, "the notice carries an Undo control");
+  assert.equal(undo.text, "Undo");
+  await undo.handlers.find((h) => h.ev === "click").fn({});
+  const restored = plugin.settings.studyTasks.tasks.find((entry) => entry.id === task.id);
+  assert.ok(restored, "Undo puts the task back");
+  assert.deepEqual(restored.tags, ["bio"]);
+  assert.equal(restored.priority, "high");
+  assert.equal(restored.repeat, "weekly");
+  assert.equal(restored.due, task.due);
+  assert.equal(undo.disabled, true, "the same control cannot restore twice");
 });
 
 test("the sidebar task list says when the Tasks module is off", async () => {

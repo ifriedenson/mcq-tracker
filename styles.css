@@ -5628,7 +5628,26 @@ body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tra
 }
 
 .qt-notice-undo {
+  border-radius: var(--qt-radius-xs);
+  cursor: pointer;
   margin-left: 10px;
+  min-height: 24px;
+  padding: 2px 10px;
+}
+
+.qt-notice-undo:hover {
+  background: var(--background-modifier-hover);
+}
+
+.qt-notice-undo:focus-visible {
+  outline: var(--qt-focus-outline);
+  outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+  .qt-notice-undo {
+    min-height: var(--qt-touch-target);
+  }
 }
 
 /* Optional Quizlet-style study skin. Same-note review, not a second deck. */
@@ -11990,6 +12009,21 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   gap: 6px;
   margin-bottom: 10px;
   padding: 8px;
+}
+
+/* The native date control focuses its inner segments, which draw no ring of
+   their own; one ring around the whole field keeps it reading as one control. */
+.qt-task-list-date:focus,
+.qt-task-list-date:focus-visible,
+.qt-task-list-date:focus-within {
+  outline: var(--qt-focus-outline);
+  outline-offset: 1px;
+}
+
+.qt-task-list-date::-webkit-datetime-edit:focus,
+.qt-task-list-date::-webkit-datetime-edit-fields-wrapper:focus,
+.qt-task-list-date::-webkit-calendar-picker-indicator:focus {
+  outline: none;
 }
 
 .qt-task-list-add .qt-input {
