@@ -317,6 +317,7 @@ const pomodoro = require("./pomodoro");
 const { FocusDayView } = require("./focus-day-view");
 const focusDay = require("./focus-day");
 const taskDates = require("./task-dates");
+const taskMirror = require("./task-mirror");
 const { PomodoroView } = require("./pomodoro-view");
 const { applySpacedReview, buildSpacedQueue, normalizeSpacedEverything, renderSpacedTemplate, spacedCaptureText } = require("./spaced-everything");
 const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
@@ -708,6 +709,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "canvas-query-report", name: "Canvas: report the active board's query groups", callback: () => this.reportCanvasQueryGroups() });
     this.addCommand({ id: "canvas-query-apply", name: "Canvas: fit the active board's query groups around their matches", callback: () => this.applyCanvasQueryGroups() });
     this.addCommand({ id: "open-task-list", name: "Open the task list", callback: () => this.activateTaskList() });
+    this.addCommand({ id: "mirror-study-tasks", name: "Tasks: mirror study tasks to a note", callback: () => this.mirrorStudyTasksCommand() });
     this.addCommand({ id: "open-focus-day", name: "Open Focus day", callback: () => this.activateFocusDay() });
     this.addCommand({ id: "open-reading-library", name: "Reading library: open the bookshelf", callback: () => this.activateStudyWorkspace("readingLibrary") });
     this.addCommand({ id: "new-feynman-cycle", name: "Feynman Learning: start a cycle", callback: () => this.activateStudyWorkspace("feynman") });
@@ -14319,11 +14321,21 @@ ${body}
     const source = input && typeof input === "object" && !Array.isArray(input) ? { ...input } : {};
     // A date in the title ("Practice 8 AP World questions today") sets the
     // due date when no explicit date was picked; its words leave the title.
-    if (!studyTools.dayValue(source.due) && str(source.title).trim()) {
-      const parsed = taskDates.extractTaskDue(source.title);
-      if (parsed.due) {
-        source.title = parsed.title;
-        source.due = parsed.due;
+    // A repeat ("Review cells every Tuesday") sets daily/weekly the same way.
+    if (str(source.title).trim()) {
+      if (!studyWorkspace.repeatValue(source.repeat)) {
+        const spoken = taskDates.extractTaskRepeat(source.title);
+        if (spoken.repeat) {
+          source.title = spoken.title;
+          source.repeat = spoken.repeat;
+        }
+      }
+      if (!studyTools.dayValue(source.due)) {
+        const parsed = taskDates.extractTaskDue(source.title);
+        if (parsed.due) {
+          source.title = parsed.title;
+          source.due = parsed.due;
+        }
       }
     }
     const task = studyWorkspace.createStudyTask(source, Date.now());
@@ -14356,11 +14368,26 @@ ${body}
 
   async updateStudyTask(id, patch) {
     const current = this.studyWorkspaceSettings().studyTasks;
+    const before = current.tasks.find((task) => task.id === id) || null;
     const tasks = current.tasks.map((task) => (task.id === id ? { ...task, ...(patch || {}) } : task));
     this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({ ...current, tasks });
     await this.save();
     this.refreshViews();
-    return this.settings.studyTasks.tasks.find((task) => task.id === id) || null;
+    const after = this.settings.studyTasks.tasks.find((task) => task.id === id) || null;
+    // Finishing a repeating task schedules its next instance; reopening never does.
+    if (after && after.done && (!before || !before.done) && studyWorkspace.repeatValue(after.repeat)) {
+      const followUp = studyWorkspace.repeatFollowUp(after, localDate());
+      if (followUp) {
+        const made = studyWorkspace.createStudyTask(followUp, Date.now());
+        if (made) {
+          const latest = this.studyWorkspaceSettings().studyTasks;
+          this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({ ...latest, tasks: latest.tasks.concat(made) });
+          await this.save();
+          this.refreshViews();
+        }
+      }
+    }
+    return after;
   }
 
   async removeStudyTask(id) {
@@ -14371,6 +14398,33 @@ ${body}
     });
     await this.save();
     this.refreshViews();
+  }
+
+  /** One-way copy of the study tasks into a note, for search and other plugins. */
+  async syncStudyTasksToNote() {
+    const data = studyWorkspace.normalizeStudyTasks(this.settings.studyTasks);
+    const raw = str(data.mirrorNote).trim() || taskMirror.defaultMirrorPath();
+    const path = raw.endsWith(".md") ? raw : `${raw}.md`;
+    const text = taskMirror.mirrorMarkdown(data.tasks, localDate());
+    const existing = this.app.vault.getAbstractFileByPath(path);
+    if (existing) await this.app.vault.modify(existing, text);
+    else {
+      const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+      if (folder && !this.app.vault.getAbstractFileByPath(folder)) await this.app.vault.createFolder(folder);
+      await this.app.vault.create(path, text);
+    }
+    this.refreshViews();
+    const open = data.tasks.filter((task) => !task.done).length;
+    return { ok: true, path, open, done: data.tasks.length - open };
+  }
+
+  async mirrorStudyTasksCommand() {
+    try {
+      const result = await this.syncStudyTasksToNote();
+      new Notice(`Mirrored ${result.open} open task${result.open === 1 ? "" : "s"} to ${result.path}.`);
+    } catch (error) {
+      new Notice(`Could not mirror the tasks: ${errorDetail(error)}.`);
+    }
   }
 
   async generateStudyTasks(input) {

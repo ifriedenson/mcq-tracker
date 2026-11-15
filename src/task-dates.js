@@ -139,11 +139,44 @@ function ruleNextSpan(text, base) {
 }
 
 function ruleInSpan(text, base) {
-  const m = /\bin\s+(a|an|\d+)\s+(day|days|week|weeks)\b/i.exec(text);
+  const m = /\bin\s+(a|an|\d+)\s+(day|days|week|weeks|month|months)\b/i.exec(text);
   if (!m) return null;
   const amount = /^\d+$/.test(m[1]) ? Number(m[1]) : 1;
+  if (/month/i.test(m[2])) return { date: shiftMonths(base, Math.min(24, amount)), matched: m[0] };
   const days = /week/i.test(m[2]) ? amount * 7 : amount;
   return { date: shiftDays(base, Math.min(366, days)), matched: m[0] };
+}
+
+/**
+ * A repeat in the title: "every day", "daily", "every week", "weekly" or
+ * "every Tuesday". The words leave the title; times of day are never read.
+ */
+function parseTaskRepeat(text) {
+  const input = str(text);
+  if (!input.trim()) return { repeat: "", matched: "", keep: "" };
+  const every = new RegExp(`\\bevery\\s+(day|week|${WEEKDAY_NAMES})\\b`, "i").exec(input);
+  if (every) {
+    const word = every[1].toLowerCase();
+    const weekday = weekdayIndex(word) >= 0;
+    // "every Tuesday" stays weekly but keeps the weekday for the due parser.
+    return { repeat: word === "day" ? "daily" : "weekly", matched: every[0], keep: weekday ? every[1] : "" };
+  }
+  if (/\bdaily\b/i.test(input)) return { repeat: "daily", matched: /\bdaily\b/i.exec(input)[0], keep: "" };
+  if (/\bweekly\b/i.test(input)) return { repeat: "weekly", matched: /\bweekly\b/i.exec(input)[0], keep: "" };
+  return { repeat: "", matched: "", keep: "" };
+}
+
+/** Split a task title into a clean title and a daily/weekly repeat. */
+function extractTaskRepeat(title) {
+  const input = str(title);
+  const hit = parseTaskRepeat(input);
+  if (!hit.repeat) return { title: input.trim(), repeat: "" };
+  const cleaned = input
+    .replace(hit.matched, hit.keep ? ` ${hit.keep} ` : " ")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .trim();
+  return { title: cleaned, repeat: hit.repeat };
 }
 
 function ruleWeekday(text, base, nextOnly) {
@@ -221,5 +254,7 @@ function dueChipLabel(due, today) {
 module.exports = {
   dueChipLabel,
   extractTaskDue,
+  extractTaskRepeat,
   parseTaskDate,
+  parseTaskRepeat,
 };

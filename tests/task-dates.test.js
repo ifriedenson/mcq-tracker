@@ -121,5 +121,4 @@ test("task dates: the task list hints at naming a day", async () => {
   const view = new T.TaskListView({ app }, plugin);
   view.contentEl = dom.root;
   await view.onOpen();
-  assert.ok(dom.texts().some((text) => text.includes("tomorrow") && text.includes("due date")));
-});
+  assert.ok(dom.texts().some((text) => text.includes("tomorrow") && text.includes("every Monday") && text.includes("Star")));});

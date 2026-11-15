@@ -154,6 +154,7 @@ const { PomodoroView } = require("./pomodoro-view");
 const { FocusDayView } = require("./focus-day-view");
 const focusDay = require("./focus-day");
 const taskDates = require("./task-dates");
+const taskMirror = require("./task-mirror");
 const { NoteReviewDock } = require("./note-review-dock");
 const { ReviewCalendarView } = require("./review-calendar-view");
 const { StudyStatsView } = require("./study-stats-view");
@@ -606,6 +607,7 @@ QuestionTrackerPlugin.__test = {
   focusDay,
   FocusDayView,
   taskDates,
+  taskMirror,
   NoteReviewDock,
   ReviewCalendarView,
   StudyStatsView,

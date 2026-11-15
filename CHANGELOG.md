@@ -1,3 +1,8 @@
+## 1.305.0 - 2026-11-15
+
+- **Tasks grow up: mirror, repeats, priorities.** Four task-plugin capabilities, study-shaped. (1) A one-way mirror copies study tasks into a note as Tasks-compatible lines (`- [ ] Title 📅 due ⏫ 🔁 every week #tag`) via the **Tasks: mirror study tasks to a note** command, buttons in the Task list and workspace queue, and a Mirror note setting (default `Study tasks.md`); done work follows under `## Done`, the footer names the one-way rule, plugin data stays canonical. (2) Repeats: `every day`, `daily`, `every week`, `weekly` and `every <weekday>` in a title set daily/weekly; completing one spawns the next from its due date (or today when overdue); sidebar rows cycle off/daily/weekly. (3) Priorities: high-priority stars sort above due dates in every surface and the mirror (⏫), toggled from the sidebar row. (4) Fuller dates: `in N months` parses to calendar months, and `every Tuesday` keeps Tuesday for the due parser. Deliberately not built: two-way sync, full scheduling grammar, queries, outside integrations, board views.
+- `node --test` passes 2,935 tests; `npm run check` clean. No note format, existing setting key, review schedule or network default changed.
+
 ## 1.304.2 - 2026-11-15
 
 - **Keep typing: task boxes hold the cursor.** Every quick-add task box (Task list, Focus day scratchpad, Study Workspace per-block input) now keeps the cursor in its fresh input after an add, so Enter types tasks back to back with no mouse, like Deadline. The block input also accepts Enter (previously Add-button only). The work exposed a real crash: rendering a block with tasks called `timeBlocks.statusChar`, which was never exported — it now is.

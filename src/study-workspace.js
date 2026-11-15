@@ -932,6 +932,15 @@ function tagList(value) {
   return tags;
 }
 
+function priorityValue(value) {
+  return str(value).trim().toLowerCase() === "high" ? "high" : "";
+}
+
+function repeatValue(value) {
+  const clean = str(value).trim().toLowerCase();
+  return clean === "daily" || clean === "weekly" ? clean : "";
+}
+
 function normalizeStudyTask(value) {
   const source = asObject(value);
   const title = boundedText(source.title, MAX_TITLE);
@@ -943,6 +952,8 @@ function normalizeStudyTask(value) {
     tags: tagList(source.tags),
     due: dayValue(source.due),
     done: source.done === true,
+    priority: priorityValue(source.priority),
+    repeat: repeatValue(source.repeat),
     source: boundedText(source.source, 40) || "manual",
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
   };
@@ -959,7 +970,7 @@ function normalizeStudyTasks(value) {
     tasks.push(task);
     if (tasks.length >= MAX_TASKS) break;
   }
-  return { enabled: enabledValue(value), tasks };
+  return { enabled: enabledValue(value), tasks, mirrorNote: boundedText(source.mirrorNote, 200) };
 }
 
 function createStudyTask(input, now) {
@@ -1001,10 +1012,43 @@ function planExamTasks(input, today, now) {
   return tasks.filter(Boolean);
 }
 
+function isHighPriority(task) {
+  return !!task && priorityValue(task.priority) === "high";
+}
+
+/** Open-task order: high priority first, then due date, then oldest. */
+function compareStudyTasks(a, b) {
+  const left = a || {};
+  const right = b || {};
+  const priority = (isHighPriority(right) ? 1 : 0) - (isHighPriority(left) ? 1 : 0);
+  if (priority) return priority;
+  return (left.due || "9999-12-31").localeCompare(right.due || "9999-12-31") || (left.createdAt || 0) - (right.createdAt || 0);
+}
+
+/** Next instance for a repeating task finished today: daily +1, weekly +7. */
+function repeatFollowUp(task, today) {
+  const source = task && typeof task === "object" ? task : null;
+  const repeat = source ? repeatValue(source.repeat) : "";
+  if (!repeat || source.done !== true) return null;
+  const day = dayValue(today) || localDate();
+  const base = source.due && source.due >= day ? source.due : day;
+  const due = repeat === "daily" ? addDays(base, 1) : addDays(base, 7);
+  if (!due) return null;
+  return {
+    title: source.title,
+    course: source.course,
+    tags: Array.isArray(source.tags) ? source.tags.slice() : [],
+    due,
+    priority: priorityValue(source.priority),
+    repeat,
+    source: "repeat",
+  };
+}
+
 function taskSummary(tasks, today) {
   const day = dayValue(today) || localDate();
   const list = Array.isArray(tasks) ? tasks : [];
-  const open = list.filter((task) => !task.done).sort((a, b) => (a.due || "9999-12-31").localeCompare(b.due || "9999-12-31") || a.createdAt - b.createdAt);
+  const open = list.filter((task) => !task.done).sort(compareStudyTasks);
   return {
     total: list.length,
     open: open.length,
@@ -1348,6 +1392,7 @@ module.exports = {
   createFlowExcerpt,
   createGrade,
   createPlannerPlan,
+  compareStudyTasks,
   createStudyTask,
   createSubject,
   createSubjectProject,
@@ -1355,6 +1400,7 @@ module.exports = {
   daysBetween,
   deepNotesStepKey,
   dueStudyTasks,
+  isHighPriority,
   letterGrade,
   normalizeVocabWord,
   normalizeVocabulary,
@@ -1384,10 +1430,13 @@ module.exports = {
   normalizeSubjectManager,
   parseRecallUnits,
   planExamTasks,
+  priorityValue,
   planProgress,
   planSummary,
   recallDueUnits,
   recallStats,
+  repeatFollowUp,
+  repeatValue,
   reviewRecallUnit,
   subjectSummary,
   tagList,

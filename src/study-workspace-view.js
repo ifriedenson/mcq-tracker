@@ -28,11 +28,13 @@ const {
   FEYNMAN_STEPS,
   SOCRATIC_STEPS,
   allocatePlan,
+  compareStudyTasks,
   courseDashboard,
   feynmanAverage,
   feynmanStepKey,
   feynmanWeakPoints,
   flowStats,
+  isHighPriority,
   normalizeStudyWorkspaceSettings,
   planProgress,
   planSummary,
@@ -1043,7 +1045,7 @@ class StudyWorkspaceView extends ItemView {
     const summary = taskSummary(data.tasks, localDate());
     const add = root.createDiv({ cls: "qt-study-card" });
     add.createEl("h3", { text: "Add a study task" });
-    add.createDiv({ cls: "qt-hint", text: "Tasks are local. Remind shows due work inside Obsidian; it does not use OS notifications. Name a day in the task (tomorrow, Tuesday) to set its due date." });
+    add.createDiv({ cls: "qt-hint", text: "Tasks are local. Remind shows due work inside Obsidian; it does not use OS notifications. Name a day (tomorrow, Tuesday) or a repeat (every Monday, daily) to schedule one." });
     const form = add.createDiv({ cls: "qt-study-form" });
     const title = this.renderField(form, "Task", "text", "Review cell respiration");
     const course = this.renderField(form, "Course", "text", "Biology");
@@ -1143,13 +1145,29 @@ class StudyWorkspaceView extends ItemView {
     summaryActions.createEl("button", { text: "Remind" }).addEventListener("click", async () => {
       await this.plugin.remindStudyTasks();
     });
+    summaryActions.createEl("button", { text: "Mirror to note", attr: { title: "Copy the tasks into a note for search and other plugins" } }).addEventListener("click", async () => {
+      try {
+        const result = await this.plugin.syncStudyTasksToNote();
+        this.saveMessage(`Mirrored ${result.open} open task${result.open === 1 ? "" : "s"} to ${result.path}.`);
+      } catch (error) {
+        this.saveMessage("Could not mirror the tasks.");
+      }
+      this.render();
+    });
     const list = summaryCard.createDiv({ cls: "qt-study-list" });
-    const tasks = data.tasks.slice().sort((a, b) => (a.done === b.done ? 0 : a.done ? 1 : -1) || (a.due || "9999-12-31").localeCompare(b.due || "9999-12-31"));
+    const tasks = data.tasks
+      .slice()
+      .sort((a, b) => (a.done === b.done ? 0 : a.done ? 1 : -1) || compareStudyTasks(a, b));
     for (const task of tasks) {
       const row = list.createDiv({ cls: "qt-study-row" });
       const main = row.createDiv({ cls: "qt-study-row-main" });
-      main.createDiv({ cls: "qt-study-row-title", text: task.title });
-      main.createDiv({ cls: "qt-study-row-meta", text: `${task.course ? `${task.course} · ` : ""}${task.due || "No due date"}${task.source === "exam" ? " · exam plan" : ""}` });
+      main.createDiv({ cls: "qt-study-row-title", text: `${isHighPriority(task) ? "★ " : ""}${task.title}` });
+      main.createDiv({
+        cls: "qt-study-row-meta",
+        text: `${task.course ? `${task.course} · ` : ""}${task.due || "No due date"}${task.source === "exam" ? " · exam plan" : task.source === "repeat" ? " · repeats" : ""}${
+          task.repeat === "daily" || task.repeat === "weekly" ? ` · 🔁 ${task.repeat}` : ""
+        }`,
+      });
       const buttons = row.createDiv({ cls: "qt-study-row-actions" });
       buttons.createEl("button", { text: task.done ? "Reopen" : "Done" }).addEventListener("click", async () => {
         await this.plugin.updateStudyTask(task.id, { done: !task.done });

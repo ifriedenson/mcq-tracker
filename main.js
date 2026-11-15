@@ -74393,6 +74393,7 @@ const pomodoro = require("./pomodoro");
 const { FocusDayView } = require("./focus-day-view");
 const focusDay = require("./focus-day");
 const taskDates = require("./task-dates");
+const taskMirror = require("./task-mirror");
 const { PomodoroView } = require("./pomodoro-view");
 const { applySpacedReview, buildSpacedQueue, normalizeSpacedEverything, renderSpacedTemplate, spacedCaptureText } = require("./spaced-everything");
 const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
@@ -74784,6 +74785,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "canvas-query-report", name: "Canvas: report the active board's query groups", callback: () => this.reportCanvasQueryGroups() });
     this.addCommand({ id: "canvas-query-apply", name: "Canvas: fit the active board's query groups around their matches", callback: () => this.applyCanvasQueryGroups() });
     this.addCommand({ id: "open-task-list", name: "Open the task list", callback: () => this.activateTaskList() });
+    this.addCommand({ id: "mirror-study-tasks", name: "Tasks: mirror study tasks to a note", callback: () => this.mirrorStudyTasksCommand() });
     this.addCommand({ id: "open-focus-day", name: "Open Focus day", callback: () => this.activateFocusDay() });
     this.addCommand({ id: "open-reading-library", name: "Reading library: open the bookshelf", callback: () => this.activateStudyWorkspace("readingLibrary") });
     this.addCommand({ id: "new-feynman-cycle", name: "Feynman Learning: start a cycle", callback: () => this.activateStudyWorkspace("feynman") });
@@ -88395,11 +88397,21 @@ ${body}
     const source = input && typeof input === "object" && !Array.isArray(input) ? { ...input } : {};
     // A date in the title ("Practice 8 AP World questions today") sets the
     // due date when no explicit date was picked; its words leave the title.
-    if (!studyTools.dayValue(source.due) && str(source.title).trim()) {
-      const parsed = taskDates.extractTaskDue(source.title);
-      if (parsed.due) {
-        source.title = parsed.title;
-        source.due = parsed.due;
+    // A repeat ("Review cells every Tuesday") sets daily/weekly the same way.
+    if (str(source.title).trim()) {
+      if (!studyWorkspace.repeatValue(source.repeat)) {
+        const spoken = taskDates.extractTaskRepeat(source.title);
+        if (spoken.repeat) {
+          source.title = spoken.title;
+          source.repeat = spoken.repeat;
+        }
+      }
+      if (!studyTools.dayValue(source.due)) {
+        const parsed = taskDates.extractTaskDue(source.title);
+        if (parsed.due) {
+          source.title = parsed.title;
+          source.due = parsed.due;
+        }
       }
     }
     const task = studyWorkspace.createStudyTask(source, Date.now());
@@ -88432,11 +88444,26 @@ ${body}
 
   async updateStudyTask(id, patch) {
     const current = this.studyWorkspaceSettings().studyTasks;
+    const before = current.tasks.find((task) => task.id === id) || null;
     const tasks = current.tasks.map((task) => (task.id === id ? { ...task, ...(patch || {}) } : task));
     this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({ ...current, tasks });
     await this.save();
     this.refreshViews();
-    return this.settings.studyTasks.tasks.find((task) => task.id === id) || null;
+    const after = this.settings.studyTasks.tasks.find((task) => task.id === id) || null;
+    // Finishing a repeating task schedules its next instance; reopening never does.
+    if (after && after.done && (!before || !before.done) && studyWorkspace.repeatValue(after.repeat)) {
+      const followUp = studyWorkspace.repeatFollowUp(after, localDate());
+      if (followUp) {
+        const made = studyWorkspace.createStudyTask(followUp, Date.now());
+        if (made) {
+          const latest = this.studyWorkspaceSettings().studyTasks;
+          this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({ ...latest, tasks: latest.tasks.concat(made) });
+          await this.save();
+          this.refreshViews();
+        }
+      }
+    }
+    return after;
   }
 
   async removeStudyTask(id) {
@@ -88447,6 +88474,33 @@ ${body}
     });
     await this.save();
     this.refreshViews();
+  }
+
+  /** One-way copy of the study tasks into a note, for search and other plugins. */
+  async syncStudyTasksToNote() {
+    const data = studyWorkspace.normalizeStudyTasks(this.settings.studyTasks);
+    const raw = str(data.mirrorNote).trim() || taskMirror.defaultMirrorPath();
+    const path = raw.endsWith(".md") ? raw : `${raw}.md`;
+    const text = taskMirror.mirrorMarkdown(data.tasks, localDate());
+    const existing = this.app.vault.getAbstractFileByPath(path);
+    if (existing) await this.app.vault.modify(existing, text);
+    else {
+      const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+      if (folder && !this.app.vault.getAbstractFileByPath(folder)) await this.app.vault.createFolder(folder);
+      await this.app.vault.create(path, text);
+    }
+    this.refreshViews();
+    const open = data.tasks.filter((task) => !task.done).length;
+    return { ok: true, path, open, done: data.tasks.length - open };
+  }
+
+  async mirrorStudyTasksCommand() {
+    try {
+      const result = await this.syncStudyTasksToNote();
+      new Notice(`Mirrored ${result.open} open task${result.open === 1 ? "" : "s"} to ${result.path}.`);
+    } catch (error) {
+      new Notice(`Could not mirror the tasks: ${errorDetail(error)}.`);
+    }
   }
 
   async generateStudyTasks(input) {
@@ -120633,6 +120687,16 @@ const PAGES = {
       return `${studyWorkspace.dueStudyTasks(tasks, new Date().toISOString().slice(0, 10)).length} due today of ${tasks.length}.`;
     },
     open: { label: "Open Tasks", run: (plugin) => plugin.activateStudyWorkspace("tasks") },
+    fields: [
+      {
+        type: "text",
+        name: "Mirror note",
+        desc: "One-way copy of the study tasks into this note (Tasks-compatible lines for search and other plugins). Edits in the note are overwritten; leave empty for Study tasks.md.",
+        placeholder: "Study tasks.md",
+        get: (plugin) => studyWorkspace.normalizeStudyTasks(plugin.settings.studyTasks).mirrorNote,
+        set: async (plugin, v) => update(plugin, "studyTasks", studyWorkspace.normalizeStudyTasks, { mirrorNote: v }),
+      },
+    ],
   },
   "web-browser": {
     title: "Web browser",
@@ -123050,6 +123114,15 @@ function tagList(value) {
   return tags;
 }
 
+function priorityValue(value) {
+  return str(value).trim().toLowerCase() === "high" ? "high" : "";
+}
+
+function repeatValue(value) {
+  const clean = str(value).trim().toLowerCase();
+  return clean === "daily" || clean === "weekly" ? clean : "";
+}
+
 function normalizeStudyTask(value) {
   const source = asObject(value);
   const title = boundedText(source.title, MAX_TITLE);
@@ -123061,6 +123134,8 @@ function normalizeStudyTask(value) {
     tags: tagList(source.tags),
     due: dayValue(source.due),
     done: source.done === true,
+    priority: priorityValue(source.priority),
+    repeat: repeatValue(source.repeat),
     source: boundedText(source.source, 40) || "manual",
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
   };
@@ -123077,7 +123152,7 @@ function normalizeStudyTasks(value) {
     tasks.push(task);
     if (tasks.length >= MAX_TASKS) break;
   }
-  return { enabled: enabledValue(value), tasks };
+  return { enabled: enabledValue(value), tasks, mirrorNote: boundedText(source.mirrorNote, 200) };
 }
 
 function createStudyTask(input, now) {
@@ -123119,10 +123194,43 @@ function planExamTasks(input, today, now) {
   return tasks.filter(Boolean);
 }
 
+function isHighPriority(task) {
+  return !!task && priorityValue(task.priority) === "high";
+}
+
+/** Open-task order: high priority first, then due date, then oldest. */
+function compareStudyTasks(a, b) {
+  const left = a || {};
+  const right = b || {};
+  const priority = (isHighPriority(right) ? 1 : 0) - (isHighPriority(left) ? 1 : 0);
+  if (priority) return priority;
+  return (left.due || "9999-12-31").localeCompare(right.due || "9999-12-31") || (left.createdAt || 0) - (right.createdAt || 0);
+}
+
+/** Next instance for a repeating task finished today: daily +1, weekly +7. */
+function repeatFollowUp(task, today) {
+  const source = task && typeof task === "object" ? task : null;
+  const repeat = source ? repeatValue(source.repeat) : "";
+  if (!repeat || source.done !== true) return null;
+  const day = dayValue(today) || localDate();
+  const base = source.due && source.due >= day ? source.due : day;
+  const due = repeat === "daily" ? addDays(base, 1) : addDays(base, 7);
+  if (!due) return null;
+  return {
+    title: source.title,
+    course: source.course,
+    tags: Array.isArray(source.tags) ? source.tags.slice() : [],
+    due,
+    priority: priorityValue(source.priority),
+    repeat,
+    source: "repeat",
+  };
+}
+
 function taskSummary(tasks, today) {
   const day = dayValue(today) || localDate();
   const list = Array.isArray(tasks) ? tasks : [];
-  const open = list.filter((task) => !task.done).sort((a, b) => (a.due || "9999-12-31").localeCompare(b.due || "9999-12-31") || a.createdAt - b.createdAt);
+  const open = list.filter((task) => !task.done).sort(compareStudyTasks);
   return {
     total: list.length,
     open: open.length,
@@ -123466,6 +123574,7 @@ module.exports = {
   createFlowExcerpt,
   createGrade,
   createPlannerPlan,
+  compareStudyTasks,
   createStudyTask,
   createSubject,
   createSubjectProject,
@@ -123473,6 +123582,7 @@ module.exports = {
   daysBetween,
   deepNotesStepKey,
   dueStudyTasks,
+  isHighPriority,
   letterGrade,
   normalizeVocabWord,
   normalizeVocabulary,
@@ -123502,10 +123612,13 @@ module.exports = {
   normalizeSubjectManager,
   parseRecallUnits,
   planExamTasks,
+  priorityValue,
   planProgress,
   planSummary,
   recallDueUnits,
   recallStats,
+  repeatFollowUp,
+  repeatValue,
   reviewRecallUnit,
   subjectSummary,
   tagList,
@@ -123547,11 +123660,13 @@ const {
   FEYNMAN_STEPS,
   SOCRATIC_STEPS,
   allocatePlan,
+  compareStudyTasks,
   courseDashboard,
   feynmanAverage,
   feynmanStepKey,
   feynmanWeakPoints,
   flowStats,
+  isHighPriority,
   normalizeStudyWorkspaceSettings,
   planProgress,
   planSummary,
@@ -124562,7 +124677,7 @@ class StudyWorkspaceView extends ItemView {
     const summary = taskSummary(data.tasks, localDate());
     const add = root.createDiv({ cls: "qt-study-card" });
     add.createEl("h3", { text: "Add a study task" });
-    add.createDiv({ cls: "qt-hint", text: "Tasks are local. Remind shows due work inside Obsidian; it does not use OS notifications. Name a day in the task (tomorrow, Tuesday) to set its due date." });
+    add.createDiv({ cls: "qt-hint", text: "Tasks are local. Remind shows due work inside Obsidian; it does not use OS notifications. Name a day (tomorrow, Tuesday) or a repeat (every Monday, daily) to schedule one." });
     const form = add.createDiv({ cls: "qt-study-form" });
     const title = this.renderField(form, "Task", "text", "Review cell respiration");
     const course = this.renderField(form, "Course", "text", "Biology");
@@ -124662,13 +124777,29 @@ class StudyWorkspaceView extends ItemView {
     summaryActions.createEl("button", { text: "Remind" }).addEventListener("click", async () => {
       await this.plugin.remindStudyTasks();
     });
+    summaryActions.createEl("button", { text: "Mirror to note", attr: { title: "Copy the tasks into a note for search and other plugins" } }).addEventListener("click", async () => {
+      try {
+        const result = await this.plugin.syncStudyTasksToNote();
+        this.saveMessage(`Mirrored ${result.open} open task${result.open === 1 ? "" : "s"} to ${result.path}.`);
+      } catch (error) {
+        this.saveMessage("Could not mirror the tasks.");
+      }
+      this.render();
+    });
     const list = summaryCard.createDiv({ cls: "qt-study-list" });
-    const tasks = data.tasks.slice().sort((a, b) => (a.done === b.done ? 0 : a.done ? 1 : -1) || (a.due || "9999-12-31").localeCompare(b.due || "9999-12-31"));
+    const tasks = data.tasks
+      .slice()
+      .sort((a, b) => (a.done === b.done ? 0 : a.done ? 1 : -1) || compareStudyTasks(a, b));
     for (const task of tasks) {
       const row = list.createDiv({ cls: "qt-study-row" });
       const main = row.createDiv({ cls: "qt-study-row-main" });
-      main.createDiv({ cls: "qt-study-row-title", text: task.title });
-      main.createDiv({ cls: "qt-study-row-meta", text: `${task.course ? `${task.course} · ` : ""}${task.due || "No due date"}${task.source === "exam" ? " · exam plan" : ""}` });
+      main.createDiv({ cls: "qt-study-row-title", text: `${isHighPriority(task) ? "★ " : ""}${task.title}` });
+      main.createDiv({
+        cls: "qt-study-row-meta",
+        text: `${task.course ? `${task.course} · ` : ""}${task.due || "No due date"}${task.source === "exam" ? " · exam plan" : task.source === "repeat" ? " · repeats" : ""}${
+          task.repeat === "daily" || task.repeat === "weekly" ? ` · 🔁 ${task.repeat}` : ""
+        }`,
+      });
       const buttons = row.createDiv({ cls: "qt-study-row-actions" });
       buttons.createEl("button", { text: task.done ? "Reopen" : "Done" }).addEventListener("click", async () => {
         await this.plugin.updateStudyTask(task.id, { done: !task.done });
@@ -131171,11 +131302,44 @@ function ruleNextSpan(text, base) {
 }
 
 function ruleInSpan(text, base) {
-  const m = /\bin\s+(a|an|\d+)\s+(day|days|week|weeks)\b/i.exec(text);
+  const m = /\bin\s+(a|an|\d+)\s+(day|days|week|weeks|month|months)\b/i.exec(text);
   if (!m) return null;
   const amount = /^\d+$/.test(m[1]) ? Number(m[1]) : 1;
+  if (/month/i.test(m[2])) return { date: shiftMonths(base, Math.min(24, amount)), matched: m[0] };
   const days = /week/i.test(m[2]) ? amount * 7 : amount;
   return { date: shiftDays(base, Math.min(366, days)), matched: m[0] };
+}
+
+/**
+ * A repeat in the title: "every day", "daily", "every week", "weekly" or
+ * "every Tuesday". The words leave the title; times of day are never read.
+ */
+function parseTaskRepeat(text) {
+  const input = str(text);
+  if (!input.trim()) return { repeat: "", matched: "", keep: "" };
+  const every = new RegExp(`\\bevery\\s+(day|week|${WEEKDAY_NAMES})\\b`, "i").exec(input);
+  if (every) {
+    const word = every[1].toLowerCase();
+    const weekday = weekdayIndex(word) >= 0;
+    // "every Tuesday" stays weekly but keeps the weekday for the due parser.
+    return { repeat: word === "day" ? "daily" : "weekly", matched: every[0], keep: weekday ? every[1] : "" };
+  }
+  if (/\bdaily\b/i.test(input)) return { repeat: "daily", matched: /\bdaily\b/i.exec(input)[0], keep: "" };
+  if (/\bweekly\b/i.test(input)) return { repeat: "weekly", matched: /\bweekly\b/i.exec(input)[0], keep: "" };
+  return { repeat: "", matched: "", keep: "" };
+}
+
+/** Split a task title into a clean title and a daily/weekly repeat. */
+function extractTaskRepeat(title) {
+  const input = str(title);
+  const hit = parseTaskRepeat(input);
+  if (!hit.repeat) return { title: input.trim(), repeat: "" };
+  const cleaned = input
+    .replace(hit.matched, hit.keep ? ` ${hit.keep} ` : " ")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .trim();
+  return { title: cleaned, repeat: hit.repeat };
 }
 
 function ruleWeekday(text, base, nextOnly) {
@@ -131253,16 +131417,18 @@ function dueChipLabel(due, today) {
 module.exports = {
   dueChipLabel,
   extractTaskDue,
+  extractTaskRepeat,
   parseTaskDate,
+  parseTaskRepeat,
 };
 };
 
 /* ---- src/task-list-view.js ---- */
 __defs["task-list-view"] = function (module, exports, require) {
-const { ItemView } = require("obsidian");
+const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_TASK_LIST } = require("./constants");
 const { localDate } = require("./util");
-const { taskSummary } = require("./study-workspace");
+const { compareStudyTasks, isHighPriority, taskSummary } = require("./study-workspace");
 
 /*
  * The sidebar task list: the same local `studyTasks` rows the Study Workspace
@@ -131303,16 +131469,11 @@ class TaskListView extends ItemView {
     return task && Array.isArray(task.tags) ? task.tags : [];
   }
 
-  /** Open work first by due date, then completed work; a task with no due date sorts last. */
+  /** High priority first, then open work by due date, then completed work. */
   ordered(tasks) {
     return tasks
       .slice()
-      .sort(
-        (a, b) =>
-          (a.done === b.done ? 0 : a.done ? 1 : -1) ||
-          (a.due || "9999-12-31").localeCompare(b.due || "9999-12-31") ||
-          a.createdAt - b.createdAt
-      );
+      .sort((a, b) => (a.done === b.done ? 0 : a.done ? 1 : -1) || compareStudyTasks(a, b));
   }
 
   dueLabel(due, today) {
@@ -131349,6 +131510,17 @@ class TaskListView extends ItemView {
     head
       .createEl("button", { text: "Workspace", cls: "qt-link qt-task-list-open" })
       .addEventListener("click", () => this.plugin.activateStudyWorkspace("tasks"));
+    head
+      .createEl("button", { text: "Mirror to note", cls: "qt-link qt-task-list-open", attr: { title: "Copy the tasks into a note for search and other plugins" } })
+      .addEventListener("click", async () => {
+        try {
+          const result = await this.plugin.syncStudyTasksToNote();
+          new Notice(`Mirrored ${result.open} open task${result.open === 1 ? "" : "s"} to ${result.path}.`);
+        } catch (error) {
+          new Notice("Could not mirror the tasks.");
+        }
+        this.render();
+      });
     head.createDiv({
       cls: "qt-task-list-count",
       text: `${summary.open} open · ${summary.overdue} overdue · ${summary.dueToday} due today`,
@@ -131386,7 +131558,7 @@ class TaskListView extends ItemView {
         add();
       });
     }
-    root.createDiv({ cls: "qt-task-list-hint", text: "Tip: name a day in the task (tomorrow, Tuesday) to set its due date." });
+    root.createDiv({ cls: "qt-task-list-hint", text: "Tip: name a day (tomorrow, Tuesday) or a repeat (every Monday, daily) to schedule it. Star the urgent ones." });
     if (this.focusNewAfterRender) {
       this.focusNewAfterRender = false;
       if (typeof title.focus === "function") title.focus();
@@ -131466,6 +131638,8 @@ class TaskListView extends ItemView {
     });
     if (overdue) due.addClass("is-overdue");
     else if (dueToday) due.addClass("is-today");
+    if (isHighPriority(task)) meta.createSpan({ cls: "qt-task-pill qt-task-high", text: "★ High" });
+    if (task.repeat === "daily" || task.repeat === "weekly") meta.createSpan({ cls: "qt-task-pill qt-task-repeat", text: `🔁 ${task.repeat}` });
     if (task.source === "exam") meta.createSpan({ cls: "qt-task-pill qt-task-source", text: "exam plan" });
 
     const tags = this.tagsOf(task);
@@ -131512,6 +131686,29 @@ class TaskListView extends ItemView {
       input.addEventListener("blur", () => save());
     }
 
+    const star = row.createEl("button", {
+      text: isHighPriority(task) ? "★" : "☆",
+      cls: "qt-task-list-star",
+      attr: {
+        "aria-label": isHighPriority(task) ? `Remove high priority from ${task.title}` : `Mark ${task.title} high priority`,
+        title: isHighPriority(task) ? "High priority" : "Mark high priority",
+      },
+    });
+    star.addEventListener("click", async () => {
+      await this.plugin.updateStudyTask(task.id, { priority: isHighPriority(task) ? "" : "high" });
+      this.render();
+    });
+    const repeatLabel = task.repeat === "daily" ? "🔁 daily" : task.repeat === "weekly" ? "🔁 weekly" : "🔁 off";
+    const repeat = row.createEl("button", {
+      text: repeatLabel,
+      cls: "qt-task-list-repeat",
+      attr: { "aria-label": `Repeat for ${task.title}: ${task.repeat || "off"}`, title: "Cycle repeat: off, daily, weekly" },
+    });
+    repeat.addEventListener("click", async () => {
+      const next = !task.repeat ? "daily" : task.repeat === "daily" ? "weekly" : "";
+      await this.plugin.updateStudyTask(task.id, { repeat: next });
+      this.render();
+    });
     row
       .createEl("button", { text: "×", cls: "qt-task-list-remove", attr: { "aria-label": `Delete ${task.title}`, title: "Delete task" } })
       .addEventListener("click", async () => {
@@ -131527,6 +131724,99 @@ class TaskListView extends ItemView {
 }
 
 module.exports = { TaskListView };
+};
+
+/* ---- src/task-mirror.js ---- */
+__defs["task-mirror"] = function (module, exports, require) {
+/*
+ * One-way mirror of local study tasks into a note. The plugin's data.json
+ * stays the source of truth: this module only renders Tasks-compatible
+ * checklist lines (`- [ ] Title 📅 2026-11-01 ⏫ 🔁 every week #tag`) so
+ * search, backlinks, the graph and other plugins (Tasks, Smart Gantt,
+ * Dataview) can see the work. Rewriting the note replaces everything the
+ * mirror wrote; hand edits inside it are overwritten.
+ */
+const { localDate, str } = require("./util");
+
+/** Clean a task title for a checklist line: one line, no emoji syntax. */
+function mirrorTitle(task) {
+  return str(task && task.title)
+    .replace(/\s+/g, " ")
+    .replace(/[📅⏳🛫🔁✅]/gu, "")
+    .trim();
+}
+
+/** One checklist line for a task: `- [ ] Title 📅 2026-11-01 ⏫ 🔁 every week #tag`. */
+function studyTaskLine(task) {
+  const source = task && typeof task === "object" ? task : {};
+  const title = mirrorTitle(source);
+  if (!title) return "";
+  const box = source.done === true ? "- [x]" : "- [ ]";
+  const parts = [box, title];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str(source.due))) parts.push("📅", str(source.due));
+  if (str(source.priority).trim().toLowerCase() === "high") parts.push("⏫");
+  if (source.repeat === "daily") parts.push("🔁", "every day");
+  else if (source.repeat === "weekly") parts.push("🔁", "every week");
+  for (const tag of Array.isArray(source.tags) ? source.tags : []) {
+    const clean = str(tag).trim();
+    if (clean) parts.push(`#${clean}`);
+  }
+  // The course stays in plain words: it is context for the reader, not Tasks syntax.
+  const course = str(source.course).trim();
+  return course ? `${parts.join(" ")} · ${course}` : parts.join(" ");
+}
+
+/**
+ * The whole mirror note: open tasks first (high priority, then due),
+ * done tasks after, plus a footer naming the one-way rule.
+ */
+function mirrorMarkdown(tasks, today) {
+  const list = Array.isArray(tasks) ? tasks : [];
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(str(today)) ? str(today) : localDate();
+  const rank = (task) => [
+    task.done === true ? 1 : 0,
+    str(task.priority).trim().toLowerCase() === "high" ? 0 : 1,
+    /^\d{4}-\d{2}-\d{2}$/.test(str(task.due)) ? str(task.due) : "9999-12-31",
+  ];
+  const ordered = list
+    .slice()
+    .sort(
+      (a, b) =>
+        rank(a)[0] - rank(b)[0] || rank(a)[1] - rank(b)[1] || (rank(a)[2] < rank(b)[2] ? -1 : rank(a)[2] > rank(b)[2] ? 1 : 0),
+    );
+  const open = ordered.filter((task) => task.done !== true);
+  const done = ordered.filter((task) => task.done === true);
+  const lines = ["# Study tasks", "", "_One-way mirror from MCQ Tracker — edits here are overwritten._", ""];
+  if (!ordered.length) {
+    lines.push("No tasks yet.");
+  } else {
+    for (const task of open) {
+      const line = studyTaskLine(task);
+      if (line) lines.push(line);
+    }
+    if (done.length) {
+      lines.push("", "## Done");
+      for (const task of done) {
+        const line = studyTaskLine(task);
+        if (line) lines.push(line);
+      }
+    }
+  }
+  lines.push("", `_Mirrored ${day} · ${open.length} open · ${done.length} done._`);
+  return `${lines.join("\n")}\n`;
+}
+
+/** Default note path when the mirror setting is on but names no file. */
+function defaultMirrorPath() {
+  return "Study tasks.md";
+}
+
+module.exports = {
+  defaultMirrorPath,
+  mirrorMarkdown,
+  mirrorTitle,
+  studyTaskLine,
+};
 };
 
 /* ---- src/task-tags.js ---- */
@@ -138467,6 +138757,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.305.0",
+    date: "November 15, 2026",
+    title: "Tasks grow up: mirror, repeats, priorities",
+    summary:
+      "Study tasks gain the four capabilities worth borrowing from dedicated task plugins: a one-way Tasks-compatible mirror into a note, daily/weekly repeats that reschedule on completion, high-priority stars that sort first, and fuller natural language (months, every day/week/weekday). The plugin data stays the source of truth throughout.",
+    highlights: [
+      {
+        title: "A note other plugins can read",
+        body: "The Tasks command and both task-surface buttons copy open work into a note as Tasks-compatible lines (due, priority, repeat, tags), with completed work under a Done heading. One way only: the note is rewritten, hand edits are overwritten, and the footer says so.",
+      },
+      {
+        title: "Repeats that reschedule themselves",
+        body: "Type 'every Monday' or 'daily' and the task repeats; finishing it schedules the next instance from its due date, or from today when it is overdue. The sidebar row cycles off, daily, weekly.",
+      },
+      {
+        title: "Stars sort first",
+        body: "High-priority tasks float above due dates in the Task list, the workspace queue and the mirror, with star badges everywhere and a toggle on every sidebar row.",
+      },
+      {
+        title: "Months and every-patterns",
+        body: "'in 2 months' and 'in a month' now parse to calendar months, and the due parser keeps the weekday in 'every Tuesday' so the task lands on Tuesday and repeats weekly.",
+      },
+    ],
+  },
+  {
     version: "1.304.2",
     date: "November 15, 2026",
     title: "Keep typing: task boxes hold the cursor",
@@ -138484,6 +138799,10 @@ const RELEASES = [
       {
         title: "Day plan no longer crashes on tasked blocks",
         body: "Rendering a block with tasks called an unexported time-blocks helper and threw; `statusChar` is now exported, and the new tests render a tasked block through the real Day view.",
+      },
+      {
+        title: "Pinned through the real views",
+        body: "Each box is driven end to end in tests: type, press Enter, and the fresh input reports focus — including the Day plan path that exposed the crash.",
       },
     ],
   },
@@ -140838,6 +141157,7 @@ const { PomodoroView } = require("./pomodoro-view");
 const { FocusDayView } = require("./focus-day-view");
 const focusDay = require("./focus-day");
 const taskDates = require("./task-dates");
+const taskMirror = require("./task-mirror");
 const { NoteReviewDock } = require("./note-review-dock");
 const { ReviewCalendarView } = require("./review-calendar-view");
 const { StudyStatsView } = require("./study-stats-view");
@@ -141290,6 +141610,7 @@ QuestionTrackerPlugin.__test = {
   focusDay,
   FocusDayView,
   taskDates,
+  taskMirror,
   NoteReviewDock,
   ReviewCalendarView,
   StudyStatsView,

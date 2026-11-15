@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.305.0",
+    date: "November 15, 2026",
+    title: "Tasks grow up: mirror, repeats, priorities",
+    summary:
+      "Study tasks gain the four capabilities worth borrowing from dedicated task plugins: a one-way Tasks-compatible mirror into a note, daily/weekly repeats that reschedule on completion, high-priority stars that sort first, and fuller natural language (months, every day/week/weekday). The plugin data stays the source of truth throughout.",
+    highlights: [
+      {
+        title: "A note other plugins can read",
+        body: "The Tasks command and both task-surface buttons copy open work into a note as Tasks-compatible lines (due, priority, repeat, tags), with completed work under a Done heading. One way only: the note is rewritten, hand edits are overwritten, and the footer says so.",
+      },
+      {
+        title: "Repeats that reschedule themselves",
+        body: "Type 'every Monday' or 'daily' and the task repeats; finishing it schedules the next instance from its due date, or from today when it is overdue. The sidebar row cycles off, daily, weekly.",
+      },
+      {
+        title: "Stars sort first",
+        body: "High-priority tasks float above due dates in the Task list, the workspace queue and the mirror, with star badges everywhere and a toggle on every sidebar row.",
+      },
+      {
+        title: "Months and every-patterns",
+        body: "'in 2 months' and 'in a month' now parse to calendar months, and the due parser keeps the weekday in 'every Tuesday' so the task lands on Tuesday and repeats weekly.",
+      },
+    ],
+  },
+  {
     version: "1.304.2",
     date: "November 15, 2026",
     title: "Keep typing: task boxes hold the cursor",
@@ -23,6 +48,10 @@ const RELEASES = [
       {
         title: "Day plan no longer crashes on tasked blocks",
         body: "Rendering a block with tasks called an unexported time-blocks helper and threw; `statusChar` is now exported, and the new tests render a tasked block through the real Day view.",
+      },
+      {
+        title: "Pinned through the real views",
+        body: "Each box is driven end to end in tests: type, press Enter, and the fresh input reports focus — including the Day plan path that exposed the crash.",
       },
     ],
   },

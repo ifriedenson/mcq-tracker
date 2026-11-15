@@ -317,6 +317,16 @@ const PAGES = {
       return `${studyWorkspace.dueStudyTasks(tasks, new Date().toISOString().slice(0, 10)).length} due today of ${tasks.length}.`;
     },
     open: { label: "Open Tasks", run: (plugin) => plugin.activateStudyWorkspace("tasks") },
+    fields: [
+      {
+        type: "text",
+        name: "Mirror note",
+        desc: "One-way copy of the study tasks into this note (Tasks-compatible lines for search and other plugins). Edits in the note are overwritten; leave empty for Study tasks.md.",
+        placeholder: "Study tasks.md",
+        get: (plugin) => studyWorkspace.normalizeStudyTasks(plugin.settings.studyTasks).mirrorNote,
+        set: async (plugin, v) => update(plugin, "studyTasks", studyWorkspace.normalizeStudyTasks, { mirrorNote: v }),
+      },
+    ],
   },
   "web-browser": {
     title: "Web browser",

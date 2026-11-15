@@ -1,8 +1,8 @@
 "use strict";
-const { ItemView } = require("obsidian");
+const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_TASK_LIST } = require("./constants");
 const { localDate } = require("./util");
-const { taskSummary } = require("./study-workspace");
+const { compareStudyTasks, isHighPriority, taskSummary } = require("./study-workspace");
 
 /*
  * The sidebar task list: the same local `studyTasks` rows the Study Workspace
@@ -43,16 +43,11 @@ class TaskListView extends ItemView {
     return task && Array.isArray(task.tags) ? task.tags : [];
   }
 
-  /** Open work first by due date, then completed work; a task with no due date sorts last. */
+  /** High priority first, then open work by due date, then completed work. */
   ordered(tasks) {
     return tasks
       .slice()
-      .sort(
-        (a, b) =>
-          (a.done === b.done ? 0 : a.done ? 1 : -1) ||
-          (a.due || "9999-12-31").localeCompare(b.due || "9999-12-31") ||
-          a.createdAt - b.createdAt
-      );
+      .sort((a, b) => (a.done === b.done ? 0 : a.done ? 1 : -1) || compareStudyTasks(a, b));
   }
 
   dueLabel(due, today) {
@@ -89,6 +84,17 @@ class TaskListView extends ItemView {
     head
       .createEl("button", { text: "Workspace", cls: "qt-link qt-task-list-open" })
       .addEventListener("click", () => this.plugin.activateStudyWorkspace("tasks"));
+    head
+      .createEl("button", { text: "Mirror to note", cls: "qt-link qt-task-list-open", attr: { title: "Copy the tasks into a note for search and other plugins" } })
+      .addEventListener("click", async () => {
+        try {
+          const result = await this.plugin.syncStudyTasksToNote();
+          new Notice(`Mirrored ${result.open} open task${result.open === 1 ? "" : "s"} to ${result.path}.`);
+        } catch (error) {
+          new Notice("Could not mirror the tasks.");
+        }
+        this.render();
+      });
     head.createDiv({
       cls: "qt-task-list-count",
       text: `${summary.open} open · ${summary.overdue} overdue · ${summary.dueToday} due today`,
@@ -126,7 +132,7 @@ class TaskListView extends ItemView {
         add();
       });
     }
-    root.createDiv({ cls: "qt-task-list-hint", text: "Tip: name a day in the task (tomorrow, Tuesday) to set its due date." });
+    root.createDiv({ cls: "qt-task-list-hint", text: "Tip: name a day (tomorrow, Tuesday) or a repeat (every Monday, daily) to schedule it. Star the urgent ones." });
     if (this.focusNewAfterRender) {
       this.focusNewAfterRender = false;
       if (typeof title.focus === "function") title.focus();
@@ -206,6 +212,8 @@ class TaskListView extends ItemView {
     });
     if (overdue) due.addClass("is-overdue");
     else if (dueToday) due.addClass("is-today");
+    if (isHighPriority(task)) meta.createSpan({ cls: "qt-task-pill qt-task-high", text: "★ High" });
+    if (task.repeat === "daily" || task.repeat === "weekly") meta.createSpan({ cls: "qt-task-pill qt-task-repeat", text: `🔁 ${task.repeat}` });
     if (task.source === "exam") meta.createSpan({ cls: "qt-task-pill qt-task-source", text: "exam plan" });
 
     const tags = this.tagsOf(task);
@@ -252,6 +260,29 @@ class TaskListView extends ItemView {
       input.addEventListener("blur", () => save());
     }
 
+    const star = row.createEl("button", {
+      text: isHighPriority(task) ? "★" : "☆",
+      cls: "qt-task-list-star",
+      attr: {
+        "aria-label": isHighPriority(task) ? `Remove high priority from ${task.title}` : `Mark ${task.title} high priority`,
+        title: isHighPriority(task) ? "High priority" : "Mark high priority",
+      },
+    });
+    star.addEventListener("click", async () => {
+      await this.plugin.updateStudyTask(task.id, { priority: isHighPriority(task) ? "" : "high" });
+      this.render();
+    });
+    const repeatLabel = task.repeat === "daily" ? "🔁 daily" : task.repeat === "weekly" ? "🔁 weekly" : "🔁 off";
+    const repeat = row.createEl("button", {
+      text: repeatLabel,
+      cls: "qt-task-list-repeat",
+      attr: { "aria-label": `Repeat for ${task.title}: ${task.repeat || "off"}`, title: "Cycle repeat: off, daily, weekly" },
+    });
+    repeat.addEventListener("click", async () => {
+      const next = !task.repeat ? "daily" : task.repeat === "daily" ? "weekly" : "";
+      await this.plugin.updateStudyTask(task.id, { repeat: next });
+      this.render();
+    });
     row
       .createEl("button", { text: "×", cls: "qt-task-list-remove", attr: { "aria-label": `Delete ${task.title}`, title: "Delete task" } })
       .addEventListener("click", async () => {
