@@ -25,7 +25,9 @@ function normalizeConcurrency(value) {
 }
 
 function isCapMessage(message) {
-  return /request cap|no more AI requests|raise the cap/i.test(str(message));
+  // A spent free tier lasts until it resets, so the queue is parked exactly as
+  // a spent request cap is, instead of failing every remaining file.
+  return /request cap|no more AI requests|raise the cap|free usage|free tier|free limit|usage limit/i.test(str(message));
 }
 
 function isRateLimitMessage(message) {

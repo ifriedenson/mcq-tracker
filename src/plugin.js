@@ -1613,6 +1613,23 @@ class QuestionTrackerPlugin extends Plugin {
    * when there is real work to report (a start, a repair or a restart).
    */
   async ensureOpenCode(progress) {
+    const hasSetup = !!(this.settings && this.settings.ai);
+    if (hasSetup && !this.settings.ai.managed) {
+      // A server the user runs themselves is never booted here: the managed
+      // copy binds a random port, and a cold start slower than 20 seconds
+      // used to fail a file that the healthy manual server would have
+      // imported. Probe the configured address and fail fast when it is down.
+      let probe = null;
+      try {
+        probe = await this.openCode().providers(4000);
+      } catch (e) {
+        probe = null;
+      }
+      if (probe && Array.isArray(probe.providers)) return;
+      throw new Error(
+        `OpenCode at ${str(this.conn().url).trim() || "the address in Settings"} isn't answering. Start it and import this file again, or switch the AI backend to Direct API in Settings.`
+      );
+    }
     let note = this.manager.isRunning() ? null : new Notice("Setting up OpenCode...", 0);
     const say = (m) => {
       if (note) note.setMessage(m);

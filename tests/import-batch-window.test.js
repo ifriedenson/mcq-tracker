@@ -1447,3 +1447,62 @@ test("quota fallback: a file that already has notes is never started again", asy
   modal.agentSawNotes = true;
   assert.equal(await modal.quotaFallback("Free usage limit reached", client), "", "notes on disk make a retry unsafe");
 });
+
+test("batch import: a long document is allowed to stay quiet longer than a short one", async () => {
+  const state = await setup();
+  const modal = new T.PdfImportModal(state.app, state.plugin, {});
+  modal.agentSilenceMs = 6 * 60 * 1000;
+  modal.agentSilenceCapMs = 20 * 60 * 1000;
+  modal.agentChars = 0;
+  assert.equal(modal.agentAllowanceMs(), 6 * 60 * 1000, "a short file keeps the six-minute allowance");
+  modal.agentChars = 200000;
+  assert.equal(modal.agentAllowanceMs(), 6 * 60 * 1000 + 50 * 1000, "about one second per thousand tokens of its own text");
+  modal.agentChars = 50 * 1000 * 4000;
+  assert.equal(modal.agentAllowanceMs(), 20 * 60 * 1000, "the cap keeps a frozen request from holding a queue all night");
+});
+
+test("batch import: a provider retry on the event stream is reported at once", async () => {
+  const state = await setup();
+  state.plugin.settings.ai.backend = "opencode";
+  state.plugin.settings.ai.managed = true;
+  state.plugin.settings.ai.enabled = true;
+  state.plugin.settings.ai.binaryPath = require.resolve("./answer-verification.test.js");
+  state.plugin.ensureOpenCode = async () => {};
+  state.plugin.recoverAiConnection = async () => true;
+  state.plugin.openCode = () => ({
+    providers: async () => ({ providers: [{}] }),
+    createSession: async () => ({ id: "limited" }),
+    promptAsync: async () => ({}),
+    // OpenCode leaves an empty, unfinished assistant message behind a provider
+    // failure; the reason is only on the event stream.
+    messages: async () => [{ info: { id: "a", role: "assistant" }, parts: [] }],
+    abort: async () => ({}),
+    watchEvents: (onEvent) => {
+      setTimeout(() => {
+        onEvent({
+          type: "session.status",
+          properties: {
+            sessionID: "limited",
+            status: { type: "retry", message: "Free usage exceeded, subscribe to Go", action: { reason: "free_tier_limit" } },
+          },
+        });
+      }, 10);
+      return () => {};
+    },
+  });
+
+  const bytes = await textPdf();
+  const modal = new T.PdfImportModal(state.app, state.plugin, { files: [file("Unit A.pdf", bytes), file("Unit B.pdf", bytes)] });
+  const dom = attach(modal);
+  modal.onOpen();
+  modal.agentPollMs = 5;
+  modal.agentSilenceMs = 600000;
+  const started = Date.now();
+  await modal.startBatch();
+  await waitFor(() => completionModal(modal), "the completion summary after a retry status", 20000);
+
+  assert.ok(Date.now() - started < 5000, "the quota is reported without waiting out the silence allowance");
+  const text = JSON.stringify(modal.batchResults);
+  assert.match(text, /Free usage exceeded/, "the provider's own words are shown");
+  assert.match(text, /waiting a few minutes/i, "the message says what to do next");
+});

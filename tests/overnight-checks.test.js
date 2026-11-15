@@ -111,7 +111,8 @@ test("overnight checks: helpers clamp, parse and estimate", () => {
   assert.ok(q.isRateLimitMessage("you exceeded your current quota"));
   assert.ok(!q.isRateLimitMessage("HTTP 400: bad model"));
   assert.ok(q.isCapMessage("The daily AI request cap (100) has been reached."));
-  assert.ok(!q.isCapMessage("HTTP 429: slow down"));
+  assert.ok(q.isCapMessage("Free usage exceeded, subscribe to Go"), "a spent free tier parks the queue like a request cap");
+  assert.ok(!q.isCapMessage("HTTP 429: slow down"), "a transient rate limit is retried, not parked");
   assert.equal(q.retryAfterMs("Retry-After: 45", 0), 45000);
   assert.ok(q.retryAfterMs("slow down", 0) >= 7000, "backs off without a header");
   assert.equal(q.medianMs([30, 10, 20]), 20);

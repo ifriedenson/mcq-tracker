@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.302.5",
+    date: "November 15, 2026",
+    title: "A spent free tier says so in seconds",
+    summary:
+      "OpenCode reports a provider failure on its own event stream, not on the message an import polls, so an exhausted free tier used to look like a model that wrote nothing for six minutes, and every file in a batch was restarted and failed. The import now reads that status and reports the provider's words at once, a slow chapter gets longer than six quiet minutes, and an OpenCode you run yourself is never booted behind your back.",
+    highlights: [
+      {
+        title: "The provider's reason is read, not guessed",
+        body: "OpenCode leaves an empty, unfinished message behind a failed request and puts the reason on its event stream as a session status: Free usage exceeded, subscribe to Go; a rate limit; or a rejected key. The import now watches that stream while a file runs and stops the file with those words within seconds instead of waiting out a silence allowance.",
+      },
+      {
+        title: "Overnight queues park instead of failing a hundred files",
+        body: "A spent free tier lasts until it resets, so the overnight queue now pauses with the reason and keeps its place, exactly as it does for a spent request cap. Waiting files are not marked failed and the morning log names the pause.",
+      },
+      {
+        title: "A long chapter gets the time it needs",
+        body: "The silence allowance still exists for a frozen request, but it now grows with the document: about one extra second per thousand tokens of its own text, capped at twenty minutes. A slow model reading a big chapter is no longer cut off at six minutes.",
+      },
+      {
+        title: "Your own OpenCode stays yours",
+        body: "With a server you run yourself, an import only checks that the address answers. It no longer starts the plugin's managed copy, whose cold start could take longer than twenty seconds and fail a file the healthy server would have imported; a dead address is reported in seconds with what to do.",
+      },
+    ],
+  },
+  {
     version: "1.302.4",
     date: "November 15, 2026",
     title: "An overnight run reports what it really did",

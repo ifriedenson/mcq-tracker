@@ -427,6 +427,102 @@ class OpenCodeClient {
   abort(id) {
     return this.req("POST", `/session/${encodeURIComponent(id)}/abort`, {}, this.timeoutMs);
   }
+
+  /**
+   * Follow the server's event stream for as long as the caller keeps it.
+   * `onEvent(payload)` gets every event; the caller filters by session. The
+   * session's own message list does not carry a provider failure — OpenCode
+   * leaves an empty, unfinished assistant message and reports the reason as a
+   * `session.status` retry event — so this is how a spent quota or a rate
+   * limit becomes visible while a prompt is still running. Best effort: no
+   * fetch, no stream, or an event shape this version does not know ends or
+   * skips quietly, and the caller still reads the messages.
+   */
+  watchEvents(onEvent, signal) {
+    const stop = () => {
+      try {
+        if (req) req.destroy();
+      } catch (e) {
+        /* already closed */
+      }
+    };
+    if (typeof onEvent !== "function") return () => {};
+    let req = null;
+    // A renderer fetch to the local server is refused by the page's own
+    // security rules (the same request succeeds over HTTP), so the stream is
+    // read with Node's http on desktop. Mobile has no OpenCode anyway.
+    let http = null;
+    try {
+      http = require("http");
+    } catch (e) {
+      http = null;
+    }
+    if (!http || typeof http.request !== "function") return () => {};
+    let base = "";
+    try {
+      base = this.base();
+    } catch (e) {
+      return () => {};
+    }
+    let target = null;
+    try {
+      target = new URL(`${base}/event`);
+    } catch (e) {
+      return () => {};
+    }
+    if (signal) {
+      if (signal.aborted) return () => {};
+      signal.addEventListener("abort", stop);
+    }
+    try {
+      req = http.request(
+        {
+          hostname: target.hostname,
+          port: target.port || 80,
+          path: `${target.pathname}${target.search}`,
+          headers: { ...this.headers(), accept: "text/event-stream" },
+        },
+        (response) => {
+          if (!response || response.statusCode < 200 || response.statusCode >= 300) {
+            response && response.resume();
+            return;
+          }
+          let buffer = "";
+          response.setEncoding("utf8");
+          response.on("data", (chunk) => {
+            buffer += chunk;
+            let at = buffer.indexOf("\n\n");
+            while (at >= 0) {
+              const block = buffer.slice(0, at);
+              buffer = buffer.slice(at + 2);
+              for (const line of block.split("\n")) {
+                if (!line.startsWith("data:")) continue;
+                let payload = null;
+                try {
+                  payload = JSON.parse(line.slice(5).trim());
+                } catch (error) {
+                  continue;
+                }
+                try {
+                  onEvent(payload);
+                } catch (error) {
+                  /* a listener never breaks the stream */
+                }
+              }
+              at = buffer.indexOf("\n\n");
+            }
+          });
+          response.on("error", () => {});
+        }
+      );
+      req.on("error", () => {});
+      req.end();
+    } catch (e) {
+      return () => {};
+    }
+    return stop;
+  }
+
 }
 
 module.exports = {

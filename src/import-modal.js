@@ -212,7 +212,7 @@ function assistantErrorText(info) {
 /** A plain reason for a file the provider refused to write. */
 function agentFailureText(message, lastLines) {
   const seen = Array.isArray(lastLines) && lastLines.length ? ` It was last doing: ${str(lastLines[lastLines.length - 1]).slice(0, 160)}.` : "";
-  const rate = /rate|quota|429|too many|limit|capacity|overloaded/i.test(message);
+  const rate = /rate|quota|429|too many|limit|capacity|overloaded|usage|subscribe|free tier|free model/i.test(message);
   const advice = rate
     ? "That is a rate or usage limit, so waiting a few minutes and importing this file again usually works. Files already imported are kept."
     : "Check the AI setup in Settings, Study agent, AI (backend, model and key), then import this file again. Files already imported are kept.";
@@ -286,6 +286,17 @@ class PdfImportModal extends QtModal {
     // allowance a blocking send gets, and it is not a deadline on a working
     // agent: any real action resets it.
     this.agentSilenceMs = 6 * 60 * 1000;
+    // A hundred-page document can take many minutes just to read, and the
+    // silence allowance above is added to by `agentAllowanceMs()` for the
+    // text this file actually holds. The cap keeps a genuinely frozen request
+    // from holding a queue all night.
+    this.agentSilenceCapMs = 20 * 60 * 1000;
+    this.agentChars = 0;
+    // OpenCode reports a provider failure on its event stream (a session
+    // status of "retry", or a session error), not on the message the import
+    // polls. These hold the latest of each while a file is being written.
+    this.agentStatus = null;
+    this.agentStatusError = "";
     // A provider refusal arrives as an assistant message with no parts and no
     // error. It cannot become progress, so it is reported after this grace
     // instead of waiting out the whole silence allowance.
@@ -1634,6 +1645,9 @@ class PdfImportModal extends QtModal {
 
   async runAgent(pages) {
     const p = this.plugin;
+    // The watchdog's allowance follows the size of this file's own text, so a
+    // 100-page chapter is not cut off at the same six minutes as one page.
+    this.agentChars = (Array.isArray(pages) ? pages : []).reduce((n, page) => n + String((page && page.text) || "").length, 0);
     const vault = this.app.vault;
     const { folder, prefix, sourcePath, imagesDir, sourceName, kind } = this.ctx;
     const before = new Set(await this.listNotes(folder));
@@ -1819,8 +1833,51 @@ class PdfImportModal extends QtModal {
     }
   }
 
+  /**
+   * How long a quiet agent may go before it is called stalled. The base is the
+   * six-minute allowance; a big document adds about one second per thousand
+   * tokens of its own text, because a slow model reading it is working, not
+   * frozen. The result never exceeds the cap.
+   */
+  agentAllowanceMs() {
+    const base = Math.max(1000, Number(this.agentSilenceMs) || 6 * 60 * 1000);
+    const cap = Math.max(base, Number(this.agentSilenceCapMs) || 20 * 60 * 1000);
+    const chars = Math.max(0, Number(this.agentChars) || 0);
+    return Math.min(cap, base + Math.round(chars / 4000) * 1000);
+  }
+
+  /** Follow the session's event stream for provider failures while this file runs. */
+  watchAgentEvents(sid) {
+    this.agentStatus = null;
+    this.agentStatusError = "";
+    let client = null;
+    try {
+      client = this.plugin.openCode();
+    } catch (e) {
+      return () => {};
+    }
+    if (!client || typeof client.watchEvents !== "function") return () => {};
+    return client.watchEvents((event) => {
+      const props = (event && event.properties) || {};
+      if (props.sessionID && props.sessionID !== sid) return;
+      if (event.type === "session.status") this.agentStatus = props.status || null;
+      if (event.type === "session.error") {
+        this.agentStatusError = assistantErrorText({ error: props.error }) || "OpenCode reported an error with no details.";
+      }
+    });
+  }
+
   /** Watch the session until the assistant has finished, without relying on send() resolving. */
   async waitForAgent(sid, folder) {
+    const stopWatch = this.watchAgentEvents(sid);
+    try {
+      return await this.watchSession(sid, folder);
+    } finally {
+      stopWatch();
+    }
+  }
+
+  async watchSession(sid, folder) {
     const started = Date.now();
     let lastChange = started;
     let lastSignature = "";
@@ -1858,6 +1915,10 @@ class PdfImportModal extends QtModal {
         lastProgress = state.progress;
         lastChange = now;
       }
+      if (state.providerError) throw new Error(agentFailureText(state.providerError, lastLines));
+      // The server says it is working on this session: a quiet message list is
+      // not a stalled agent while that is true.
+      if (state.busy) lastChange = now;
       if (state.errorText) throw new Error(agentFailureText(state.errorText, lastLines));
       if (state.emptyAssistant) {
         // A finished empty reply is final: nothing else is coming.
@@ -1884,7 +1945,7 @@ class PdfImportModal extends QtModal {
       // writes nothing at all for the whole allowance is stalled, usually on a
       // frozen model request, and leaving it there forever is what the owner
       // saw as an import that never finished.
-      if (now - lastChange >= this.agentSilenceMs) throw this.agentStalledError(state, lastChange, now, lastLines);
+      if (now - lastChange >= this.agentAllowanceMs()) throw this.agentStalledError(state, lastChange, now, lastLines);
     }
     throw this.cancelledImportError();
   }
@@ -1909,6 +1970,13 @@ class PdfImportModal extends QtModal {
       // error and no parts at all. Waiting six minutes for progress that cannot
       // come is wrong: report the provider's own words at once.
       const errorText = assistantErrorText(info);
+      // A retry status is the provider refusing this attempt; the message it
+      // carries ("Free usage exceeded...", a rate limit) is what the user
+      // needs. A busy status proves the server is working on this session, so
+      // the quiet time restarts instead of counting against a slow model.
+      const status = this.agentStatus;
+      const retry = status && status.type === "retry";
+      const providerError = this.agentStatusError || (retry ? status.message || "The provider is retrying this request." : "");
       // No parts and no error, on a message the provider has finished: the
       // request was accepted and nothing came back. A message that is still
       // open is a model reading a long prompt, not an empty answer.
@@ -1919,7 +1987,17 @@ class PdfImportModal extends QtModal {
       // silently retries a frozen request cannot look busy forever.
       const toolParts = parts.filter((part) => part && part.type === "tool");
       const progress = JSON.stringify([n, toolParts.length, toolParts.map((part) => (part.state && part.state.status) || "").join(","), info.finish || ""]);
-      return { noteCount: n, terminal: completed && !running, signature, progress, lines, errorText, emptyAssistant };
+      return {
+        noteCount: n,
+        terminal: completed && !running,
+        signature,
+        progress,
+        lines,
+        errorText,
+        emptyAssistant,
+        providerError,
+        busy: !!(status && status.type === "busy"),
+      };
     } catch (e) {
       if (this.isStopError(e)) throw e;
       return null;

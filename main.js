@@ -50247,7 +50247,7 @@ function assistantErrorText(info) {
 /** A plain reason for a file the provider refused to write. */
 function agentFailureText(message, lastLines) {
   const seen = Array.isArray(lastLines) && lastLines.length ? ` It was last doing: ${str(lastLines[lastLines.length - 1]).slice(0, 160)}.` : "";
-  const rate = /rate|quota|429|too many|limit|capacity|overloaded/i.test(message);
+  const rate = /rate|quota|429|too many|limit|capacity|overloaded|usage|subscribe|free tier|free model/i.test(message);
   const advice = rate
     ? "That is a rate or usage limit, so waiting a few minutes and importing this file again usually works. Files already imported are kept."
     : "Check the AI setup in Settings, Study agent, AI (backend, model and key), then import this file again. Files already imported are kept.";
@@ -50321,6 +50321,17 @@ class PdfImportModal extends QtModal {
     // allowance a blocking send gets, and it is not a deadline on a working
     // agent: any real action resets it.
     this.agentSilenceMs = 6 * 60 * 1000;
+    // A hundred-page document can take many minutes just to read, and the
+    // silence allowance above is added to by `agentAllowanceMs()` for the
+    // text this file actually holds. The cap keeps a genuinely frozen request
+    // from holding a queue all night.
+    this.agentSilenceCapMs = 20 * 60 * 1000;
+    this.agentChars = 0;
+    // OpenCode reports a provider failure on its event stream (a session
+    // status of "retry", or a session error), not on the message the import
+    // polls. These hold the latest of each while a file is being written.
+    this.agentStatus = null;
+    this.agentStatusError = "";
     // A provider refusal arrives as an assistant message with no parts and no
     // error. It cannot become progress, so it is reported after this grace
     // instead of waiting out the whole silence allowance.
@@ -51669,6 +51680,9 @@ class PdfImportModal extends QtModal {
 
   async runAgent(pages) {
     const p = this.plugin;
+    // The watchdog's allowance follows the size of this file's own text, so a
+    // 100-page chapter is not cut off at the same six minutes as one page.
+    this.agentChars = (Array.isArray(pages) ? pages : []).reduce((n, page) => n + String((page && page.text) || "").length, 0);
     const vault = this.app.vault;
     const { folder, prefix, sourcePath, imagesDir, sourceName, kind } = this.ctx;
     const before = new Set(await this.listNotes(folder));
@@ -51854,8 +51868,51 @@ class PdfImportModal extends QtModal {
     }
   }
 
+  /**
+   * How long a quiet agent may go before it is called stalled. The base is the
+   * six-minute allowance; a big document adds about one second per thousand
+   * tokens of its own text, because a slow model reading it is working, not
+   * frozen. The result never exceeds the cap.
+   */
+  agentAllowanceMs() {
+    const base = Math.max(1000, Number(this.agentSilenceMs) || 6 * 60 * 1000);
+    const cap = Math.max(base, Number(this.agentSilenceCapMs) || 20 * 60 * 1000);
+    const chars = Math.max(0, Number(this.agentChars) || 0);
+    return Math.min(cap, base + Math.round(chars / 4000) * 1000);
+  }
+
+  /** Follow the session's event stream for provider failures while this file runs. */
+  watchAgentEvents(sid) {
+    this.agentStatus = null;
+    this.agentStatusError = "";
+    let client = null;
+    try {
+      client = this.plugin.openCode();
+    } catch (e) {
+      return () => {};
+    }
+    if (!client || typeof client.watchEvents !== "function") return () => {};
+    return client.watchEvents((event) => {
+      const props = (event && event.properties) || {};
+      if (props.sessionID && props.sessionID !== sid) return;
+      if (event.type === "session.status") this.agentStatus = props.status || null;
+      if (event.type === "session.error") {
+        this.agentStatusError = assistantErrorText({ error: props.error }) || "OpenCode reported an error with no details.";
+      }
+    });
+  }
+
   /** Watch the session until the assistant has finished, without relying on send() resolving. */
   async waitForAgent(sid, folder) {
+    const stopWatch = this.watchAgentEvents(sid);
+    try {
+      return await this.watchSession(sid, folder);
+    } finally {
+      stopWatch();
+    }
+  }
+
+  async watchSession(sid, folder) {
     const started = Date.now();
     let lastChange = started;
     let lastSignature = "";
@@ -51893,6 +51950,10 @@ class PdfImportModal extends QtModal {
         lastProgress = state.progress;
         lastChange = now;
       }
+      if (state.providerError) throw new Error(agentFailureText(state.providerError, lastLines));
+      // The server says it is working on this session: a quiet message list is
+      // not a stalled agent while that is true.
+      if (state.busy) lastChange = now;
       if (state.errorText) throw new Error(agentFailureText(state.errorText, lastLines));
       if (state.emptyAssistant) {
         // A finished empty reply is final: nothing else is coming.
@@ -51919,7 +51980,7 @@ class PdfImportModal extends QtModal {
       // writes nothing at all for the whole allowance is stalled, usually on a
       // frozen model request, and leaving it there forever is what the owner
       // saw as an import that never finished.
-      if (now - lastChange >= this.agentSilenceMs) throw this.agentStalledError(state, lastChange, now, lastLines);
+      if (now - lastChange >= this.agentAllowanceMs()) throw this.agentStalledError(state, lastChange, now, lastLines);
     }
     throw this.cancelledImportError();
   }
@@ -51944,6 +52005,13 @@ class PdfImportModal extends QtModal {
       // error and no parts at all. Waiting six minutes for progress that cannot
       // come is wrong: report the provider's own words at once.
       const errorText = assistantErrorText(info);
+      // A retry status is the provider refusing this attempt; the message it
+      // carries ("Free usage exceeded...", a rate limit) is what the user
+      // needs. A busy status proves the server is working on this session, so
+      // the quiet time restarts instead of counting against a slow model.
+      const status = this.agentStatus;
+      const retry = status && status.type === "retry";
+      const providerError = this.agentStatusError || (retry ? status.message || "The provider is retrying this request." : "");
       // No parts and no error, on a message the provider has finished: the
       // request was accepted and nothing came back. A message that is still
       // open is a model reading a long prompt, not an empty answer.
@@ -51954,7 +52022,17 @@ class PdfImportModal extends QtModal {
       // silently retries a frozen request cannot look busy forever.
       const toolParts = parts.filter((part) => part && part.type === "tool");
       const progress = JSON.stringify([n, toolParts.length, toolParts.map((part) => (part.state && part.state.status) || "").join(","), info.finish || ""]);
-      return { noteCount: n, terminal: completed && !running, signature, progress, lines, errorText, emptyAssistant };
+      return {
+        noteCount: n,
+        terminal: completed && !running,
+        signature,
+        progress,
+        lines,
+        errorText,
+        emptyAssistant,
+        providerError,
+        busy: !!(status && status.type === "busy"),
+      };
     } catch (e) {
       if (this.isStopError(e)) throw e;
       return null;
@@ -61781,6 +61859,102 @@ class OpenCodeClient {
   abort(id) {
     return this.req("POST", `/session/${encodeURIComponent(id)}/abort`, {}, this.timeoutMs);
   }
+
+  /**
+   * Follow the server's event stream for as long as the caller keeps it.
+   * `onEvent(payload)` gets every event; the caller filters by session. The
+   * session's own message list does not carry a provider failure — OpenCode
+   * leaves an empty, unfinished assistant message and reports the reason as a
+   * `session.status` retry event — so this is how a spent quota or a rate
+   * limit becomes visible while a prompt is still running. Best effort: no
+   * fetch, no stream, or an event shape this version does not know ends or
+   * skips quietly, and the caller still reads the messages.
+   */
+  watchEvents(onEvent, signal) {
+    const stop = () => {
+      try {
+        if (req) req.destroy();
+      } catch (e) {
+        /* already closed */
+      }
+    };
+    if (typeof onEvent !== "function") return () => {};
+    let req = null;
+    // A renderer fetch to the local server is refused by the page's own
+    // security rules (the same request succeeds over HTTP), so the stream is
+    // read with Node's http on desktop. Mobile has no OpenCode anyway.
+    let http = null;
+    try {
+      http = require("http");
+    } catch (e) {
+      http = null;
+    }
+    if (!http || typeof http.request !== "function") return () => {};
+    let base = "";
+    try {
+      base = this.base();
+    } catch (e) {
+      return () => {};
+    }
+    let target = null;
+    try {
+      target = new URL(`${base}/event`);
+    } catch (e) {
+      return () => {};
+    }
+    if (signal) {
+      if (signal.aborted) return () => {};
+      signal.addEventListener("abort", stop);
+    }
+    try {
+      req = http.request(
+        {
+          hostname: target.hostname,
+          port: target.port || 80,
+          path: `${target.pathname}${target.search}`,
+          headers: { ...this.headers(), accept: "text/event-stream" },
+        },
+        (response) => {
+          if (!response || response.statusCode < 200 || response.statusCode >= 300) {
+            response && response.resume();
+            return;
+          }
+          let buffer = "";
+          response.setEncoding("utf8");
+          response.on("data", (chunk) => {
+            buffer += chunk;
+            let at = buffer.indexOf("\n\n");
+            while (at >= 0) {
+              const block = buffer.slice(0, at);
+              buffer = buffer.slice(at + 2);
+              for (const line of block.split("\n")) {
+                if (!line.startsWith("data:")) continue;
+                let payload = null;
+                try {
+                  payload = JSON.parse(line.slice(5).trim());
+                } catch (error) {
+                  continue;
+                }
+                try {
+                  onEvent(payload);
+                } catch (error) {
+                  /* a listener never breaks the stream */
+                }
+              }
+              at = buffer.indexOf("\n\n");
+            }
+          });
+          response.on("error", () => {});
+        }
+      );
+      req.on("error", () => {});
+      req.end();
+    } catch (e) {
+      return () => {};
+    }
+    return stop;
+  }
+
 }
 
 module.exports = {
@@ -62896,7 +63070,9 @@ function normalizeConcurrency(value) {
 }
 
 function isCapMessage(message) {
-  return /request cap|no more AI requests|raise the cap/i.test(str(message));
+  // A spent free tier lasts until it resets, so the queue is parked exactly as
+  // a spent request cap is, instead of failing every remaining file.
+  return /request cap|no more AI requests|raise the cap|free usage|free tier|free limit|usage limit/i.test(str(message));
 }
 
 function isRateLimitMessage(message) {
@@ -74994,6 +75170,23 @@ class QuestionTrackerPlugin extends Plugin {
    * when there is real work to report (a start, a repair or a restart).
    */
   async ensureOpenCode(progress) {
+    const hasSetup = !!(this.settings && this.settings.ai);
+    if (hasSetup && !this.settings.ai.managed) {
+      // A server the user runs themselves is never booted here: the managed
+      // copy binds a random port, and a cold start slower than 20 seconds
+      // used to fail a file that the healthy manual server would have
+      // imported. Probe the configured address and fail fast when it is down.
+      let probe = null;
+      try {
+        probe = await this.openCode().providers(4000);
+      } catch (e) {
+        probe = null;
+      }
+      if (probe && Array.isArray(probe.providers)) return;
+      throw new Error(
+        `OpenCode at ${str(this.conn().url).trim() || "the address in Settings"} isn't answering. Start it and import this file again, or switch the AI backend to Direct API in Settings.`
+      );
+    }
     let note = this.manager.isRunning() ? null : new Notice("Setting up OpenCode...", 0);
     const say = (m) => {
       if (note) note.setMessage(m);
@@ -137314,6 +137507,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.302.5",
+    date: "November 15, 2026",
+    title: "A spent free tier says so in seconds",
+    summary:
+      "OpenCode reports a provider failure on its own event stream, not on the message an import polls, so an exhausted free tier used to look like a model that wrote nothing for six minutes, and every file in a batch was restarted and failed. The import now reads that status and reports the provider's words at once, a slow chapter gets longer than six quiet minutes, and an OpenCode you run yourself is never booted behind your back.",
+    highlights: [
+      {
+        title: "The provider's reason is read, not guessed",
+        body: "OpenCode leaves an empty, unfinished message behind a failed request and puts the reason on its event stream as a session status: Free usage exceeded, subscribe to Go; a rate limit; or a rejected key. The import now watches that stream while a file runs and stops the file with those words within seconds instead of waiting out a silence allowance.",
+      },
+      {
+        title: "Overnight queues park instead of failing a hundred files",
+        body: "A spent free tier lasts until it resets, so the overnight queue now pauses with the reason and keeps its place, exactly as it does for a spent request cap. Waiting files are not marked failed and the morning log names the pause.",
+      },
+      {
+        title: "A long chapter gets the time it needs",
+        body: "The silence allowance still exists for a frozen request, but it now grows with the document: about one extra second per thousand tokens of its own text, capped at twenty minutes. A slow model reading a big chapter is no longer cut off at six minutes.",
+      },
+      {
+        title: "Your own OpenCode stays yours",
+        body: "With a server you run yourself, an import only checks that the address answers. It no longer starts the plugin's managed copy, whose cold start could take longer than twenty seconds and fail a file the healthy server would have imported; a dead address is reported in seconds with what to do.",
+      },
+    ],
+  },
   {
     version: "1.302.4",
     date: "November 15, 2026",

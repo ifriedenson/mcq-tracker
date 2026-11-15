@@ -365,3 +365,34 @@ test("Windows backslash paths resolve to the executable before spawn", async (t)
   }
   assert.ok(path.isAbsolute(folder));
 });
+
+test("a manual server is probed, never booted", async () => {
+  const boots = [];
+  const manual = Object.create(Plugin.prototype);
+  manual.settings = { ai: { managed: false, url: "http://127.0.0.1:8099" } };
+  manual.manager = {
+    isRunning: () => false,
+    ensure: async () => {
+      boots.push("boot");
+    },
+  };
+  manual.openCode = () => ({ providers: async () => ({ providers: [{ id: "local" }] }) });
+  await manual.ensureOpenCode(() => {});
+  assert.deepEqual(boots, [], "no managed copy starts when the user runs their own server");
+
+  const dead = Object.create(Plugin.prototype);
+  dead.settings = { ai: { managed: false, url: "http://127.0.0.1:8099" } };
+  dead.manager = {
+    isRunning: () => false,
+    ensure: async () => {
+      boots.push("boot");
+    },
+  };
+  dead.openCode = () => ({
+    providers: async () => {
+      throw new Error("connect ECONNREFUSED 127.0.0.1:8099");
+    },
+  });
+  await assert.rejects(dead.ensureOpenCode(() => {}), /OpenCode at http:\/\/127\.0\.0\.1:8099 isn't answering/);
+  assert.deepEqual(boots, [], "a dead manual server fails fast instead of booting a managed one");
+});
