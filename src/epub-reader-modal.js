@@ -154,8 +154,21 @@ class EpubReaderModal extends QtModal {
 
   async remove(id) {
     try {
-      const removed = await this.plugin.deleteEpubAnnotation(this.path, id);
-      await this.load();
+      if (typeof this.plugin.deleteWithUndo !== "function") {
+        const removedDirectly = await this.plugin.deleteEpubAnnotation(this.path, id);
+        await this.load();
+        if (!removedDirectly) new Notice(`There is no annotation ${str(id)} in this book.`);
+        return removedDirectly;
+      }
+      const sidecar = epubAnnotations.sidecarPathFor(this.path);
+      const file = this.plugin.app.vault.getAbstractFileByPath(sidecar);
+      const removed = await this.plugin.deleteWithUndo({
+        label: "that highlight",
+        capture: () => (file ? this.plugin.app.vault.cachedRead(file) : ""),
+        restore: (text) => (file ? this.plugin.app.vault.modify(file, text) : Promise.resolve()),
+        remove: () => this.plugin.deleteEpubAnnotation(this.path, id),
+        onChange: () => this.load(),
+      });
       if (!removed) new Notice(`There is no annotation ${str(id)} in this book.`);
       return removed;
     } catch (e) {

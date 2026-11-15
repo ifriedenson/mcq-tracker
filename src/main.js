@@ -431,6 +431,10 @@ QuestionTrackerPlugin.__test = {
     return require("./chat-projects");
   },
   // Lazy: a test-surface entry must not be paid for at plugin startup.
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatMemoryModal() {
+    return require("./chat-memory-modal");
+  },
   get chatMemory() {
     return require("./chat-memory");
   },

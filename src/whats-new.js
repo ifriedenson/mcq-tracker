@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.9",
+    date: "November 15, 2026",
+    title: "Every delete has a way back",
+    summary:
+      "The task list was the only safe list. Every other Delete, Remove and Discard in the plugin now runs through one undo path: the row goes, a notice names what left, and Undo puts the whole record back \u2014 including the tasks inside a time block and the absences that a subject took with it.",
+    highlights: [
+      {
+        title: "One undo for all of it",
+        body: "Explanations, plans, topics, excerpts, grades, subjects, projects, absences, deep notes, words, time blocks, backlog items, saved events, goals, lectures, chat facts and conversations, practice presets, pending card grades and EPUB highlights all delete through plugin.deleteWithUndo, so the notice, the sizing and the way back are identical everywhere.",
+      },
+      {
+        title: "Undo restores the whole record",
+        body: "It returns the settings keys the delete touched, so a subject comes back with its absences and a time block with the tasks inside it. If anything in that part changed in the meantime, Undo says so and changes nothing rather than overwriting newer work.",
+      },
+      {
+        title: "The name is on the button",
+        body: "Every repaired control carries the record it destroys: \u201cDelete word mitosis\u201d, \u201cDelete plan Biology \u00b7 2026-12-10\u201d, \u201cDelete event Probe event\u201d. A plan without a title used to read \u201cDelete plan undefined\u201d and now names its course and exam date.",
+      },
+      {
+        title: "Driven, not read",
+        body: "Sixteen kinds were deleted and undone live in Obsidian 1.15.1 on Primary \u2014 each one removed, noticed, restored byte-for-byte and refusing a second restore \u2014 and the rest are pinned by tests that compare the stored settings before and after.",
+      },
+    ],
+  },
+  {
     version: "1.307.8",
     date: "November 15, 2026",
     title: "Deleting a task undoes the same everywhere",

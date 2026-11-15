@@ -696,10 +696,15 @@ class CardView extends ItemView {
           if (file) this.app.workspace.getLeaf("tab").openFile(file);
         });
       }
-      const discard = row.createEl("button", { text: "Discard", cls: "qt-link qt-pending-discard" });
+      const discard = row.createEl("button", { text: "Discard", cls: "qt-link qt-pending-discard", attr: { "aria-label": `Discard the pending grade for ${entry.title || "this card"}` } });
       discard.addEventListener("click", () => {
-        this.plugin.discardPendingCardGrade(entry.id);
-        this.render();
+        this.plugin.deleteWithUndo({
+          label: entry.title ? `the pending grade for ${entry.title}` : "the pending grade",
+          capture: () => this.plugin.readPendingCardGrades(),
+          restore: (snapshot) => this.plugin.writePendingCardGrades(snapshot),
+          remove: () => this.plugin.discardPendingCardGrade(entry.id),
+          onChange: () => this.render(),
+        });
       });
     }
     if (pendingCards.length > 5) list.createDiv({ cls: "qt-pending-more", text: `+${pendingCards.length - 5} more` });
@@ -741,8 +746,20 @@ class CardView extends ItemView {
     const actions = panel.createDiv({ cls: "qt-row" });
     const grade = actions.createEl("button", { text: "Grade now", cls: "mod-cta" });
     grade.addEventListener("click", () => this.gradePendingFromReview(grade));
-    const discard = actions.createEl("button", { text: "Discard pending" });
-    discard.addEventListener("click", () => this.discardPendingFromReview());
+    const discard = actions.createEl("button", { text: "Discard pending", attr: { "aria-label": "Discard the pending grade for this card" } });
+    discard.addEventListener("click", () => {
+      const id = this.pendingGradeId;
+      if (!id || !this.plugin || typeof this.plugin.deleteWithUndo !== "function") return this.discardPendingFromReview();
+      this.plugin.deleteWithUndo({
+        label: "the pending grade",
+        capture: () => this.plugin.readPendingCardGrades(),
+        restore: (snapshot) => this.plugin.writePendingCardGrades(snapshot),
+        remove: () => this.plugin.discardPendingCardGrade(id),
+        onChange: () => this.render(),
+      });
+      this.pendingGrade = false;
+      this.pendingGradeId = "";
+    });
   }
 
   async gradePendingFromReview(button) {

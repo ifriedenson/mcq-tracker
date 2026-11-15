@@ -428,11 +428,18 @@ class StudyWorkspaceView extends ItemView {
         this.feynmanId = session.id;
         this.render();
       });
-      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.removeFeynmanSession(session.id);
-        if (this.feynmanId === session.id) this.feynmanId = "";
-        this.render();
-      });
+      buttons
+        .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete explanation ${session.topic}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({
+            label: session.topic,
+            remove: () => this.plugin.removeFeynmanSession(session.id),
+            onChange: () => {
+              if (this.feynmanId === session.id) this.feynmanId = "";
+              this.render();
+            },
+          });
+        });
     }
   }
 
@@ -686,10 +693,11 @@ class StudyWorkspaceView extends ItemView {
           this.render();
         });
       }
-      buttons.createEl("button", { text: "Remove", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.removePlannerTopic(plan.id, topic.id);
-        this.render();
-      });
+      buttons
+        .createEl("button", { text: "Remove", cls: "qt-danger", attr: { "aria-label": `Remove topic ${topic.name}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({ label: topic.name, remove: () => this.plugin.removePlannerTopic(plan.id, topic.id), onChange: () => this.render() });
+        });
     }
     const daysCard = root.createDiv({ cls: "qt-study-card" });
     daysCard.createEl("h3", { text: "Day-level allocation" });
@@ -705,11 +713,19 @@ class StudyWorkspaceView extends ItemView {
       if (summary.days.length > 14) daysCard.createDiv({ cls: "qt-study-row-meta", text: `+${summary.days.length - 14} more days` });
     }
     const planRow = root.createDiv({ cls: "qt-row qt-study-actions" });
-    planRow.createEl("button", { text: "Delete plan", cls: "qt-danger" }).addEventListener("click", async () => {
-      await this.plugin.removePlannerPlan(plan.id);
-      this.planId = "";
-      this.render();
-    });
+    const planName = plan.course + (plan.examDate ? ` \u00b7 ${plan.examDate}` : "");
+    planRow
+      .createEl("button", { text: "Delete plan", cls: "qt-danger", attr: { "aria-label": `Delete plan ${planName}` } })
+      .addEventListener("click", async () => {
+        await this.plugin.deleteWithUndo({
+          label: planName,
+          remove: () => this.plugin.removePlannerPlan(plan.id),
+          onChange: () => {
+            this.planId = "";
+            this.render();
+          },
+        });
+      });
     const switchRow = root.createDiv({ cls: "qt-row qt-study-actions" });
     for (const entry of plans) {
       switchRow.createEl("button", { text: entry === plan ? `${entry.course} (open)` : entry.course }).addEventListener("click", () => {
@@ -796,10 +812,11 @@ class StudyWorkspaceView extends ItemView {
       if (excerpt.sourcePath && this.plugin.openStudyFlowSource) {
         buttons.createEl("button", { text: "Source" }).addEventListener("click", () => this.plugin.openStudyFlowSource(excerpt.sourcePath));
       }
-      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.removeFlowExcerpt(excerpt.id);
-        this.render();
-      });
+      buttons
+        .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete excerpt from ${excerpt.sourcePath || "an unlinked source"}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({ label: excerpt.quote, remove: () => this.plugin.removeFlowExcerpt(excerpt.id), onChange: () => this.render() });
+        });
     }
     this.renderWritingSession(root);
   }
@@ -1029,10 +1046,11 @@ class StudyWorkspaceView extends ItemView {
           const main = row.createDiv({ cls: "qt-study-row-main" });
           main.createDiv({ cls: "qt-study-row-title", text: `${grade.title} · ${grade.score}%` });
           main.createDiv({ cls: "qt-study-row-meta", text: `${grade.date || "No date"} · weight ${grade.weight}` });
-          row.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-            await this.plugin.removeCourseGrade(grade.id);
-            this.render();
-          });
+          row
+            .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete grade ${grade.title}` } })
+            .addEventListener("click", async () => {
+              await this.plugin.deleteWithUndo({ label: grade.title, remove: () => this.plugin.removeCourseGrade(grade.id), onChange: () => this.render() });
+            });
         }
       }
     }
@@ -1251,10 +1269,11 @@ class StudyWorkspaceView extends ItemView {
       if (entry.answer) main.createDiv({ cls: "qt-study-row-meta", text: `A: ${entry.answer}` });
       const buttons = row.createDiv({ cls: "qt-study-row-actions" });
       if (entry.sourcePath) buttons.createEl("button", { text: "Open source" }).addEventListener("click", () => this.plugin.openStudyFlowSource(entry.sourcePath));
-      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.removeAnnotation(entry.id);
-        this.render();
-      });
+      buttons
+        .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete annotation from ${entry.sourcePath || "an unlinked source"}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({ label: entry.quote, remove: () => this.plugin.removeAnnotation(entry.id), onChange: () => this.render() });
+        });
     }
   }
 
@@ -1303,11 +1322,18 @@ class StudyWorkspaceView extends ItemView {
         this.deepNotesId = session.id;
         this.render();
       });
-      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.removeDeepNotesSession(session.id);
-        if (this.deepNotesId === session.id) this.deepNotesId = "";
-        this.render();
-      });
+      buttons
+        .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete deep notes ${session.topic}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({
+            label: session.topic,
+            remove: () => this.plugin.removeDeepNotesSession(session.id),
+            onChange: () => {
+              if (this.deepNotesId === session.id) this.deepNotesId = "";
+              this.render();
+            },
+          });
+        });
     }
   }
 
@@ -1558,10 +1584,11 @@ class StudyWorkspaceView extends ItemView {
           this.render();
         });
       }
-      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.removeVocabWord(word.id);
-        this.render();
-      });
+      buttons
+        .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete word ${word.term}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({ label: word.term, remove: () => this.plugin.removeVocabWord(word.id), onChange: () => this.render() });
+        });
     }
     this.renderGlossary(root);
   }
@@ -1760,16 +1787,18 @@ class StudyWorkspaceView extends ItemView {
             await this.plugin.toggleStudyProject(subject.id, project.id);
             this.render();
           });
-          projectRow.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-            await this.plugin.removeStudyProject(subject.id, project.id);
-            this.render();
-          });
+          projectRow
+            .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete project ${project.title}` } })
+            .addEventListener("click", async () => {
+              await this.plugin.deleteWithUndo({ label: project.title, remove: () => this.plugin.removeStudyProject(subject.id, project.id), onChange: () => this.render() });
+            });
         }
         const buttons = row.createDiv({ cls: "qt-study-row-actions" });
-        buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-          await this.plugin.removeStudySubject(subject.id);
-          this.render();
-        });
+        buttons
+          .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete subject ${subject.name}` } })
+          .addEventListener("click", async () => {
+            await this.plugin.deleteWithUndo({ label: subject.name, remove: () => this.plugin.removeStudySubject(subject.id), onChange: () => this.render() });
+          });
       }
     }
     const projectCard = root.createDiv({ cls: "qt-study-card" });
@@ -1832,10 +1861,11 @@ class StudyWorkspaceView extends ItemView {
       const main = row.createDiv({ cls: "qt-study-row-main" });
       main.createDiv({ cls: "qt-study-row-title", text: `${absence.subject} · ${absence.date}` });
       if (absence.reason) main.createDiv({ cls: "qt-study-row-meta", text: absence.reason });
-      row.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.removeStudyAbsence(absence.id);
-        this.render();
-      });
+      row
+        .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete absence for ${absence.subject} on ${absence.date}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({ label: `${absence.subject} on ${absence.date}`, remove: () => this.plugin.removeStudyAbsence(absence.id), onChange: () => this.render() });
+        });
     }
   }
 
@@ -1882,11 +1912,18 @@ class StudyWorkspaceView extends ItemView {
       const scores = active.aiScores;
       card.createDiv({ cls: "qt-study-row-meta", text: `AI average ${active.aiAverage || 0}/5 · clarity ${scores.clarity} · accuracy ${scores.accuracy} · simplicity ${scores.simplicity}` });
       if (active.aiFeedback) card.createDiv({ cls: "qt-study-next-meta", text: active.aiFeedback });
-      actions.createEl("button", { text: "Clear AI feedback", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.clearFeynmanAiFeedback(active.id);
-        this.saveMessage("AI feedback cleared; your manual scores are kept.");
-        this.render();
-      });
+      actions
+        .createEl("button", { text: "Clear AI feedback", cls: "qt-danger", attr: { "aria-label": `Clear AI feedback for ${active.topic}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({
+            label: `AI feedback for ${active.topic}`,
+            remove: () => this.plugin.clearFeynmanAiFeedback(active.id),
+            onChange: () => {
+              this.saveMessage("AI feedback cleared; your manual scores are kept.");
+              this.render();
+            },
+          });
+        });
     } else {
       card.createDiv({ cls: "qt-study-row-meta", text: "No AI feedback stored for this explanation yet." });
     }
@@ -2282,11 +2319,18 @@ class StudyWorkspaceView extends ItemView {
       this.timeBlockEditId = this.timeBlockEditId === block.id ? "" : block.id;
       this.render();
     });
-    actions.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-      await this.plugin.removeTimeBlock(block.id);
-      this.saveMessage("Block removed.");
-      this.render();
-    });
+    actions
+      .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete block ${block.title}` } })
+      .addEventListener("click", async () => {
+        await this.plugin.deleteWithUndo({
+          label: block.title,
+          remove: () => this.plugin.removeTimeBlock(block.id),
+          onChange: () => {
+            this.saveMessage("Block removed.");
+            this.render();
+          },
+        });
+      });
 
     if (this.timeBlockEditId === block.id) {
       const form = card.createDiv({ cls: "qt-study-form qt-time-block-edit" });
@@ -2370,10 +2414,11 @@ class StudyWorkspaceView extends ItemView {
       if (task.status === "half") label.createSpan({ cls: "qt-study-row-meta", text: " half-done" });
       else if (task.status === "cancelled") label.createSpan({ cls: "qt-study-row-meta", text: " cancelled" });
       if (task.studyTaskId) label.createSpan({ cls: "qt-study-row-meta", text: " linked task" });
-      row.createEl("button", { text: "Remove", cls: "qt-link qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.removeTimeBlockTask(block.id, task.id);
-        this.render();
-      });
+      row
+        .createEl("button", { text: "Remove", cls: "qt-link qt-danger", attr: { "aria-label": `Remove task ${task.title}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({ label: task.title, remove: () => this.plugin.removeTimeBlockTask(block.id, task.id), onChange: () => this.render() });
+        });
     }
     const addTask = card.createDiv({ cls: "qt-row qt-time-block-task-add" });
     const input = addTask.createEl("input", { cls: "qt-input", type: "text", attr: { placeholder: "Add a task inside this block", "aria-label": "New task inside this block" } });
@@ -2578,10 +2623,11 @@ class StudyWorkspaceView extends ItemView {
         this.saveMessage(block ? "Scheduled " + item.title + "." : "Use an end time after the start.");
         this.render();
       });
-      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.removeTimeBlockBacklog(item.id);
-        this.render();
-      });
+      buttons
+        .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete backlog item ${item.title}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({ label: item.title, remove: () => this.plugin.removeTimeBlockBacklog(item.id), onChange: () => this.render() });
+        });
     }
   }
 

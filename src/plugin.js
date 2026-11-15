@@ -14542,30 +14542,70 @@ ${body}
   }
 
   /**
+   * The one way any surface deletes user content: take the settings before,
+   * let `remove()` do exactly what it always did, then offer the way back.
+   * Undo restores only the settings keys that delete touched, and only while
+   * they still hold what the delete left behind, so a second delete or an edit
+   * made in the meantime is never silently overwritten.
+   */
+  async deleteWithUndo({ label, remove, onChange, capture, restore } = {}) {
+    const taken = typeof capture === "function";
+    const settle = async (value) => JSON.parse(JSON.stringify(value && typeof value.then === "function" ? await value : value));
+    // A synchronous capture never awaits, so the delete itself still starts in
+    // the click that asked for it rather than on a later tick.
+    const before = taken ? await settle(capture()) : JSON.parse(JSON.stringify(this.settings || {}));
+    const result = await remove();
+    if (result === false) return null;
+    if (typeof onChange === "function") onChange();
+    const after = taken ? await settle(capture()) : JSON.parse(JSON.stringify(this.settings || {}));
+    const changed = taken ? [0] : Object.keys(before).filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]));
+    const name = str(label).trim();
+    const notice = new Notice(`Deleted ${name ? `\u201c${name}\u201d` : "it"}.`, 8000);
+    const undo = notice.noticeEl.createEl("button", { text: "Undo", cls: "qt-notice-undo" });
+    undo.addEventListener("click", async () => {
+      undo.disabled = true;
+      try {
+        if (taken) {
+          const now = await settle(capture());
+          if (JSON.stringify(now) !== JSON.stringify(after)) {
+            new Notice("That part changed since the delete, so it was left as it is.", 7000);
+            return;
+          }
+          await restore(JSON.parse(JSON.stringify(before)));
+        } else {
+          const now = this.settings || {};
+          const moved = changed.some((key) => JSON.stringify(now[key]) !== JSON.stringify(after[key]));
+          if (moved) {
+            new Notice("That part changed since the delete, so it was left as it is.", 7000);
+            return;
+          }
+          for (const key of changed) this.settings[key] = JSON.parse(JSON.stringify(before[key]));
+          await this.save();
+          this.refreshViews();
+        }
+        if (typeof onChange === "function") onChange();
+        new Notice("Restored.", 3000);
+      } catch (error) {
+        new Notice("Could not restore that. Nothing was changed; try again.", 6000);
+      } finally {
+        notice.hide();
+      }
+    });
+    return result;
+  }
+
+  /**
    * The one way any surface deletes a task: the row goes at once and the
    * notice's Undo puts it back, so the sidebar list and the Study Workspace
    * queue behave the same and neither costs a task to a stray click.
    * `onChange` repaints the calling view after the delete and after a restore.
    */
   async deleteStudyTaskWithUndo(id, onChange) {
-    const removed = await this.removeStudyTask(id);
-    if (typeof onChange === "function") onChange();
-    if (!removed) return null;
-    const notice = new Notice(`Deleted “${removed.title}”.`, 8000);
-    const undo = notice.noticeEl.createEl("button", { text: "Undo", cls: "qt-notice-undo" });
-    undo.addEventListener("click", async () => {
-      undo.disabled = true;
-      try {
-        await this.restoreStudyTask(removed);
-        if (typeof onChange === "function") onChange();
-        new Notice("Task restored.", 3000);
-      } catch (error) {
-        new Notice("Could not restore that task. Nothing was changed; try again.", 6000);
-      } finally {
-        notice.hide();
-      }
-    });
-    return removed;
+    const current = this.settings.studyTasks;
+    const task = current && Array.isArray(current.tasks) ? current.tasks.find((entry) => entry.id === id) : null;
+    if (!task) return null;
+    await this.deleteWithUndo({ label: task.title, remove: () => this.removeStudyTask(id), onChange });
+    return task;
   }
 
   /**

@@ -730,11 +730,11 @@ class PracticeView extends ItemView {
       p.updatePreset();
       this.render();
     });
-    const del = brow.createEl("button", { text: "Delete" });
+    const del = brow.createEl("button", { text: "Delete", attr: { "aria-label": "Delete the saved filter preset" } });
     del.disabled = !st.activePreset;
     del.addEventListener("click", () => {
-      p.deletePreset();
-      this.render();
+      const preset = (st.presets || []).find((entry) => entry.id === st.activePreset);
+      p.deleteWithUndo({ label: preset ? preset.name : "the preset", remove: () => p.deletePreset(), onChange: () => this.render() });
     });
     if (st.activePreset && p.isModified()) root.createDiv({ cls: "qt-hint", text: "Preset has unsaved changes." });
 

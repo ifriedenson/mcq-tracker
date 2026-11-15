@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 459 groups, 3196 exports. **Commands:** 242. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 460 groups, 3197 exports. **Commands:** 242. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -82,7 +82,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `StudyStatsView` | 0 | `tests/mobile-reference-stats.test.js` |
 | `StudyStatusModal` | 0 | `tests/feature-surfaces.test.js` |
 | `StudyToolsView` | 0 | `tests/lecture-links.test.js`, `tests/mobile-module-layout.test.js`, `tests/study-tools.test.js` |
-| `StudyWorkspaceView` | 0 | `tests/citations.test.js`, `tests/fsrs-fit.test.js`, `tests/glossary.test.js`, `tests/mobile-module-layout.test.js`, `tests/reading-library.test.js`, `tests/settings-consolidation.test.js`, `tests/study-modules-2.test.js`, `tests/study-modules-3.test.js`, `tests/study-tasks-plus.test.js`, `tests/study-workspace-health.test.js`, `tests/study-workspace-layout.test.js`, `tests/study-workspace-tabs.test.js`, `tests/study-workspace.test.js`, `tests/task-list.test.js`, `tests/task-tags.test.js`, `tests/time-blocks.test.js`, `tests/vault-task-index.test.js`, `tests/wordnet.test.js`, `tests/writing-sessions.test.js` |
+| `StudyWorkspaceView` | 0 | `tests/citations.test.js`, `tests/fsrs-fit.test.js`, `tests/glossary.test.js`, `tests/mobile-module-layout.test.js`, `tests/reading-library.test.js`, `tests/settings-consolidation.test.js`, `tests/study-modules-2.test.js`, `tests/study-modules-3.test.js`, `tests/study-tasks-plus.test.js`, `tests/study-workspace-health.test.js`, `tests/study-workspace-layout.test.js`, `tests/study-workspace-tabs.test.js`, `tests/study-workspace.test.js`, `tests/task-list.test.js`, `tests/task-tags.test.js`, `tests/time-blocks.test.js`, `tests/undo-everywhere.test.js`, `tests/vault-task-index.test.js`, `tests/wordnet.test.js`, `tests/writing-sessions.test.js` |
 | `TaskListView` | 0 | `tests/study-tasks-plus.test.js`, `tests/task-dates.test.js`, `tests/task-list.test.js`, `tests/task-priority-quickadd.test.js`, `tests/task-recurrence.test.js`, `tests/task-times.test.js` |
 | `TestView` | 0 | `tests/error-message-paths.test.js`, `tests/views.test.js` |
 | `TodayView` | 0 | `tests/ap-exam-resources.test.js`, `tests/core-values.test.js`, `tests/daily-quiz-freeze.test.js`, `tests/daily-quiz.test.js`, `tests/focus.test.js`, `tests/frq-review.test.js`, `tests/reading-plan.test.js`, `tests/study-plan.test.js`, `tests/study-tools.test.js`, `tests/today-dom.test.js`, `tests/today.test.js` |
@@ -178,7 +178,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `chatCompact` | 9 | `tests/chat-compact.test.js` |
 | `chatExport` | 3 | `tests/memory-export.test.js` |
 | `chatHistory` | 5 | `tests/chat-history.test.js` |
-| `chatMemory` | 12 | `tests/memory-export.test.js` |
+| `chatMemory` | 12 | `tests/memory-export.test.js`, `tests/undo-everywhere.test.js` |
+| `chatMemoryModal` | 1 | `tests/undo-everywhere.test.js` |
 | `chatMentions` | 17 | `tests/chat-mentions.test.js` |
 | `chatModels` | 13 | `tests/chat-models.test.js` |
 | `chatPdf` | 20 | `tests/chat-pdf.test.js` |
@@ -518,7 +519,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `mindmap-move` | Mind map: move a node | `promptMindMap` | `tests/mindmap-edit.test.js` |
 | `mindmap-from-note` | Mind map: make a Markmind map from this note | `mindMapFromNote` | `tests/mindmap-edit.test.js` |
 | `pdf-open-link` | PDF: open a copied deep link | `openPdfDeepLink` | `tests/pdf-deep-link.test.js` |
-| `epub-read` | EPUB: open the reader | `openActiveEpubReader` | `tests/a11y-labels.test.js`, `tests/epub.test.js` |
+| `epub-read` | EPUB: open the reader | `openActiveEpubReader` | `tests/a11y-labels.test.js`, `tests/epub.test.js`, `tests/security-inventory.test.js` |
 | `epub-annotations` | EPUB: open this book's annotations | `openEpubAnnotations` | `tests/epub.test.js` |
 | `pdf-edit` | PDF: open the editor (pages and forms) | `openActivePdfEditor` | `tests/a11y-labels.test.js`, `tests/pdf-editor-history.test.js`, `tests/pdf-editor-record.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-editor.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/security-inventory.test.js`, `tests/ui-layout.test.js` |
 | `pdf-export-notes` | PDF: export annotations to Markdown | `exportActivePdfAnnotations` | `tests/pdf-annotator.test.js` |

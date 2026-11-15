@@ -258,7 +258,7 @@ class AgentView extends ItemView {
       getProject: () => str(tab.project).trim(),
       setProject: (id) => this.assignChatProjectById(id, tab),
       onNewProject: () => this.promptNewProject(tab),
-      onRemoveProject: (id) => this.removeChatProject(id),
+      onRemoveProject: (id) => this.removeChatProjectWithUndo(id),
       onOpenMemory: () => this.openMemory(),
       onExportChat: (id) => this.exportChat(id),
       onRewindTurn: (turn) => this.rewindTurn(turn),
@@ -271,7 +271,7 @@ class AgentView extends ItemView {
       getLibrary: (options) => this.getLibrary(options),
       onResumeChat: (id) => this.resumeChat(id),
       onRenameChat: (id, title) => this.renameChat(id, title),
-      onDeleteChat: (id) => this.deleteChat(id),
+      onDeleteChat: (id) => this.deleteChatWithUndo(id),
       onPinChat: (id, pinned) => this.pinChat(id, pinned),
       onArchiveChat: (id) => this.archiveChat(id, true),
       onNewChat: () => this.startNewChat(),
@@ -1053,6 +1053,35 @@ class AgentView extends ItemView {
     this.plugin.save();
     this.renderTabBar();
     this.refreshLibraries();
+    return true;
+  }
+
+  /** Delete a conversation, with the panel's one Undo as the way back. */
+  deleteChatWithUndo(id) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    const key = str(id).trim();
+    if (!ai || !key) return false;
+    const saved = (ai.chatSessions || []).find((entry) => str(entry.id) === key);
+    const title = saved && str(saved.title).trim() ? saved.title : "this conversation";
+    this.plugin.deleteWithUndo({
+      label: title,
+      remove: () => this.deleteChat(key),
+      onChange: () => this.refreshLibraries(),
+    });
+    return true;
+  }
+
+  /** Remove a chat project; its conversations keep their messages. */
+  removeChatProjectWithUndo(id) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    if (!ai) return false;
+    const project = chatProjects.findProject(ai.chatProjects, id);
+    if (!project) return false;
+    this.plugin.deleteWithUndo({
+      label: project.name,
+      remove: () => this.removeChatProject(project.id),
+      onChange: () => this.refreshLibraries(),
+    });
     return true;
   }
 

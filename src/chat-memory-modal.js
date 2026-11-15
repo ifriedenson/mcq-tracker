@@ -37,10 +37,9 @@ class ChatMemoryModal extends QtModal {
         this.plugin.updateMemoryFact(fact.id, input.value);
         this.render();
       });
-      const remove = row.createEl("button", { text: "Remove" });
+      const remove = row.createEl("button", { text: "Remove", attr: { "aria-label": `Remove saved fact ${fact.text}` } });
       remove.addEventListener("click", () => {
-        this.plugin.removeMemoryFact(fact.id);
-        this.render();
+        this.plugin.deleteWithUndo({ label: fact.text, remove: () => this.plugin.removeMemoryFact(fact.id), onChange: () => this.render() });
       });
     }
     const addRow = contentEl.createDiv({ cls: "qt-row" });

@@ -1870,7 +1870,7 @@ class AgentView extends ItemView {
       getProject: () => str(tab.project).trim(),
       setProject: (id) => this.assignChatProjectById(id, tab),
       onNewProject: () => this.promptNewProject(tab),
-      onRemoveProject: (id) => this.removeChatProject(id),
+      onRemoveProject: (id) => this.removeChatProjectWithUndo(id),
       onOpenMemory: () => this.openMemory(),
       onExportChat: (id) => this.exportChat(id),
       onRewindTurn: (turn) => this.rewindTurn(turn),
@@ -1883,7 +1883,7 @@ class AgentView extends ItemView {
       getLibrary: (options) => this.getLibrary(options),
       onResumeChat: (id) => this.resumeChat(id),
       onRenameChat: (id, title) => this.renameChat(id, title),
-      onDeleteChat: (id) => this.deleteChat(id),
+      onDeleteChat: (id) => this.deleteChatWithUndo(id),
       onPinChat: (id, pinned) => this.pinChat(id, pinned),
       onArchiveChat: (id) => this.archiveChat(id, true),
       onNewChat: () => this.startNewChat(),
@@ -2665,6 +2665,35 @@ class AgentView extends ItemView {
     this.plugin.save();
     this.renderTabBar();
     this.refreshLibraries();
+    return true;
+  }
+
+  /** Delete a conversation, with the panel's one Undo as the way back. */
+  deleteChatWithUndo(id) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    const key = str(id).trim();
+    if (!ai || !key) return false;
+    const saved = (ai.chatSessions || []).find((entry) => str(entry.id) === key);
+    const title = saved && str(saved.title).trim() ? saved.title : "this conversation";
+    this.plugin.deleteWithUndo({
+      label: title,
+      remove: () => this.deleteChat(key),
+      onChange: () => this.refreshLibraries(),
+    });
+    return true;
+  }
+
+  /** Remove a chat project; its conversations keep their messages. */
+  removeChatProjectWithUndo(id) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    if (!ai) return false;
+    const project = chatProjects.findProject(ai.chatProjects, id);
+    if (!project) return false;
+    this.plugin.deleteWithUndo({
+      label: project.name,
+      remove: () => this.removeChatProject(project.id),
+      onChange: () => this.refreshLibraries(),
+    });
     return true;
   }
 
@@ -14666,11 +14695,10 @@ function renderDayPlanner(plugin, section, key, plan) {
       row.createSpan({ cls: "uni-planner-block-title", text: block.title });
       const meta = [block.course, timeBlocks.durationLabel(block.minutes), block.overlap ? "overlaps a class" : ""].filter(Boolean).join(" · ");
       if (meta) row.createSpan({ cls: "uni-planner-meta", text: meta });
-      const remove = row.createEl("button", { cls: "qt-link", text: "Remove" });
+      const remove = row.createEl("button", { cls: "qt-link", text: "Remove", attr: { "aria-label": `Remove planned block ${block.title}` } });
       remove.addEventListener("click", async (e) => {
         if (e && e.stopPropagation) e.stopPropagation();
-        await plugin.removeTimeBlock(block.id);
-        plugin.refreshCalendarViews();
+        await plugin.deleteWithUndo({ label: block.title, remove: () => plugin.removeTimeBlock(block.id), onChange: () => plugin.refreshCalendarViews() });
       });
     }
   } else {
@@ -24798,10 +24826,15 @@ class CardView extends ItemView {
           if (file) this.app.workspace.getLeaf("tab").openFile(file);
         });
       }
-      const discard = row.createEl("button", { text: "Discard", cls: "qt-link qt-pending-discard" });
+      const discard = row.createEl("button", { text: "Discard", cls: "qt-link qt-pending-discard", attr: { "aria-label": `Discard the pending grade for ${entry.title || "this card"}` } });
       discard.addEventListener("click", () => {
-        this.plugin.discardPendingCardGrade(entry.id);
-        this.render();
+        this.plugin.deleteWithUndo({
+          label: entry.title ? `the pending grade for ${entry.title}` : "the pending grade",
+          capture: () => this.plugin.readPendingCardGrades(),
+          restore: (snapshot) => this.plugin.writePendingCardGrades(snapshot),
+          remove: () => this.plugin.discardPendingCardGrade(entry.id),
+          onChange: () => this.render(),
+        });
       });
     }
     if (pendingCards.length > 5) list.createDiv({ cls: "qt-pending-more", text: `+${pendingCards.length - 5} more` });
@@ -24843,8 +24876,20 @@ class CardView extends ItemView {
     const actions = panel.createDiv({ cls: "qt-row" });
     const grade = actions.createEl("button", { text: "Grade now", cls: "mod-cta" });
     grade.addEventListener("click", () => this.gradePendingFromReview(grade));
-    const discard = actions.createEl("button", { text: "Discard pending" });
-    discard.addEventListener("click", () => this.discardPendingFromReview());
+    const discard = actions.createEl("button", { text: "Discard pending", attr: { "aria-label": "Discard the pending grade for this card" } });
+    discard.addEventListener("click", () => {
+      const id = this.pendingGradeId;
+      if (!id || !this.plugin || typeof this.plugin.deleteWithUndo !== "function") return this.discardPendingFromReview();
+      this.plugin.deleteWithUndo({
+        label: "the pending grade",
+        capture: () => this.plugin.readPendingCardGrades(),
+        restore: (snapshot) => this.plugin.writePendingCardGrades(snapshot),
+        remove: () => this.plugin.discardPendingCardGrade(id),
+        onChange: () => this.render(),
+      });
+      this.pendingGrade = false;
+      this.pendingGradeId = "";
+    });
   }
 
   async gradePendingFromReview(button) {
@@ -26652,10 +26697,9 @@ class ChatMemoryModal extends QtModal {
         this.plugin.updateMemoryFact(fact.id, input.value);
         this.render();
       });
-      const remove = row.createEl("button", { text: "Remove" });
+      const remove = row.createEl("button", { text: "Remove", attr: { "aria-label": `Remove saved fact ${fact.text}` } });
       remove.addEventListener("click", () => {
-        this.plugin.removeMemoryFact(fact.id);
-        this.render();
+        this.plugin.deleteWithUndo({ label: fact.text, remove: () => this.plugin.removeMemoryFact(fact.id), onChange: () => this.render() });
       });
     }
     const addRow = contentEl.createDiv({ cls: "qt-row" });
@@ -38023,8 +38067,21 @@ class EpubReaderModal extends QtModal {
 
   async remove(id) {
     try {
-      const removed = await this.plugin.deleteEpubAnnotation(this.path, id);
-      await this.load();
+      if (typeof this.plugin.deleteWithUndo !== "function") {
+        const removedDirectly = await this.plugin.deleteEpubAnnotation(this.path, id);
+        await this.load();
+        if (!removedDirectly) new Notice(`There is no annotation ${str(id)} in this book.`);
+        return removedDirectly;
+      }
+      const sidecar = epubAnnotations.sidecarPathFor(this.path);
+      const file = this.plugin.app.vault.getAbstractFileByPath(sidecar);
+      const removed = await this.plugin.deleteWithUndo({
+        label: "that highlight",
+        capture: () => (file ? this.plugin.app.vault.cachedRead(file) : ""),
+        restore: (text) => (file ? this.plugin.app.vault.modify(file, text) : Promise.resolve()),
+        remove: () => this.plugin.deleteEpubAnnotation(this.path, id),
+        onChange: () => this.load(),
+      });
       if (!removed) new Notice(`There is no annotation ${str(id)} in this book.`);
       return removed;
     } catch (e) {
@@ -57435,10 +57492,11 @@ class LocalEventsView extends ItemView {
       if (event.notes) main.createDiv({ cls: "qt-study-row-meta", text: event.notes });
       const buttons = row.createDiv({ cls: "qt-study-row-actions" });
       buttons.createEl("button", { text: "Edit" }).addEventListener("click", () => this.openEdit(event.id));
-      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.deleteLocalEvent(event.id);
-        this.render();
-      });
+      buttons
+        .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete event ${event.title}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({ label: event.title, remove: () => this.plugin.deleteLocalEvent(event.id), onChange: () => this.render() });
+        });
     }
   }
 
@@ -57497,10 +57555,11 @@ class LocalEventsView extends ItemView {
       if (event.notes) main.createDiv({ cls: "qt-study-row-meta", text: event.notes });
       const buttons = row.createDiv({ cls: "qt-study-row-actions" });
       buttons.createEl("button", { text: "Edit" }).addEventListener("click", () => this.openEdit(event.id));
-      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.deleteLocalEvent(event.id);
-        this.render();
-      });
+      buttons
+        .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete event ${event.title}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({ label: event.title, remove: () => this.plugin.deleteLocalEvent(event.id), onChange: () => this.render() });
+        });
     }
   }
 
@@ -88984,30 +89043,70 @@ ${body}
   }
 
   /**
+   * The one way any surface deletes user content: take the settings before,
+   * let `remove()` do exactly what it always did, then offer the way back.
+   * Undo restores only the settings keys that delete touched, and only while
+   * they still hold what the delete left behind, so a second delete or an edit
+   * made in the meantime is never silently overwritten.
+   */
+  async deleteWithUndo({ label, remove, onChange, capture, restore } = {}) {
+    const taken = typeof capture === "function";
+    const settle = async (value) => JSON.parse(JSON.stringify(value && typeof value.then === "function" ? await value : value));
+    // A synchronous capture never awaits, so the delete itself still starts in
+    // the click that asked for it rather than on a later tick.
+    const before = taken ? await settle(capture()) : JSON.parse(JSON.stringify(this.settings || {}));
+    const result = await remove();
+    if (result === false) return null;
+    if (typeof onChange === "function") onChange();
+    const after = taken ? await settle(capture()) : JSON.parse(JSON.stringify(this.settings || {}));
+    const changed = taken ? [0] : Object.keys(before).filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]));
+    const name = str(label).trim();
+    const notice = new Notice(`Deleted ${name ? `\u201c${name}\u201d` : "it"}.`, 8000);
+    const undo = notice.noticeEl.createEl("button", { text: "Undo", cls: "qt-notice-undo" });
+    undo.addEventListener("click", async () => {
+      undo.disabled = true;
+      try {
+        if (taken) {
+          const now = await settle(capture());
+          if (JSON.stringify(now) !== JSON.stringify(after)) {
+            new Notice("That part changed since the delete, so it was left as it is.", 7000);
+            return;
+          }
+          await restore(JSON.parse(JSON.stringify(before)));
+        } else {
+          const now = this.settings || {};
+          const moved = changed.some((key) => JSON.stringify(now[key]) !== JSON.stringify(after[key]));
+          if (moved) {
+            new Notice("That part changed since the delete, so it was left as it is.", 7000);
+            return;
+          }
+          for (const key of changed) this.settings[key] = JSON.parse(JSON.stringify(before[key]));
+          await this.save();
+          this.refreshViews();
+        }
+        if (typeof onChange === "function") onChange();
+        new Notice("Restored.", 3000);
+      } catch (error) {
+        new Notice("Could not restore that. Nothing was changed; try again.", 6000);
+      } finally {
+        notice.hide();
+      }
+    });
+    return result;
+  }
+
+  /**
    * The one way any surface deletes a task: the row goes at once and the
    * notice's Undo puts it back, so the sidebar list and the Study Workspace
    * queue behave the same and neither costs a task to a stray click.
    * `onChange` repaints the calling view after the delete and after a restore.
    */
   async deleteStudyTaskWithUndo(id, onChange) {
-    const removed = await this.removeStudyTask(id);
-    if (typeof onChange === "function") onChange();
-    if (!removed) return null;
-    const notice = new Notice(`Deleted “${removed.title}”.`, 8000);
-    const undo = notice.noticeEl.createEl("button", { text: "Undo", cls: "qt-notice-undo" });
-    undo.addEventListener("click", async () => {
-      undo.disabled = true;
-      try {
-        await this.restoreStudyTask(removed);
-        if (typeof onChange === "function") onChange();
-        new Notice("Task restored.", 3000);
-      } catch (error) {
-        new Notice("Could not restore that task. Nothing was changed; try again.", 6000);
-      } finally {
-        notice.hide();
-      }
-    });
-    return removed;
+    const current = this.settings.studyTasks;
+    const task = current && Array.isArray(current.tasks) ? current.tasks.find((entry) => entry.id === id) : null;
+    if (!task) return null;
+    await this.deleteWithUndo({ label: task.title, remove: () => this.removeStudyTask(id), onChange });
+    return task;
   }
 
   /**
@@ -92164,11 +92263,11 @@ class PracticeView extends ItemView {
       p.updatePreset();
       this.render();
     });
-    const del = brow.createEl("button", { text: "Delete" });
+    const del = brow.createEl("button", { text: "Delete", attr: { "aria-label": "Delete the saved filter preset" } });
     del.disabled = !st.activePreset;
     del.addEventListener("click", () => {
-      p.deletePreset();
-      this.render();
+      const preset = (st.presets || []).find((entry) => entry.id === st.activePreset);
+      p.deleteWithUndo({ label: preset ? preset.name : "the preset", remove: () => p.deletePreset(), onChange: () => this.render() });
     });
     if (st.activePreset && p.isModified()) root.createDiv({ cls: "qt-hint", text: "Preset has unsaved changes." });
 
@@ -122640,10 +122739,11 @@ class StudyToolsView extends ItemView {
           this.render();
         });
       }
-      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.removeStudyGoal(goal.id);
-        this.render();
-      });
+      buttons
+        .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete goal ${goal.title}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({ label: goal.title, remove: () => this.plugin.removeStudyGoal(goal.id), onChange: () => this.render() });
+        });
     }
   }
 
@@ -122725,10 +122825,11 @@ class StudyToolsView extends ItemView {
       if (sourcePath) {
         actions.createEl("button", { text: "Generate practice" }).addEventListener("click", () => this.plugin.openLecturePractice(lecture));
       }
-      actions.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.removeStudyLecture(lecture.id);
-        this.render();
-      });
+      actions
+        .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete lecture ${lecture.title}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({ label: lecture.title, remove: () => this.plugin.removeStudyLecture(lecture.id), onChange: () => this.render() });
+        });
     }
   }
 
@@ -124708,11 +124809,18 @@ class StudyWorkspaceView extends ItemView {
         this.feynmanId = session.id;
         this.render();
       });
-      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.removeFeynmanSession(session.id);
-        if (this.feynmanId === session.id) this.feynmanId = "";
-        this.render();
-      });
+      buttons
+        .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete explanation ${session.topic}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({
+            label: session.topic,
+            remove: () => this.plugin.removeFeynmanSession(session.id),
+            onChange: () => {
+              if (this.feynmanId === session.id) this.feynmanId = "";
+              this.render();
+            },
+          });
+        });
     }
   }
 
@@ -124966,10 +125074,11 @@ class StudyWorkspaceView extends ItemView {
           this.render();
         });
       }
-      buttons.createEl("button", { text: "Remove", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.removePlannerTopic(plan.id, topic.id);
-        this.render();
-      });
+      buttons
+        .createEl("button", { text: "Remove", cls: "qt-danger", attr: { "aria-label": `Remove topic ${topic.name}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({ label: topic.name, remove: () => this.plugin.removePlannerTopic(plan.id, topic.id), onChange: () => this.render() });
+        });
     }
     const daysCard = root.createDiv({ cls: "qt-study-card" });
     daysCard.createEl("h3", { text: "Day-level allocation" });
@@ -124985,11 +125094,19 @@ class StudyWorkspaceView extends ItemView {
       if (summary.days.length > 14) daysCard.createDiv({ cls: "qt-study-row-meta", text: `+${summary.days.length - 14} more days` });
     }
     const planRow = root.createDiv({ cls: "qt-row qt-study-actions" });
-    planRow.createEl("button", { text: "Delete plan", cls: "qt-danger" }).addEventListener("click", async () => {
-      await this.plugin.removePlannerPlan(plan.id);
-      this.planId = "";
-      this.render();
-    });
+    const planName = plan.course + (plan.examDate ? ` \u00b7 ${plan.examDate}` : "");
+    planRow
+      .createEl("button", { text: "Delete plan", cls: "qt-danger", attr: { "aria-label": `Delete plan ${planName}` } })
+      .addEventListener("click", async () => {
+        await this.plugin.deleteWithUndo({
+          label: planName,
+          remove: () => this.plugin.removePlannerPlan(plan.id),
+          onChange: () => {
+            this.planId = "";
+            this.render();
+          },
+        });
+      });
     const switchRow = root.createDiv({ cls: "qt-row qt-study-actions" });
     for (const entry of plans) {
       switchRow.createEl("button", { text: entry === plan ? `${entry.course} (open)` : entry.course }).addEventListener("click", () => {
@@ -125076,10 +125193,11 @@ class StudyWorkspaceView extends ItemView {
       if (excerpt.sourcePath && this.plugin.openStudyFlowSource) {
         buttons.createEl("button", { text: "Source" }).addEventListener("click", () => this.plugin.openStudyFlowSource(excerpt.sourcePath));
       }
-      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.removeFlowExcerpt(excerpt.id);
-        this.render();
-      });
+      buttons
+        .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete excerpt from ${excerpt.sourcePath || "an unlinked source"}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({ label: excerpt.quote, remove: () => this.plugin.removeFlowExcerpt(excerpt.id), onChange: () => this.render() });
+        });
     }
     this.renderWritingSession(root);
   }
@@ -125309,10 +125427,11 @@ class StudyWorkspaceView extends ItemView {
           const main = row.createDiv({ cls: "qt-study-row-main" });
           main.createDiv({ cls: "qt-study-row-title", text: `${grade.title} · ${grade.score}%` });
           main.createDiv({ cls: "qt-study-row-meta", text: `${grade.date || "No date"} · weight ${grade.weight}` });
-          row.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-            await this.plugin.removeCourseGrade(grade.id);
-            this.render();
-          });
+          row
+            .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete grade ${grade.title}` } })
+            .addEventListener("click", async () => {
+              await this.plugin.deleteWithUndo({ label: grade.title, remove: () => this.plugin.removeCourseGrade(grade.id), onChange: () => this.render() });
+            });
         }
       }
     }
@@ -125531,10 +125650,11 @@ class StudyWorkspaceView extends ItemView {
       if (entry.answer) main.createDiv({ cls: "qt-study-row-meta", text: `A: ${entry.answer}` });
       const buttons = row.createDiv({ cls: "qt-study-row-actions" });
       if (entry.sourcePath) buttons.createEl("button", { text: "Open source" }).addEventListener("click", () => this.plugin.openStudyFlowSource(entry.sourcePath));
-      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.removeAnnotation(entry.id);
-        this.render();
-      });
+      buttons
+        .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete annotation from ${entry.sourcePath || "an unlinked source"}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({ label: entry.quote, remove: () => this.plugin.removeAnnotation(entry.id), onChange: () => this.render() });
+        });
     }
   }
 
@@ -125583,11 +125703,18 @@ class StudyWorkspaceView extends ItemView {
         this.deepNotesId = session.id;
         this.render();
       });
-      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.removeDeepNotesSession(session.id);
-        if (this.deepNotesId === session.id) this.deepNotesId = "";
-        this.render();
-      });
+      buttons
+        .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete deep notes ${session.topic}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({
+            label: session.topic,
+            remove: () => this.plugin.removeDeepNotesSession(session.id),
+            onChange: () => {
+              if (this.deepNotesId === session.id) this.deepNotesId = "";
+              this.render();
+            },
+          });
+        });
     }
   }
 
@@ -125838,10 +125965,11 @@ class StudyWorkspaceView extends ItemView {
           this.render();
         });
       }
-      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.removeVocabWord(word.id);
-        this.render();
-      });
+      buttons
+        .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete word ${word.term}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({ label: word.term, remove: () => this.plugin.removeVocabWord(word.id), onChange: () => this.render() });
+        });
     }
     this.renderGlossary(root);
   }
@@ -126040,16 +126168,18 @@ class StudyWorkspaceView extends ItemView {
             await this.plugin.toggleStudyProject(subject.id, project.id);
             this.render();
           });
-          projectRow.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-            await this.plugin.removeStudyProject(subject.id, project.id);
-            this.render();
-          });
+          projectRow
+            .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete project ${project.title}` } })
+            .addEventListener("click", async () => {
+              await this.plugin.deleteWithUndo({ label: project.title, remove: () => this.plugin.removeStudyProject(subject.id, project.id), onChange: () => this.render() });
+            });
         }
         const buttons = row.createDiv({ cls: "qt-study-row-actions" });
-        buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-          await this.plugin.removeStudySubject(subject.id);
-          this.render();
-        });
+        buttons
+          .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete subject ${subject.name}` } })
+          .addEventListener("click", async () => {
+            await this.plugin.deleteWithUndo({ label: subject.name, remove: () => this.plugin.removeStudySubject(subject.id), onChange: () => this.render() });
+          });
       }
     }
     const projectCard = root.createDiv({ cls: "qt-study-card" });
@@ -126112,10 +126242,11 @@ class StudyWorkspaceView extends ItemView {
       const main = row.createDiv({ cls: "qt-study-row-main" });
       main.createDiv({ cls: "qt-study-row-title", text: `${absence.subject} · ${absence.date}` });
       if (absence.reason) main.createDiv({ cls: "qt-study-row-meta", text: absence.reason });
-      row.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.removeStudyAbsence(absence.id);
-        this.render();
-      });
+      row
+        .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete absence for ${absence.subject} on ${absence.date}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({ label: `${absence.subject} on ${absence.date}`, remove: () => this.plugin.removeStudyAbsence(absence.id), onChange: () => this.render() });
+        });
     }
   }
 
@@ -126162,11 +126293,18 @@ class StudyWorkspaceView extends ItemView {
       const scores = active.aiScores;
       card.createDiv({ cls: "qt-study-row-meta", text: `AI average ${active.aiAverage || 0}/5 · clarity ${scores.clarity} · accuracy ${scores.accuracy} · simplicity ${scores.simplicity}` });
       if (active.aiFeedback) card.createDiv({ cls: "qt-study-next-meta", text: active.aiFeedback });
-      actions.createEl("button", { text: "Clear AI feedback", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.clearFeynmanAiFeedback(active.id);
-        this.saveMessage("AI feedback cleared; your manual scores are kept.");
-        this.render();
-      });
+      actions
+        .createEl("button", { text: "Clear AI feedback", cls: "qt-danger", attr: { "aria-label": `Clear AI feedback for ${active.topic}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({
+            label: `AI feedback for ${active.topic}`,
+            remove: () => this.plugin.clearFeynmanAiFeedback(active.id),
+            onChange: () => {
+              this.saveMessage("AI feedback cleared; your manual scores are kept.");
+              this.render();
+            },
+          });
+        });
     } else {
       card.createDiv({ cls: "qt-study-row-meta", text: "No AI feedback stored for this explanation yet." });
     }
@@ -126562,11 +126700,18 @@ class StudyWorkspaceView extends ItemView {
       this.timeBlockEditId = this.timeBlockEditId === block.id ? "" : block.id;
       this.render();
     });
-    actions.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-      await this.plugin.removeTimeBlock(block.id);
-      this.saveMessage("Block removed.");
-      this.render();
-    });
+    actions
+      .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete block ${block.title}` } })
+      .addEventListener("click", async () => {
+        await this.plugin.deleteWithUndo({
+          label: block.title,
+          remove: () => this.plugin.removeTimeBlock(block.id),
+          onChange: () => {
+            this.saveMessage("Block removed.");
+            this.render();
+          },
+        });
+      });
 
     if (this.timeBlockEditId === block.id) {
       const form = card.createDiv({ cls: "qt-study-form qt-time-block-edit" });
@@ -126650,10 +126795,11 @@ class StudyWorkspaceView extends ItemView {
       if (task.status === "half") label.createSpan({ cls: "qt-study-row-meta", text: " half-done" });
       else if (task.status === "cancelled") label.createSpan({ cls: "qt-study-row-meta", text: " cancelled" });
       if (task.studyTaskId) label.createSpan({ cls: "qt-study-row-meta", text: " linked task" });
-      row.createEl("button", { text: "Remove", cls: "qt-link qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.removeTimeBlockTask(block.id, task.id);
-        this.render();
-      });
+      row
+        .createEl("button", { text: "Remove", cls: "qt-link qt-danger", attr: { "aria-label": `Remove task ${task.title}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({ label: task.title, remove: () => this.plugin.removeTimeBlockTask(block.id, task.id), onChange: () => this.render() });
+        });
     }
     const addTask = card.createDiv({ cls: "qt-row qt-time-block-task-add" });
     const input = addTask.createEl("input", { cls: "qt-input", type: "text", attr: { placeholder: "Add a task inside this block", "aria-label": "New task inside this block" } });
@@ -126858,10 +127004,11 @@ class StudyWorkspaceView extends ItemView {
         this.saveMessage(block ? "Scheduled " + item.title + "." : "Use an end time after the start.");
         this.render();
       });
-      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.removeTimeBlockBacklog(item.id);
-        this.render();
-      });
+      buttons
+        .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete backlog item ${item.title}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({ label: item.title, remove: () => this.plugin.removeTimeBlockBacklog(item.id), onChange: () => this.render() });
+        });
     }
   }
 
@@ -139655,6 +139802,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.9",
+    date: "November 15, 2026",
+    title: "Every delete has a way back",
+    summary:
+      "The task list was the only safe list. Every other Delete, Remove and Discard in the plugin now runs through one undo path: the row goes, a notice names what left, and Undo puts the whole record back \u2014 including the tasks inside a time block and the absences that a subject took with it.",
+    highlights: [
+      {
+        title: "One undo for all of it",
+        body: "Explanations, plans, topics, excerpts, grades, subjects, projects, absences, deep notes, words, time blocks, backlog items, saved events, goals, lectures, chat facts and conversations, practice presets, pending card grades and EPUB highlights all delete through plugin.deleteWithUndo, so the notice, the sizing and the way back are identical everywhere.",
+      },
+      {
+        title: "Undo restores the whole record",
+        body: "It returns the settings keys the delete touched, so a subject comes back with its absences and a time block with the tasks inside it. If anything in that part changed in the meantime, Undo says so and changes nothing rather than overwriting newer work.",
+      },
+      {
+        title: "The name is on the button",
+        body: "Every repaired control carries the record it destroys: \u201cDelete word mitosis\u201d, \u201cDelete plan Biology \u00b7 2026-12-10\u201d, \u201cDelete event Probe event\u201d. A plan without a title used to read \u201cDelete plan undefined\u201d and now names its course and exam date.",
+      },
+      {
+        title: "Driven, not read",
+        body: "Sixteen kinds were deleted and undone live in Obsidian 1.15.1 on Primary \u2014 each one removed, noticed, restored byte-for-byte and refusing a second restore \u2014 and the rest are pinned by tests that compare the stored settings before and after.",
+      },
+    ],
+  },
+  {
     version: "1.307.8",
     date: "November 15, 2026",
     title: "Deleting a task undoes the same everywhere",
@@ -142586,6 +142758,10 @@ QuestionTrackerPlugin.__test = {
     return require("./chat-projects");
   },
   // Lazy: a test-surface entry must not be paid for at plugin startup.
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get chatMemoryModal() {
+    return require("./chat-memory-modal");
+  },
   get chatMemory() {
     return require("./chat-memory");
   },

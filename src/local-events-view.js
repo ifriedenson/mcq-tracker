@@ -263,10 +263,11 @@ class LocalEventsView extends ItemView {
       if (event.notes) main.createDiv({ cls: "qt-study-row-meta", text: event.notes });
       const buttons = row.createDiv({ cls: "qt-study-row-actions" });
       buttons.createEl("button", { text: "Edit" }).addEventListener("click", () => this.openEdit(event.id));
-      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.deleteLocalEvent(event.id);
-        this.render();
-      });
+      buttons
+        .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete event ${event.title}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({ label: event.title, remove: () => this.plugin.deleteLocalEvent(event.id), onChange: () => this.render() });
+        });
     }
   }
 
@@ -325,10 +326,11 @@ class LocalEventsView extends ItemView {
       if (event.notes) main.createDiv({ cls: "qt-study-row-meta", text: event.notes });
       const buttons = row.createDiv({ cls: "qt-study-row-actions" });
       buttons.createEl("button", { text: "Edit" }).addEventListener("click", () => this.openEdit(event.id));
-      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.deleteLocalEvent(event.id);
-        this.render();
-      });
+      buttons
+        .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete event ${event.title}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({ label: event.title, remove: () => this.plugin.deleteLocalEvent(event.id), onChange: () => this.render() });
+        });
     }
   }
 

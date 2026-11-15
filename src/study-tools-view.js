@@ -274,10 +274,11 @@ class StudyToolsView extends ItemView {
           this.render();
         });
       }
-      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.removeStudyGoal(goal.id);
-        this.render();
-      });
+      buttons
+        .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete goal ${goal.title}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({ label: goal.title, remove: () => this.plugin.removeStudyGoal(goal.id), onChange: () => this.render() });
+        });
     }
   }
 
@@ -359,10 +360,11 @@ class StudyToolsView extends ItemView {
       if (sourcePath) {
         actions.createEl("button", { text: "Generate practice" }).addEventListener("click", () => this.plugin.openLecturePractice(lecture));
       }
-      actions.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.removeStudyLecture(lecture.id);
-        this.render();
-      });
+      actions
+        .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete lecture ${lecture.title}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteWithUndo({ label: lecture.title, remove: () => this.plugin.removeStudyLecture(lecture.id), onChange: () => this.render() });
+        });
     }
   }
 

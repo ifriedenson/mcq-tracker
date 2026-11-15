@@ -308,11 +308,10 @@ function renderDayPlanner(plugin, section, key, plan) {
       row.createSpan({ cls: "uni-planner-block-title", text: block.title });
       const meta = [block.course, timeBlocks.durationLabel(block.minutes), block.overlap ? "overlaps a class" : ""].filter(Boolean).join(" · ");
       if (meta) row.createSpan({ cls: "uni-planner-meta", text: meta });
-      const remove = row.createEl("button", { cls: "qt-link", text: "Remove" });
+      const remove = row.createEl("button", { cls: "qt-link", text: "Remove", attr: { "aria-label": `Remove planned block ${block.title}` } });
       remove.addEventListener("click", async (e) => {
         if (e && e.stopPropagation) e.stopPropagation();
-        await plugin.removeTimeBlock(block.id);
-        plugin.refreshCalendarViews();
+        await plugin.deleteWithUndo({ label: block.title, remove: () => plugin.removeTimeBlock(block.id), onChange: () => plugin.refreshCalendarViews() });
       });
     }
   } else {
