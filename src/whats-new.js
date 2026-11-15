@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.302.3",
+    date: "November 15, 2026",
+    title: "A slow model is no longer mistaken for an empty one",
+    summary:
+      "A model that is still reading a long prompt used to be reported as a provider that sent no reply, so an import stopped after two minutes. Only a finished message with no content is treated as empty now, while a real refusal is still reported just as quickly.",
+    highlights: [
+      {
+        title: "Still working is not empty",
+        body: "OpenCode creates the assistant message before the model starts answering. An unfinished message with no parts is now a model reading a long prompt, not a refused request, so a slow local model or a busy provider is allowed to answer.",
+      },
+      {
+        title: "Refusals stay fast",
+        body: "A provider that rejects the request finishes the message empty within seconds, and that is still reported with the provider's own words instead of waiting out a silence allowance.",
+      },
+      {
+        title: "Same guard, one condition",
+        body: "Both the blocking send used by answer checks and the import's progress poll now require the message to be finished before calling it empty. The timeouts, restart rules and Stop behavior are unchanged.",
+      },
+      {
+        title: "Checked on a real three-file import",
+        body: "Three PDFs imported together with the free OpenCode models wrote six notes, and all six verifications matched. The fix is covered by a test that keeps an unfinished empty message from being failed.",
+      },
+    ],
+  },
+  {
     version: "1.302.2",
     date: "November 14, 2026",
     title: "An exhausted free model no longer stops an import",

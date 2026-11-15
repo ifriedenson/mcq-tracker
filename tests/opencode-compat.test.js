@@ -656,6 +656,32 @@ test("an empty finished reply inside a blocking send is reported, not waited out
   }
 });
 
+test("an unfinished assistant message with no parts yet is a slow model, not an empty answer", async () => {
+  // A local model reading a long prompt has an assistant message with no parts
+  // and no completion time for minutes. That is work in progress: the send must
+  // fall to its silence allowance, not be declared a refused request.
+  const oc = new T.OpenCodeClient({ url: "http://127.0.0.1:1" });
+  let aborted = 0;
+  obsidian.requestImpl = async (opts) => {
+    const url = String(opts.url);
+    if (opts.method === "POST" && /\/message$/.test(url)) return new Promise(() => {});
+    if (opts.method === "GET" && /\/message$/.test(url)) {
+      return { status: 200, text: "[]", json: [{ info: { id: "a1", role: "assistant", time: { created: 1 } }, parts: [] }] };
+    }
+    if (/\/abort$/.test(url)) {
+      aborted++;
+      return { status: 200, text: "{}", json: {} };
+    }
+    return { status: 200, text: "{}", json: {} };
+  };
+  try {
+    await assert.rejects(oc.send("s1", {}, { idleMs: 500, emptyMs: 30 }), /wrote nothing new|stopped answering/i);
+    assert.equal(aborted, 1);
+  } finally {
+    obsidian.requestImpl = null;
+  }
+});
+
 test("an assistant message with no parts cannot hold a send for the whole silence allowance", async () => {
   // Live: a blind check sat on "Checking answer 2 of 2" while the provider's
   // stream error left an assistant message with no parts and no error field.
@@ -665,7 +691,7 @@ test("an assistant message with no parts cannot hold a send for the whole silenc
     const url = String(opts.url);
     if (opts.method === "POST" && /\/message$/.test(url)) return new Promise(() => {});
     if (opts.method === "GET" && /\/message$/.test(url)) {
-      return { status: 200, text: "[]", json: [{ info: { id: "a1", role: "assistant", time: {} }, parts: [] }] };
+      return { status: 200, text: "[]", json: [{ info: { id: "a1", role: "assistant", time: { created: 1, completed: 2 } }, parts: [] }] };
     }
     if (/\/abort$/.test(url)) {
       aborted++;

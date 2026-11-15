@@ -1894,10 +1894,10 @@ class PdfImportModal extends QtModal {
       // error and no parts at all. Waiting six minutes for progress that cannot
       // come is wrong: report the provider's own words at once.
       const errorText = assistantErrorText(info);
-      // No parts and no error: the provider took the request and sent nothing
-      // back, finished or not. A real reply always brings at least one part,
-      // so this can never turn into notes and must not be waited on.
-      const emptyAssistant = !!assistant && parts.length === 0 && !running && !errorText && n === 0;
+      // No parts and no error, on a message the provider has finished: the
+      // request was accepted and nothing came back. A message that is still
+      // open is a model reading a long prompt, not an empty answer.
+      const emptyAssistant = !!assistant && completed && parts.length === 0 && !running && !errorText && n === 0;
       const signature = JSON.stringify([msgs ? msgs.length : 0, info.id, info.time && info.time.completed, info.finish, n, lines.slice(-3)]);
       // Real progress: a note written, or a tool call started or finished. A
       // model retry inside OpenCode changes none of these, so a server that

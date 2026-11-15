@@ -46,10 +46,20 @@ function bounded(promise, ms, label) {
  * like a slow model and held the batch for the whole 20-minute silence
  * allowance.
  */
-/** The latest assistant message with nothing in it yet (or an empty finish). */
+/**
+ * The latest assistant message ended with nothing in it. Only a *finished*
+ * empty message counts: while a slow model is still reading a long prompt the
+ * message exists with no parts and no completion time, and calling that empty
+ * would kill a request that is working. A provider that refuses the request
+ * completes the message empty within seconds, so a real refusal is still
+ * reported quickly.
+ */
 function emptyAssistant(msgs) {
   const last = [...(msgs || [])].reverse().find((m) => m && m.info && m.info.role === "assistant");
   if (!last || (last.info && last.info.error)) return false;
+  const info = last.info || {};
+  const completed = !!(info.time && info.time.completed !== undefined && info.time.completed !== null);
+  if (!completed) return false;
   const parts = Array.isArray(last.parts) ? last.parts : [];
   if (parts.length) return false;
   return !parts.some(

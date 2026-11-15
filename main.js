@@ -51929,10 +51929,10 @@ class PdfImportModal extends QtModal {
       // error and no parts at all. Waiting six minutes for progress that cannot
       // come is wrong: report the provider's own words at once.
       const errorText = assistantErrorText(info);
-      // No parts and no error: the provider took the request and sent nothing
-      // back, finished or not. A real reply always brings at least one part,
-      // so this can never turn into notes and must not be waited on.
-      const emptyAssistant = !!assistant && parts.length === 0 && !running && !errorText && n === 0;
+      // No parts and no error, on a message the provider has finished: the
+      // request was accepted and nothing came back. A message that is still
+      // open is a model reading a long prompt, not an empty answer.
+      const emptyAssistant = !!assistant && completed && parts.length === 0 && !running && !errorText && n === 0;
       const signature = JSON.stringify([msgs ? msgs.length : 0, info.id, info.time && info.time.completed, info.finish, n, lines.slice(-3)]);
       // Real progress: a note written, or a tool call started or finished. A
       // model retry inside OpenCode changes none of these, so a server that
@@ -61378,10 +61378,20 @@ function bounded(promise, ms, label) {
  * like a slow model and held the batch for the whole 20-minute silence
  * allowance.
  */
-/** The latest assistant message with nothing in it yet (or an empty finish). */
+/**
+ * The latest assistant message ended with nothing in it. Only a *finished*
+ * empty message counts: while a slow model is still reading a long prompt the
+ * message exists with no parts and no completion time, and calling that empty
+ * would kill a request that is working. A provider that refuses the request
+ * completes the message empty within seconds, so a real refusal is still
+ * reported quickly.
+ */
 function emptyAssistant(msgs) {
   const last = [...(msgs || [])].reverse().find((m) => m && m.info && m.info.role === "assistant");
   if (!last || (last.info && last.info.error)) return false;
+  const info = last.info || {};
+  const completed = !!(info.time && info.time.completed !== undefined && info.time.completed !== null);
+  if (!completed) return false;
   const parts = Array.isArray(last.parts) ? last.parts : [];
   if (parts.length) return false;
   return !parts.some(
@@ -137241,6 +137251,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.302.3",
+    date: "November 15, 2026",
+    title: "A slow model is no longer mistaken for an empty one",
+    summary:
+      "A model that is still reading a long prompt used to be reported as a provider that sent no reply, so an import stopped after two minutes. Only a finished message with no content is treated as empty now, while a real refusal is still reported just as quickly.",
+    highlights: [
+      {
+        title: "Still working is not empty",
+        body: "OpenCode creates the assistant message before the model starts answering. An unfinished message with no parts is now a model reading a long prompt, not a refused request, so a slow local model or a busy provider is allowed to answer.",
+      },
+      {
+        title: "Refusals stay fast",
+        body: "A provider that rejects the request finishes the message empty within seconds, and that is still reported with the provider's own words instead of waiting out a silence allowance.",
+      },
+      {
+        title: "Same guard, one condition",
+        body: "Both the blocking send used by answer checks and the import's progress poll now require the message to be finished before calling it empty. The timeouts, restart rules and Stop behavior are unchanged.",
+      },
+      {
+        title: "Checked on a real three-file import",
+        body: "Three PDFs imported together with the free OpenCode models wrote six notes, and all six verifications matched. The fix is covered by a test that keeps an unfinished empty message from being failed.",
+      },
+    ],
+  },
   {
     version: "1.302.2",
     date: "November 14, 2026",
