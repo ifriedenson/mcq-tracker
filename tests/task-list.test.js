@@ -188,3 +188,32 @@ test("adding a task with Enter keeps the cursor in the new-task box", async () =
   assert.ok(plugin.settings.studyTasks.tasks.some((task) => task.title === "Buy milk"), "Enter adds the task");
   assert.equal(byLabel(dom, "New task").focused, true, "the fresh box is focused for the next task");
 });
+
+test("the Study Workspace task queue deletes through the same Undo notice", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  const task = await plugin.addStudyTask({ title: "Workspace task", tags: "#chem", due: day(2) });
+  const view = new T.StudyWorkspaceView({ app }, plugin);
+  view.app = app;
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.containerEl = dom.root;
+  view.renderTasks(dom.root);
+  const remove = dom.all.find((o) => {
+    const attrs = o.meta.attrs || o.meta.attr;
+    return attrs && attrs["aria-label"] === "Delete Workspace task";
+  });
+  assert.ok(remove, "the workspace queue row has a delete control");
+  await remove.handlers.find((h) => h.ev === "click").fn({});
+  assert.equal(plugin.settings.studyTasks.tasks.length, 0, "the row is gone");
+  const notice = obsidian.noticeObjects.find((entry) => entry.message === "Deleted “Workspace task”.");
+  assert.ok(notice, obsidian.notices.join(" | "));
+  const undo = notice.noticeEl.children.find((el) => el.cls === "qt-notice-undo");
+  assert.ok(undo, "the workspace delete offers the same Undo");
+  await undo.handlers.find((h) => h.ev === "click").fn({});
+  const restored = plugin.settings.studyTasks.tasks.find((entry) => entry.id === task.id);
+  assert.ok(restored, "Undo puts the workspace task back");
+  assert.deepEqual(restored.tags, ["chem"]);
+  assert.equal(restored.due, task.due);
+});

@@ -14542,6 +14542,33 @@ ${body}
   }
 
   /**
+   * The one way any surface deletes a task: the row goes at once and the
+   * notice's Undo puts it back, so the sidebar list and the Study Workspace
+   * queue behave the same and neither costs a task to a stray click.
+   * `onChange` repaints the calling view after the delete and after a restore.
+   */
+  async deleteStudyTaskWithUndo(id, onChange) {
+    const removed = await this.removeStudyTask(id);
+    if (typeof onChange === "function") onChange();
+    if (!removed) return null;
+    const notice = new Notice(`Deleted “${removed.title}”.`, 8000);
+    const undo = notice.noticeEl.createEl("button", { text: "Undo", cls: "qt-notice-undo" });
+    undo.addEventListener("click", async () => {
+      undo.disabled = true;
+      try {
+        await this.restoreStudyTask(removed);
+        if (typeof onChange === "function") onChange();
+        new Notice("Task restored.", 3000);
+      } catch (error) {
+        new Notice("Could not restore that task. Nothing was changed; try again.", 6000);
+      } finally {
+        notice.hide();
+      }
+    });
+    return removed;
+  }
+
+  /**
    * Keep the note the user already picked for the task mirror in step after a
    * repeat schedules its next instance. No path, no note: nothing is created.
    */

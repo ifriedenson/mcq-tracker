@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.8",
+    date: "November 15, 2026",
+    title: "Deleting a task undoes the same everywhere",
+    summary:
+      "The Study Workspace's task queue had its own Delete button and it was still final: the row vanished with no notice and no way back, while the sidebar's \u00d7 had offered Undo since 1.307.7. Both surfaces now go through one helper, so the same click gives the same eight-second Undo with the task's name.",
+    highlights: [
+      {
+        title: "One delete, one behaviour",
+        body: "The Study Workspace queue and the sidebar task list both call plugin.deleteStudyTaskWithUndo, so whichever surface you delete from, the notice and its Undo are identical and the task returns with its id, tags, priority, repeat and due date.",
+      },
+      {
+        title: "Nothing to lose by clicking",
+        body: "A stray Delete on the workspace queue now costs nothing: the row leaves, the notice names it, and Undo puts it back and repaints the queue.",
+      },
+      {
+        title: "The queue names its delete",
+        body: "The workspace's Delete button carries the task's title for screen readers, matching the sidebar's \u00d7, so it is announced as \u201cDelete Read chapter 4\u201d rather than a bare \u201cDelete\u201d.",
+      },
+      {
+        title: "Both paths pinned",
+        body: "tests/task-list.test.js drives the workspace delete and its Undo as well as the sidebar's, asserting the stored task's tags and due date come back and that one notice cannot restore twice.",
+      },
+    ],
+  },
+  {
     version: "1.307.7",
     date: "November 15, 2026",
     title: "Every task action undoable and reachable",

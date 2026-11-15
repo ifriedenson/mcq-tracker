@@ -1173,10 +1173,11 @@ class StudyWorkspaceView extends ItemView {
         await this.plugin.updateStudyTask(task.id, { done: !task.done });
         this.render();
       });
-      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.removeStudyTask(task.id);
-        this.render();
-      });
+      buttons
+        .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete ${task.title}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteStudyTaskWithUndo(task.id, () => this.render());
+        });
     }
   }
 

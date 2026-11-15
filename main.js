@@ -88984,6 +88984,33 @@ ${body}
   }
 
   /**
+   * The one way any surface deletes a task: the row goes at once and the
+   * notice's Undo puts it back, so the sidebar list and the Study Workspace
+   * queue behave the same and neither costs a task to a stray click.
+   * `onChange` repaints the calling view after the delete and after a restore.
+   */
+  async deleteStudyTaskWithUndo(id, onChange) {
+    const removed = await this.removeStudyTask(id);
+    if (typeof onChange === "function") onChange();
+    if (!removed) return null;
+    const notice = new Notice(`Deleted “${removed.title}”.`, 8000);
+    const undo = notice.noticeEl.createEl("button", { text: "Undo", cls: "qt-notice-undo" });
+    undo.addEventListener("click", async () => {
+      undo.disabled = true;
+      try {
+        await this.restoreStudyTask(removed);
+        if (typeof onChange === "function") onChange();
+        new Notice("Task restored.", 3000);
+      } catch (error) {
+        new Notice("Could not restore that task. Nothing was changed; try again.", 6000);
+      } finally {
+        notice.hide();
+      }
+    });
+    return removed;
+  }
+
+  /**
    * Keep the note the user already picked for the task mirror in step after a
    * repeat schedules its next instance. No path, no note: nothing is created.
    */
@@ -125426,10 +125453,11 @@ class StudyWorkspaceView extends ItemView {
         await this.plugin.updateStudyTask(task.id, { done: !task.done });
         this.render();
       });
-      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
-        await this.plugin.removeStudyTask(task.id);
-        this.render();
-      });
+      buttons
+        .createEl("button", { text: "Delete", cls: "qt-danger", attr: { "aria-label": `Delete ${task.title}` } })
+        .addEventListener("click", async () => {
+          await this.plugin.deleteStudyTaskWithUndo(task.id, () => this.render());
+        });
     }
   }
 
@@ -132532,25 +132560,9 @@ class TaskListView extends ItemView {
     actions
       .createEl("button", { text: "×", cls: "qt-task-list-remove", attr: { "aria-label": `Delete ${task.title}`, title: "Delete task" } })
       .addEventListener("click", async () => {
-        // Deleting a row is one click and no dialog; Undo in the notice is the
-        // way back, so a stray click cannot cost a task.
-        const removed = await this.plugin.removeStudyTask(task.id);
-        this.render();
-        if (!removed) return;
-        const notice = new Notice(`Deleted “${removed.title}”.`, 8000);
-        const undo = notice.noticeEl.createEl("button", { text: "Undo", cls: "qt-notice-undo" });
-        undo.addEventListener("click", async () => {
-          undo.disabled = true;
-          try {
-            await this.plugin.restoreStudyTask(removed);
-            this.render();
-            new Notice("Task restored.", 3000);
-          } catch (error) {
-            new Notice("Could not restore that task. Nothing was changed; try again.", 6000);
-          } finally {
-            notice.hide();
-          }
-        });
+        // One click and no dialog; the notice's Undo is the way back, and the
+        // Study Workspace queue goes through the same helper.
+        await this.plugin.deleteStudyTaskWithUndo(task.id, () => this.render());
       });
   }
 
@@ -139642,6 +139654,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.307.8",
+    date: "November 15, 2026",
+    title: "Deleting a task undoes the same everywhere",
+    summary:
+      "The Study Workspace's task queue had its own Delete button and it was still final: the row vanished with no notice and no way back, while the sidebar's \u00d7 had offered Undo since 1.307.7. Both surfaces now go through one helper, so the same click gives the same eight-second Undo with the task's name.",
+    highlights: [
+      {
+        title: "One delete, one behaviour",
+        body: "The Study Workspace queue and the sidebar task list both call plugin.deleteStudyTaskWithUndo, so whichever surface you delete from, the notice and its Undo are identical and the task returns with its id, tags, priority, repeat and due date.",
+      },
+      {
+        title: "Nothing to lose by clicking",
+        body: "A stray Delete on the workspace queue now costs nothing: the row leaves, the notice names it, and Undo puts it back and repaints the queue.",
+      },
+      {
+        title: "The queue names its delete",
+        body: "The workspace's Delete button carries the task's title for screen readers, matching the sidebar's \u00d7, so it is announced as \u201cDelete Read chapter 4\u201d rather than a bare \u201cDelete\u201d.",
+      },
+      {
+        title: "Both paths pinned",
+        body: "tests/task-list.test.js drives the workspace delete and its Undo as well as the sidebar's, asserting the stored task's tags and due date come back and that one notice cannot restore twice.",
+      },
+    ],
+  },
   {
     version: "1.307.7",
     date: "November 15, 2026",
