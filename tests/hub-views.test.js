@@ -116,19 +116,46 @@ test("hubs: a hub with every section off explains itself", async () => {
   assert.doesNotThrow(() => view.render(), "render on an empty hub is harmless");
 });
 
-test("hubs: the module commands open the hub on the right tab", async () => {
+test("hubs: the module commands open their views in the right place", async () => {
   const plugin = await setup();
+  plugin.settings.calendar = { ...(plugin.settings.calendar || {}), enabled: true };
   const spec = hubs.hubSpec("plan");
   const view = new T.QtHubView({ app: plugin.app }, plugin, spec);
   const dom = makeDom();
   view.contentEl = dom.root;
   await view.onOpen();
   workspaceFor(plugin.app, view);
-  const opened = await plugin.activateFocusDay();
-  assert.equal(opened, view.childView("calendar"), "Focus day opens the merged calendar");
-  assert.equal(view.activeTab, "calendar", "on the calendar tab");
-  assert.equal(view.childView("calendar").mode, "day", "in the day view");
+  // The Plan hub is one calendar; its commands now open that calendar in the
+  // right sidebar instead of a main-tab hub.
+  let sidebarLeaf = null;
+  const opened = [];
+  plugin.app.workspace.getLeavesOfType = (type) => (sidebarLeaf && sidebarLeaf.view && sidebarLeaf.view.getViewType() === type ? [sidebarLeaf] : []);
+  plugin.app.workspace.getRightLeaf = () => {
+    if (!sidebarLeaf) {
+      sidebarLeaf = {
+        app: plugin.app,
+        view: null,
+        containerEl: { closest: (sel) => (sel === ".mod-right-split" ? {} : null) },
+        loadIfDeferred: async () => {},
+        setViewState: async (state) => {
+          opened.push(state.type);
+          sidebarLeaf.view = new T.CalendarView(sidebarLeaf, plugin);
+          sidebarLeaf.view.contentEl = makeDom().root;
+          await sidebarLeaf.view.onOpen();
+        },
+      };
+    }
+    return sidebarLeaf;
+  };
+  plugin.app.workspace.getLeaf = () => sidebarLeaf;
+  plugin.app.workspace.revealLeaf = async () => {};
+  const calendar = await plugin.activateFocusDay();
+  assert.equal(opened[0], "question-tracker-calendar", "Focus day opens the calendar view type");
+  assert.equal(calendar, sidebarLeaf.view, "in the right sidebar leaf");
+  assert.equal(calendar.mode, "day", "in the day view");
   assert.equal(plugin.settings.calendar.layers.planned, true, "with the planned layer on");
+  assert.equal(await plugin.activatePlanHub(), calendar, "Open Plan reuses the same sidebar calendar");
+  assert.equal(opened.length, 1, "a second open focuses the existing calendar");
   const stats = hubs.hubSpec("today");
   const todayView = new T.QtHubView({ app: plugin.app }, plugin, stats);
   todayView.contentEl = makeDom().root;

@@ -4400,8 +4400,9 @@ class QuestionTrackerPlugin extends Plugin {
     return view;
   }
 
+  /** The Plan hub is one calendar, so its ribbon and command open that calendar in the sidebar. */
   async activatePlanHub(tab) {
-    return this.activateHubTab("plan", tab || "calendar");
+    return this.activateCalendar();
   }
 
   /** A hub whose every section is off has nothing to show, so it closes. */
@@ -4939,6 +4940,37 @@ class QuestionTrackerPlugin extends Plugin {
     return leafView;
   }
 
+  /**
+   * Compact surfaces (the task list, the study agent, the calendar) live in the
+   * right sidebar. Phones have no usable right split, so they get a normal tab.
+   * Reopening focuses the sidebar leaf instead of creating another copy.
+   */
+  async activateSidebarView(type) {
+    const ws = this.app.workspace;
+    const inRightSidebar = (leaf) => {
+      try {
+        const root = typeof leaf.getRoot === "function" ? leaf.getRoot() : null;
+        if (root && root.classList && root.classList.contains("mod-right-split")) return true;
+        const el = leaf.containerEl || (leaf.view && leaf.view.containerEl);
+        return !!(el && typeof el.closest === "function" && el.closest(".mod-right-split"));
+      } catch (error) {
+        return false;
+      }
+    };
+    let leaf = (ws.getLeavesOfType(type) || []).find(inRightSidebar);
+    if (!leaf) {
+      if (typeof ws.getRightLeaf === "function" && !Platform.isMobile) {
+        leaf = ws.getRightLeaf(false) || ws.getRightLeaf(true);
+      }
+      if (!leaf) leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
+      await leaf.setViewState({ type, active: true });
+    }
+    if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
+    await ws.revealLeaf(leaf);
+    if (leaf.view && leaf.view.render) leaf.view.render();
+    return leaf.view;
+  }
+
   /** The compact task list lives in the right sidebar; phones fall back to a tab. */
   async activateTaskList() {
     if (!this.studyTasksEnabled()) {
@@ -4946,19 +4978,7 @@ class QuestionTrackerPlugin extends Plugin {
       this.openSettings();
       return null;
     }
-    const ws = this.app.workspace;
-    let leaf = ws.getLeavesOfType(VIEW_TYPE_TASK_LIST)[0];
-    if (!leaf) {
-      if (typeof ws.getRightLeaf === "function" && !Platform.isMobile) {
-        leaf = ws.getRightLeaf(false) || ws.getRightLeaf(true);
-      }
-      if (!leaf) leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
-      await leaf.setViewState({ type: VIEW_TYPE_TASK_LIST, active: true });
-    }
-    if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
-    await ws.revealLeaf(leaf);
-    if (leaf.view && leaf.view.render) leaf.view.render();
-    return leaf.view;
+    return this.activateSidebarView(VIEW_TYPE_TASK_LIST);
   }
 
   /* ---- assignments and grades */
@@ -5629,16 +5649,7 @@ class QuestionTrackerPlugin extends Plugin {
 
   /** Open the study agent in the right sidebar; every file write stays behind the existing review guards. */
   async activateAgent() {
-    const ws = this.app.workspace;
-    let leaf = ws.getLeavesOfType(VIEW_TYPE_AGENT)[0];
-    if (!leaf) {
-      if (typeof ws.getRightLeaf === "function" && !Platform.isMobile) leaf = ws.getRightLeaf(false) || ws.getRightLeaf(true);
-      if (!leaf) leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
-      await leaf.setViewState({ type: VIEW_TYPE_AGENT, active: true });
-    }
-    if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
-    await ws.revealLeaf(leaf);
-    return leaf.view;
+    return this.activateSidebarView(VIEW_TYPE_AGENT);
   }
 
   /** Open the compact Quick Chat prompt; repeated invocations reuse the open modal. */
@@ -9705,13 +9716,7 @@ ${body}
       this.settings.calendar = Object.assign({}, this.settings.calendar, { layers });
       await this.save();
     }
-    let view = null;
-    if (this.groupedRibbon()) {
-      const hub = await this.activateHubTab("plan", "calendar");
-      view = hub && typeof hub.childView === "function" ? hub.childView("calendar") : null;
-    } else {
-      view = await this.activateModuleView(VIEW_TYPE_CALENDAR);
-    }
+    const view = await this.activateSidebarView(VIEW_TYPE_CALENDAR);
     if (view) {
       if (opts.mode === "day" || opts.mode === "month" || opts.mode === "upcoming") view.mode = opts.mode;
       if (opts.today) {
@@ -10042,8 +10047,7 @@ ${body}
 
   async activateCalendar() {
     if (this.moduleOff("calendar")) return null;
-    if (this.groupedRibbon()) return this.activateHubTab("plan", "calendar");
-    return this.activateModuleView(VIEW_TYPE_CALENDAR);
+    return this.activateSidebarView(VIEW_TYPE_CALENDAR);
   }
 
   openCalendarImport() {

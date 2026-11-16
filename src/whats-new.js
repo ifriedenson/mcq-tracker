@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.15",
+    date: "November 16, 2026",
+    title: "The sidebar, for all three",
+    summary:
+      "The task list and Study agent already lived in the right sidebar, but the calendar still opened a main tab. Agent, tasks and the calendar now share one right-sidebar path, so all three stay beside the note you are reading.",
+    highlights: [
+      {
+        title: "The calendar docks on the right",
+        body: "Open calendar, Open Plan and the Focus day, Review calendar and Local events commands now open the merged calendar in the right sidebar instead of a main tab.",
+      },
+      {
+        title: "One rule for all three",
+        body: "The task list, Study agent and calendar use the same routing: an existing right-sidebar leaf is reused, otherwise the sidebar gets a new view. Phones keep a normal tab.",
+      },
+      {
+        title: "No duplicate calendars",
+        body: "Opening the calendar again focuses the one already in the sidebar rather than adding another copy, and a calendar left in an old main tab does not pull you away from the note.",
+      },
+      {
+        title: "Phones keep a normal tab",
+        body: "A phone has no usable right split, so all three views fall back to an ordinary tab there. Nothing about the desktop sidebar changes what a phone can reach.",
+      },
+    ],
+  },
+  {
     version: "1.307.14",
     date: "November 16, 2026",
     title: "One calendar",

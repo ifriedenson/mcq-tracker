@@ -23,7 +23,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `CALENDAR_TABS` | 7 | `tests/calendar.test.js` |
 | `CARDS_TABS` | 4 | `tests/modules.test.js` |
 | `CalculationPreviewModal` | 0 | `tests/feature-surfaces.test.js` |
-| `CalendarView` | 0 | `tests/calendar-network.test.js`, `tests/calendar.test.js`, `tests/term-calendar.test.js` |
+| `CalendarView` | 0 | `tests/calendar-network.test.js`, `tests/calendar.test.js`, `tests/hub-views.test.js`, `tests/term-calendar.test.js` |
 | `CardExtractModal` | 0 | `tests/feature-surfaces.test.js` |
 | `CardModal` | 0 | `tests/source-recall.test.js` |
 | `CardView` | 0 | `tests/card-cram.test.js`, `tests/card-learning.test.js`, `tests/card-mother-cram.test.js`, `tests/card-reveal.test.js`, `tests/card-speech.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/interval-preview.test.js`, `tests/mobile-module-layout.test.js`, `tests/source-recall.test.js`, `tests/study-status.test.js`, `tests/undo-everywhere.test.js` |
