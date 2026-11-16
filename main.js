@@ -12420,6 +12420,194 @@ function fullCalendarNotes(app, folder, range) {
 module.exports = { eventFromNote, fullCalendarNotes, parseClock };
 };
 
+/* ---- src/calendar-merge.js ---- */
+__defs["calendar-merge"] = function (module, exports, require) {
+/*
+ * The merged Plan calendar. One day can hold classes and exams from the .ics
+ * feeds, planned study blocks, the plugin's own local events, the review queue
+ * and dated study tasks. This module only reads those stores and returns plain
+ * rows grouped by day; the calendar view decides how to draw them.
+ */
+const { str } = require("./util");
+const { dateKey } = require("./calendar-ics");
+const localEvents = require("./local-events");
+const studyWorkspace = require("./study-workspace");
+const timeBlocks = require("./time-blocks");
+
+const LAYERS = [
+  { id: "classes", label: "Classes", aria: "classes and exams" },
+  { id: "planned", label: "Planned", aria: "planned study blocks" },
+  { id: "events", label: "Events", aria: "local events" },
+  { id: "review", label: "Review", aria: "review due" },
+  { id: "tasks", label: "Tasks", aria: "study tasks" },
+];
+
+const LAYER_IDS = LAYERS.map((layer) => layer.id);
+
+function normalizeLayers(value) {
+  const src = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const out = {};
+  for (const id of LAYER_IDS) out[id] = src[id] !== false;
+  return out;
+}
+
+function enabledLayers(plugin, value) {
+  const layers = normalizeLayers(value);
+  const off = (name) => !!(plugin && typeof plugin[name] === "function" && !plugin[name]());
+  if (off("calendarEnabled")) layers.classes = false;
+  if (off("timeBlocksEnabled")) layers.planned = false;
+  if (off("localEventsEnabled")) layers.events = false;
+  if (off("reviewCalendarEnabled")) layers.review = false;
+  if (off("studyTasksEnabled")) layers.tasks = false;
+  return layers;
+}
+
+function dayKeyOf(value) {
+  const text = str(value).trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+}
+
+/** Days from one key to another, inclusive, capped so a wild range cannot loop. */
+function keyRange(startKey, endKey) {
+  const start = dayKeyOf(startKey);
+  const end = dayKeyOf(endKey);
+  if (!start || !end || end < start) return [];
+  const out = [];
+  let cursor = new Date(`${start}T12:00:00`);
+  for (let guard = 0; guard < 400; guard++) {
+    if (Number.isNaN(cursor.getTime())) break;
+    const key = dateKey(cursor);
+    out.push(key);
+    if (key >= end) break;
+    cursor = new Date(cursor.getTime() + 86400000);
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate(), 12);
+  }
+  return out;
+}
+
+function push(map, key, item) {
+  if (!key) return;
+  if (!map.has(key)) map.set(key, []);
+  map.get(key).push(item);
+}
+
+function categoryColor(category) {
+  const found = localEvents.LOCAL_EVENT_CATEGORIES.find((entry) => entry.id === category);
+  return found ? found.color : "";
+}
+
+/**
+ * Rows for every enabled layer in a date range. Classes are supplied by the
+ * caller because it already filtered them for the visible window.
+ */
+function collect(plugin, options) {
+  const opts = options || {};
+  const layers = normalizeLayers(opts.layers);
+  const map = new Map();
+  const startKey = dayKeyOf(opts.startKey);
+  const endKey = dayKeyOf(opts.endKey);
+  const days = keyRange(startKey, endKey);
+
+  if (layers.planned && plugin && typeof plugin.timeBlocksSettings === "function") {
+    const blocks = plugin.timeBlocksSettings().blocks;
+    for (const key of days) {
+      for (const block of timeBlocks.blocksForDate(blocks, key)) {
+        push(map, key, {
+          layer: "planned",
+          title: str(block.title),
+          time: block.untimed ? "" : `${block.start}–${block.end}`,
+          meta: [str(block.course), Number(block.minutes) ? `${Math.round(Number(block.minutes))} min` : ""].filter(Boolean).join(" · "),
+          block,
+        });
+      }
+    }
+  }
+
+  if (layers.events && plugin && plugin.settings && plugin.settings.localEvents) {
+    const store = localEvents.normalizeLocalEventsSettings(plugin.settings.localEvents);
+    for (const row of localEvents.eventsInRange(store.events, startKey, endKey)) {
+      const event = row.event;
+      push(map, row.key, {
+        layer: "events",
+        title: str(event.title),
+        time: str(event.startTime) + (event.endTime ? `–${event.endTime}` : ""),
+        meta: str(event.category) && event.category !== "other" ? str(event.category) : "",
+        color: categoryColor(event.category),
+        event,
+      });
+    }
+  }
+
+  if (layers.review && plugin && typeof plugin.reviewCalendarSnapshot === "function") {
+    try {
+      const snapshot = plugin.reviewCalendarSnapshot({ days: Math.max(45, days.length + 1) });
+      for (const bucket of snapshot.days || []) {
+        if (!bucket || !bucket.total) continue;
+        if (startKey && (bucket.date < startKey || bucket.date > endKey)) continue;
+        push(map, bucket.date, {
+          layer: "review",
+          title: `${bucket.total} due`,
+          time: "",
+          meta: [
+            bucket.notes.length ? `${bucket.notes.length} note${bucket.notes.length === 1 ? "" : "s"}` : "",
+            bucket.cards.length ? `${bucket.cards.length} card${bucket.cards.length === 1 ? "" : "s"}` : "",
+            bucket.minutes ? `${Math.round(bucket.minutes)} min` : "",
+          ].filter(Boolean).join(" · "),
+          count: bucket.total,
+        });
+      }
+    } catch (error) {
+      // A review store that cannot be read must not take the calendar down.
+    }
+  }
+
+  if (layers.tasks && plugin && plugin.settings) {
+    const store = studyWorkspace.normalizeStudyTasks(plugin.settings.studyTasks);
+    for (const task of store.tasks) {
+      const key = dayKeyOf(task.due);
+      if (!key || task.done) continue;
+      if (startKey && (key < startKey || key > endKey)) continue;
+      push(map, key, {
+        layer: "tasks",
+        title: str(task.title),
+        time: str(task.time),
+        meta: [str(task.course), task.priority === "high" ? "high" : ""].filter(Boolean).join(" · "),
+        task,
+      });
+    }
+  }
+
+  const byDay = new Map();
+  const counts = {};
+  for (const id of LAYER_IDS) counts[id] = 0;
+  for (const [key, rows] of map.entries()) {
+    const order = { classes: 0, planned: 1, events: 2, review: 3, tasks: 4 };
+    rows.sort((a, b) => (order[a.layer] || 0) - (order[b.layer] || 0) || str(a.time).localeCompare(str(b.time)) || a.title.localeCompare(b.title));
+    byDay.set(key, rows);
+    for (const row of rows) counts[row.layer] = (counts[row.layer] || 0) + 1;
+  }
+  const extras = (key) => (byDay.get(key) || []).filter((row) => row.layer !== "classes" && row.layer !== "planned");
+  return { byDay, counts, extras, layers };
+}
+
+function countsForDay(merged, key) {
+  const rows = (merged && merged.byDay && merged.byDay.get(key)) || [];
+  const out = { classes: 0, planned: 0, events: 0, review: 0, tasks: 0 };
+  for (const row of rows) out[row.layer] = (out[row.layer] || 0) + 1;
+  return out;
+}
+
+module.exports = {
+  LAYERS,
+  LAYER_IDS,
+  collect,
+  countsForDay,
+  enabledLayers,
+  keyRange,
+  normalizeLayers,
+};
+};
+
 /* ---- src/calendar-model.js ---- */
 __defs["calendar-model"] = function (module, exports, require) {
 /*
@@ -12520,6 +12708,7 @@ const DEFAULT_CALENDAR_SETTINGS = {
   autoSync: false, // URL feeds are refreshed on startup only when this is on
   calendarMaxWidth: 0, // 0 fills the pane; a positive value centers a narrower calendar
   studySlotBufferMinutes: 5, // kept free before the next class in a study slot
+  layers: { classes: true, planned: true, events: true, review: true, tasks: true }, // merged calendar layers
   timelineGaps: {
     enabled: false, // breaks are opt-in, like the original calendar
     style: "pill", // pill | line | card | text
@@ -12623,6 +12812,12 @@ function mergeCalendarSettings(saved) {
   out.excludedKeywords = (Array.isArray(out.excludedKeywords) ? out.excludedKeywords : []).map(str).filter(Boolean);
   out.subjectFolders = plainObject(out.subjectFolders);
   out.courses = normalizeCourseRegistry(out.courses);
+  out.layers = (() => {
+    const raw = plainObject(out.layers);
+    const layers = {};
+    for (const id of ["classes", "planned", "events", "review", "tasks"]) layers[id] = raw[id] !== false;
+    return layers;
+  })();
   out.examOverrides = normalizeExamOverrides(out.examOverrides);
   out.eventNoteFolder = normalizeFolder(out.eventNoteFolder);
   out.classColors = plainObject(out.classColors);
@@ -14429,6 +14624,7 @@ const { isAttachedToExam, recommendApResource, recommendStudyResource, resourceT
 const { isAttachedToStudySlot } = require("./ap-resource-notes");
 const calendarPlanner = require("./calendar-planner");
 const timeBlocks = require("./time-blocks");
+const calendarMerge = require("./calendar-merge");
 
 
 function detailsOf(event) {
@@ -14787,7 +14983,7 @@ function renderDaySection(plugin, container, key, options) {
     free.addEventListener("click", () => plugin.openStudySlot(slots));
   }
 
-  const planner = plugin.timeBlocksEnabled ? plugin.calendarPlannerDay(key, events) : null;
+  const planner = opts.plans === false || !plugin.timeBlocksEnabled ? null : plugin.calendarPlannerDay(key, events);
   if (!events.length) {
     const empty = section.createDiv({ cls: "uni-empty-schedule" });
     empty.createDiv({ cls: "uni-empty-schedule-icon", text: "🎓" });
@@ -14799,7 +14995,7 @@ function renderDaySection(plugin, container, key, options) {
       cls: "uni-empty-schedule-subtext",
       text: term && term.readingWeek ? "No classes this week. Use the break to review." : "Enjoy your free time or review your notes!",
     });
-    renderDayPlanner(plugin, section, key, planner);
+    if (planner) renderDayPlanner(plugin, section, key, planner);
     return section;
   }
 
@@ -14815,8 +15011,49 @@ function renderDaySection(plugin, container, key, options) {
       renderEventCard(plugin, timeline, entry.event, key, { liveNodes: opts.liveNodes });
     }
   }
-  renderDayPlanner(plugin, section, key, planner);
+  if (planner) renderDayPlanner(plugin, section, key, planner);
   return section;
+}
+
+/** The non-class rows for one day: local events, review due, dated tasks. */
+function renderMergedRows(container, rows, options) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) return null;
+  const opts = options || {};
+  const card = container.createDiv({ cls: "uni-merged-card" });
+  card.createDiv({ cls: "uni-merged-title", text: opts.title || "Also today" });
+  const body = card.createDiv({ cls: "uni-merged-list" });
+  for (const row of list) {
+    const line = body.createDiv({ cls: `uni-merged-row is-${row.layer}` });
+    const dot = line.createDiv({ cls: "uni-merged-dot" });
+    if (row.color) dot.style.backgroundColor = row.color;
+    line.createSpan({ cls: "uni-merged-row-title", text: row.title });
+    if (row.time) line.createSpan({ cls: "uni-merged-row-time", text: row.time });
+    if (row.meta) line.createSpan({ cls: "uni-merged-row-meta", text: row.meta });
+  }
+  return card;
+}
+
+/** Layer chips: which stores the one calendar draws. */
+function renderLayerChips(plugin, container, layers) {
+  const bar = container.createDiv({ cls: "uni-layer-bar" });
+  bar.setAttr("role", "group");
+  bar.setAttr("aria-label", "Calendar layers");
+  for (const layer of calendarMerge.LAYERS) {
+    const on = layers[layer.id] !== false;
+    const chip = bar.createEl("button", { cls: `uni-layer-chip${on ? " is-active" : ""}`, text: layer.label });
+    chip.setAttr("type", "button");
+    chip.setAttr("aria-pressed", on ? "true" : "false");
+    chip.setAttr("title", `${on ? "Hide" : "Show"} ${layer.aria}`);
+    chip.addEventListener("click", async () => {
+      const current = calendarMerge.normalizeLayers(plugin.settings.calendar && plugin.settings.calendar.layers);
+      current[layer.id] = !on;
+      plugin.settings.calendar = Object.assign({}, plugin.settings.calendar, { layers: current });
+      await plugin.save();
+      plugin.refreshCalendarViews();
+    });
+  }
+  return bar;
 }
 
 function renderEmptyState(container, title, description, buttonText, onClick) {
@@ -14924,22 +15161,33 @@ class CalendarView extends ItemView {
     // always relative to today and therefore uses the current window.
     const range = this.mode === "upcoming" ? new Date() : this.cursor;
     this.range = range;
-    const events = this.plugin.calendarEvents(range);
+    const allEvents = this.plugin.calendarEvents(range);
+    const layers = calendarMerge.enabledLayers(this.plugin, this.plugin.calendarSettings().layers);
+    const events = layers.classes ? allEvents : [];
+    const days = this.mode === "upcoming" ? 14 : this.mode === "day" ? 1 : 49;
+    const monthFirst = new Date(this.cursor.getFullYear(), this.cursor.getMonth(), 1);
+    const startKey = this.mode === "upcoming" ? dateKey(new Date()) : this.mode === "day" ? this.selectedKey : dateKey(addDays(monthFirst, -7));
+    const endKey = dateKey(addDays(new Date(`${startKey}T12:00:00`), days - 1));
+    const merged = calendarMerge.collect(this.plugin, { events: allEvents, startKey, endKey, layers });
+    this.merged = merged;
     this.renderModes(el);
+    renderLayerChips(this.plugin, el, layers);
     if (this.mode === "month") {
-      this.renderMonthCard(el, events);
-      renderDaySection(this.plugin, el, this.selectedKey, { title: true, events, now: range, liveNodes: this.liveNodes });
+      this.renderMonthCard(el, events, merged);
+      renderDaySection(this.plugin, el, this.selectedKey, { title: true, events, now: range, liveNodes: this.liveNodes, plans: layers.planned });
+      renderMergedRows(el, merged.extras(this.selectedKey), { title: "Also today" });
       // Exams are always "from today", even while browsing another month.
       this.renderExamPanel(el, this.plugin.calendarEvents());
     } else if (this.mode === "day") {
       const card = el.createDiv({ cls: "uni-month-card" });
       this.renderMonthHeader(card, dayHeading(this.selectedKey), "day");
-      renderDaySection(this.plugin, el, this.selectedKey, { title: false, events, now: range, liveNodes: this.liveNodes });
+      renderDaySection(this.plugin, el, this.selectedKey, { title: false, events, now: range, liveNodes: this.liveNodes, plans: layers.planned });
+      renderMergedRows(el, merged.extras(this.selectedKey), { title: "Also today" });
       this.renderExamPanel(el, this.plugin.calendarEvents());
     } else {
       const card = el.createDiv({ cls: "uni-month-card" });
       this.renderMonthHeader(card, "Upcoming", "upcoming");
-      this.renderUpcoming(el, events);
+      this.renderUpcoming(el, events, merged);
       this.renderExamPanel(el, this.plugin.calendarEvents());
     }
     this.liveSignature = this.ongoingSignature(events);
@@ -14963,7 +15211,7 @@ class CalendarView extends ItemView {
     }
   }
 
-  renderMonthCard(container, events) {
+  renderMonthCard(container, events, merged) {
     const settings = this.plugin.calendarSettings();
     const card = container.createDiv({ cls: "uni-month-card" });
     this.renderMonthHeader(card, monthLabel(this.cursor.getFullYear(), this.cursor.getMonth()), "month");
@@ -14998,12 +15246,20 @@ class CalendarView extends ItemView {
       const dayEvents = eventsOnDay(events, cell.key);
       const termText = term ? `, ${termWeekLabel(term)}` : "";
       day.setAttr("aria-label", `${dayHeading(cell.key)}${termText}${dayEvents.length ? `, ${classesCount(dayEvents.length)}` : ""}`);
-      if (dayEvents.length) {
+      const layerCounts = calendarMerge.countsForDay(merged, cell.key);
+      if (dayEvents.length || layerCounts.planned || layerCounts.events || layerCounts.review || layerCounts.tasks) {
         const dots = day.createDiv({ cls: "uni-event-dots-container" });
         for (const event of dayEvents.slice(0, 3)) {
           const dot = dots.createDiv({ cls: "uni-event-dot" });
           dot.style.backgroundColor = classColor(settings, detailsOf(event), event.summary);
         }
+        for (const layer of ["planned", "events", "review", "tasks"]) {
+          if (!layerCounts[layer]) continue;
+          const dot = dots.createDiv({ cls: `uni-event-dot is-layer-${layer}` });
+          dot.setAttr("title", `${layerCounts[layer]} ${layer}`);
+        }
+        const extra = layerCounts.planned + layerCounts.events + layerCounts.review + layerCounts.tasks;
+        if (extra) day.setAttr("aria-label", `${dayHeading(cell.key)}${termText}${dayEvents.length ? `, ${classesCount(dayEvents.length)}` : ""}, ${extra} more`);
       }
 
       day.addEventListener("click", () => this.selectDay(cell));
@@ -15220,17 +15476,19 @@ class CalendarView extends ItemView {
     this.contentEl.scrollTop = top;
   }
 
-  renderUpcoming(container, events) {
+  renderUpcoming(container, events, merged) {
     const now = new Date();
-    const source = events || this.plugin.calendarEvents(now);
+    const source = events || [];
     let shown = 0;
     for (let i = 0; i < 14; i++) {
       const key = dateKey(addDays(now, i));
-      if (!eventsOnDay(source, key).length) continue;
+      const extras = merged && merged.extras ? merged.extras(key) : [];
+      if (!eventsOnDay(source, key).length && !extras.length) continue;
       shown++;
-      renderDaySection(this.plugin, container, key, { title: true, events: source, now, liveNodes: this.liveNodes });
+      renderDaySection(this.plugin, container, key, { title: true, events: source, now, liveNodes: this.liveNodes, plans: merged ? merged.layers.planned : true });
+      renderMergedRows(container, extras, { title: "Also today" });
     }
-    if (!shown) renderEmptyState(container, "Nothing scheduled", "No classes in the next two weeks.", "", null);
+    if (!shown) renderEmptyState(container, "Nothing scheduled", "No classes, events or review work in the next two weeks.", "", null);
   }
 
   goToday() {
@@ -50587,7 +50845,8 @@ __defs["hubs"] = function (module, exports, require) {
  * so the ribbon can stay short without losing a single surface:
  *
  *   Today — what is happening now: Today, Study statistics, Pomodoro.
- *   Plan  — when it happens: Calendar, Focus day, Review calendar, Local events.
+ *   Plan  — when it happens: one merged calendar (classes, planned blocks,
+ *           local events, review due and dated tasks) with layer chips.
  *   Study — the workflow tools: Study Workspace, Study Tools.
  *
  * A tab's `enabled` reads the same module getters the ribbon uses, so a hub
@@ -50613,18 +50872,6 @@ function pomodoroView(leaf, plugin) {
 
 function calendarView(leaf, plugin) {
   return new (require("./calendar-view").CalendarView)(leaf, plugin);
-}
-
-function focusDayView(leaf, plugin) {
-  return new (require("./focus-day-view").FocusDayView)(leaf, plugin);
-}
-
-function reviewCalendarView(leaf, plugin) {
-  return new (require("./review-calendar-view").ReviewCalendarView)(leaf, plugin);
-}
-
-function localEventsView(leaf, plugin) {
-  return new (require("./local-events-view").LocalEventsView)(leaf, plugin);
 }
 
 function studyWorkspaceView(leaf, plugin) {
@@ -50653,10 +50900,9 @@ const HUB_SPECS = [
     title: "Plan",
     icon: "calendar-days",
     tabs: [
-      { id: "calendar", label: "Calendar", create: calendarView, enabled: (plugin) => plugin.calendarEnabled() },
-      { id: "focus", label: "Focus day", create: focusDayView, enabled: () => true },
-      { id: "review", label: "Review calendar", create: reviewCalendarView, enabled: (plugin) => plugin.reviewCalendarEnabled() },
-      { id: "events", label: "Local events", create: localEventsView, enabled: (plugin) => plugin.localEventsEnabled() },
+      // One merged calendar: classes, planned blocks, local events, review due
+      // and dated tasks share the same days, with layer chips to hide any of them.
+      { id: "calendar", label: "Calendar", create: calendarView, enabled: () => true },
     ],
   },
   {
@@ -74876,6 +75122,7 @@ const studyStats = require("./study-stats");
 const snapshotCache = require("./snapshot-cache");
 const quizDedup = require("./quiz-dedup");
 const localEvents = require("./local-events");
+const calendarMerge = require("./calendar-merge");
 const noteReviewDock = require("./note-review-dock");
 const sessionReport = require("./session-report");
 const { NoteReviewDock } = require("./note-review-dock");
@@ -75295,7 +75542,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-task-list", name: "Open the task list", callback: () => this.activateTaskList() });
     this.addCommand({ id: "mirror-study-tasks", name: "Tasks: mirror study tasks to a note", callback: () => this.mirrorStudyTasksCommand() });
     this.addCommand({ id: "open-focus-day", name: "Open Focus day", callback: () => this.activateFocusDay() });
-    this.addCommand({ id: "open-plan-hub", name: "Open Plan (calendar, focus day, events)", callback: () => this.activatePlanHub() });
+    this.addCommand({ id: "open-plan-hub", name: "Open Plan calendar", callback: () => this.activatePlanHub() });
     this.addCommand({ id: "open-reading-library", name: "Reading library: open the bookshelf", callback: () => this.activateStudyWorkspace("readingLibrary") });
     this.addCommand({ id: "new-feynman-cycle", name: "Feynman Learning: start a cycle", callback: () => this.activateStudyWorkspace("feynman") });
     this.addCommand({ id: "build-recall-queue", name: "Recall Scheduler: build a queue", callback: () => this.activateStudyWorkspace("recall") });
@@ -84263,8 +84510,40 @@ ${body}
   }
 
   async activateFocusDay() {
-    if (this.groupedRibbon()) return this.activateHubTab("plan", "focus");
-    return this.activateModuleView(VIEW_TYPE_FOCUS_DAY);
+    return this.openMergedCalendar({ mode: "day", layers: ["planned", "classes"], today: true });
+  }
+
+  /**
+   * Open the one Plan calendar with some layers switched on and, when asked,
+   * the day view selected. Focus day, Review calendar and Local events use this
+   * instead of their own views, so the layers stay in one place.
+   */
+  async openMergedCalendar(options) {
+    const opts = options || {};
+    if (Array.isArray(opts.layers) && opts.layers.length) {
+      const layers = calendarMerge.normalizeLayers(this.settings.calendar && this.settings.calendar.layers);
+      for (const id of opts.layers) if (calendarMerge.LAYER_IDS.includes(id)) layers[id] = true;
+      this.settings.calendar = Object.assign({}, this.settings.calendar, { layers });
+      await this.save();
+    }
+    let view = null;
+    if (this.groupedRibbon()) {
+      const hub = await this.activateHubTab("plan", "calendar");
+      view = hub && typeof hub.childView === "function" ? hub.childView("calendar") : null;
+    } else {
+      view = await this.activateModuleView(VIEW_TYPE_CALENDAR);
+    }
+    if (view) {
+      if (opts.mode === "day" || opts.mode === "month" || opts.mode === "upcoming") view.mode = opts.mode;
+      if (opts.today) {
+        const now = new Date();
+        view.cursor = new Date(now.getFullYear(), now.getMonth(), 1);
+        view.selectedKey = dateKey(now);
+      }
+      if (opts.key) view._focusKey = opts.key;
+      if (typeof view.render === "function") view.render();
+    }
+    return view;
   }
 
   /**
@@ -84399,8 +84678,7 @@ ${body}
       new Notice("Turn on Review calendar in Settings → Review calendar.");
       return null;
     }
-    if (this.groupedRibbon()) return this.activateHubTab("plan", "review");
-    return this.activateModuleView(VIEW_TYPE_REVIEW_CALENDAR);
+    return this.openMergedCalendar({ mode: "month", layers: ["review"] });
   }
 
   async activateStudyStats() {
@@ -84417,8 +84695,7 @@ ${body}
       new Notice("Turn on Local events in Settings → Local events.");
       return null;
     }
-    if (this.groupedRibbon()) return this.activateHubTab("plan", "events");
-    return this.activateModuleView(VIEW_TYPE_LOCAL_EVENTS);
+    return this.openMergedCalendar({ mode: "month", layers: ["events"] });
   }
 
   async activateModuleView(type) {
@@ -139875,6 +140152,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.307.14",
+    date: "November 16, 2026",
+    title: "One calendar",
+    summary:
+      "The Plan hub had four calendars for one question: classes in Calendar, the day in Focus day, the queue in Review calendar and local events in their own tab. They are now one calendar — classes, planned blocks, local events, review due and dated tasks on the same days — with five layer chips to hide whatever you do not need.",
+    highlights: [
+      {
+        title: "Every plan on one grid",
+        body: "Month cells, the day section and Upcoming now draw classes and exams, planned study blocks, local events, review-due questions and cards, and study tasks with due dates. Month cells add a coloured dot for each extra layer.",
+      },
+      {
+        title: "An “Also today” card",
+        body: "Under the selected day and in Upcoming, local events, review workload and dated tasks are listed with their time and course, so a plan, a deadline and a class read as one afternoon.",
+      },
+      {
+        title: "Layers you can switch",
+        body: "Classes, Planned, Events, Review and Tasks chips sit above the calendar, press on and off, and are remembered per vault in the calendar settings. A module that is off hides its layer automatically.",
+      },
+      {
+        title: "The four tabs are one",
+        body: "Focus day, Review calendar and Local events left the Plan tab bar. Their commands still open the merged calendar with the matching layer switched on, and Focus day opens the day view.",
+      },
+    ],
+  },
   {
     version: "1.307.13",
     date: "November 16, 2026",

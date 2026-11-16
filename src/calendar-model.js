@@ -97,6 +97,7 @@ const DEFAULT_CALENDAR_SETTINGS = {
   autoSync: false, // URL feeds are refreshed on startup only when this is on
   calendarMaxWidth: 0, // 0 fills the pane; a positive value centers a narrower calendar
   studySlotBufferMinutes: 5, // kept free before the next class in a study slot
+  layers: { classes: true, planned: true, events: true, review: true, tasks: true }, // merged calendar layers
   timelineGaps: {
     enabled: false, // breaks are opt-in, like the original calendar
     style: "pill", // pill | line | card | text
@@ -200,6 +201,12 @@ function mergeCalendarSettings(saved) {
   out.excludedKeywords = (Array.isArray(out.excludedKeywords) ? out.excludedKeywords : []).map(str).filter(Boolean);
   out.subjectFolders = plainObject(out.subjectFolders);
   out.courses = normalizeCourseRegistry(out.courses);
+  out.layers = (() => {
+    const raw = plainObject(out.layers);
+    const layers = {};
+    for (const id of ["classes", "planned", "events", "review", "tasks"]) layers[id] = raw[id] !== false;
+    return layers;
+  })();
   out.examOverrides = normalizeExamOverrides(out.examOverrides);
   out.eventNoteFolder = normalizeFolder(out.eventNoteFolder);
   out.classColors = plainObject(out.classColors);

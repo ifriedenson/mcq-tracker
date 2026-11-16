@@ -301,6 +301,7 @@ const studyStats = require("./study-stats");
 const snapshotCache = require("./snapshot-cache");
 const quizDedup = require("./quiz-dedup");
 const localEvents = require("./local-events");
+const calendarMerge = require("./calendar-merge");
 const noteReviewDock = require("./note-review-dock");
 const sessionReport = require("./session-report");
 const { NoteReviewDock } = require("./note-review-dock");
@@ -720,7 +721,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-task-list", name: "Open the task list", callback: () => this.activateTaskList() });
     this.addCommand({ id: "mirror-study-tasks", name: "Tasks: mirror study tasks to a note", callback: () => this.mirrorStudyTasksCommand() });
     this.addCommand({ id: "open-focus-day", name: "Open Focus day", callback: () => this.activateFocusDay() });
-    this.addCommand({ id: "open-plan-hub", name: "Open Plan (calendar, focus day, events)", callback: () => this.activatePlanHub() });
+    this.addCommand({ id: "open-plan-hub", name: "Open Plan calendar", callback: () => this.activatePlanHub() });
     this.addCommand({ id: "open-reading-library", name: "Reading library: open the bookshelf", callback: () => this.activateStudyWorkspace("readingLibrary") });
     this.addCommand({ id: "new-feynman-cycle", name: "Feynman Learning: start a cycle", callback: () => this.activateStudyWorkspace("feynman") });
     this.addCommand({ id: "build-recall-queue", name: "Recall Scheduler: build a queue", callback: () => this.activateStudyWorkspace("recall") });
@@ -9688,8 +9689,40 @@ ${body}
   }
 
   async activateFocusDay() {
-    if (this.groupedRibbon()) return this.activateHubTab("plan", "focus");
-    return this.activateModuleView(VIEW_TYPE_FOCUS_DAY);
+    return this.openMergedCalendar({ mode: "day", layers: ["planned", "classes"], today: true });
+  }
+
+  /**
+   * Open the one Plan calendar with some layers switched on and, when asked,
+   * the day view selected. Focus day, Review calendar and Local events use this
+   * instead of their own views, so the layers stay in one place.
+   */
+  async openMergedCalendar(options) {
+    const opts = options || {};
+    if (Array.isArray(opts.layers) && opts.layers.length) {
+      const layers = calendarMerge.normalizeLayers(this.settings.calendar && this.settings.calendar.layers);
+      for (const id of opts.layers) if (calendarMerge.LAYER_IDS.includes(id)) layers[id] = true;
+      this.settings.calendar = Object.assign({}, this.settings.calendar, { layers });
+      await this.save();
+    }
+    let view = null;
+    if (this.groupedRibbon()) {
+      const hub = await this.activateHubTab("plan", "calendar");
+      view = hub && typeof hub.childView === "function" ? hub.childView("calendar") : null;
+    } else {
+      view = await this.activateModuleView(VIEW_TYPE_CALENDAR);
+    }
+    if (view) {
+      if (opts.mode === "day" || opts.mode === "month" || opts.mode === "upcoming") view.mode = opts.mode;
+      if (opts.today) {
+        const now = new Date();
+        view.cursor = new Date(now.getFullYear(), now.getMonth(), 1);
+        view.selectedKey = dateKey(now);
+      }
+      if (opts.key) view._focusKey = opts.key;
+      if (typeof view.render === "function") view.render();
+    }
+    return view;
   }
 
   /**
@@ -9824,8 +9857,7 @@ ${body}
       new Notice("Turn on Review calendar in Settings → Review calendar.");
       return null;
     }
-    if (this.groupedRibbon()) return this.activateHubTab("plan", "review");
-    return this.activateModuleView(VIEW_TYPE_REVIEW_CALENDAR);
+    return this.openMergedCalendar({ mode: "month", layers: ["review"] });
   }
 
   async activateStudyStats() {
@@ -9842,8 +9874,7 @@ ${body}
       new Notice("Turn on Local events in Settings → Local events.");
       return null;
     }
-    if (this.groupedRibbon()) return this.activateHubTab("plan", "events");
-    return this.activateModuleView(VIEW_TYPE_LOCAL_EVENTS);
+    return this.openMergedCalendar({ mode: "month", layers: ["events"] });
   }
 
   async activateModuleView(type) {

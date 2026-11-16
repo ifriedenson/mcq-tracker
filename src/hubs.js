@@ -4,7 +4,8 @@
  * so the ribbon can stay short without losing a single surface:
  *
  *   Today — what is happening now: Today, Study statistics, Pomodoro.
- *   Plan  — when it happens: Calendar, Focus day, Review calendar, Local events.
+ *   Plan  — when it happens: one merged calendar (classes, planned blocks,
+ *           local events, review due and dated tasks) with layer chips.
  *   Study — the workflow tools: Study Workspace, Study Tools.
  *
  * A tab's `enabled` reads the same module getters the ribbon uses, so a hub
@@ -30,18 +31,6 @@ function pomodoroView(leaf, plugin) {
 
 function calendarView(leaf, plugin) {
   return new (require("./calendar-view").CalendarView)(leaf, plugin);
-}
-
-function focusDayView(leaf, plugin) {
-  return new (require("./focus-day-view").FocusDayView)(leaf, plugin);
-}
-
-function reviewCalendarView(leaf, plugin) {
-  return new (require("./review-calendar-view").ReviewCalendarView)(leaf, plugin);
-}
-
-function localEventsView(leaf, plugin) {
-  return new (require("./local-events-view").LocalEventsView)(leaf, plugin);
 }
 
 function studyWorkspaceView(leaf, plugin) {
@@ -70,10 +59,9 @@ const HUB_SPECS = [
     title: "Plan",
     icon: "calendar-days",
     tabs: [
-      { id: "calendar", label: "Calendar", create: calendarView, enabled: (plugin) => plugin.calendarEnabled() },
-      { id: "focus", label: "Focus day", create: focusDayView, enabled: () => true },
-      { id: "review", label: "Review calendar", create: reviewCalendarView, enabled: (plugin) => plugin.reviewCalendarEnabled() },
-      { id: "events", label: "Local events", create: localEventsView, enabled: (plugin) => plugin.localEventsEnabled() },
+      // One merged calendar: classes, planned blocks, local events, review due
+      // and dated tasks share the same days, with layer chips to hide any of them.
+      { id: "calendar", label: "Calendar", create: calendarView, enabled: () => true },
     ],
   },
   {

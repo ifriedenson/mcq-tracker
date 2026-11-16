@@ -35,6 +35,7 @@ const { isAttachedToExam, recommendApResource, recommendStudyResource, resourceT
 const { isAttachedToStudySlot } = require("./ap-resource-notes");
 const calendarPlanner = require("./calendar-planner");
 const timeBlocks = require("./time-blocks");
+const calendarMerge = require("./calendar-merge");
 
 
 function detailsOf(event) {
@@ -393,7 +394,7 @@ function renderDaySection(plugin, container, key, options) {
     free.addEventListener("click", () => plugin.openStudySlot(slots));
   }
 
-  const planner = plugin.timeBlocksEnabled ? plugin.calendarPlannerDay(key, events) : null;
+  const planner = opts.plans === false || !plugin.timeBlocksEnabled ? null : plugin.calendarPlannerDay(key, events);
   if (!events.length) {
     const empty = section.createDiv({ cls: "uni-empty-schedule" });
     empty.createDiv({ cls: "uni-empty-schedule-icon", text: "🎓" });
@@ -405,7 +406,7 @@ function renderDaySection(plugin, container, key, options) {
       cls: "uni-empty-schedule-subtext",
       text: term && term.readingWeek ? "No classes this week. Use the break to review." : "Enjoy your free time or review your notes!",
     });
-    renderDayPlanner(plugin, section, key, planner);
+    if (planner) renderDayPlanner(plugin, section, key, planner);
     return section;
   }
 
@@ -421,8 +422,49 @@ function renderDaySection(plugin, container, key, options) {
       renderEventCard(plugin, timeline, entry.event, key, { liveNodes: opts.liveNodes });
     }
   }
-  renderDayPlanner(plugin, section, key, planner);
+  if (planner) renderDayPlanner(plugin, section, key, planner);
   return section;
+}
+
+/** The non-class rows for one day: local events, review due, dated tasks. */
+function renderMergedRows(container, rows, options) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) return null;
+  const opts = options || {};
+  const card = container.createDiv({ cls: "uni-merged-card" });
+  card.createDiv({ cls: "uni-merged-title", text: opts.title || "Also today" });
+  const body = card.createDiv({ cls: "uni-merged-list" });
+  for (const row of list) {
+    const line = body.createDiv({ cls: `uni-merged-row is-${row.layer}` });
+    const dot = line.createDiv({ cls: "uni-merged-dot" });
+    if (row.color) dot.style.backgroundColor = row.color;
+    line.createSpan({ cls: "uni-merged-row-title", text: row.title });
+    if (row.time) line.createSpan({ cls: "uni-merged-row-time", text: row.time });
+    if (row.meta) line.createSpan({ cls: "uni-merged-row-meta", text: row.meta });
+  }
+  return card;
+}
+
+/** Layer chips: which stores the one calendar draws. */
+function renderLayerChips(plugin, container, layers) {
+  const bar = container.createDiv({ cls: "uni-layer-bar" });
+  bar.setAttr("role", "group");
+  bar.setAttr("aria-label", "Calendar layers");
+  for (const layer of calendarMerge.LAYERS) {
+    const on = layers[layer.id] !== false;
+    const chip = bar.createEl("button", { cls: `uni-layer-chip${on ? " is-active" : ""}`, text: layer.label });
+    chip.setAttr("type", "button");
+    chip.setAttr("aria-pressed", on ? "true" : "false");
+    chip.setAttr("title", `${on ? "Hide" : "Show"} ${layer.aria}`);
+    chip.addEventListener("click", async () => {
+      const current = calendarMerge.normalizeLayers(plugin.settings.calendar && plugin.settings.calendar.layers);
+      current[layer.id] = !on;
+      plugin.settings.calendar = Object.assign({}, plugin.settings.calendar, { layers: current });
+      await plugin.save();
+      plugin.refreshCalendarViews();
+    });
+  }
+  return bar;
 }
 
 function renderEmptyState(container, title, description, buttonText, onClick) {
@@ -530,22 +572,33 @@ class CalendarView extends ItemView {
     // always relative to today and therefore uses the current window.
     const range = this.mode === "upcoming" ? new Date() : this.cursor;
     this.range = range;
-    const events = this.plugin.calendarEvents(range);
+    const allEvents = this.plugin.calendarEvents(range);
+    const layers = calendarMerge.enabledLayers(this.plugin, this.plugin.calendarSettings().layers);
+    const events = layers.classes ? allEvents : [];
+    const days = this.mode === "upcoming" ? 14 : this.mode === "day" ? 1 : 49;
+    const monthFirst = new Date(this.cursor.getFullYear(), this.cursor.getMonth(), 1);
+    const startKey = this.mode === "upcoming" ? dateKey(new Date()) : this.mode === "day" ? this.selectedKey : dateKey(addDays(monthFirst, -7));
+    const endKey = dateKey(addDays(new Date(`${startKey}T12:00:00`), days - 1));
+    const merged = calendarMerge.collect(this.plugin, { events: allEvents, startKey, endKey, layers });
+    this.merged = merged;
     this.renderModes(el);
+    renderLayerChips(this.plugin, el, layers);
     if (this.mode === "month") {
-      this.renderMonthCard(el, events);
-      renderDaySection(this.plugin, el, this.selectedKey, { title: true, events, now: range, liveNodes: this.liveNodes });
+      this.renderMonthCard(el, events, merged);
+      renderDaySection(this.plugin, el, this.selectedKey, { title: true, events, now: range, liveNodes: this.liveNodes, plans: layers.planned });
+      renderMergedRows(el, merged.extras(this.selectedKey), { title: "Also today" });
       // Exams are always "from today", even while browsing another month.
       this.renderExamPanel(el, this.plugin.calendarEvents());
     } else if (this.mode === "day") {
       const card = el.createDiv({ cls: "uni-month-card" });
       this.renderMonthHeader(card, dayHeading(this.selectedKey), "day");
-      renderDaySection(this.plugin, el, this.selectedKey, { title: false, events, now: range, liveNodes: this.liveNodes });
+      renderDaySection(this.plugin, el, this.selectedKey, { title: false, events, now: range, liveNodes: this.liveNodes, plans: layers.planned });
+      renderMergedRows(el, merged.extras(this.selectedKey), { title: "Also today" });
       this.renderExamPanel(el, this.plugin.calendarEvents());
     } else {
       const card = el.createDiv({ cls: "uni-month-card" });
       this.renderMonthHeader(card, "Upcoming", "upcoming");
-      this.renderUpcoming(el, events);
+      this.renderUpcoming(el, events, merged);
       this.renderExamPanel(el, this.plugin.calendarEvents());
     }
     this.liveSignature = this.ongoingSignature(events);
@@ -569,7 +622,7 @@ class CalendarView extends ItemView {
     }
   }
 
-  renderMonthCard(container, events) {
+  renderMonthCard(container, events, merged) {
     const settings = this.plugin.calendarSettings();
     const card = container.createDiv({ cls: "uni-month-card" });
     this.renderMonthHeader(card, monthLabel(this.cursor.getFullYear(), this.cursor.getMonth()), "month");
@@ -604,12 +657,20 @@ class CalendarView extends ItemView {
       const dayEvents = eventsOnDay(events, cell.key);
       const termText = term ? `, ${termWeekLabel(term)}` : "";
       day.setAttr("aria-label", `${dayHeading(cell.key)}${termText}${dayEvents.length ? `, ${classesCount(dayEvents.length)}` : ""}`);
-      if (dayEvents.length) {
+      const layerCounts = calendarMerge.countsForDay(merged, cell.key);
+      if (dayEvents.length || layerCounts.planned || layerCounts.events || layerCounts.review || layerCounts.tasks) {
         const dots = day.createDiv({ cls: "uni-event-dots-container" });
         for (const event of dayEvents.slice(0, 3)) {
           const dot = dots.createDiv({ cls: "uni-event-dot" });
           dot.style.backgroundColor = classColor(settings, detailsOf(event), event.summary);
         }
+        for (const layer of ["planned", "events", "review", "tasks"]) {
+          if (!layerCounts[layer]) continue;
+          const dot = dots.createDiv({ cls: `uni-event-dot is-layer-${layer}` });
+          dot.setAttr("title", `${layerCounts[layer]} ${layer}`);
+        }
+        const extra = layerCounts.planned + layerCounts.events + layerCounts.review + layerCounts.tasks;
+        if (extra) day.setAttr("aria-label", `${dayHeading(cell.key)}${termText}${dayEvents.length ? `, ${classesCount(dayEvents.length)}` : ""}, ${extra} more`);
       }
 
       day.addEventListener("click", () => this.selectDay(cell));
@@ -826,17 +887,19 @@ class CalendarView extends ItemView {
     this.contentEl.scrollTop = top;
   }
 
-  renderUpcoming(container, events) {
+  renderUpcoming(container, events, merged) {
     const now = new Date();
-    const source = events || this.plugin.calendarEvents(now);
+    const source = events || [];
     let shown = 0;
     for (let i = 0; i < 14; i++) {
       const key = dateKey(addDays(now, i));
-      if (!eventsOnDay(source, key).length) continue;
+      const extras = merged && merged.extras ? merged.extras(key) : [];
+      if (!eventsOnDay(source, key).length && !extras.length) continue;
       shown++;
-      renderDaySection(this.plugin, container, key, { title: true, events: source, now, liveNodes: this.liveNodes });
+      renderDaySection(this.plugin, container, key, { title: true, events: source, now, liveNodes: this.liveNodes, plans: merged ? merged.layers.planned : true });
+      renderMergedRows(container, extras, { title: "Also today" });
     }
-    if (!shown) renderEmptyState(container, "Nothing scheduled", "No classes in the next two weeks.", "", null);
+    if (!shown) renderEmptyState(container, "Nothing scheduled", "No classes, events or review work in the next two weeks.", "", null);
   }
 
   goToday() {

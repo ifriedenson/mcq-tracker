@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.14",
+    date: "November 16, 2026",
+    title: "One calendar",
+    summary:
+      "The Plan hub had four calendars for one question: classes in Calendar, the day in Focus day, the queue in Review calendar and local events in their own tab. They are now one calendar — classes, planned blocks, local events, review due and dated tasks on the same days — with five layer chips to hide whatever you do not need.",
+    highlights: [
+      {
+        title: "Every plan on one grid",
+        body: "Month cells, the day section and Upcoming now draw classes and exams, planned study blocks, local events, review-due questions and cards, and study tasks with due dates. Month cells add a coloured dot for each extra layer.",
+      },
+      {
+        title: "An “Also today” card",
+        body: "Under the selected day and in Upcoming, local events, review workload and dated tasks are listed with their time and course, so a plan, a deadline and a class read as one afternoon.",
+      },
+      {
+        title: "Layers you can switch",
+        body: "Classes, Planned, Events, Review and Tasks chips sit above the calendar, press on and off, and are remembered per vault in the calendar settings. A module that is off hides its layer automatically.",
+      },
+      {
+        title: "The four tabs are one",
+        body: "Focus day, Review calendar and Local events left the Plan tab bar. Their commands still open the merged calendar with the matching layer switched on, and Focus day opens the day view.",
+      },
+    ],
+  },
+  {
     version: "1.307.13",
     date: "November 16, 2026",
     title: "One pane, one row",

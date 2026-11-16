@@ -18035,3 +18035,69 @@ body {
     min-height: var(--qt-touch-target);
   }
 }
+
+/* ---------------------------------------------------- merged Plan calendar */
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-layer-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-layer-chip {
+  min-height: 28px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  line-height: 1;
+  cursor: pointer;
+}
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-layer-chip:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-layer-chip.is-active {
+  color: var(--text-on-accent);
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+}
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-merged-card {
+  margin: 8px 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+}
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-merged-title {
+  margin-bottom: 6px;
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-merged-list { display: flex; flex-direction: column; gap: 4px; }
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-merged-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 24px;
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+}
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-merged-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-merged-row.is-events .uni-merged-dot { background: var(--color-orange); }
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-merged-row.is-review .uni-merged-dot { background: var(--color-purple); }
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-merged-row.is-tasks .uni-merged-dot { background: var(--color-green); }
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-merged-row-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-merged-row-time { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-merged-row-meta { margin-left: auto; color: var(--text-muted); text-align: right; }
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-dot.is-layer-planned { background: var(--interactive-accent); }
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-dot.is-layer-events { background: var(--color-orange); }
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-dot.is-layer-review { background: var(--color-purple); }
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-dot.is-layer-tasks { background: var(--color-green); }
