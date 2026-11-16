@@ -18044,7 +18044,7 @@ body {
   margin: 0 0 12px;
 }
 :is(.uni-calendar-container, .uni-schedule-embed) .uni-layer-chip {
-  min-height: 28px;
+  min-height: 32px;
   padding: 3px 10px;
   border-radius: 999px;
   border: 1px solid var(--background-modifier-border);
@@ -18057,8 +18057,8 @@ body {
 :is(.uni-calendar-container, .uni-schedule-embed) .uni-layer-chip:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
 :is(.uni-calendar-container, .uni-schedule-embed) .uni-layer-chip.is-active {
   color: var(--text-on-accent);
-  background: var(--interactive-accent);
-  border-color: var(--interactive-accent);
+  background: var(--qt-accent-fill);
+  border-color: var(--qt-accent-fill);
 }
 :is(.uni-calendar-container, .uni-schedule-embed) .uni-merged-card {
   margin: 8px 0 14px;
