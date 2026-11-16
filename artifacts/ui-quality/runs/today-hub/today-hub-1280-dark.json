@@ -1,0 +1,311 @@
+{
+  "job": {
+    "name": "today-hub",
+    "viewType": "question-tracker-hub-today",
+    "width": 1280,
+    "height": 900,
+    "theme": "dark",
+    "wait": 1200,
+    "script": "(async () => { const p = app.plugins.getPlugin('mcq-tracker'); p.settings.ribbonLayout = 'grouped'; await p.activateToday(); await new Promise((r) => setTimeout(r, 1000)); return true; })()"
+  },
+  "state": "",
+  "pluginDom": null,
+  "checks": null,
+  "metrics": {
+    "theme": "dark",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "root": "div.view-content.qt-root.qt-hub-root",
+    "rootBox": {
+      "x": 4,
+      "y": 83,
+      "w": 1266,
+      "h": 806
+    },
+    "documentOverflowX": 0,
+    "rootOverflowX": 0,
+    "rootOverflowY": 707,
+    "rootOverflowStyle": {
+      "x": "auto",
+      "y": "auto"
+    },
+    "wide": [],
+    "scrollers": [],
+    "clipped": [],
+    "tiny": [],
+    "controls": 23,
+    "touch": [],
+    "contrastFailures": [],
+    "contrastFailureCount": 0,
+    "dataType": "question-tracker-hub-today",
+    "text": "TodayStatisticsPomodoroMonday, November 16Today0 due · 1 new · 1 questionHidden "
+  },
+  "focus": [
+    {
+      "el": "button.qt-hub-tab",
+      "text": "Statistics",
+      "outline": "solid 2px rgb(90, 69, 51)",
+      "offset": "2px",
+      "shadow": "rgb(46, 38, 31) 0px 0px 0px 2px, rgb(90, 69, 51) 0px 0px 0px",
+      "border": "rgb(215, 192, 163)",
+      "bg": "rgba(38, 33, 28, 0.965)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".qt-hub-tab:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 1px; }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.qt-hub-tab",
+      "text": "Pomodoro",
+      "outline": "solid 2px rgb(90, 69, 51)",
+      "offset": "2px",
+      "shadow": "rgb(46, 38, 31) 0px 0px 0px 2px, rgb(90, 69, 51) 0px 0px 0px",
+      "border": "rgb(215, 192, 163)",
+      "bg": "rgba(38, 33, 28, 0.965)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".qt-hub-tab:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 1px; }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.qt-link",
+      "text": "Hidden items",
+      "outline": "solid 2px rgb(90, 69, 51)",
+      "offset": "2px",
+      "shadow": "rgb(46, 38, 31) 0px 0px 0px 2px, rgb(90, 69, 51) 0px 0px 0px",
+      "border": "color(srgb 0.682279 0.619493 0.571481)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.mod-cta.qt-primary",
+      "text": "Start 5 minutes",
+      "outline": "solid 2px rgb(90, 69, 51)",
+      "offset": "2px",
+      "shadow": "rgb(46, 38, 31) 0px 0px 0px 2px, rgb(90, 69, 51) 0px 0px 0px",
+      "border": "color(srgb 0.309769 0.238421 0.175991)",
+      "bg": "oklab(0.37723 0.0170988 0.0326024)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        "button.mod-cta:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }",
+        ".is-mobile button:not(button.clickable-icon).mod-cta:focus-visible, button:not(button.clickable-icon).mod-cta:focus-visible { background: var(--interactive-accent-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button",
+      "text": "More Quick Practice options",
+      "outline": "solid 2px rgb(90, 69, 51)",
+      "offset": "2px",
+      "shadow": "rgb(46, 38, 31) 0px 0px 0px 2px, rgb(90, 69, 51) 0px 0px 0px",
+      "border": "rgb(215, 192, 163)",
+      "bg": "rgba(38, 33, 28, 0.965)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button",
+      "text": "Open practice view",
+      "outline": "solid 2px rgb(90, 69, 51)",
+      "offset": "2px",
+      "shadow": "rgb(46, 38, 31) 0px 0px 0px 2px, rgb(90, 69, 51) 0px 0px 0px",
+      "border": "rgb(215, 192, 163)",
+      "bg": "rgba(38, 33, 28, 0.965)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.qt-chip.is-selected",
+      "text": "All time",
+      "outline": "solid 2px rgb(90, 69, 51)",
+      "offset": "2px",
+      "shadow": "rgb(46, 38, 31) 0px 0px 0px 2px, rgb(90, 69, 51) 0px 0px 0px",
+      "border": "color(srgb 0.309769 0.238421 0.175991)",
+      "bg": "color(srgb 0.309769 0.238421 0.175991)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.qt-chip",
+      "text": "Last 7 days",
+      "outline": "solid 2px rgb(90, 69, 51)",
+      "offset": "2px",
+      "shadow": "rgb(46, 38, 31) 0px 0px 0px 2px, rgb(90, 69, 51) 0px 0px 0px",
+      "border": "rgb(215, 192, 163)",
+      "bg": "rgba(38, 33, 28, 0.88)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.qt-chip",
+      "text": "Last 30 days",
+      "outline": "solid 2px rgb(90, 69, 51)",
+      "offset": "2px",
+      "shadow": "rgb(46, 38, 31) 0px 0px 0px 2px, rgb(90, 69, 51) 0px 0px 0px",
+      "border": "rgb(215, 192, 163)",
+      "bg": "rgb(38, 33, 28)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.qt-link",
+      "text": "Open progress",
+      "outline": "solid 2px rgb(90, 69, 51)",
+      "offset": "2px",
+      "shadow": "rgb(46, 38, 31) 0px 0px 0px 2px, rgb(90, 69, 51) 0px 0px 0px",
+      "border": "color(srgb 0.682279 0.619493 0.571481)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.qt-link",
+      "text": "Practice",
+      "outline": "solid 2px rgb(90, 69, 51)",
+      "offset": "2px",
+      "shadow": "rgb(46, 38, 31) 0px 0px 0px 2px, rgb(90, 69, 51) 0px 0px 0px",
+      "border": "color(srgb 0.682279 0.619493 0.571481)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.mod-cta",
+      "text": "Start 10 min",
+      "outline": "solid 2px rgb(90, 69, 51)",
+      "offset": "2px",
+      "shadow": "rgb(46, 38, 31) 0px 0px 0px 2px, rgb(90, 69, 51) 0px 0px 0px",
+      "border": "color(srgb 0.309769 0.238421 0.175991)",
+      "bg": "oklab(0.377243 0.0171005 0.0326044)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        "button.mod-cta:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }",
+        ".is-mobile button:not(button.clickable-icon).mod-cta:focus-visible, button:not(button.clickable-icon).mod-cta:focus-visible { background: var(--interactive-accent-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button",
+      "text": "Cram 10 min",
+      "outline": "solid 2px rgb(90, 69, 51)",
+      "offset": "2px",
+      "shadow": "rgb(46, 38, 31) 0px 0px 0px 2px, rgb(90, 69, 51) 0px 0px 0px",
+      "border": "rgb(215, 192, 163)",
+      "bg": "rgba(38, 33, 28, 0.965)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button",
+      "text": "Course overview",
+      "outline": "solid 2px rgb(90, 69, 51)",
+      "offset": "2px",
+      "shadow": "rgb(46, 38, 31) 0px 0px 0px 2px, rgb(90, 69, 51) 0px 0px 0px",
+      "border": "rgb(215, 192, 163)",
+      "bg": "rgb(38, 33, 28)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button",
+      "text": "Open Assignments",
+      "outline": "solid 2px rgb(90, 69, 51)",
+      "offset": "2px",
+      "shadow": "rgb(46, 38, 31) 0px 0px 0px 2px, rgb(90, 69, 51) 0px 0px 0px",
+      "border": "rgb(215, 192, 163)",
+      "bg": "rgb(38, 33, 28)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.mod-cta",
+      "text": "Pause",
+      "outline": "solid 2px rgb(90, 69, 51)",
+      "offset": "2px",
+      "shadow": "rgb(46, 38, 31) 0px 0px 0px 2px, rgb(90, 69, 51) 0px 0px 0px",
+      "border": "color(srgb 0.309769 0.238421 0.175991)",
+      "bg": "oklab(0.374485 0.0167219 0.0321707)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        "button.mod-cta:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }",
+        ".is-mobile button:not(button.clickable-icon).mod-cta:focus-visible, button:not(button.clickable-icon).mod-cta:focus-visible { background: var(--interactive-accent-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    }
+  ]
+}

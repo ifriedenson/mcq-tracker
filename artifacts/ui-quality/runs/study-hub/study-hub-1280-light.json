@@ -1,0 +1,304 @@
+{
+  "job": {
+    "name": "study-hub",
+    "script": "(async () => { const p = app.plugins.getPlugin('mcq-tracker'); p.settings.ribbonLayout = 'grouped'; await p.activateStudyWorkspace(); await new Promise((r) => setTimeout(r, 1000)); return true; })()",
+    "viewType": "question-tracker-hub-study",
+    "width": 1280,
+    "height": 900,
+    "theme": "light",
+    "wait": 1200
+  },
+  "state": "",
+  "pluginDom": null,
+  "checks": null,
+  "metrics": {
+    "theme": "light",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "root": "div.view-content.qt-root.qt-hub-root",
+    "rootBox": {
+      "x": 4,
+      "y": 83,
+      "w": 1266,
+      "h": 806
+    },
+    "documentOverflowX": 0,
+    "rootOverflowX": 0,
+    "rootOverflowY": 462,
+    "rootOverflowStyle": {
+      "x": "auto",
+      "y": "auto"
+    },
+    "wide": [],
+    "scrollers": [],
+    "clipped": [],
+    "tiny": [],
+    "controls": 31,
+    "touch": [],
+    "contrastFailures": [],
+    "contrastFailureCount": 0,
+    "dataType": "question-tracker-hub-study",
+    "text": "WorkspaceStudy ToolsStudy WorkspaceGuided, local study workflows. Each tab has i"
+  },
+  "focus": [
+    {
+      "el": "button.qt-hub-tab",
+      "text": "Study Tools",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "rgb(89, 62, 34)",
+      "bg": "rgb(242, 236, 227)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".qt-hub-tab:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 1px; }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.qt-study-tab.is-active",
+      "text": "Feynman",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "rgb(228, 215, 195)",
+      "bg": "rgb(248, 245, 241)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.qt-study-tab",
+      "text": "Recall",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "rgba(0, 0, 0, 0)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.qt-study-tab",
+      "text": "Topic planner",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "rgba(0, 0, 0, 0)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.qt-study-tab",
+      "text": "Study Flow",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "rgba(0, 0, 0, 0)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.qt-study-tab",
+      "text": "Subjects",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "rgba(0, 0, 0, 0)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.qt-study-tab",
+      "text": "Courses",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "rgba(0, 0, 0, 0)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.qt-study-tab",
+      "text": "Tasks",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "rgba(0, 0, 0, 0)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.qt-study-tab",
+      "text": "Time blocks",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "rgba(0, 0, 0, 0)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.qt-study-tab",
+      "text": "Annotations",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "rgba(0, 0, 0, 0)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.qt-study-tab",
+      "text": "Deep Notes",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "rgba(0, 0, 0, 0)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.qt-study-tab",
+      "text": "Retention",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "rgba(0, 0, 0, 0)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.qt-study-tab",
+      "text": "Vocabulary",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "rgba(0, 0, 0, 0)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.qt-study-tab",
+      "text": "Reading library",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "rgba(0, 0, 0, 0)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.qt-study-tab",
+      "text": "Quiz index",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "rgba(0, 0, 0, 0)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.qt-study-tab",
+      "text": "Course health",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "rgba(0, 0, 0, 0)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    }
+  ]
+}

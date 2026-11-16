@@ -1,0 +1,294 @@
+{
+  "job": {
+    "name": "plan-hub-narrow",
+    "command": "mcq-tracker:open-plan-hub",
+    "viewType": "question-tracker-hub-plan",
+    "width": 390,
+    "height": 844,
+    "theme": "light",
+    "wait": 1200
+  },
+  "state": "",
+  "pluginDom": null,
+  "checks": null,
+  "metrics": {
+    "theme": "light",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "root": "div.view-content.qt-root.qt-hub-root",
+    "rootBox": {
+      "x": 4,
+      "y": 83,
+      "w": 381,
+      "h": 750
+    },
+    "documentOverflowX": 0,
+    "rootOverflowX": 0,
+    "rootOverflowY": 755,
+    "rootOverflowStyle": {
+      "x": "auto",
+      "y": "auto"
+    },
+    "wide": [],
+    "scrollers": [],
+    "clipped": [],
+    "tiny": [],
+    "controls": 20,
+    "touch": [],
+    "contrastFailures": [],
+    "contrastFailureCount": 0,
+    "dataType": "question-tracker-hub-plan",
+    "text": "CalendarFocus dayReview calendarLocal eventsMonthDayUpcomingNovember 2026TodayMo"
+  },
+  "focus": [
+    {
+      "el": "button.qt-hub-tab",
+      "text": "Focus day",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "rgb(89, 62, 34)",
+      "bg": "rgba(242, 236, 227, 0.88)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".qt-hub-tab:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 1px; }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.qt-hub-tab",
+      "text": "Review calendar",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "rgb(89, 62, 34)",
+      "bg": "rgba(242, 236, 227, 0.965)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".qt-hub-tab:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 1px; }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.qt-hub-tab",
+      "text": "Local events",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "rgb(89, 62, 34)",
+      "bg": "rgba(242, 236, 227, 0.965)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".qt-hub-tab:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 1px; }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.uni-filter-btn.is-active",
+      "text": "Month",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgba(248, 245, 241, 0.31) 0px 0px 0px 0.62183px, rgba(164, 1",
+      "border": "rgb(252, 250, 248)",
+      "bg": "color(srgb 0.503052 0.41925 0.335448)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.uni-filter-btn",
+      "text": "Day",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgba(248, 245, 241, 0.306) 0px 0px 0px 0.615515px, rgba(164,",
+      "border": "color(srgb 0.39761 0.296558 0.17919)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.uni-filter-btn",
+      "text": "Upcoming",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgba(248, 245, 241, 0.655) 0px 0px 0px 1.31027px, rgba(164, ",
+      "border": "color(srgb 0.39761 0.296558 0.17919)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.uni-nav-btn",
+      "text": "Previous month",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "color(srgb 0.4382 0.339887 0.2178)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.uni-nav-btn.uni-today-btn",
+      "text": "Today",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "rgb(228, 215, 195)",
+      "bg": "rgb(238, 231, 221)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.uni-nav-btn",
+      "text": "Next month",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "color(srgb 0.4382 0.339887 0.2178)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.uni-nav-btn",
+      "text": "Show breaks between classes",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "color(srgb 0.4382 0.339887 0.2178)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.uni-nav-btn.uni-sync-btn",
+      "text": "Refresh schedule",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "color(srgb 0.4382 0.339887 0.2178)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "button.uni-nav-btn.uni-settings-btn",
+      "text": "Calendar settings",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "rgb(248, 245, 241) 0px 0px 0px 2px, rgb(164, 137, 110) 0px 0",
+      "border": "color(srgb 0.4382 0.339887 0.2178)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        "button:focus-visible { box-shadow: 0 0 0 3px var(--background-modifier-border-focus); }",
+        ":where(.qt-root, .qt-ui) :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }",
+        ".qt-root.qt-root :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible, .qt-ui.qt-ui :is(button, [role=\"button\"], summary, a, input, select, textarea):focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); box-shadow: var(--qt-focus-ring); }",
+        ".is-mobile button:not(button.clickable-icon):focus-visible, button:not(button.clickable-icon):focus-visible { background: var(--interactive-normal-hover); box-shadow: var(--button-shadow-focus); }"
+      ]
+    },
+    {
+      "el": "div.uni-day-cell.is-other-month",
+      "text": "26",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "",
+      "border": "rgb(89, 62, 34)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        ":is(.uni-calendar-container, .uni-schedule-embed) .uni-day-cell:focus-visible, :is(.uni-calendar-container, .uni-schedule-embed) .uni-event-card:focus-visible, :is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-gap:focus-visible, :is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-break-item:focus-visible, :is(.uni-calendar-container, .uni-schedule-embed) .uni-exam-row:focus-visible, :is(.uni-calendar-container, .uni-schedule-embed) .uni-schedule-badge-free:focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }"
+      ]
+    },
+    {
+      "el": "div.uni-day-cell.is-other-month",
+      "text": "27",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "",
+      "border": "rgb(89, 62, 34)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        ":is(.uni-calendar-container, .uni-schedule-embed) .uni-day-cell:focus-visible, :is(.uni-calendar-container, .uni-schedule-embed) .uni-event-card:focus-visible, :is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-gap:focus-visible, :is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-break-item:focus-visible, :is(.uni-calendar-container, .uni-schedule-embed) .uni-exam-row:focus-visible, :is(.uni-calendar-container, .uni-schedule-embed) .uni-schedule-badge-free:focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }"
+      ]
+    },
+    {
+      "el": "div.uni-day-cell.is-other-month",
+      "text": "28",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "",
+      "border": "rgb(89, 62, 34)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        ":is(.uni-calendar-container, .uni-schedule-embed) .uni-day-cell:focus-visible, :is(.uni-calendar-container, .uni-schedule-embed) .uni-event-card:focus-visible, :is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-gap:focus-visible, :is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-break-item:focus-visible, :is(.uni-calendar-container, .uni-schedule-embed) .uni-exam-row:focus-visible, :is(.uni-calendar-container, .uni-schedule-embed) .uni-schedule-badge-free:focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }"
+      ]
+    },
+    {
+      "el": "div.uni-day-cell.is-other-month",
+      "text": "29",
+      "outline": "solid 2px rgb(164, 137, 110)",
+      "offset": "2px",
+      "shadow": "",
+      "border": "rgb(89, 62, 34)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "matched": [
+        ":focus { outline: none; }",
+        ":is(.uni-calendar-container, .uni-schedule-embed) .uni-day-cell:focus-visible, :is(.uni-calendar-container, .uni-schedule-embed) .uni-event-card:focus-visible, :is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-gap:focus-visible, :is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-break-item:focus-visible, :is(.uni-calendar-container, .uni-schedule-embed) .uni-exam-row:focus-visible, :is(.uni-calendar-container, .uni-schedule-embed) .uni-schedule-badge-free:focus-visible { outline: var(--qt-focus-outline); outline-offset: var(--qt-focus-offset); }"
+      ]
+    }
+  ]
+}
