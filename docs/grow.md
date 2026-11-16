@@ -284,8 +284,11 @@ Pick one per surface. Consistency matters more than cleverness.
 
 The lifetime download number is nearly useless because it counts updates. Record these weekly in a table at the bottom of this file:
 
-| Week | Downloads (total) | Δ week | Listing reviews | GitHub stars | Issues | Tally responses |
+| Week of | Downloads (total) | Δ week | Listing reviews | GitHub stars | Issues | Tally responses |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-11-16 | 884 | — (baseline) | 0 | 2 | 0 | not measured |
+
+Baseline read from Obsidian Stats and the listing on Nov 16, 2026, the same day `docs/grow.md` was written. Every later row is a weekly reading of the same four pages, taken on a Monday. Remember that the total counts update events, so a week with a release will look better than the week after it — compare Δ week against how many versions shipped that week.
 
 Three things to actually watch:
 
@@ -297,15 +300,26 @@ Three things to actually watch:
 
 ## 8. The 30-day checklist
 
+**Done in the repo.** These four needed nothing but a commit, and they are in.
+
+- [x] **README review ask live** (§4.6) — the line sits under the install block, where a reader has just finished installing.
+- [x] **Category rename, where it was still wrong** — the landing page `<title>` and `og:title` now read "exam practice inside Obsidian". The `<h1>` ("Turn notes and PDFs into practice"), the manifest description and the README all already led with exam practice, so nothing else needed changing.
+- [x] **First row of the metrics table filled in** (§7).
+- [x] **The demo vault for creator outreach already exists** — `samples/sample-vault`, with a README explaining how to open it. Zip it and attach it.
+
+**Yours to send.** Each needs an account this repo cannot log into. The text is written and final in §4; the run order is in `docs/growth/README.md`.
+
 - [ ] r/ObsidianMD launch post (§4.1) — and reply to every comment the same day
-- [ ] Forum Share & showcase thread with `plugin-release` tag (§4.3)
+- [ ] Forum Share & showcase thread with the `plugin-release` tag (§4.3)
 - [ ] Discord `#updates` message, after getting the developer role (§4.4)
-- [ ] README review ask live (§4.6)
 - [ ] Email This Week in Obsidian and Obsidian Stats (§4.7)
-- [ ] Ship the next release with a version-in-title update post (§4.2)
-- [ ] One creator outreach per channel type, with a demo vault offered (§4.8)
-- [ ] Rename the category everywhere: "exam practice", not "flashcards"
-- [ ] First row of the metrics table filled in (§7)
+- [ ] One creator outreach per channel type, with the demo vault offered (§4.8)
+
+**Waiting on a release.**
+
+- [ ] Ship the next release with a version-in-title update post (§4.2) — the template is ready; there is nothing truthful to announce until a release exists.
+
+**Deliberately not done.** §4.6 also floated a one-time in-plugin notice after a user's Nth review session. That is a product change with its own tests, not a growth step, so it is not part of this pass.
 
 ---
 

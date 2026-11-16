@@ -86,6 +86,8 @@ Use **Check for updates** on the Community plugins page. If you installed manual
 
 </details>
 
+**Finding it useful?** A one-line review on the [community listing](https://community.obsidian.md/plugins/mcq-tracker) helps other students find it — for a plugin like this, that page is the whole discovery mechanism.
+
 ### How it fits your vault
 
 - **Questions are ordinary notes.** Any note with a `question_id` property can be a question. There is no database and no proprietary format.
