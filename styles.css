@@ -599,7 +599,7 @@ body.theme-dark .qt-task-pill.is-overdue {
   text-align: center;
   font-size: var(--qt-type-sm);
   font-weight: 600;
-  color: var(--text-muted);
+  color: color-mix(in srgb, var(--text-muted) 55%, var(--text-normal));
   margin-bottom: 6px;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -756,7 +756,7 @@ body.theme-dark .qt-task-pill.is-overdue {
   padding: 2px 8px;
   border-radius: var(--qt-radius-md);
   background: var(--background-secondary);
-  color: var(--text-muted);
+  color: color-mix(in srgb, var(--text-muted) 55%, var(--text-normal));
   border: 1px solid var(--background-modifier-border);
 }
 
@@ -815,7 +815,7 @@ body.theme-dark .qt-task-pill.is-overdue {
 :is(.uni-calendar-container, .uni-schedule-embed) .uni-empty-schedule-desc,
 :is(.uni-calendar-container, .uni-schedule-embed) .uni-empty-schedule-subtext {
   font-size: var(--qt-type-base);
-  color: var(--text-muted);
+  color: color-mix(in srgb, var(--text-muted) 55%, var(--text-normal));
   line-height: 1.45;
   max-width: 290px;
 }
@@ -1377,7 +1377,7 @@ body.theme-dark .qt-task-pill.is-overdue {
   border-radius: var(--qt-radius-xs);
   background: transparent;
   border: none;
-  color: var(--text-muted);
+  color: color-mix(in srgb, var(--text-muted) 55%, var(--text-normal));
   box-shadow: none;
   cursor: pointer;
   transition: var(--qt-transition-colors);
@@ -12603,7 +12603,7 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 :is(.uni-calendar-container, .uni-schedule-embed) .uni-planner-hint,
 :is(.uni-calendar-container, .uni-schedule-embed) .uni-planner-meta,
 :is(.uni-calendar-container, .uni-schedule-embed) .uni-planner-empty {
-  color: var(--text-muted);
+  color: color-mix(in srgb, var(--text-muted) 55%, var(--text-normal));
   font-size: var(--qt-type-em-sm);
 }
 
@@ -12643,7 +12643,34 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--text-muted);
+  color: color-mix(in srgb, var(--text-muted) 55%, var(--text-normal));
+}
+
+/* A 390px pane cannot hold the month title and six 44px header controls on
+   one line, so the controls take the next line and tighten up rather than
+   letting the last one hang past the card's edge. */
+@media (max-width: 520px) {
+  :is(.uni-calendar-container, .uni-schedule-embed) .uni-month-header {
+    flex-wrap: wrap;
+  }
+
+  :is(.uni-calendar-container, .uni-schedule-embed) .uni-header-controls {
+    flex-wrap: nowrap;
+    gap: 1px;
+    width: 100%;
+  }
+
+  :is(.uni-calendar-container, .uni-schedule-embed) .uni-nav-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 4px 2px;
+    min-height: var(--qt-touch-target);
+  }
+
+  :is(.uni-calendar-container, .uni-schedule-embed) .uni-nav-btn.uni-today-btn {
+    flex-grow: 1.6;
+    white-space: nowrap;
+  }
 }
 
 :is(.uni-calendar-container, .uni-schedule-embed) .uni-planner-slot {
@@ -17914,6 +17941,18 @@ button.qt-focus-date:hover { background: var(--background-modifier-hover); borde
 .qt-focus-due { font-size: var(--qt-type-xs); color: var(--text-muted); border: 1px solid var(--background-modifier-border); border-radius: var(--qt-radius-pill); padding: 1px 8px; white-space: nowrap; }
 
 /* ---- Hubs: Today / Plan / Study group their views as tabs ----------------- */
+/* Muted ink in Primary measures 4.21:1 light and 4.06:1 dark on the
+   secondary surfaces these hubs use. One computed token moves every
+   plugin surface to the same readable mix the chat hint already uses,
+   instead of another per-class colour. */
+body {
+  --qt-read-text-muted: color-mix(in srgb, var(--text-muted) 55%, var(--text-normal));
+}
+
+.qt-root {
+  --text-muted: var(--qt-read-text-muted);
+}
+
 .qt-hub {
   display: flex;
   flex-direction: column;

@@ -1,0 +1,65 @@
+[
+  {
+    "name": "today-hub",
+    "viewType": "question-tracker-hub-today",
+    "width": 1280,
+    "height": 900,
+    "theme": "light",
+    "wait": 1200,
+    "script": "(async () => { const p = app.plugins.getPlugin('mcq-tracker'); p.settings.ribbonLayout = 'grouped'; await p.activateToday(); await new Promise((r) => setTimeout(r, 1000)); return true; })()"
+  },
+  {
+    "name": "today-hub",
+    "viewType": "question-tracker-hub-today",
+    "width": 1280,
+    "height": 900,
+    "theme": "dark",
+    "wait": 1200,
+    "script": "(async () => { const p = app.plugins.getPlugin('mcq-tracker'); p.settings.ribbonLayout = 'grouped'; await p.activateToday(); await new Promise((r) => setTimeout(r, 1000)); return true; })()"
+  },
+  {
+    "name": "plan-hub",
+    "command": "mcq-tracker:open-plan-hub",
+    "viewType": "question-tracker-hub-plan",
+    "width": 1280,
+    "height": 900,
+    "theme": "light",
+    "wait": 1200
+  },
+  {
+    "name": "plan-hub-dark",
+    "command": "mcq-tracker:open-plan-hub",
+    "viewType": "question-tracker-hub-plan",
+    "width": 1280,
+    "height": 900,
+    "theme": "dark",
+    "wait": 1200
+  },
+  {
+    "name": "study-hub",
+    "script": "(async () => { const p = app.plugins.getPlugin('mcq-tracker'); p.settings.ribbonLayout = 'grouped'; await p.activateStudyWorkspace(); await new Promise((r) => setTimeout(r, 1000)); return true; })()",
+    "viewType": "question-tracker-hub-study",
+    "width": 1280,
+    "height": 900,
+    "theme": "light",
+    "wait": 1200
+  },
+  {
+    "name": "plan-hub-narrow",
+    "command": "mcq-tracker:open-plan-hub",
+    "viewType": "question-tracker-hub-plan",
+    "width": 390,
+    "height": 844,
+    "theme": "light",
+    "wait": 1200
+  },
+  {
+    "name": "today-hub-narrow",
+    "viewType": "question-tracker-hub-today",
+    "width": 390,
+    "height": 844,
+    "theme": "light",
+    "wait": 1200,
+    "script": "(async () => { const p = app.plugins.getPlugin('mcq-tracker'); p.settings.ribbonLayout = 'grouped'; await p.activateToday(); await new Promise((r) => setTimeout(r, 1000)); return true; })()"
+  }
+]

@@ -104,6 +104,35 @@ async function setTheme(theme) {
   await sleep(250);
 }
 
+/*
+ * A saved layout can hold one vertical split whose children are bare leaves —
+ * every leaf then draws as its own full-width row. Collapse that back to one
+ * tab group before any job runs, so a job's screenshot is the leaf it names
+ * instead of a row of empty panes above it.
+ */
+async function normalizeLayout() {
+  const result = await evaluate(`(() => {
+    const ws = app.workspace;
+    const leaves = [];
+    const collect = (node) => {
+      if (!node) return;
+      if (node.type === "leaf") leaves.push(node);
+      for (const child of node.children || []) collect(child);
+    };
+    collect(ws.rootSplit);
+    const keep = leaves.find((leaf) => leaf.view && leaf.view.getViewType && leaf.view.getViewType() !== "empty") || leaves[0];
+    let removed = 0;
+    for (const leaf of leaves) {
+      if (leaf === keep) continue;
+      try { ws.removeLeaf(leaf); removed += 1; } catch (error) {}
+    }
+    if (keep) ws.setActiveLeaf(keep, { focus: false });
+    return { leaves: leaves.length, removed, kept: keep && keep.view ? keep.view.getViewType() : "" };
+  })()`);
+  await sleep(400);
+  return result;
+}
+
 async function key(key, code, keyCode) {
   await send("Input.dispatchKeyEvent", { type: "keyDown", key, code, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode });
   await send("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode });
@@ -145,11 +174,14 @@ function metricsExpression(viewType) {
     }
     const modals = [...document.querySelectorAll(".modal-container")].filter((el) => el.getBoundingClientRect().width > 0);
     if (modals.length) return modals[modals.length - 1].querySelector(".modal") || modals[modals.length - 1];
-    const visibleViews = [...document.querySelectorAll(".workspace-leaf.mod-active .view-content, .workspace-leaf .view-content")].filter((el) => {
+    const active = document.querySelector(".workspace-leaf.mod-active .view-content");
+    const activeRect = active && active.getBoundingClientRect();
+    if (activeRect && activeRect.width > 0 && activeRect.height > 0) return active;
+    const visibleViews = [...document.querySelectorAll(".workspace-leaf .view-content")].filter((el) => {
       const rect = el.getBoundingClientRect();
       return rect.width > 0 && rect.height > 0;
     });
-    return visibleViews[visibleViews.length - 1] || document.querySelector(".workspace-leaf.mod-active") || document.body;
+    return visibleViews[visibleViews.length - 1] || document.body;
   })();
   const rootRect = root.getBoundingClientRect();
   const visible = (el) => {
@@ -315,6 +347,8 @@ async function focusPass() {
   return rows;
 }
 
+await normalizeLayout();
+
 for (const job of jobs) {
   const width = job.width || 1280;
   const height = job.height || 900;
@@ -351,11 +385,7 @@ for (const job of jobs) {
   } else if (job.command) {
     await evaluate(`(async () => {
       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-      const main = [...document.querySelectorAll(".workspace-split.mod-root .workspace-leaf")].find((el) => {
-        const rect = el.getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0;
-      });
-      let leaf = main && app.workspace.getLeafById ? app.workspace.getLeafById(main.id) : null;
+      let leaf = app.workspace.activeLeaf || null;
       if (!leaf) leaf = app.workspace.getLeaf(false);
       app.workspace.setActiveLeaf(leaf, { focus: true });
       await sleep(150);
@@ -365,28 +395,28 @@ for (const job of jobs) {
     })()`);
   }
 
+  if (job.script) {
+    await evaluate(job.script);
+    await sleep(job.scriptWait || 800);
+  }
+
   if (job.viewType) {
     const focused = await evaluate(`(async () => {
       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       let leaf = (app.workspace.getLeavesOfType(${JSON.stringify(job.viewType)}) || [])[0];
       if (!leaf) return { ok: false, reason: "no leaf of type " + ${JSON.stringify(job.viewType)} };
       if (${job.placement === "main"}) {
-        const root = app.workspace.rootSplit;
-        const group = root.children[0];
-        const target = app.workspace.createLeafInParent(group, group.children.length);
+        // A tab in the existing main group, never a new split: creating a leaf in
+        // the root split leaves raw leaf children stacked as full-width panes.
+        const before = new Set((app.workspace.getLeavesOfType(${JSON.stringify(job.viewType)}) || []).map((l) => l.id));
+        const target = app.workspace.getLeaf("tab");
         await target.setViewState({ type: ${JSON.stringify(job.viewType)}, active: true });
         await sleep(800);
         for (const other of app.workspace.getLeavesOfType(${JSON.stringify(job.viewType)})) {
-          if (other !== target) other.detach();
+          if (other !== target && !before.has(other.id)) other.detach();
         }
-        for (const child of [...root.children]) {
-          if (child === group) continue;
-          for (const spare of [...(child.children || [])]) {
-            try { app.workspace.removeLeaf(spare); } catch (error) {}
-          }
-        }
-        await sleep(400);
-        leaf = app.workspace.getLeavesOfType(${JSON.stringify(job.viewType)})[0] || target;
+        await sleep(300);
+        leaf = target;
       }
       app.workspace.setActiveLeaf(leaf, { focus: true });
       if (app.workspace.revealLeaf) app.workspace.revealLeaf(leaf);

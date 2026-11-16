@@ -50467,11 +50467,27 @@ class QtHubView extends ItemView {
   /** Creates the real view the first time its pane is needed. */
   mountPane(entry) {
     if (!entry || entry.view) return entry ? entry.view : null;
+    /*
+     * Obsidian's View constructor gives a new view its own
+     * .workspace-leaf-content wrapper inside the leaf it was handed. Handing
+     * it the hub's leaf therefore draws one full-width section per tab under
+     * the hub (four 149px rows for Plan) and squeezes the hub into what is
+     * left. Remember what the leaf already held and drop only the wrappers
+     * this mount added; the real view renders into our own pane.
+     */
+    const host = this.leaf && this.leaf.containerEl;
+    const before = host && host.children ? new Set(Array.from(host.children)) : null;
     let view = null;
     try {
       view = entry.tab.create(this.leaf, this.plugin);
     } catch (error) {
       entry.error = error;
+    }
+    if (before && host) {
+      for (const child of Array.from(host.children)) {
+        if (before.has(child) || child === this.contentEl) continue;
+        if (child.classList && child.classList.contains("workspace-leaf-content")) child.remove();
+      }
     }
     if (!view) {
       entry.el.createDiv({ cls: "qt-hub-error", text: `This ${entry.tab.label} section could not open.` });
@@ -139859,6 +139875,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.307.13",
+    date: "November 16, 2026",
+    title: "One pane, one row",
+    summary:
+      "Re-checking the screenshots found the Plan, Study and Today hubs stacked above three empty-looking rows that left the hub about 150px tall, the calendar's settings gear pushed past the card edge at 390px, and muted labels measuring 4.06–4.21:1. The hubs are single panes again, every muted label clears AA in both themes, and the narrow calendar header keeps six controls on one row.",
+    highlights: [
+      {
+        title: "A hub is one pane",
+        body: "Each hub tab used to create its own workspace-leaf wrapper inside the hub, so Plan drew four 149px rows and its own content was squeezed into what was left. The wrappers are gone; the hub fills its leaf and its tab bar is the only row.",
+      },
+      {
+        title: "The calendar header fits 390px",
+        body: "Six header controls used to push the settings gear past the card edge. They now share one row at a narrow width, with tighter padding and a target that still clears 32px.",
+      },
+      {
+        title: "Muted ink clears AA",
+        body: "Calendar weekday labels, mode tabs and Today's small print measured 4.06:1 dark and 4.21:1 light. One computed muted token now feeds every plugin surface, and each hub measures zero contrast failures in both themes.",
+      },
+      {
+        title: "Evidence that measures the right surface",
+        body: "The audit now collapses a stacked layout first, measures the active leaf and names each hub's view type. The regenerated runs report 0 clipped controls and the full hub height instead of an empty neighbouring pane.",
+      },
+    ],
+  },
   {
     version: "1.307.12",
     date: "November 16, 2026",

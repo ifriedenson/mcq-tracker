@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.13",
+    date: "November 16, 2026",
+    title: "One pane, one row",
+    summary:
+      "Re-checking the screenshots found the Plan, Study and Today hubs stacked above three empty-looking rows that left the hub about 150px tall, the calendar's settings gear pushed past the card edge at 390px, and muted labels measuring 4.06–4.21:1. The hubs are single panes again, every muted label clears AA in both themes, and the narrow calendar header keeps six controls on one row.",
+    highlights: [
+      {
+        title: "A hub is one pane",
+        body: "Each hub tab used to create its own workspace-leaf wrapper inside the hub, so Plan drew four 149px rows and its own content was squeezed into what was left. The wrappers are gone; the hub fills its leaf and its tab bar is the only row.",
+      },
+      {
+        title: "The calendar header fits 390px",
+        body: "Six header controls used to push the settings gear past the card edge. They now share one row at a narrow width, with tighter padding and a target that still clears 32px.",
+      },
+      {
+        title: "Muted ink clears AA",
+        body: "Calendar weekday labels, mode tabs and Today's small print measured 4.06:1 dark and 4.21:1 light. One computed muted token now feeds every plugin surface, and each hub measures zero contrast failures in both themes.",
+      },
+      {
+        title: "Evidence that measures the right surface",
+        body: "The audit now collapses a stacked layout first, measures the active leaf and names each hub's view type. The regenerated runs report 0 clipped controls and the full hub height instead of an empty neighbouring pane.",
+      },
+    ],
+  },
+  {
     version: "1.307.12",
     date: "November 16, 2026",
     title: "Pixels, not assertions",
