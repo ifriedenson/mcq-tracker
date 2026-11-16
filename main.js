@@ -2218,7 +2218,8 @@ class AgentView extends ItemView {
     );
     this.plugin.save();
     this.refreshLibraries();
-    new Notice(`Removed the project "${project.name}". Its chats are now unassigned.`, 6000);
+    // deleteWithUndo owns the notice for this removal; a second one here would
+    // stack a look-alike on top of the Undo the user needs.
     return true;
   }
 
@@ -28659,14 +28660,19 @@ class ChatPanel {
       this.refreshLibrary();
     });
     const projectRow = this.libraryWrap.createDiv({ cls: "qt-row qt-small-row qt-chat-library-project" });
-    projectRow.createSpan({ text: "This chat:" });
-    this.projectAssign = projectRow.createEl("select", {
+    // Each label stays with its select, so a narrow pane wraps whole fields
+    // instead of leaving "Filter:" stranded beside the first dropdown.
+    const projectField = (label) => {
+      const field = projectRow.createDiv({ cls: "qt-chat-project-field" });
+      field.createSpan({ text: label });
+      return field;
+    };
+    this.projectAssign = projectField("This chat:").createEl("select", {
       cls: "dropdown",
       attr: { "aria-label": "Project for this chat" },
     });
     this.projectAssign.addEventListener("change", () => this.applyProjectSelection());
-    projectRow.createSpan({ text: "Filter:" });
-    this.projectSelect = projectRow.createEl("select", {
+    this.projectSelect = projectField("Filter:").createEl("select", {
       cls: "dropdown",
       attr: { "aria-label": "Filter conversations by project" },
     });
@@ -28693,10 +28699,17 @@ class ChatPanel {
   toggleLibrary() {
     this.libraryOpen = !this.libraryOpen;
     if (this.libraryEl) this.libraryEl.toggleClass("qt-hidden", !this.libraryOpen);
+    // The composer is sticky at the bottom of the chat; while the drawer is open
+    // it would sit over the last conversations, so the pane drops the composer
+    // back into the flow and lets the whole list scroll above it.
+    if (this.root && typeof this.root.toggleClass === "function") {
+      this.root.toggleClass("is-library-open", this.libraryOpen);
+    }
     if (this.libraryButton) {
       this.libraryButton.setAttr("aria-expanded", this.libraryOpen ? "true" : "false");
       this.libraryButton.toggleClass("is-selected", this.libraryOpen);
     }
+    if (!this.libraryOpen && this.root && typeof this.root.scrollTop === "number") this.root.scrollTop = 0;
   }
 
   refreshLibrary() {
@@ -28741,6 +28754,10 @@ class ChatPanel {
         cls: "qt-chat-library-delete",
         attr: { "aria-label": `Delete conversation ${row.title}` },
       });
+      // A reply in flight already blocks the delete; say so on the control
+      // instead of accepting the click and quietly doing nothing.
+      remove.disabled = this.busy === true;
+      if (this.busy) remove.setAttr("title", "Wait for the reply to finish before deleting a conversation.");
       remove.addEventListener("click", () => this.deleteLibraryRow(row));
     }
   }
@@ -139831,6 +139848,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.307.11",
+    date: "November 16, 2026",
+    title: "The drawer above the conversation",
+    summary:
+      "Screenshotting 1.307.10 in Primary light and dark showed what the state assertions could not: the chat drawer opened underneath the sticky composer, its row actions stretched into full-width bars, a long conversation title ran past its row, and the What's New dialog cut off its last card with no scroll. The visuals now match the shared control language, with contrast measured in both themes.",
+    highlights: [
+      {
+        title: "The library clears the composer",
+        body: "While the drawer is open the composer drops back into the flow and the chat surface scrolls, so no conversation sits behind it. Row actions are compact chips on the right and the title truncates with an ellipsis instead of overflowing into the timestamp.",
+      },
+      {
+        title: "Measured, not eyeballed",
+        body: "Archived rows lost their 0.7 opacity (3.89:1) for normal ink, Delete moved from 4.49:1 to 4.88:1 in light and stays 4.59:1 in dark, the drawer hint reads 5.53:1, and the notice is 4.84:1 light and 5.63:1 dark with its Undo unchanged at 58\u00d732.",
+      },
+      {
+        title: "One notice per removal",
+        body: "Removing a chat project used to raise its own \u201cRemoved the project\u201d notice on top of the shared Undo notice. The shared one is now the only one, so there is always exactly one Undo for the click.",
+      },
+      {
+        title: "What's New can be finished",
+        body: "A release with four highlights is taller than the window; the dialog now scrolls to its last card and its buttons instead of clipping them, and the project row keeps Remove project compact in a narrow pane.",
+      },
+    ],
+  },
   {
     version: "1.307.10",
     date: "November 15, 2026",

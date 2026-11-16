@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.11",
+    date: "November 16, 2026",
+    title: "The drawer above the conversation",
+    summary:
+      "Screenshotting 1.307.10 in Primary light and dark showed what the state assertions could not: the chat drawer opened underneath the sticky composer, its row actions stretched into full-width bars, a long conversation title ran past its row, and the What's New dialog cut off its last card with no scroll. The visuals now match the shared control language, with contrast measured in both themes.",
+    highlights: [
+      {
+        title: "The library clears the composer",
+        body: "While the drawer is open the composer drops back into the flow and the chat surface scrolls, so no conversation sits behind it. Row actions are compact chips on the right and the title truncates with an ellipsis instead of overflowing into the timestamp.",
+      },
+      {
+        title: "Measured, not eyeballed",
+        body: "Archived rows lost their 0.7 opacity (3.89:1) for normal ink, Delete moved from 4.49:1 to 4.88:1 in light and stays 4.59:1 in dark, the drawer hint reads 5.53:1, and the notice is 4.84:1 light and 5.63:1 dark with its Undo unchanged at 58\u00d732.",
+      },
+      {
+        title: "One notice per removal",
+        body: "Removing a chat project used to raise its own \u201cRemoved the project\u201d notice on top of the shared Undo notice. The shared one is now the only one, so there is always exactly one Undo for the click.",
+      },
+      {
+        title: "What's New can be finished",
+        body: "A release with four highlights is taller than the window; the dialog now scrolls to its last card and its buttons instead of clipping them, and the project row keeps Remove project compact in a narrow pane.",
+      },
+    ],
+  },
+  {
     version: "1.307.10",
     date: "November 15, 2026",
     title: "The last four deletes, driven live",

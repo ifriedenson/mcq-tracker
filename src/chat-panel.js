@@ -1429,14 +1429,19 @@ class ChatPanel {
       this.refreshLibrary();
     });
     const projectRow = this.libraryWrap.createDiv({ cls: "qt-row qt-small-row qt-chat-library-project" });
-    projectRow.createSpan({ text: "This chat:" });
-    this.projectAssign = projectRow.createEl("select", {
+    // Each label stays with its select, so a narrow pane wraps whole fields
+    // instead of leaving "Filter:" stranded beside the first dropdown.
+    const projectField = (label) => {
+      const field = projectRow.createDiv({ cls: "qt-chat-project-field" });
+      field.createSpan({ text: label });
+      return field;
+    };
+    this.projectAssign = projectField("This chat:").createEl("select", {
       cls: "dropdown",
       attr: { "aria-label": "Project for this chat" },
     });
     this.projectAssign.addEventListener("change", () => this.applyProjectSelection());
-    projectRow.createSpan({ text: "Filter:" });
-    this.projectSelect = projectRow.createEl("select", {
+    this.projectSelect = projectField("Filter:").createEl("select", {
       cls: "dropdown",
       attr: { "aria-label": "Filter conversations by project" },
     });
@@ -1463,10 +1468,17 @@ class ChatPanel {
   toggleLibrary() {
     this.libraryOpen = !this.libraryOpen;
     if (this.libraryEl) this.libraryEl.toggleClass("qt-hidden", !this.libraryOpen);
+    // The composer is sticky at the bottom of the chat; while the drawer is open
+    // it would sit over the last conversations, so the pane drops the composer
+    // back into the flow and lets the whole list scroll above it.
+    if (this.root && typeof this.root.toggleClass === "function") {
+      this.root.toggleClass("is-library-open", this.libraryOpen);
+    }
     if (this.libraryButton) {
       this.libraryButton.setAttr("aria-expanded", this.libraryOpen ? "true" : "false");
       this.libraryButton.toggleClass("is-selected", this.libraryOpen);
     }
+    if (!this.libraryOpen && this.root && typeof this.root.scrollTop === "number") this.root.scrollTop = 0;
   }
 
   refreshLibrary() {
@@ -1511,6 +1523,10 @@ class ChatPanel {
         cls: "qt-chat-library-delete",
         attr: { "aria-label": `Delete conversation ${row.title}` },
       });
+      // A reply in flight already blocks the delete; say so on the control
+      // instead of accepting the click and quietly doing nothing.
+      remove.disabled = this.busy === true;
+      if (this.busy) remove.setAttr("title", "Wait for the reply to finish before deleting a conversation.");
       remove.addEventListener("click", () => this.deleteLibraryRow(row));
     }
   }

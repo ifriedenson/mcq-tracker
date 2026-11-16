@@ -606,7 +606,8 @@ class AgentView extends ItemView {
     );
     this.plugin.save();
     this.refreshLibraries();
-    new Notice(`Removed the project "${project.name}". Its chats are now unassigned.`, 6000);
+    // deleteWithUndo owns the notice for this removal; a second one here would
+    // stack a look-alike on top of the Undo the user needs.
     return true;
   }
 

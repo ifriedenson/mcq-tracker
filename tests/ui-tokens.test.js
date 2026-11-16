@@ -123,3 +123,29 @@ test("dim-muted dark themes keep link and secondary text above AA", () => {
     /body\.theme-dark \.qt-task-pill\.is-overdue \{[\s\S]*color: color-mix\(in srgb, var\(--color-red\) 58%, var\(--text-normal\)\)/
   );
 });
+
+test("the chat library drawer stays readable and reachable", () => {
+  // Row actions are chips, not stretched bars, and Delete reads as destructive.
+  assert.match(css, /\.qt-chat-library-actions button \{[^}]*flex: 0 0 auto/);
+  assert.match(css, /\.qt-chat-library-actions \{[^}]*justify-content: flex-end/);
+  assert.match(css, /\.qt-chat-library-actions \.qt-chat-library-delete \{[^}]*color: var\(--text-error\)/);
+  // A long conversation title truncates instead of running into the timestamp.
+  assert.match(css, /\.qt-chat-library-row button\.qt-chat-library-open \{[^}]*display: block[^}]*text-overflow: ellipsis/);
+  // Archived rows keep normal ink: 0.7 opacity measured 3.89:1 in Primary light.
+  const archived = css.match(/\.qt-chat-library-row\.is-archived button\.qt-chat-library-open \{([^}]*)\}/);
+  assert.ok(archived, "archived rows have a style block");
+  assert.match(archived[1], /color: var\(--text-normal\)/);
+  assert.doesNotMatch(archived[1], /opacity:\s*0?\.\d/);
+  // The sticky composer moves back into the flow while the drawer is open, and
+  // the chat surface scrolls, so no conversation is hidden behind it.
+  assert.match(css, /\.qt-chat-tab-panel\.is-library-open \.qt-agent-composer \{[^}]*position: static/);
+  assert.match(css, /\.qt-agent-chat \{[^}]*overflow-y: auto/);
+  // Label+select pairs wrap as whole fields in a narrow pane.
+  assert.match(css, /\.qt-chat-project-field \{[^}]*display: flex/);
+  assert.match(css, /\.qt-chat-library-project > button \{[^}]*flex: 0 0 auto/);
+});
+
+test("the What's New dialog scrolls instead of clipping its last card", () => {
+  assert.match(css, /\.qt-whats-new-modal \{[^}]*max-height: 86vh/);
+  assert.match(css, /\.qt-whats-new-modal \.modal-content \{[^}]*overflow-y: auto/);
+});

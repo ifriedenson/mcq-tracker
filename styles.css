@@ -13127,11 +13127,38 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   margin: 4px 0;
 }
 .qt-chat-library-row button.qt-chat-library-open {
+  display: block;
   width: 100%;
   text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.qt-chat-library-actions .qt-chat-library-delete {
+  color: var(--text-error);
+}
+/* Primary light's error red is 4.49:1 on the drawer; a touch of the normal ink
+   clears AA without losing the destructive colour. Dark already passes. */
+body:not(.theme-dark) .qt-chat-library-actions .qt-chat-library-delete {
+  color: color-mix(in srgb, var(--text-error) 88%, var(--text-normal));
+}
+.qt-chat-library .qt-hint {
+  /* The drawer's caption is 4.11:1 at the theme's muted ink in Primary light. */
+  color: color-mix(in srgb, var(--text-muted) 55%, var(--text-normal));
+}
+.qt-chat-library-actions button:hover {
+  background: var(--background-modifier-hover);
+}
+.qt-chat-library-actions .qt-chat-library-delete:hover {
+  background: var(--background-modifier-hover);
+}
+.qt-chat-library-actions button:focus-visible {
+  outline: var(--qt-focus-outline);
+  outline-offset: 2px;
+}
+.qt-chat-library-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .qt-chat-library-row.is-active button.qt-chat-library-open {
   font-weight: var(--font-semibold, 600);
@@ -13588,15 +13615,54 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 }
 
 .qt-chat-library-row.is-archived button.qt-chat-library-open {
-  opacity: 0.7;
+  /* Italic and the "(archived)" suffix carry the state; dimming the ink to 0.7
+     dropped the label to 3.89:1 in Primary light, so the row keeps normal ink. */
+  color: var(--text-normal);
   font-style: italic;
 }
 .qt-chat-library-actions {
   margin: 0 0 2px 8px;
   gap: 4px;
+  justify-content: flex-end;
 }
+/* Row actions are chips, not full-width bars: Pin/Export/Archive/Delete keep
+   their own width and sit together at the right edge of the row. */
 .qt-chat-library-actions button {
+  flex: 0 0 auto;
   font-size: var(--qt-type-sm);
+}
+.qt-chat-library .qt-row > .qt-chip,
+.qt-chat-library-project > select {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+/* The "This chat / Filter" row wraps in a narrow pane as whole label+select
+   fields instead of leaving a label stranded beside the first dropdown. */
+.qt-chat-library-project {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+.qt-chat-project-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 190px;
+  min-width: 0;
+}
+.qt-chat-project-field > span {
+  white-space: nowrap;
+}
+.qt-chat-project-field > select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.qt-chat-library-project > button {
+  flex: 0 0 auto;
+}
+/* The drawer opens above a composer that is otherwise pinned to the bottom,
+   so while it is open the composer returns to the normal flow. */
+.qt-chat-tab-panel.is-library-open .qt-agent-composer {
+  position: static;
 }
 .qt-chat-mentions {
   display: flex;
@@ -13651,6 +13717,10 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   margin: 2px 0 4px;
 }
 .qt-agent-chat {
+  /* The chat surface owns the height: without this, a tall drawer ran past the
+     bottom of the window with nothing to scroll. */
+  max-height: 100%;
+  overflow-y: auto;
   container-type: inline-size;
 }
 .qt-chat-token-gauge {
@@ -14970,7 +15040,7 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 .qt-agent-library {
   margin: 0 2px 2px;
   padding: 8px;
-  max-height: 40vh;
+  max-height: min(46vh, 340px);
   overflow-y: auto;
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--qt-radius-xs, 4px);
@@ -17450,6 +17520,13 @@ body.is-mobile .qt-review-sidebar-review, body.is-mobile .qt-review-sidebar-grad
 /* What's New: one local release note, shown once after an update. Theme variables only. */
 .qt-whats-new-modal {
   width: min(34rem, calc(100vw - 2rem));
+  /* Four highlights and a lead can exceed the window; the dialog scrolls
+     instead of cutting the last card off with no way to reach it. */
+  max-height: 86vh;
+}
+
+.qt-whats-new-modal .modal-content {
+  overflow-y: auto;
 }
 
 .qt-whats-new {

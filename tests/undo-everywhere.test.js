@@ -186,6 +186,11 @@ test("removing a chat project can be undone", async () => {
   await click(byText(dom, "Remove project"));
   await tick();
   assert.equal(plugin.settings.ai.chatProjects.length, 0, "the project is gone");
+  assert.equal(
+    obsidian.notices.filter((text) => /Removed the project/.test(text)).length,
+    0,
+    "the shared notice is the only one: no second look-alike is stacked on top"
+  );
   assert.equal(plugin.settings.ai.studyChatProject, "", "and the chat is no longer filed under it");
   const undo = undoButton("Deleted “Live project probe”.");
   await undo.handlers.find((h) => h.ev === "click").fn({});

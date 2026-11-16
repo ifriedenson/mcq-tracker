@@ -166,7 +166,7 @@ test("mirror: completing a task rewrites the note, and a recorded review drops t
   assert.ok(done.includes("## Done"), "under the done heading");
 
   const question = app.files.find((f) => f.path === "Questions/Biochem/enzymes.md");
-  await plugin.recordAttempt(question, { correct: false, seconds: 30, grade: 1, now: new Date("2026-11-15T09:00:00") });
+  await plugin.recordAttempt(question, { correct: false, seconds: 30, grade: 1, now: new Date() });
   // The review hook refreshes in the background; wait for the note to catch up.
   for (let i = 0; i < 100; i++) {
     if (!noteText(app, "Plans/study-loop.md").includes("enzymes")) break;

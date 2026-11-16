@@ -102,7 +102,7 @@ test("task dates: the focus scratchpad dates a task and chips it", async () => {
   view.render();
   const chips = dom.all.filter((o) => o.classes.has("qt-focus-due"));
   assert.equal(chips.length, 1);
-  assert.equal(chips[0].meta.text, T.taskDates.dueChipLabel("2026-11-17", REF));
+  assert.equal(chips[0].meta.text, T.taskDates.dueChipLabel("2026-11-17"));
 });
 
 test("task dates: the chip names today, tomorrow and overdue", () => {
