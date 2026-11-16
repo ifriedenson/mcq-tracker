@@ -100,3 +100,16 @@ test("conversation archive: pin and archived flags change without touching messa
   assert.equal(sessions.setArchivedSession(archived, "missing", true).find((row) => row.id === "b").archived, true);
   assert.equal(sessions.setPinnedSession(archived, "a", false).find((row) => row.id === "a").pinned, false);
 });
+
+test("a title longer than the stored limit is cut with an ellipsis, not mid-word", () => {
+  const long = "Photosynthesis light-dependent reactions and the Calvin cycle explained step by step for the midterm exam";
+  const rows = sessions.libraryRows(null, [session("long", long, 100)], 0);
+  const title = rows[0].title;
+  assert.ok(title.length <= sessions.MAX_TITLE, "the stored title stays within the limit");
+  assert.ok(title.endsWith("\u2026"), "the cut is marked");
+  assert.ok(!/\s\u2026$/.test(title), "no space before the ellipsis");
+  assert.ok(long.startsWith(title.slice(0, -1)), "the visible text is a prefix of the real title");
+  const renamed = sessions.renameSession([session("x", "Short", 1)], "x", long);
+  assert.ok(renamed[0].title.endsWith("\u2026"));
+  assert.equal(sessions.normalizeSessions([{ id: "ok", title: "Short title", messages: messages("q") }])[0].title, "Short title");
+});

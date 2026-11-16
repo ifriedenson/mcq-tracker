@@ -1412,7 +1412,7 @@ class ChatPanel {
     this.libraryWrap = root.createDiv({ cls: "qt-chat-library qt-agent-library qt-hidden", attr: { id: "qt-agent-library" } });
     this.libraryEl = this.libraryWrap;
     this.libraryWrap.createDiv({ cls: "qt-hint", text: "Conversations (pinned first, then newest)" });
-    const searchRow = this.libraryWrap.createDiv({ cls: "qt-row qt-small-row" });
+    const searchRow = this.libraryWrap.createDiv({ cls: "qt-row qt-small-row qt-chat-library-search" });
     this.librarySearch = searchRow.createEl("input", {
       type: "text",
       attr: { "aria-label": "Search conversations", placeholder: "Search conversations" },

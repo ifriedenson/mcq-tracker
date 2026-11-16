@@ -13636,6 +13636,16 @@ body:not(.theme-dark) .qt-chat-library-actions .qt-chat-library-delete {
   flex: 0 1 auto;
   min-width: 0;
 }
+/* The search field fills the drawer's width, and its Show archived chip shares
+   the field's height instead of sitting taller beside it. */
+.qt-chat-library-search input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.qt-chat-library-search .qt-chip {
+  height: 32px;
+  min-height: 32px;
+}
 /* The "This chat / Filter" row wraps in a narrow pane as whole label+select
    fields instead of leaving a label stranded beside the first dropdown. */
 .qt-chat-library-project {
@@ -13646,6 +13656,8 @@ body:not(.theme-dark) .qt-chat-library-actions .qt-chat-library-delete {
   display: flex;
   align-items: center;
   gap: 6px;
+  /* A 190px basis keeps two fields on one line when there is room and wraps
+     each whole label+select pair onto its own line when there is not. */
   flex: 1 1 190px;
   min-width: 0;
 }
@@ -13655,6 +13667,7 @@ body:not(.theme-dark) .qt-chat-library-actions .qt-chat-library-delete {
 .qt-chat-project-field > select {
   flex: 1 1 auto;
   min-width: 0;
+  width: 100%;
 }
 .qt-chat-library-project > button {
   flex: 0 0 auto;

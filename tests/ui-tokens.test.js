@@ -143,6 +143,9 @@ test("the chat library drawer stays readable and reachable", () => {
   // Label+select pairs wrap as whole fields in a narrow pane.
   assert.match(css, /\.qt-chat-project-field \{[^}]*display: flex/);
   assert.match(css, /\.qt-chat-library-project > button \{[^}]*flex: 0 0 auto/);
+  // The search field fills the drawer and its chip shares the field height.
+  assert.match(css, /\.qt-chat-library-search input\[type="text"\] \{[^}]*flex: 1 1 auto/);
+  assert.match(css, /\.qt-chat-library-search \.qt-chip \{[^}]*height: 32px/);
 });
 
 test("the What's New dialog scrolls instead of clipping its last card", () => {

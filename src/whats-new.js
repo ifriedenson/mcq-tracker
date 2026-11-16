@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.12",
+    date: "November 16, 2026",
+    title: "Pixels, not assertions",
+    summary:
+      "The live Primary pass over 1.307.11 caught three things only a screenshot shows: a stored title longer than the limit ended mid-word with no mark, the library's search field stopped at 220px leaving dead space while its chip sat taller, and the This chat / Filter pair split unevenly — then collapsed to 85px each in a 378px pane. The drawer now reads as one aligned column at any width.",
+    highlights: [
+      {
+        title: "A cut title says it was cut",
+        body: "Conversation titles are stored up to 80 characters. A longer one used to end in the middle of a word (\u201c…explained step by\u201d); it now ends with an ellipsis, and the row's own ellipsis still handles a pane too narrow for the full 80.",
+      },
+      {
+        title: "The search row fills its width",
+        body: "Search conversations now grows to the drawer's edge, and Show archived shares its 32px height instead of standing 8px taller beside it.",
+      },
+      {
+        title: "Two fields, one column",
+        body: "This chat and Filter split the row evenly at full width and each keeps its label when the pane wraps them at 378px, instead of squeezing to 85px or dropping a label beside the wrong select.",
+      },
+      {
+        title: "The same notice, still measured",
+        body: "All four Undo notices stay on the shared notice: 4.84:1 text in Primary light and 5.63:1 in dark, Undo at 58\u00d732 in both, and removing a chat project still posts exactly one notice.",
+      },
+    ],
+  },
+  {
     version: "1.307.11",
     date: "November 16, 2026",
     title: "The drawer above the conversation",

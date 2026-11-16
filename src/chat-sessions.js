@@ -19,6 +19,17 @@ const { str } = require("./util");
 const MAX_SESSIONS = 20;
 const MAX_TITLE = 80;
 
+/**
+ * A stored title never exceeds MAX_TITLE. When it has to be cut, say so with
+ * an ellipsis instead of ending mid-word, so the library row reads as a
+ * truncated title rather than a clipped one.
+ */
+function clipTitle(value) {
+  const clean = str(value).replace(/\s+/g, " ").trim();
+  if (clean.length <= MAX_TITLE) return clean;
+  return `${clean.slice(0, MAX_TITLE - 1).trimEnd()}\u2026`;
+}
+
 function newChatId(now) {
   const stamp = Number.isFinite(Number(now)) ? Number(now) : Date.now();
   return `chat-${stamp}-${Math.random().toString(36).slice(2, 8)}`;
@@ -45,7 +56,7 @@ function normalizeSession(value) {
   const tabOrder = Number(raw.tabOrder);
   return {
     id,
-    title: str(raw.title).trim().slice(0, MAX_TITLE) || titleFromMessages(messages),
+    title: clipTitle(raw.title) || titleFromMessages(messages),
     updatedAt: Number.isFinite(updatedAt) && updatedAt > 0 ? updatedAt : 0,
     messages,
     sessionId: str(raw.sessionId).trim(),
@@ -110,7 +121,7 @@ function removeSession(sessions, id) {
 
 function renameSession(sessions, id, title) {
   const key = str(id).trim();
-  const next = str(title).replace(/\s+/g, " ").trim().slice(0, MAX_TITLE);
+  const next = clipTitle(title);
   if (!key || !next) return normalizeSessions(sessions);
   return normalizeSessions(
     normalizeSessions(sessions).map((session) => (session.id === key ? { ...session, title: next, updatedAt: Date.now() } : session))
@@ -147,7 +158,7 @@ function libraryRows(active, sessions, now, options) {
   if (messages.length && sessionMatches({ title: str(active && active.title), messages }, query)) {
     rows.push({
       id: activeId || "active",
-      title: str(active && active.title).trim().slice(0, MAX_TITLE) || titleFromMessages(messages),
+      title: clipTitle(active && active.title) || titleFromMessages(messages),
       updatedAt: Number(active && active.updatedAt) || Number(now) || 0,
       when: formatWhen(active && active.updatedAt),
       messages,

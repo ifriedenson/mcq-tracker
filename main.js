@@ -28643,7 +28643,7 @@ class ChatPanel {
     this.libraryWrap = root.createDiv({ cls: "qt-chat-library qt-agent-library qt-hidden", attr: { id: "qt-agent-library" } });
     this.libraryEl = this.libraryWrap;
     this.libraryWrap.createDiv({ cls: "qt-hint", text: "Conversations (pinned first, then newest)" });
-    const searchRow = this.libraryWrap.createDiv({ cls: "qt-row qt-small-row" });
+    const searchRow = this.libraryWrap.createDiv({ cls: "qt-row qt-small-row qt-chat-library-search" });
     this.librarySearch = searchRow.createEl("input", {
       type: "text",
       attr: { "aria-label": "Search conversations", placeholder: "Search conversations" },
@@ -31373,6 +31373,17 @@ const { str } = require("./util");
 const MAX_SESSIONS = 20;
 const MAX_TITLE = 80;
 
+/**
+ * A stored title never exceeds MAX_TITLE. When it has to be cut, say so with
+ * an ellipsis instead of ending mid-word, so the library row reads as a
+ * truncated title rather than a clipped one.
+ */
+function clipTitle(value) {
+  const clean = str(value).replace(/\s+/g, " ").trim();
+  if (clean.length <= MAX_TITLE) return clean;
+  return `${clean.slice(0, MAX_TITLE - 1).trimEnd()}\u2026`;
+}
+
 function newChatId(now) {
   const stamp = Number.isFinite(Number(now)) ? Number(now) : Date.now();
   return `chat-${stamp}-${Math.random().toString(36).slice(2, 8)}`;
@@ -31399,7 +31410,7 @@ function normalizeSession(value) {
   const tabOrder = Number(raw.tabOrder);
   return {
     id,
-    title: str(raw.title).trim().slice(0, MAX_TITLE) || titleFromMessages(messages),
+    title: clipTitle(raw.title) || titleFromMessages(messages),
     updatedAt: Number.isFinite(updatedAt) && updatedAt > 0 ? updatedAt : 0,
     messages,
     sessionId: str(raw.sessionId).trim(),
@@ -31464,7 +31475,7 @@ function removeSession(sessions, id) {
 
 function renameSession(sessions, id, title) {
   const key = str(id).trim();
-  const next = str(title).replace(/\s+/g, " ").trim().slice(0, MAX_TITLE);
+  const next = clipTitle(title);
   if (!key || !next) return normalizeSessions(sessions);
   return normalizeSessions(
     normalizeSessions(sessions).map((session) => (session.id === key ? { ...session, title: next, updatedAt: Date.now() } : session))
@@ -31501,7 +31512,7 @@ function libraryRows(active, sessions, now, options) {
   if (messages.length && sessionMatches({ title: str(active && active.title), messages }, query)) {
     rows.push({
       id: activeId || "active",
-      title: str(active && active.title).trim().slice(0, MAX_TITLE) || titleFromMessages(messages),
+      title: clipTitle(active && active.title) || titleFromMessages(messages),
       updatedAt: Number(active && active.updatedAt) || Number(now) || 0,
       when: formatWhen(active && active.updatedAt),
       messages,
@@ -139848,6 +139859,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.307.12",
+    date: "November 16, 2026",
+    title: "Pixels, not assertions",
+    summary:
+      "The live Primary pass over 1.307.11 caught three things only a screenshot shows: a stored title longer than the limit ended mid-word with no mark, the library's search field stopped at 220px leaving dead space while its chip sat taller, and the This chat / Filter pair split unevenly — then collapsed to 85px each in a 378px pane. The drawer now reads as one aligned column at any width.",
+    highlights: [
+      {
+        title: "A cut title says it was cut",
+        body: "Conversation titles are stored up to 80 characters. A longer one used to end in the middle of a word (\u201c…explained step by\u201d); it now ends with an ellipsis, and the row's own ellipsis still handles a pane too narrow for the full 80.",
+      },
+      {
+        title: "The search row fills its width",
+        body: "Search conversations now grows to the drawer's edge, and Show archived shares its 32px height instead of standing 8px taller beside it.",
+      },
+      {
+        title: "Two fields, one column",
+        body: "This chat and Filter split the row evenly at full width and each keeps its label when the pane wraps them at 378px, instead of squeezing to 85px or dropping a label beside the wrong select.",
+      },
+      {
+        title: "The same notice, still measured",
+        body: "All four Undo notices stay on the shared notice: 4.84:1 text in Primary light and 5.63:1 in dark, Undo at 58\u00d732 in both, and removing a chat project still posts exactly one notice.",
+      },
+    ],
+  },
   {
     version: "1.307.11",
     date: "November 16, 2026",
