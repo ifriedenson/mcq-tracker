@@ -18101,3 +18101,57 @@ body {
 :is(.uni-calendar-container, .uni-schedule-embed) .uni-event-dot.is-layer-events { background: var(--color-orange); }
 :is(.uni-calendar-container, .uni-schedule-embed) .uni-event-dot.is-layer-review { background: var(--color-purple); }
 :is(.uni-calendar-container, .uni-schedule-embed) .uni-event-dot.is-layer-tasks { background: var(--color-green); }
+
+/* --------------------------------------------------------------------------
+   Sidebar calendar
+   A 300px right sidebar is a container, not a phone viewport: the viewport is
+   still 1280px wide, so the 520px media query above never fires. Query the
+   calendar's own width and reuse the narrow header rules there.
+   -------------------------------------------------------------------------- */
+.uni-calendar-container {
+  container: uni-calendar / inline-size;
+}
+
+@container uni-calendar (max-width: 360px) {
+  :is(.uni-calendar-container, .uni-schedule-embed) .uni-month-header {
+    flex-wrap: wrap;
+  }
+
+  :is(.uni-calendar-container, .uni-schedule-embed) .uni-header-controls {
+    flex-wrap: nowrap;
+    gap: 1px;
+    width: 100%;
+  }
+
+  :is(.uni-calendar-container, .uni-schedule-embed) .uni-nav-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 4px 2px;
+    min-height: var(--qt-touch-target);
+  }
+
+  :is(.uni-calendar-container, .uni-schedule-embed) .uni-nav-btn.uni-today-btn {
+    flex-grow: 1.6;
+    white-space: nowrap;
+  }
+
+  :is(.uni-calendar-container, .uni-schedule-embed) .uni-month-title {
+    white-space: normal;
+  }
+
+  :is(.uni-calendar-container, .uni-schedule-embed) .uni-layer-chip {
+    padding: 3px 8px;
+    min-height: 32px;
+  }
+
+  :is(.uni-calendar-container, .uni-schedule-embed) .uni-merged-row {
+    gap: 6px;
+  }
+
+  :is(.uni-calendar-container, .uni-schedule-embed) .uni-merged-row-meta {
+    max-width: 45%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

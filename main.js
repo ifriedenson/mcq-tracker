@@ -140157,6 +140157,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.16",
+    date: "November 16, 2026",
+    title: "A calendar that fits the sidebar",
+    summary:
+      "The sidebar calendar was still using the desktop header, so at 300px the month name vanished, the settings gear hung past the card and the view scrolled sideways. It now measures its own width and stacks the header to fit.",
+    highlights: [
+      {
+        title: "The month name stays",
+        body: "The calendar now responds to its own width, so the month title keeps a line of its own in the narrow sidebar instead of being squeezed out by the header controls.",
+      },
+      {
+        title: "Every control stays in the card",
+        body: "In a sidebar under 360px the six header controls share a full-width row at 44px height, putting the settings gear back inside the card instead of 24px past it.",
+      },
+      {
+        title: "No sideways scroll",
+        body: "The 300px calendar measures 288px of content and 288px of scroll width; the month grid keeps seven 32px cells and the layer chips wrap cleanly to two rows.",
+      },
+      {
+        title: "Wide and phone views are untouched",
+        body: "The new rule only applies below 360px of calendar width. The full-width calendar and the existing 390px phone layout keep their current spacing and targets.",
+      },
+    ],
+  },
+  {
     version: "1.307.15",
     date: "November 16, 2026",
     title: "The sidebar, for all three",

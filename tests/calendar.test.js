@@ -941,6 +941,8 @@ test("stylesheet: ported calendar selectors stay scoped to the calendar or its m
   assert.deepEqual(unscoped, [], `global calendar selectors: ${unscoped.join(" | ")}`);
   assert.equal(css.includes("#10b981"), false, "the calendar note badge must use theme colours");
   assert.equal(css.includes("rgba(124, 58, 237"), false, "the keyword action shadow must use the theme accent");
+  assert.match(css, /\.uni-calendar-container \{\s*container: uni-calendar \/ inline-size;/s);
+  assert.match(css, /@container uni-calendar \(max-width: 360px\) \{[\s\S]*?\.uni-header-controls[\s\S]*?width: 100%/s);
   assert.match(css, /\.uni-note-status-badge\.has-note \{[^}]*color: var\(--text-success, var\(--color-green\)\)/s);
   assert.match(css, /\.uni-keyword-btn\.mod-cta:hover \{[^}]*color-mix\(in srgb, var\(--interactive-accent\) 35%/s);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.uni-event-countdown,[\s\S]*?animation: none/s);
