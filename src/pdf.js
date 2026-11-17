@@ -121,6 +121,86 @@ function figMarker(f) {
   return `[FIGURE page ${f.page}: ![[${f.path}]]${f.pagePath ? ` (the whole page: ![[${f.pagePath}]])` : ""}]`;
 }
 
+/**
+ * A QR code, a Data Matrix or another two-dimensional barcode: a near-square patch of pure
+ * black and white modules. Text has already been taken out of these boxes, so a patch that is
+ * mostly one tone, or that keeps mid-grey tones, is a photo, a chart or a logo and stays a
+ * figure. Printed symbols are never a picture worth attaching to a question, so they are
+ * dropped before a crop is written.
+ */
+function qrSignature(data, W, H, box) {
+  if (!data || !W || !H || !box) return false;
+  const w = Math.round(box.x1 - box.x0);
+  const h = Math.round(box.y1 - box.y0);
+  if (w < 24 || h < 24) return false;
+  const ratio = w / h;
+  if (ratio < 0.72 || ratio > 1.38) return false; // square, unlike a chart, a rule or a barcode strip
+  if (w < 0.035 * W || w > 0.45 * W) return false; // bigger than an icon, smaller than the page
+  const x0 = Math.max(0, Math.round(box.x0));
+  const y0 = Math.max(0, Math.round(box.y0));
+  const x1 = Math.min(W, Math.round(box.x1));
+  const y1 = Math.min(H, Math.round(box.y1));
+  if (x1 - x0 < 24 || y1 - y0 < 24) return false;
+
+  const tone = (x, y) => {
+    const i = (y * W + x) * 4;
+    if (data[i + 3] < 20) return 255; // a transparent pixel prints white
+    return (data[i] + data[i + 1] + data[i + 2]) / 3;
+  };
+
+  const step = Math.max(1, Math.round(Math.min(w, h) / 140));
+  let dark = 0;
+  let light = 0;
+  let mid = 0;
+  for (let y = y0; y < y1; y += step) {
+    for (let x = x0; x < x1; x += step) {
+      const v = tone(x, y);
+      if (v < 96) dark++;
+      else if (v > 176) light++;
+      else mid++;
+    }
+  }
+  const total = dark + light + mid;
+  if (!total) return false;
+  if (mid / total > 0.22) return false; // photos, charts and gradients live in mid grey
+  const ink = dark / total;
+  if (ink < 0.22 || ink > 0.78) return false; // a symbol is part dark and part light
+
+  // A printed symbol changes colour many times along its own middle row and column; a bar
+  // chart, a pie chart, a logo or a shaded box changes a handful of times.
+  const switches = (horizontal) => {
+    const fixed = Math.round(horizontal ? (y0 + y1) / 2 : (x0 + x1) / 2);
+    const from = horizontal ? x0 : y0;
+    const to = horizontal ? x1 : y1;
+    let count = 0;
+    let prev = null;
+    for (let p = from; p < to; p++) {
+      const v = horizontal ? tone(p, fixed) : tone(fixed, p);
+      const now = v < 136;
+      if (prev !== null && now !== prev) count++;
+      prev = now;
+    }
+    return count;
+  };
+  return switches(true) >= 6 && switches(false) >= 6;
+}
+
+/** Text that only exists to point at a QR code: a "scan me" caption or the bare link under it. */
+function isQrScaffoldLine(text) {
+  const line = str(text).trim();
+  if (!line) return false;
+  if (/^(?:\(?scan\b|open the camera)/i.test(line) && /\b(?:to|for)\s+(?:open|view|read|download|learn|play|pay|order|buy|see|join|access|watch|listen|get|find|start|unlock|explore|discover|continue)\b/i.test(line)) return true;
+  if (/^scan (?:me|here|this|the (?:qr )?code|below|above)\b/i.test(line)) return true;
+  if (/^(?:https?:\/\/|www\.)\S+$/i.test(line)) return true; // the link a QR code stands for
+  return false;
+}
+
+/** The page's lines with QR-code captions and their bare links left out. */
+function withoutQrScaffold(lines) {
+  const list = Array.isArray(lines) ? lines : [];
+  return list.filter((line) => !isQrScaffoldLine(line && line.text));
+}
+
 /** The page's text with a marker line where each figure sits. */
 function pageText(lines, figs) {
   const out = [];
@@ -205,6 +285,7 @@ function detectFigures(data, W, H, boxes, scale) {
     if (c.y1 < 0.07 * H || c.y0 > 0.93 * H) continue; // logos in the header and footer
     if (w * h > 0.85 * W * H) continue; // a page frame
     if ((c.n * cell * cell) / (w * h) < 0.01) continue; // almost nothing in it
+    if (qrSignature(data, W, H, c)) continue; // a QR code or another printed symbol, never a figure
     let tArea = 0;
     for (const b of boxes) {
       const ox = Math.min(c.x1, b.x1) - Math.max(c.x0, b.x0);
@@ -350,8 +431,8 @@ async function readPdfPages(buf, spec, progress, cap, password) {
       }
       pages.push({
         n,
-        text: pageText(itemsToLines(tc.items, vp), figs),
-        lines: itemsToGapLines(tc.items, vp),
+        text: pageText(withoutQrScaffold(itemsToLines(tc.items, vp)), figs),
+        lines: withoutQrScaffold(itemsToGapLines(tc.items, vp)),
         pageHeight: vp.height,
         pageWidth: vp.width,
         figs: figs.length,
@@ -476,6 +557,9 @@ module.exports = {
   textBoxes,
   figMarker,
   pageText,
+  qrSignature,
+  isQrScaffoldLine,
+  withoutQrScaffold,
   detectFigures,
   renderPage,
   canvasToPng,

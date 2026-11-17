@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.17",
+    date: "November 17, 2026",
+    title: "QR codes stay out of your questions",
+    summary:
+      "Imported PDFs often carry a QR code and a \"scan to open\" line on every page. The import used to save the code as a picture and pass its caption to the AI as text. Both are now ignored, so a question note holds the question and its real figures only.",
+    highlights: [
+      {
+        title: "QR codes are not pictures to keep",
+        body: "The figure finder now spots a printed symbol by its shape, its two tones and its row of modules, and leaves it out of the crops it writes to the vault. Diagrams, charts and photos on the same page are still captured.",
+      },
+      {
+        title: "The scan-me line leaves the page text",
+        body: "A \"scan to open\" caption and the bare link it stands for are dropped from the text the importer reads, so they can never turn into a source or a stray line in a question.",
+      },
+      {
+        title: "Other printed shapes are untouched",
+        body: "A solid logo and a wide bar-code strip keep their place: only a square, part-dark, part-light symbol is treated as a QR code.",
+      },
+      {
+        title: "Nothing else changed",
+        body: "No note format, setting key, review schedule or network default changed. Existing notes and imports behave exactly as before.",
+      },
+    ],
+  },
+  {
     version: "1.307.16",
     date: "November 16, 2026",
     title: "A calendar that fits the sidebar",
