@@ -128,9 +128,10 @@ test("exhaustion returns the least recently attempted item instead of an empty s
   assert.equal(result.reason.exhausted, true);
 });
 
-test("a small subgroup borrows the global prior for the same facet", () => {
+test("a small subgroup borrows the prior for the same course-scoped facet", () => {
   const scoped = [
     q("Q/one.md", {
+      course: "BIO 201",
       skill: "rare skill",
       attempts: 1,
       correct_count: 0,
@@ -142,6 +143,7 @@ test("a small subgroup borrows the global prior for the same facet", () => {
     const path = `Q/g${i}.md`;
     global.push(
       q(path, {
+        course: "BIO 201",
         skill: "rare skill",
         attempts: 10,
         correct_count: 10,
@@ -172,4 +174,135 @@ test("the adaptive menu mode uses the mastery selector", () => {
   const other = q("Q/other.md", { skill: "photosynthesis", unit: 3 });
   const picked = T.pickQuestion([missed, similar], "adaptive", TODAY, [], () => 0, [missed, similar, other]);
   assert.equal(picked.file.path, "Q/similar.md");
+});
+
+test("the same unit number in two courses is two separate weaknesses", () => {
+  const strong = q("Q/bio-unit2.md", {
+    course: "BIO 201",
+    unit: 2,
+    attempts: 4,
+    correct_count: 4,
+    history: Array.from({ length: 4 }, (_v, i) => `2026-10-0${i + 1}|correct|10|A|2||bio-${i}`),
+  });
+  const weak = q("Q/chem-unit2.md", {
+    course: "CHEM 101",
+    unit: 2,
+    attempts: 4,
+    correct_count: 0,
+    history: Array.from({ length: 4 }, (_v, i) => `2026-10-0${i + 1}|incorrect|10|A|2||chem-${i}`),
+  });
+  const rows = P.rankFacets([strong, weak], [strong, weak]);
+  const units = rows.filter((row) => row.kind === "unit" && row.value === "2");
+  assert.equal(units.length, 2);
+  assert.deepEqual(units.map((row) => row.scope).sort(), ["bio 201", "chem 101"]);
+  assert.equal(rows[0].kind, "unit");
+  assert.equal(rows[0].scope, "chem 101");
+  const bioUnit = units.find((row) => row.scope === "bio 201");
+  assert.ok(rows[0].priority > bioUnit.priority);
+  assert.equal(rows.find((row) => row.kind === "course" && row.value === "chem 101").scope, "");
+});
+
+test("a tag repeated in two courses is ranked per course", () => {
+  const bio = q("Q/b.md", {
+    course: "BIO 201",
+    tags: ["unit 3"],
+    attempts: 2,
+    correct_count: 0,
+    history: ["2026-10-01|incorrect|10|A|2||b-1", "2026-10-02|incorrect|10|A|2||b-2"],
+  });
+  const chem = q("Q/c.md", {
+    course: "CHEM 101",
+    tags: ["unit 3"],
+    attempts: 2,
+    correct_count: 2,
+    history: ["2026-10-01|correct|10|A|2||c-1", "2026-10-02|correct|10|A|2||c-2"],
+  });
+  const rows = P.rankFacets([bio, chem], [bio, chem]).filter((row) => row.kind === "tags" && row.value === "unit 3");
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map((row) => row.scope).sort(), ["bio 201", "chem 101"]);
+});
+
+test("notes without a course keep their own scope", () => {
+  const typed = q("Q/typed.md", {
+    course: "BIO 201",
+    unit: 2,
+    attempts: 2,
+    correct_count: 0,
+    history: ["2026-10-01|incorrect|10|A|2||t-1", "2026-10-02|incorrect|10|A|2||t-2"],
+  });
+  const untyped = q("Q/untyped.md", {
+    unit: 2,
+    attempts: 2,
+    correct_count: 2,
+    history: ["2026-10-01|correct|10|A|2||u-1", "2026-10-02|correct|10|A|2||u-2"],
+  });
+  const rows = P.rankFacets([typed, untyped], [typed, untyped]).filter((row) => row.kind === "unit" && row.value === "2");
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map((row) => row.scope).sort(), ["", "bio 201"]);
+});
+
+test("shared properties do not cross courses", () => {
+  const bio = q("Q/b.md", { course: "BIO 201", unit: 2, skill: "respiration" });
+  const chem = q("Q/c.md", { course: "CHEM 101", unit: 2, skill: "respiration" });
+  const bioPeer = q("Q/b2.md", { course: "BIO 201", unit: 2, skill: "respiration" });
+  assert.equal(P.sharedPropertyCount(chem, bio), 0);
+  assert.ok(P.sharedPropertyCount(bioPeer, bio) >= P.MIN_SHARED_PROPERTIES);
+});
+
+test("a missed question is released only by its own course", () => {
+  const missed = q("Q/missed.md", {
+    course: "BIO 201",
+    unit: 2,
+    skill: "respiration",
+    attempts: 2,
+    correct_count: 0,
+    history: ["2026-10-01|incorrect|10|A|2||m-1", "2026-10-02|incorrect|10|A|2||m-2"],
+  });
+  const peer = q("Q/peer.md", {
+    course: "BIO 201",
+    unit: 2,
+    skill: "respiration",
+    attempts: 4,
+    correct_count: 2,
+    history: [
+      "2026-10-01|correct|10|A|2||p-1",
+      "2026-10-02|incorrect|10|A|2||p-2",
+      "2026-10-03|correct|10|A|2||p-3",
+      "2026-10-04|incorrect|10|A|2||p-4",
+    ],
+  });
+  const masteredElsewhere = q("Q/chem.md", {
+    course: "CHEM 101",
+    unit: 2,
+    skill: "respiration",
+    attempts: 10,
+    correct_count: 10,
+    history: Array.from({ length: 10 }, (_v, i) => `2026-09-${String(i + 1).padStart(2, "0")}|correct|10|A|2||chem-${i}`),
+  });
+  const fresh = q("Q/fresh.md", { course: "BIO 201", unit: 2, skill: "respiration" });
+  const result = P.pickAdaptiveQuestion([missed, peer, fresh], [missed, peer, fresh, masteredElsewhere], TODAY, ["Q/peer.md"], () => 0);
+  assert.equal(result.question.file.path, "Q/fresh.md");
+});
+
+test("the pick reports the course a weak facet belongs to", () => {
+  const bio = q("Q/b.md", {
+    course: "BIO 201",
+    unit: 2,
+    attempts: 4,
+    correct_count: 4,
+    history: Array.from({ length: 4 }, (_v, i) => `2026-10-0${i + 1}|correct|10|A|2||bio-${i}`),
+  });
+  const chemMiss = q("Q/c.md", {
+    course: "CHEM 101",
+    unit: 2,
+    attempts: 4,
+    correct_count: 0,
+    history: Array.from({ length: 4 }, (_v, i) => `2026-10-0${i + 1}|incorrect|10|A|2||chem-${i}`),
+  });
+  const chemFresh = q("Q/c2.md", { course: "CHEM 101", unit: 2 });
+  const result = P.pickAdaptiveQuestion([bio, chemMiss, chemFresh], [bio, chemMiss, chemFresh], TODAY, [], () => 0);
+  assert.equal(result.question.file.path, "Q/c2.md");
+  assert.equal(result.reason.kind, "unit");
+  assert.equal(result.reason.scope, "chem 101");
+  assert.equal(result.reason.value, "2");
 });

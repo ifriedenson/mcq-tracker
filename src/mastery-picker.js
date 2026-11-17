@@ -11,6 +11,12 @@
  * question, the least recently attempted item is the last-resort safety valve
  * so a very small pool can still be practised.
  *
+ * Every facet except `course` is scoped by the question's course, so unit 2 of
+ * BIO 201 and unit 2 of CHEM 101 are two different weaknesses, and a tag or
+ * skill name shared by several courses does not pool them. A note with no
+ * course keeps its own empty scope, and the shrinkage prior comes from the
+ * same course-scoped facet only.
+ *
  * The module is pure: it reads question frontmatter and history only, makes no
  * network request and never writes a note or schedule.
  */
@@ -82,17 +88,36 @@ function valuesFor(fm, key) {
   return (Array.isArray(value) ? value : [value]).map(clean).filter(Boolean);
 }
 
-/** The identity and context facets a question belongs to. Duplicate values are removed. */
+/** A question's facet scopes: each course it names, or one empty scope. */
+function scopesOf(fm) {
+  const courses = valuesFor(fm, "course");
+  return courses.length ? courses : [""];
+}
+
+/** The identity of a facet: kind, scope and value. */
+function facetKey(facet) {
+  return `${facet.kind}\u0000${facet.scope}\u0000${facet.value}`;
+}
+
+/**
+ * The identity and context facets a question belongs to, scoped to its course.
+ * Duplicate values are removed. A `course` facet is not scoped by itself.
+ */
 function facetsOf(question) {
   const fm = (question && question.fm) || {};
   const out = [];
   const seen = new Set();
+  const scopes = scopesOf(fm);
   for (const [kind] of TARGET_FACETS.concat(CONTEXT_FACETS)) {
+    const kindScopes = kind === "course" ? [""] : scopes;
     for (const value of valuesFor(fm, kind)) {
-      const key = `${kind}:${value}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push({ kind, value });
+      for (const scope of kindScopes) {
+        const facet = { kind, value, scope };
+        const key = facetKey(facet);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(facet);
+      }
     }
   }
   return out;
@@ -161,12 +186,13 @@ function aggregate(questions) {
     if (!question || !question.fm) continue;
     const summary = summaryOf(question);
     for (const facet of facetsOf(question)) {
-      const key = `${facet.kind}:${facet.value}`;
+      const key = facetKey(facet);
       let row = map.get(key);
       if (!row) {
         map.set(key, (row = {
           kind: facet.kind,
           value: facet.value,
+          scope: facet.scope,
           questions: 0,
           attempted: 0,
           attempts: 0,
@@ -192,8 +218,9 @@ function aggregate(questions) {
 
 /**
  * Rank scoped facets by weakness. A facet with little scoped evidence borrows
- * its prior from the same facet across the whole vault, so one miss in a
- * one-question unit does not dominate a ten-question skill.
+ * its prior from the same course-scoped facet across the whole vault, so one
+ * miss in a one-question unit does not dominate a ten-question skill in that
+ * course, and another course's results never stand in for it.
  */
 function rankFacets(questions, allQuestions) {
   const scoped = aggregate(questions);
@@ -231,6 +258,7 @@ function rankFacets(questions, allQuestions) {
     if (a.priority !== b.priority) return b.priority - a.priority;
     if (a.attempts !== b.attempts) return b.attempts - a.attempts;
     if (a.kind !== b.kind) return a.kind.localeCompare(b.kind);
+    if (a.scope !== b.scope) return a.scope.localeCompare(b.scope);
     return a.value.localeCompare(b.value, undefined, { numeric: true });
   });
   return rows;
@@ -247,11 +275,13 @@ function eligible(question, today, recent, facet) {
 }
 
 function hasFacet(question, facet) {
-  return facetsOf(question).some((item) => item.kind === facet.kind && item.value === facet.value);
+  return facetsOf(question).some(
+    (item) => item.kind === facet.kind && item.value === facet.value && item.scope === facet.scope
+  );
 }
 
 function facetKeySet(question) {
-  return new Set(facetsOf(question).map((item) => `${item.kind}:${item.value}`));
+  return new Set(facetsOf(question).map((item) => facetKey(item)));
 }
 
 /** How many identity/context properties two questions share. */
@@ -339,6 +369,7 @@ function pickAdaptiveQuestion(pool, all, today, recent, rnd) {
       reason: {
         kind: facet.kind,
         value: facet.value,
+        scope: facet.scope,
         accuracy: facet.effective,
         attempts: facet.attempts,
         ...(reason || {}),
@@ -377,7 +408,7 @@ function pickAdaptiveQuestion(pool, all, today, recent, rnd) {
   if (fallback.length) {
     return {
       question: weightedPick(fallback, (question) => (summaryOf(question).attempts ? 1 : 1.5), rnd),
-      reason: { kind: null, value: "", accuracy: null, attempts: 0, similarity: "any" },
+      reason: { kind: null, value: "", scope: "", accuracy: null, attempts: 0, similarity: "any" },
     };
   }
 
@@ -397,7 +428,7 @@ function pickAdaptiveQuestion(pool, all, today, recent, rnd) {
   if (!leftovers.length) return null;
   return {
     question: leftovers[0],
-    reason: { kind: null, value: "", accuracy: null, attempts: 0, exhausted: true },
+    reason: { kind: null, value: "", scope: "", accuracy: null, attempts: 0, exhausted: true },
   };
 }
 

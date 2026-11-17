@@ -12,8 +12,56 @@ const { conceptMasteryRows } = require("./concept-mastery");
 const knowledgeRecord = require("./knowledge-record");
 const { renderBreakdown, renderCalibration, renderGrade, renderHeatmap, renderRetention, renderSkips } = require("./analytics-embed");
 const { MASTERY_POOL_NOTE, MASTERY_WINDOWS, bandQuestions, buildProgress, masteryScopes, masteryTrendText, masteryWindowDays, scopeQuestions: questionsInScope } = require("./progress");
+const { facetsOf, rankFacets } = require("./mastery-picker");
 
 /* ------------------------------------------- weak spots and error log */
+
+const ADAPTIVE_FACET_LABELS = {
+  skill: "Skill",
+  unit: "Unit",
+  topic: "Topic",
+  subtopic: "Subtopic",
+  test: "Test",
+  exam: "Exam",
+  course: "Course",
+  section: "Section",
+  tags: "Tag",
+};
+
+/** A ranked facet as a readable row name, with its course when it has one. */
+function adaptiveFacetName(row) {
+  const label = ADAPTIVE_FACET_LABELS[row.kind] || row.kind;
+  const scope = row.scopeLabel || row.scope;
+  return scope && row.kind !== "course" ? `${label}: ${row.value} · ${scope}` : `${label}: ${row.value}`;
+}
+
+/**
+ * The adaptive selector's own ranking for one scope, limited to facets with
+ * real attempts, each resolved to the questions it would draw from.
+ */
+function adaptiveFocusRows(questions, scoped, limit) {
+  if (!Array.isArray(scoped) || !scoped.length) return [];
+  // Facet scopes are normalised to lower case; show the course as the note spells it.
+  const courseNames = new Map();
+  for (const question of scoped) {
+    const course = question && question.fm ? question.fm.course : "";
+    for (const raw of Array.isArray(course) ? course : [course]) {
+      const text = str(raw).trim();
+      if (text) courseNames.set(text.toLowerCase().replace(/\s+/g, " "), text);
+    }
+  }
+  return rankFacets(scoped, questions)
+    .filter((row) => row.attempts > 0)
+    .slice(0, Math.max(1, Number(limit) || 6))
+    .map((row) => ({
+      ...row,
+      label: ADAPTIVE_FACET_LABELS[row.kind] || row.kind,
+      scopeLabel: courseNames.get(row.scope) || row.scope,
+      pool: scoped.filter((question) =>
+        facetsOf(question).some((facet) => facet.kind === row.kind && facet.value === row.value && facet.scope === row.scope)
+      ),
+    }));
+}
 
 const VIEW_TYPE_INSIGHTS = "question-tracker-insights";
 
@@ -515,6 +563,8 @@ class InsightsView extends ItemView {
       root.createDiv({ cls: "qt-hint", text: MASTERY_POOL_NOTE });
     }
 
+    this.renderAdaptiveFocus(root, questions, progress.masteryScope, registry);
+
     const range = root.createDiv({ cls: "qt-chips" });
     for (const weeks of [4, 8, 12]) {
       const chip = range.createEl("button", { text: `${weeks} weeks`, cls: "qt-chip" });
@@ -594,6 +644,51 @@ class InsightsView extends ItemView {
     if (cards.length) row.createEl("button", { text: next.dueCards ? "Review cards" : "Open cards" }).addEventListener("click", () => p.activateCards());
 
     root.createDiv({ cls: "qt-hint qt-dash-privacy", text: "Everything on this page is calculated locally from your notes; nothing is uploaded." });
+  }
+
+  /**
+   * What Adaptive mastery would work through next: the selector's own ranked
+   * facets for the chosen scope, with the evidence behind each row.
+   */
+  renderAdaptiveFocus(root, questions, scope, registry) {
+    const scoped = questionsInScope(questions, scope, registry);
+    const rows = adaptiveFocusRows(questions, scoped, 6);
+    root.createEl("h3", { cls: "qt-today-section", text: "Adaptive focus" });
+    root.createDiv({
+      cls: "qt-hint",
+      text: "The order Adaptive mastery would work through: credit-weighted accuracy per course, unit, skill, test or tag. Slower and skipped answers raise a row, and another course's results never count for it.",
+    });
+    if (!rows.length) {
+      root.createDiv({
+        cls: "qt-hint",
+        text: scoped.length
+          ? "Answer a few questions and the areas Adaptive mastery would target appear here."
+          : "No questions in this scope yet.",
+      });
+      return;
+    }
+    const list = root.createDiv({ cls: "qt-ins-list qt-adaptive-focus" });
+    for (const row of rows) {
+      const line = list.createDiv({ cls: "qt-ins-row" });
+      const main = line.createDiv({ cls: "qt-ins-main" });
+      main.createDiv({ cls: "qt-ins-name", text: adaptiveFacetName(row) });
+      const facts = [
+        `${row.attempts} attempt${row.attempts === 1 ? "" : "s"} over ${row.questions} question${row.questions === 1 ? "" : "s"}`,
+      ];
+      if (row.skipped) facts.push(`${row.skipped} skipped`);
+      if (row.pace !== null && row.pace !== undefined) facts.push(`${Math.round(row.pace * 100)}% of target time`);
+      main.createDiv({ cls: "qt-hint", text: facts.join(" · ") });
+      const meter = line.createDiv({ cls: "qt-ins-meter" });
+      const band = row.effective < 0.6 ? "is-low" : row.effective < 0.8 ? "is-mid" : "is-high";
+      meter.createDiv({ cls: "qt-meter-track" }).createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round(row.effective * 100)}%` });
+      meter.createSpan({ cls: "qt-ins-pct", text: fmtPct(row.effective) });
+      if (!row.pool.length) continue;
+      const go = line.createEl("button", { text: "Practice" });
+      const scope = row.scopeLabel || row.scope;
+      go.setAttr("aria-label", `Practice ${row.label.toLowerCase()} ${row.value}${scope ? ` in ${scope}` : ""}`);
+      go.addEventListener("click", () => this.plugin.practiceQuestionPool(row.pool, `Adaptive focus · ${adaptiveFacetName(row)}`));
+    }
+    root.createDiv({ cls: "qt-hint", text: "Read-only: this is the selector's ranking. Review dates and the FSRS queue are untouched." });
   }
 
   renderWeak(root, questions) {
