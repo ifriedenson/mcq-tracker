@@ -201,6 +201,86 @@ function withoutQrScaffold(lines) {
   return list.filter((line) => !isQrScaffoldLine(line && line.text));
 }
 
+/* The strips at the top and bottom of a page, where running headers, footers and stamps live. */
+const FURNITURE_TOP = 0.1;
+const FURNITURE_BOTTOM = 0.88;
+
+/** Which strip of its page a line sits in: "top", "bottom" or "" for the page body. */
+function furnitureBand(line, pageHeight) {
+  if (!line || typeof line.y !== "number" || !Number.isFinite(line.y)) return "";
+  if (!(Number(pageHeight) > 0)) return "";
+  const ratio = line.y / Number(pageHeight);
+  if (ratio <= FURNITURE_TOP) return "top";
+  if (ratio >= FURNITURE_BOTTOM) return "bottom";
+  return "";
+}
+
+/** A line's identity for the furniture test: its words, not its spacing or its case. */
+function furnitureKey(text) {
+  return str(text).replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/**
+ * Page furniture: the lines that repeat in the same strip of most pages — a running header, a
+ * copyright footer, a "downloaded by" stamp, a watermark id. Repetition is the evidence, never a
+ * publisher's wording, so a line that only appears on some pages (a heading, a source passage that
+ * is quoted twice) and a line in the body of a page are both kept. A document of one or two pages
+ * has no furniture to find.
+ *
+ * `pages` is [{ pageHeight, textLines, lines }], the shape readPdfPages collects.
+ * Returns a Set of furnitureKey strings.
+ */
+function repeatedFurniture(pages, options) {
+  const opts = options || {};
+  const minimum = Number.isFinite(opts.minimum) ? Math.max(2, Math.floor(opts.minimum)) : 3;
+  const share = Number.isFinite(opts.share) && opts.share > 0 && opts.share <= 1 ? opts.share : 0.6;
+  const list = (Array.isArray(pages) ? pages : []).filter((page) => page && Number(page.pageHeight) > 0);
+  if (list.length < minimum) return new Set();
+  const needed = Math.max(minimum, Math.ceil(list.length * share));
+  const seen = new Map();
+  for (const page of list) {
+    const keys = new Set();
+    for (const line of [...(page.textLines || []), ...(page.lines || [])]) {
+      if (!furnitureBand(line, page.pageHeight)) continue;
+      const key = furnitureKey(line.text);
+      if (key.length >= 4) keys.add(key); // a bare "A" or "B" is an answer choice, not furniture
+    }
+    for (const key of keys) seen.set(key, (seen.get(key) || 0) + 1);
+  }
+  const out = new Set();
+  for (const [key, count] of seen) if (count >= needed) out.add(key);
+  return out;
+}
+
+/**
+ * A page number printed in a page's own footer: "Page 12 of 21", "12 / 21", "- 12 -". It changes
+ * on every page, so repetition cannot find it; its own number is what makes it furniture.
+ */
+function isPageNumberLine(text, pageNumber) {
+  const line = str(text).trim();
+  if (!line) return false;
+  const shown = Math.round(Number(pageNumber));
+  if (!Number.isFinite(shown)) return false;
+  const of = line.match(/^(?:page\s*)?(\d{1,4})\s*(?:of|\/)\s*(\d{1,4})$/i);
+  if (of) return Number(of[1]) === shown;
+  const bare = line.match(/^[-\u2013\u2014]\s*(\d{1,4})\s*[-\u2013\u2014]$/);
+  if (bare) return Number(bare[1]) === shown;
+  const labelled = line.match(/^page\s+(\d{1,4})$/i);
+  if (labelled) return Number(labelled[1]) === shown;
+  return false;
+}
+
+/** The page's lines with any repeated page furniture (and its printed page number) left out. */
+function withoutRepeatedFurniture(lines, furniture, pageHeight, pageNumber) {
+  const list = Array.isArray(lines) ? lines : [];
+  const names = furniture && furniture.size ? furniture : null;
+  return list.filter((line) => {
+    if (!furnitureBand(line, pageHeight)) return true;
+    if (names && names.has(furnitureKey(line && line.text))) return false;
+    return !isPageNumberLine(line && line.text, pageNumber);
+  });
+}
+
 /** The page's text with a marker line where each figure sits. */
 function pageText(lines, figs) {
   const out = [];
@@ -431,14 +511,30 @@ async function readPdfPages(buf, spec, progress, cap, password) {
       }
       pages.push({
         n,
-        text: pageText(withoutQrScaffold(itemsToLines(tc.items, vp)), figs),
-        lines: withoutQrScaffold(itemsToGapLines(tc.items, vp)),
+        textLines: withoutQrScaffold(itemsToLines(tc.items, vp)),
+        gapLines: withoutQrScaffold(itemsToGapLines(tc.items, vp)),
+        figs,
         pageHeight: vp.height,
         pageWidth: vp.width,
-        figs: figs.length,
+        figCount: figs.length,
       });
     }
-    return { pages, total: doc.numPages, warnings, figCount };
+    // One page cannot show furniture, so the whole document is read before the repeated lines are
+    // named. Each page's text and table lines are then built without them.
+    const furniture = repeatedFurniture(pages);
+    return {
+      pages: pages.map((page) => ({
+        n: page.n,
+        text: pageText(withoutRepeatedFurniture(page.textLines, furniture, page.pageHeight, page.n), page.figs),
+        lines: withoutRepeatedFurniture(page.gapLines, furniture, page.pageHeight, page.n),
+        pageHeight: page.pageHeight,
+        pageWidth: page.pageWidth,
+        figs: page.figCount,
+      })),
+      total: doc.numPages,
+      warnings,
+      figCount,
+    };
   } finally {
     try {
       await doc.destroy();
@@ -560,6 +656,11 @@ module.exports = {
   qrSignature,
   isQrScaffoldLine,
   withoutQrScaffold,
+  furnitureBand,
+  furnitureKey,
+  repeatedFurniture,
+  isPageNumberLine,
+  withoutRepeatedFurniture,
   detectFigures,
   renderPage,
   canvasToPng,

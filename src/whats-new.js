@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.18",
+    date: "November 17, 2026",
+    title: "The stamp stops reaching your questions",
+    summary:
+      "Imported PDFs carry the file's own furniture on every page: a \"downloaded by\" stamp, a watermark id, a running header, a copyright footer and a page number. They were being handed to the AI as if they were part of the exam. They are now recognised by repeating on most pages and left out.",
+    highlights: [
+      {
+        title: "Repetition, not wording",
+        body: "A line is treated as furniture when it appears in the same top or bottom strip of most pages, so no publisher's strings are baked in and any download site's stamp is handled the same way.",
+      },
+      {
+        title: "Questions are untouched",
+        body: "A heading shared by a few pages, a passage quoted twice, and a line in the body of the page are all kept \u2014 only lines that repeat on most pages in the margin are dropped, and only in that margin.",
+      },
+      {
+        title: "Page numbers go too",
+        body: "A printed \"Page 12 of 21\" changes on every page, so it is recognised by carrying the page's own number rather than by repetition.",
+      },
+      {
+        title: "Nothing else changed",
+        body: "No note format, setting key, review schedule or network default changed, and the QR-code handling from 1.307.17 is untouched.",
+      },
+    ],
+  },
+  {
     version: "1.307.17",
     date: "November 17, 2026",
     title: "QR codes stay out of your questions",
