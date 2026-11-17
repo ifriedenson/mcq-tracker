@@ -131,6 +131,172 @@ test("the table lines are cleaned with the same furniture set", () => {
   assert.deepEqual(kept, ["Cells\tThe smallest unit of life"]);
 });
 
+/* ------------------------------------------------------------ cover preamble */
+
+test("a cover block from a different publisher is stripped from the first page", () => {
+  // A synthetic host that has nothing to do with the exam used for the real run: a repeated
+  // tagline, a domain, a "visit …" line and a download slug.
+  const lines = [
+    line("ExamCloud Study Notes", 60),
+    line("ExamCloud Study Notes", 74),
+    line("examcloud.example.com", 88),
+    line("Visit examcloud.example.com for more", 102),
+    line("Download ID 4471902338 - Biology Unit 3 Midterm.pdf", 116),
+    line("AP Biology Unit 3 Midterm", 130),
+    line("Name: ______________________", 144),
+    line("1. Which organelle produces most of a cell's ATP?", 160),
+    line("A The nucleus", 174),
+  ];
+  const kept = pdf.withoutCoverPreamble(lines).map((one) => one.text);
+  assert.deepEqual(kept, [
+    "AP Biology Unit 3 Midterm",
+    "Name: ______________________",
+    "1. Which organelle produces most of a cell's ATP?",
+    "A The nucleus",
+  ]);
+});
+
+test("a single legitimate preamble line is kept in place", () => {
+  const lines = [line("AP Biology Unit 3 Midterm", 80), line("1. Which organelle produces most of a cell's ATP?", 100)];
+  assert.deepEqual(pdf.withoutCoverPreamble(lines).map((one) => one.text), [
+    "AP Biology Unit 3 Midterm",
+    "1. Which organelle produces most of a cell's ATP?",
+  ]);
+  const lone = [line("Teacher: Ms. Rivera, Period 4", 70), line("Source 1: A chart of wheat exports", 90)];
+  assert.deepEqual(pdf.withoutCoverPreamble(lone).map((one) => one.text), [
+    "Teacher: Ms. Rivera, Period 4",
+    "Source 1: A chart of wheat exports",
+  ]);
+});
+
+test("cover detection starts at the first real question, source or heading", () => {
+  const lines = [
+    line("1. Why did the Qin dynasty fall?", 80),
+    line("ExamCloud Study Notes", 94),
+    line("ExamCloud Study Notes", 108),
+    line("examcloud.example.com", 122),
+  ];
+  const kept = pdf.withoutCoverPreamble(lines).map((one) => one.text);
+  assert.deepEqual(kept, [
+    "1. Why did the Qin dynasty fall?",
+    "ExamCloud Study Notes",
+    "ExamCloud Study Notes",
+    "examcloud.example.com",
+  ], "nothing past the first question is treated as a cover");
+});
+
+test("the cover rules only fire on the shapes they name", () => {
+  assert.equal(pdf.isBareUrlLine("https://example.com/x"), true);
+  assert.equal(pdf.isBareUrlLine("www.example.com"), true);
+  assert.equal(pdf.isBareUrlLine("example.com"), true);
+  assert.equal(pdf.isBareUrlLine("Visit example.com for more"), true);
+  assert.equal(pdf.isBareUrlLine("The exam covers 1450-1750 C.E."), false);
+  assert.equal(pdf.isIdentifierLine("682243944-APWorld Unit 4Exam-pdf AP World History"), true);
+  assert.equal(pdf.isIdentifierLine("lOMoARcPSD|64937195"), true);
+  assert.equal(pdf.isIdentifierLine("Unit 4 review.pdf"), true);
+  assert.equal(pdf.isIdentifierLine("Question 1: What is 2 + 2?"), false);
+  assert.equal(pdf.isIdentifierLine("The war lasted from 1754 until 1763."), false);
+});
+
+test("a page after the first keeps its own identifier-shaped line", async () => {
+  const pages = [
+    [
+      { str: "ExamCloud Study Notes", y: 780 },
+      { str: "ExamCloud Study Notes", y: 766 },
+      { str: "1. Which organelle produces most of a cell's ATP?", y: 600 },
+    ],
+    [
+      { str: "ExamCloud Study Notes", y: 770 },
+      { str: "Chapter 4 review questions, Unit 4 review.pdf", y: 600 },
+    ],
+  ];
+  provider = async () => ({
+    getDocument() {
+      return {
+        promise: Promise.resolve({
+          numPages: pages.length,
+          async getPage(n) {
+            return {
+              async getTextContent() {
+                return {
+                  items: pages[n - 1].map((entry) => ({
+                    str: entry.str,
+                    transform: [1, 0, 0, 11, 40, entry.y],
+                    width: entry.str.length * 5.5,
+                    height: 11,
+                    hasEOL: true,
+                  })),
+                };
+              },
+              getViewport() {
+                return { width: PAGE_W, height: PAGE_H, scale: 1, transform: [1, 0, 0, -1, 0, PAGE_H] };
+              },
+            };
+          },
+          async destroy() {},
+        }),
+      };
+    },
+  });
+  const read = await pdf.readPdfPages(Buffer.from("%PDF-1.4"), "", () => {});
+  assert.deepEqual(read.pages[0].text.split("\n"), ["1. Which organelle produces most of a cell's ATP?"]);
+  assert.deepEqual(
+    read.pages[1].text.split("\n"),
+    ["ExamCloud Study Notes", "Chapter 4 review questions, Unit 4 review.pdf"],
+    "page 2 is not a cover: its own single lines stay, file-name shaped or not"
+  );
+});
+
+test("readPdfPages drops the cover block of the first page only", async () => {
+  const pages = [
+    [
+      { str: "ExamCloud Study Notes", y: 780 },
+      { str: "ExamCloud Study Notes", y: 766 },
+      { str: "examcloud.example.com", y: 752 },
+      { str: "AP Biology Unit 3 Midterm", y: 700 },
+      { str: "1. Which organelle produces most of a cell's ATP?", y: 640 },
+    ],
+    [
+      { str: "2. A cell is placed in a hypotonic solution.", y: 700 },
+      { str: "A It swells and may burst", y: 680 },
+    ],
+  ];
+  provider = async () => ({
+    getDocument() {
+      return {
+        promise: Promise.resolve({
+          numPages: pages.length,
+          async getPage(n) {
+            return {
+              async getTextContent() {
+                return {
+                  items: pages[n - 1].map((entry) => ({
+                    str: entry.str,
+                    transform: [1, 0, 0, 11, 40, entry.y],
+                    width: entry.str.length * 5.5,
+                    height: 11,
+                    hasEOL: true,
+                  })),
+                };
+              },
+              getViewport() {
+                return { width: PAGE_W, height: PAGE_H, scale: 1, transform: [1, 0, 0, -1, 0, PAGE_H] };
+              },
+            };
+          },
+          async destroy() {},
+        }),
+      };
+    },
+  });
+  const read = await pdf.readPdfPages(Buffer.from("%PDF-1.4"), "", () => {});
+  assert.deepEqual(read.pages[0].text.split("\n"), [
+    "AP Biology Unit 3 Midterm",
+    "1. Which organelle produces most of a cell's ATP?",
+  ]);
+  assert.deepEqual(read.pages[1].text.split("\n"), ["2. A cell is placed in a hypotonic solution.", "A It swells and may burst"]);
+});
+
 test("readPdfPages returns pages without stamps, headers, footers or page numbers", async () => {
   const pages = [
     [

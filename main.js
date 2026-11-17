@@ -65971,6 +65971,81 @@ function isPageNumberLine(text, pageNumber) {
   return false;
 }
 
+/* ------------------------------------------------------------ cover preamble */
+
+/** A bare web address, a domain on its own, or a "visit example.com" invitation. */
+function isBareUrlLine(text) {
+  const line = str(text).trim();
+  if (!line) return false;
+  if (/^(?:https?:\/\/|www\.)\S+$/i.test(line)) return true;
+  if (/^(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/\S*)?$/i.test(line)) return true;
+  if (/^(?:visit|go to|see|open|browse|learn more at|find us at|shop at|read more at|download (?:it )?(?:at|from))\s+(?:https?:\/\/|www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,}\b/i.test(line)) return true;
+  return false;
+}
+
+/** A publisher's identifier: a long numeric id, a watermark-style id, a download slug or a file name. */
+function isIdentifierLine(text) {
+  const line = str(text).trim();
+  if (!line) return false;
+  if (/\b\d{7,}\b/.test(line)) return true; // 682243944
+  if (/\b[A-Za-z]{2,}\|\d{3,}\b/.test(line)) return true; // lOMoARcPSD|64937195
+  if (/\b[\w-]+\.(?:pdf|docx?|pptx?|xlsx?|zip|epub|rtf)\b/i.test(line)) return true; // a file name
+  if (/\b\d{4,}[-_][A-Za-z][\w-]{3,}/.test(line)) return true; // an id-leading slug
+  return false;
+}
+
+/** The first line of a page that is real document content rather than a cover block. */
+function isContentAnchorLine(text) {
+  const line = str(text).trim();
+  if (!line) return false;
+  if (/^\d{1,3}\s*[.):]\s*\S/.test(line)) return true; // "1. Which of the following..."
+  if (/^(?:question|q)\s*\d{1,3}\b/i.test(line)) return true;
+  if (/^(?:source|document|passage|text|excerpt|figure|table)\s+\d{1,3}\b/i.test(line)) return true;
+  if (/^(?:directions|instructions|section|part|unit|chapter|name|date|period|class|student)\b/i.test(line) && line.length <= 60) return true;
+  if (/^[A-Z][A-Z0-9 ,.'\u2019&()\/-]{10,}$/.test(line)) return true; // an all-caps heading
+  return false;
+}
+
+/**
+ * A downloaded PDF opens with a cover block: the site's address, a tagline printed around a preview
+ * image (often twice), and the file's own id or download slug. Only the lines before the page's first
+ * real question, source or heading are examined, and only the ones that are duplicates of another
+ * line on that page, an address, or an identifier are dropped - a title, an instruction, a class
+ * heading or the first question in the same place is content and stays.
+ */
+function withoutCoverPreamble(lines) {
+  const list = Array.isArray(lines) ? lines : [];
+  if (list.length < 2) return list;
+  const limit = Math.min(list.length, 12); // a cover block is a handful of lines at the top
+  let end = limit;
+  for (let i = 0; i < limit; i++) {
+    if (isContentAnchorLine(list[i] && list[i].text)) {
+      end = i;
+      break;
+    }
+  }
+  if (!end) return list;
+  const counts = new Map();
+  for (let i = 0; i < end; i++) {
+    const key = furnitureKey(list[i] && list[i].text);
+    if (key) counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  const kept = [];
+  for (let i = 0; i < list.length; i++) {
+    if (i >= end) {
+      kept.push(list[i]);
+      continue;
+    }
+    const text = list[i] && list[i].text;
+    const key = furnitureKey(text);
+    if (key && (counts.get(key) || 0) > 1) continue; // the block printed the line twice
+    if (isBareUrlLine(text)) continue;
+    if (isIdentifierLine(text)) continue;
+    kept.push(list[i]);
+  }
+  return kept;
+}
+
 /** The page's lines with any repeated page furniture (and its printed page number) left out. */
 function withoutRepeatedFurniture(lines, furniture, pageHeight, pageNumber) {
   const list = Array.isArray(lines) ? lines : [];
@@ -66223,15 +66298,22 @@ async function readPdfPages(buf, spec, progress, cap, password) {
     // One page cannot show furniture, so the whole document is read before the repeated lines are
     // named. Each page's text and table lines are then built without them.
     const furniture = repeatedFurniture(pages);
+    // The cover block only ever opens the document, so only the first page runs through that rule.
+    const coverPage = pages.length > 1 && pages[0] ? pages[0].n : null;
     return {
-      pages: pages.map((page) => ({
-        n: page.n,
-        text: pageText(withoutRepeatedFurniture(page.textLines, furniture, page.pageHeight, page.n), page.figs),
-        lines: withoutRepeatedFurniture(page.gapLines, furniture, page.pageHeight, page.n),
-        pageHeight: page.pageHeight,
-        pageWidth: page.pageWidth,
-        figs: page.figCount,
-      })),
+      pages: pages.map((page) => {
+        const textLines = withoutRepeatedFurniture(page.textLines, furniture, page.pageHeight, page.n);
+        const gapLines = withoutRepeatedFurniture(page.gapLines, furniture, page.pageHeight, page.n);
+        const cover = page.n === coverPage;
+        return {
+          n: page.n,
+          text: pageText(cover ? withoutCoverPreamble(textLines) : textLines, page.figs),
+          lines: cover ? withoutCoverPreamble(gapLines) : gapLines,
+          pageHeight: page.pageHeight,
+          pageWidth: page.pageWidth,
+          figs: page.figCount,
+        };
+      }),
       total: doc.numPages,
       warnings,
       figCount,
@@ -66362,6 +66444,10 @@ module.exports = {
   repeatedFurniture,
   isPageNumberLine,
   withoutRepeatedFurniture,
+  isBareUrlLine,
+  isIdentifierLine,
+  isContentAnchorLine,
+  withoutCoverPreamble,
   detectFigures,
   renderPage,
   canvasToPng,
@@ -140341,6 +140427,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.307.19",
+    date: "November 17, 2026",
+    title: "The cover page stops reaching your questions",
+    summary:
+      "A downloaded PDF opens with a cover block: the site's name and address, a tagline printed around the preview image, and the file's own download id. It survived every earlier cleaning pass because it appears only on page 1. The first page's preamble is now read on its own terms.",
+    highlights: [
+      {
+        title: "Only the preamble, only the junk",
+        body: "Just the leading lines of the first page are examined, up to the first real question, source or heading, and from those only lines that are printed twice, an address, or an identifier are dropped.",
+      },
+      {
+        title: "A title or a heading stays",
+        body: "An exam title, an instruction line, a teacher or class heading and the first question can sit in exactly the same place as a cover block and are kept, because they are printed once and are not an address or an id.",
+      },
+      {
+        title: "Every page keeps its own words",
+        body: "Pages after the first are never treated as a cover, so a chapter heading or a file-name-like line in the body of page 2 stays exactly where it was.",
+      },
+      {
+        title: "Nothing else changed",
+        body: "QR handling, repeated page furniture and printed page numbers work exactly as in 1.307.17 and 1.307.18. No note format, setting key, review schedule or network default changed.",
+      },
+    ],
+  },
   {
     version: "1.307.18",
     date: "November 17, 2026",

@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.19",
+    date: "November 17, 2026",
+    title: "The cover page stops reaching your questions",
+    summary:
+      "A downloaded PDF opens with a cover block: the site's name and address, a tagline printed around the preview image, and the file's own download id. It survived every earlier cleaning pass because it appears only on page 1. The first page's preamble is now read on its own terms.",
+    highlights: [
+      {
+        title: "Only the preamble, only the junk",
+        body: "Just the leading lines of the first page are examined, up to the first real question, source or heading, and from those only lines that are printed twice, an address, or an identifier are dropped.",
+      },
+      {
+        title: "A title or a heading stays",
+        body: "An exam title, an instruction line, a teacher or class heading and the first question can sit in exactly the same place as a cover block and are kept, because they are printed once and are not an address or an id.",
+      },
+      {
+        title: "Every page keeps its own words",
+        body: "Pages after the first are never treated as a cover, so a chapter heading or a file-name-like line in the body of page 2 stays exactly where it was.",
+      },
+      {
+        title: "Nothing else changed",
+        body: "QR handling, repeated page furniture and printed page numbers work exactly as in 1.307.17 and 1.307.18. No note format, setting key, review schedule or network default changed.",
+      },
+    ],
+  },
+  {
     version: "1.307.18",
     date: "November 17, 2026",
     title: "The stamp stops reaching your questions",
