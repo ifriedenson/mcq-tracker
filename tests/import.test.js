@@ -245,3 +245,81 @@ test("an answer the agent wrote as words or a full choice is kept, not dropped",
   const fm = T.parseNote(unparsed).fm;
   assert.equal(fm.answer, "the fourth one, clearly", "an answer that is not a letter is kept for self-grading");
 });
+
+/* ---- a model that fills its Stimulus section with the question itself ---- */
+
+const STIM_NOTE = (stimulus) => `---
+question_id: PDF-Q07
+number: 7
+question_type: mcq
+choices: 4
+answer: B
+answer_source: pdf
+explanation_source: pdf
+stimulus_id: PDF-S01
+---
+
+${stimulus}
+
+## Question
+The two interpretations of economic history differ most strongly concerning
+
+## Answer Choices
+- A. the motivations for European colonization
+- B. the timing of the Industrial Revolution
+- C. the role of Asian trade in the world economy
+- D. the size of the global economy in 1600
+
+## Answer
+> **Correct Answer: B**
+`;
+
+const ECHOED_STIMULUS = `## Stimulus
+> The two interpretations of economic history differ most strongly concerning
+> A the motivations for European colonization
+> B the timing of the Industrial Revolution
+> C the role of Asian trade in the world economy
+> D the size of the global economy in 1600`;
+
+test("a Stimulus section that only repeats the stem and its choices is dropped", () => {
+  const out = T.finalizeNote(STIM_NOTE(ECHOED_STIMULUS), {}, "X-Q07", STAMP);
+  const { fm, body } = T.parseNote(out);
+  assert.equal(fm.stimulus_id, undefined, "no stimulus_id points at a passage that is not there");
+  assert.doesNotMatch(body, /^## Stimulus/m, "the duplicated section is gone");
+  assert.ok(body.trimStart().startsWith("## Question\n"), "the note starts at its question");
+  assert.match(body, /^## Answer Choices\n/m);
+  assert.equal(fm.answer, "B");
+});
+
+test("a real passage is kept, and so is a passage that only opens with the stem", () => {
+  const real = T.finalizeNote(
+    STIM_NOTE(`## Stimulus
+> In the sixteenth century, silver from Potosí moved through Manila and into
+> Chinese markets, tying the Americas to Asia in one exchange.`),
+    {},
+    "X-Q08",
+    STAMP
+  );
+  assert.equal(T.parseNote(real).fm.stimulus_id, "PDF-S01");
+  assert.match(T.parseNote(real).body, /silver from Potosí/);
+
+  const opened = T.finalizeNote(
+    STIM_NOTE(`## Stimulus
+> The two interpretations of economic history differ most strongly concerning
+> the timing of the Industrial Revolution, which some historians place in the
+> eighteenth century and others in the sixteenth.`),
+    {},
+    "X-Q09",
+    STAMP
+  );
+  assert.equal(T.parseNote(opened).fm.stimulus_id, "PDF-S01", "extra text is a passage, not an echo");
+  assert.match(T.parseNote(opened).body, /^## Stimulus/m);
+});
+
+test("carryPassages never hands the next batch a stem dressed as a passage", () => {
+  const realPassage = `## Stimulus
+> Potosí silver crossed the Pacific and reached Chinese markets every year.`;
+  const carried = T.importer.carryPassages([STIM_NOTE(realPassage), STIM_NOTE(ECHOED_STIMULUS)]);
+  assert.equal(carried.length, 1);
+  assert.match(carried[0], /Potosí silver/);
+});

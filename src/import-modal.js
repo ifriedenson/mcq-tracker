@@ -10,7 +10,7 @@ const { MAX_SOURCE_BYTES, readDocumentSource, readPagesForSource } = require("./
 const { AGENT_SYSTEM, absoluteVaultPath, agentPrompt, aiFlags, answerKeyText, buildReportMarkdown, carryPassages, ensureProviders, extractNotesChunk, finalizeNote, groupIssues, mergeNotes, modelFromMessages, noteIssues, parseNote } = require("./importer");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { findDuplicateIds, indexOfficialIds, officialIdOf } = require("./filters");
-const { friendlyApiError } = require("./api-client");
+const { friendlyApiError, LOCAL_REQUEST_TIMEOUT_MS, localProvider } = require("./api-client");
 const { findAnswerKey } = require("./notes");
 const { checkDocumentText, summaryText } = require("./import-preflight");
 const { ImportCompleteModal } = require("./import-complete-modal");
@@ -301,12 +301,15 @@ class PdfImportModal extends QtModal {
     // error. It cannot become progress, so it is reported after this grace
     // instead of waiting out the whole silence allowance.
     this.agentEmptyReplyMs = 2 * 60 * 1000;
-    this.apiChunkTimeoutMs = 3 * 60 * 1000;
     this.pdfPasswords = init.pdfPasswords instanceof Map ? new Map(init.pdfPasswords) : new Map();
     this.pdfFile = this.file || this.vaultDoc || null;
     this.pdfPassword = this.pdfPasswords.get(this.pdfFile) || "";
     this.pdfPromptResolve = null;
     const st = plugin.settings;
+    // A local model on this computer needs minutes per batch where a hosted one
+    // needs seconds, so its batch deadline is the local request deadline rather
+    // than the 3-minute hosted one (qwen2.5:7b takes about 3 minutes here).
+    this.apiChunkTimeoutMs = localProvider(st.ai) ? LOCAL_REQUEST_TIMEOUT_MS : 3 * 60 * 1000;
     this.meta = Object.assign(
       { test: "", course: "", section: "", domain: "", skill: "", unit: "", difficulty: "", prefix: "", start: "1", pages: "" },
       st.importDefaults || {}

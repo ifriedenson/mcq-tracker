@@ -187,6 +187,25 @@ test("AI request: a provider that never answers times out with a next step", asy
   assert.ok(T.REQUEST_TIMEOUT_MS >= 30000, "the default deadline is generous enough for a slow model");
 });
 
+test("AI request: a model running on this computer gets a longer deadline than a hosted one", () => {
+  // Regression: a live qwen2.5:7b import on a CPU took 175 s for one batch, so
+  // the hosted 2-minute deadline aborted a request that was working.
+  const ollama = () => ({ api: { provider: "ollama", baseUrl: "http://127.0.0.1:11434/v1", model: "qwen2.5:7b" } });
+  assert.equal(client({}, ollama()).cfg().timeoutMs, T.LOCAL_REQUEST_TIMEOUT_MS);
+  assert.equal(client({}, okAi()).cfg().timeoutMs, T.REQUEST_TIMEOUT_MS);
+  assert.ok(T.LOCAL_REQUEST_TIMEOUT_MS > T.REQUEST_TIMEOUT_MS, "local inference is slower, so its deadline is longer");
+  // The import window asks localProvider() about the settings object itself, where
+  // the provider sits under `ai.api`; reading only `ai.provider` left a local
+  // model on the hosted 3-minute deadline. Live with qwen2.5:7b: 3m30s.
+  assert.equal(T.localProvider({ api: { provider: "ollama" } }), true);
+  assert.equal(T.localProvider({ api: { provider: "openai" } }), false);
+  assert.equal(T.localProvider({ provider: "llamacpp" }), true, "the provider object itself also works");
+  assert.equal(T.localProvider({}), false);
+  assert.equal(T.localProvider(null), false);
+  // An explicit timeout still wins, for callers that pass one.
+  assert.equal(client({ timeoutMs: 40 }, ollama()).cfg().timeoutMs, 40);
+});
+
 test("AI streaming: a failing fetch falls back to the friendly reach message", async () => {
   // Regression: streamChat surfaced the raw "Failed to fetch" TypeError.
   const previous = globalThis.fetch;

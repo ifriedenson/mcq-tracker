@@ -8224,6 +8224,20 @@ function providerHttpError(status, reason) {
 
 /** No provider reply should spin forever; a request that hangs is a dead end for the user. */
 const REQUEST_TIMEOUT_MS = 120 * 1000;
+// A model on the user's own CPU is an order of magnitude slower than a hosted
+// one: qwen2.5:7b takes about 3 minutes to answer one import batch on 8 cores,
+// which the hosted deadline cut off. The local presets get their own instead.
+const LOCAL_REQUEST_TIMEOUT_MS = 15 * 60 * 1000;
+
+/**
+ * True when the configured provider runs on this computer, so a request is slow
+ * but free. The provider lives under `ai.api` in the settings, but a caller may
+ * hand in that object directly, so both shapes are read.
+ */
+function localProvider(ai) {
+  const a = ai && typeof ai === "object" ? (ai.api && typeof ai.api === "object" ? ai.api : ai) : {};
+  return (API_PRESETS[str(a.provider)] || {}).local === true;
+}
 
 function timeoutLabel(ms) {
   return ms >= 1000 ? Math.round(ms / 1000) + "s" : ms + "ms";
@@ -8265,7 +8279,7 @@ class ApiClient {
       }
     }
     return {
-      timeoutMs: Number(this.opts.timeoutMs) > 0 ? Number(this.opts.timeoutMs) : REQUEST_TIMEOUT_MS,
+      timeoutMs: Number(this.opts.timeoutMs) > 0 ? Number(this.opts.timeoutMs) : preset.local ? LOCAL_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS,
       preset,
       base,
       key: resolveApiKey(this.app, a),
@@ -8515,6 +8529,8 @@ module.exports = {
   apiTurns,
   ApiClient,
   REQUEST_TIMEOUT_MS,
+  LOCAL_REQUEST_TIMEOUT_MS,
+  localProvider,
   withinTimeout,
 };
 };
@@ -51209,7 +51225,7 @@ const { MAX_SOURCE_BYTES, readDocumentSource, readPagesForSource } = require("./
 const { AGENT_SYSTEM, absoluteVaultPath, agentPrompt, aiFlags, answerKeyText, buildReportMarkdown, carryPassages, ensureProviders, extractNotesChunk, finalizeNote, groupIssues, mergeNotes, modelFromMessages, noteIssues, parseNote } = require("./importer");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { findDuplicateIds, indexOfficialIds, officialIdOf } = require("./filters");
-const { friendlyApiError } = require("./api-client");
+const { friendlyApiError, LOCAL_REQUEST_TIMEOUT_MS, localProvider } = require("./api-client");
 const { findAnswerKey } = require("./notes");
 const { checkDocumentText, summaryText } = require("./import-preflight");
 const { ImportCompleteModal } = require("./import-complete-modal");
@@ -51500,12 +51516,15 @@ class PdfImportModal extends QtModal {
     // error. It cannot become progress, so it is reported after this grace
     // instead of waiting out the whole silence allowance.
     this.agentEmptyReplyMs = 2 * 60 * 1000;
-    this.apiChunkTimeoutMs = 3 * 60 * 1000;
     this.pdfPasswords = init.pdfPasswords instanceof Map ? new Map(init.pdfPasswords) : new Map();
     this.pdfFile = this.file || this.vaultDoc || null;
     this.pdfPassword = this.pdfPasswords.get(this.pdfFile) || "";
     this.pdfPromptResolve = null;
     const st = plugin.settings;
+    // A local model on this computer needs minutes per batch where a hosted one
+    // needs seconds, so its batch deadline is the local request deadline rather
+    // than the 3-minute hosted one (qwen2.5:7b takes about 3 minutes here).
+    this.apiChunkTimeoutMs = localProvider(st.ai) ? LOCAL_REQUEST_TIMEOUT_MS : 3 * 60 * 1000;
     this.meta = Object.assign(
       { test: "", course: "", section: "", domain: "", skill: "", unit: "", difficulty: "", prefix: "", start: "1", pages: "" },
       st.importDefaults || {}
@@ -54270,11 +54289,19 @@ function parseNote(text) {
   return { fm, body, sec: parseSections(body) };
 }
 
+/**
+ * The note separator, as loosely as a model actually writes it: a small local
+ * model answered with "=====" and "NOTE=====" on two lines (qwen2.5:7b on a
+ * CPU), and splitting on the exact marker alone threw away all three notes it
+ * had written correctly.
+ */
+const NOTE_MARKER = /^[=\-*_]{3,}[ \t]*\r?\n?[ \t]*NOTE[ \t]*[=\-*_]{3,}[ \t]*$/im;
+
 /** Splits an AI reply into notes. */
 function splitNotes(reply) {
   const t = str(reply).replace(/```(?:markdown|md|yaml)?\s*\n/gi, "").replace(/\n```\s*(?=\n|$)/g, "\n");
   return t
-    .split(/^=====NOTE=====\s*$/m)
+    .split(NOTE_MARKER)
     .map((b) => b.trim())
     .filter((b) => /^---\s*\n/.test(b));
 }
@@ -54317,12 +54344,64 @@ function noteSig(parsed) {
   return [num, norm(s.question, 80), num ? "" : norm(s.stimulus, 40), norm(s.choices[0] ? s.choices[0].text : "", 30)].join("|");
 }
 
+/**
+ * A small model sometimes fills its Stimulus section by copying the question
+ * and its choices instead of writing a passage (qwen2.5:7b did this for the two
+ * questions that had no passage). That is not a passage: it duplicates the
+ * stem, gives the note a stimulus_id nothing points at, and can carry the stem
+ * into the next batch as a "passage carried over". Compare the section with the
+ * question once punctuation and spacing are gone: an echo is the question, then
+ * every choice in order, and then nothing.
+ */
+function stimulusEchoesQuestion(sec) {
+  const flat = (t) => str(t).toLowerCase().replace(/[^a-z0-9]/g, "");
+  const choices = Array.isArray(sec && sec.choices) ? sec.choices : [];
+  if (choices.length < 2) return false;
+  const question = flat(sec.question);
+  if (question.length < 12) return false;
+  let rest = flat(sec.stimulus);
+  if (!rest.startsWith(question)) return false;
+  rest = rest.slice(question.length);
+  for (const c of choices) {
+    const text = flat(c.text);
+    if (!text) return false;
+    const letter = flat(c.letter);
+    // "A Easing of tensions" and "Easing of tensions" are the same echo.
+    if (letter && rest.startsWith(letter + text)) rest = rest.slice(letter.length);
+    if (!rest.startsWith(text)) return false;
+    rest = rest.slice(text.length);
+  }
+  return rest === "";
+}
+
+/** Drops a "## Stimulus" section from a note body (used when it only echoes the question). */
+function withoutStimulusSection(body) {
+  const names = new Set((HEAD_ALIASES.stimulus || []).map((n) => headName({ heading: n })));
+  const out = [];
+  let skipping = false;
+  for (const line of str(body).replace(/\r\n/g, "\n").split("\n")) {
+    const m = line.trim().match(/^(#{1,6})\s+(.*?)\s*#*\s*$/);
+    if (m) {
+      if (names.has(headName({ heading: m[2] }))) {
+        skipping = true;
+        continue;
+      }
+      skipping = false;
+    }
+    if (skipping) continue;
+    out.push(line);
+  }
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 /** The passages of the last few notes, so the next batch can attach questions to a passage from the page before. */
 function carryPassages(blocks) {
   const seen = new Set();
   const out = [];
   for (const text of [...blocks].reverse()) {
-    const st = str(parseNote(text).sec.stimulus).trim();
+    const parsed = parseNote(text);
+    if (stimulusEchoesQuestion(parsed.sec)) continue;
+    const st = str(parsed.sec.stimulus).trim();
     const key = st.toLowerCase().replace(/\s+/g, " ");
     if (!st || seen.has(key)) continue;
     seen.add(key);
@@ -54398,8 +54477,9 @@ function finalizeNote(text, meta, qid, stamp) {
     fm[k] = sv;
     extra++;
   }
+  const echo = stimulusEchoesQuestion(sec);
   const stimId = stamp.stimId !== undefined ? stamp.stimId : src.stimulus_id;
-  if (stimId && str(sec.stimulus).trim()) fm.stimulus_id = str(stimId);
+  if (stimId && !echo && str(sec.stimulus).trim()) fm.stimulus_id = str(stimId);
 
   // Provenance: keep an explicit source if the note already names one, otherwise
   // use the copied file the import modal passes in. The page is optional.
@@ -54493,6 +54573,7 @@ function finalizeNote(text, meta, qid, stamp) {
     .replace(/^\s*> \[!warning\] AI-generated[^\n]*(?:\n>[^\n]*)*\n+/i, "")
     .replace(/^> \[!warning\] Answer check (?:failed|did not finish)[^\n]*(?:\n>[^\n]*)*\n*/m, "")
     .trim();
+  if (echo) cleaned = withoutStimulusSection(cleaned);
   let notice = "";
   if (ai) {
     const what = f.aiAnswer && f.aiExp ? "answer and explanation" : f.aiAnswer ? "answer" : "explanation";
@@ -54546,6 +54627,8 @@ module.exports = {
   answerKeyText,
   extractNotesChunk,
   noteSig,
+  stimulusEchoesQuestion,
+  withoutStimulusSection,
   carryPassages,
   mergeNotes,
   aiFlags,
@@ -140428,6 +140511,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.20",
+    date: "November 18, 2026",
+    title: "A free local model's notes arrive whole",
+    summary:
+      "Document import can run on a model that never leaves your computer. Driving it against a real 7B model on a CPU returned all three questions with the right answers, and the plugin still threw part of that answer away. The three defects it exposed are fixed, and the recipe that was actually run is in the README.",
+    highlights: [
+      {
+        title: "A broken separator no longer loses the notes",
+        body: "This model writes \"=====\" and \"NOTE=====\" on two lines. The importer accepts that shape, so a complete answer is read as the notes it is instead of as an empty document.",
+      },
+      {
+        title: "A repeated question is not a passage",
+        body: "For the two questions with no passage, the model filled the Stimulus section with the stem and its choices. That section is now recognised, removed, and never given a passage id or passed on to the next batch as a real passage. A genuine passage, even one that opens with the stem's words, is kept.",
+      },
+      {
+        title: "A slow local model is not a dead one",
+        body: "A local server gets 15 minutes for one request instead of the 120 seconds meant for a cloud API, so a 7B model answering at four tokens a second is not cut off mid-answer.",
+      },
+      {
+        title: "Nothing else changed",
+        body: "No note format, setting key, review schedule or network default changed. A key is still optional for a local server, and nothing is sent anywhere but the address you configure.",
+      },
+    ],
+  },
+  {
     version: "1.307.19",
     date: "November 17, 2026",
     title: "The cover page stops reaching your questions",
@@ -143236,7 +143344,7 @@ const { PracticeView } = require("./practice-view");
 const practiceKeys = require("./practice-keys");
 const practiceFullscreen = require("./practice-fullscreen");
 const practiceTools = require("./practice-tools");
-const { API_PRESETS, ApiClient, apiTurns, friendlyApiError, REQUEST_TIMEOUT_MS } = require("./api-client");
+const { API_PRESETS, ApiClient, apiTurns, friendlyApiError, LOCAL_REQUEST_TIMEOUT_MS, localProvider, REQUEST_TIMEOUT_MS } = require("./api-client");
 const modelDiscovery = require("./model-discovery");
 const reading = require("./reading");
 const tagTimer = require("./tag-timer");
@@ -143599,6 +143707,8 @@ QuestionTrackerPlugin.__test = {
   friendlyApiError,
   apiTurns,
   REQUEST_TIMEOUT_MS,
+  LOCAL_REQUEST_TIMEOUT_MS,
+  localProvider,
   modelDiscovery,
   reading,
   tagTimer,

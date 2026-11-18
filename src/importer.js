@@ -243,11 +243,19 @@ function parseNote(text) {
   return { fm, body, sec: parseSections(body) };
 }
 
+/**
+ * The note separator, as loosely as a model actually writes it: a small local
+ * model answered with "=====" and "NOTE=====" on two lines (qwen2.5:7b on a
+ * CPU), and splitting on the exact marker alone threw away all three notes it
+ * had written correctly.
+ */
+const NOTE_MARKER = /^[=\-*_]{3,}[ \t]*\r?\n?[ \t]*NOTE[ \t]*[=\-*_]{3,}[ \t]*$/im;
+
 /** Splits an AI reply into notes. */
 function splitNotes(reply) {
   const t = str(reply).replace(/```(?:markdown|md|yaml)?\s*\n/gi, "").replace(/\n```\s*(?=\n|$)/g, "\n");
   return t
-    .split(/^=====NOTE=====\s*$/m)
+    .split(NOTE_MARKER)
     .map((b) => b.trim())
     .filter((b) => /^---\s*\n/.test(b));
 }
@@ -290,12 +298,64 @@ function noteSig(parsed) {
   return [num, norm(s.question, 80), num ? "" : norm(s.stimulus, 40), norm(s.choices[0] ? s.choices[0].text : "", 30)].join("|");
 }
 
+/**
+ * A small model sometimes fills its Stimulus section by copying the question
+ * and its choices instead of writing a passage (qwen2.5:7b did this for the two
+ * questions that had no passage). That is not a passage: it duplicates the
+ * stem, gives the note a stimulus_id nothing points at, and can carry the stem
+ * into the next batch as a "passage carried over". Compare the section with the
+ * question once punctuation and spacing are gone: an echo is the question, then
+ * every choice in order, and then nothing.
+ */
+function stimulusEchoesQuestion(sec) {
+  const flat = (t) => str(t).toLowerCase().replace(/[^a-z0-9]/g, "");
+  const choices = Array.isArray(sec && sec.choices) ? sec.choices : [];
+  if (choices.length < 2) return false;
+  const question = flat(sec.question);
+  if (question.length < 12) return false;
+  let rest = flat(sec.stimulus);
+  if (!rest.startsWith(question)) return false;
+  rest = rest.slice(question.length);
+  for (const c of choices) {
+    const text = flat(c.text);
+    if (!text) return false;
+    const letter = flat(c.letter);
+    // "A Easing of tensions" and "Easing of tensions" are the same echo.
+    if (letter && rest.startsWith(letter + text)) rest = rest.slice(letter.length);
+    if (!rest.startsWith(text)) return false;
+    rest = rest.slice(text.length);
+  }
+  return rest === "";
+}
+
+/** Drops a "## Stimulus" section from a note body (used when it only echoes the question). */
+function withoutStimulusSection(body) {
+  const names = new Set((HEAD_ALIASES.stimulus || []).map((n) => headName({ heading: n })));
+  const out = [];
+  let skipping = false;
+  for (const line of str(body).replace(/\r\n/g, "\n").split("\n")) {
+    const m = line.trim().match(/^(#{1,6})\s+(.*?)\s*#*\s*$/);
+    if (m) {
+      if (names.has(headName({ heading: m[2] }))) {
+        skipping = true;
+        continue;
+      }
+      skipping = false;
+    }
+    if (skipping) continue;
+    out.push(line);
+  }
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 /** The passages of the last few notes, so the next batch can attach questions to a passage from the page before. */
 function carryPassages(blocks) {
   const seen = new Set();
   const out = [];
   for (const text of [...blocks].reverse()) {
-    const st = str(parseNote(text).sec.stimulus).trim();
+    const parsed = parseNote(text);
+    if (stimulusEchoesQuestion(parsed.sec)) continue;
+    const st = str(parsed.sec.stimulus).trim();
     const key = st.toLowerCase().replace(/\s+/g, " ");
     if (!st || seen.has(key)) continue;
     seen.add(key);
@@ -371,8 +431,9 @@ function finalizeNote(text, meta, qid, stamp) {
     fm[k] = sv;
     extra++;
   }
+  const echo = stimulusEchoesQuestion(sec);
   const stimId = stamp.stimId !== undefined ? stamp.stimId : src.stimulus_id;
-  if (stimId && str(sec.stimulus).trim()) fm.stimulus_id = str(stimId);
+  if (stimId && !echo && str(sec.stimulus).trim()) fm.stimulus_id = str(stimId);
 
   // Provenance: keep an explicit source if the note already names one, otherwise
   // use the copied file the import modal passes in. The page is optional.
@@ -466,6 +527,7 @@ function finalizeNote(text, meta, qid, stamp) {
     .replace(/^\s*> \[!warning\] AI-generated[^\n]*(?:\n>[^\n]*)*\n+/i, "")
     .replace(/^> \[!warning\] Answer check (?:failed|did not finish)[^\n]*(?:\n>[^\n]*)*\n*/m, "")
     .trim();
+  if (echo) cleaned = withoutStimulusSection(cleaned);
   let notice = "";
   if (ai) {
     const what = f.aiAnswer && f.aiExp ? "answer and explanation" : f.aiAnswer ? "answer" : "explanation";
@@ -519,6 +581,8 @@ module.exports = {
   answerKeyText,
   extractNotesChunk,
   noteSig,
+  stimulusEchoesQuestion,
+  withoutStimulusSection,
   carryPassages,
   mergeNotes,
   aiFlags,

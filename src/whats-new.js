@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.20",
+    date: "November 18, 2026",
+    title: "A free local model's notes arrive whole",
+    summary:
+      "Document import can run on a model that never leaves your computer. Driving it against a real 7B model on a CPU returned all three questions with the right answers, and the plugin still threw part of that answer away. The three defects it exposed are fixed, and the recipe that was actually run is in the README.",
+    highlights: [
+      {
+        title: "A broken separator no longer loses the notes",
+        body: "This model writes \"=====\" and \"NOTE=====\" on two lines. The importer accepts that shape, so a complete answer is read as the notes it is instead of as an empty document.",
+      },
+      {
+        title: "A repeated question is not a passage",
+        body: "For the two questions with no passage, the model filled the Stimulus section with the stem and its choices. That section is now recognised, removed, and never given a passage id or passed on to the next batch as a real passage. A genuine passage, even one that opens with the stem's words, is kept.",
+      },
+      {
+        title: "A slow local model is not a dead one",
+        body: "A local server gets 15 minutes for one request instead of the 120 seconds meant for a cloud API, so a 7B model answering at four tokens a second is not cut off mid-answer.",
+      },
+      {
+        title: "Nothing else changed",
+        body: "No note format, setting key, review schedule or network default changed. A key is still optional for a local server, and nothing is sent anywhere but the address you configure.",
+      },
+    ],
+  },
+  {
     version: "1.307.19",
     date: "November 17, 2026",
     title: "The cover page stops reaching your questions",

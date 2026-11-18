@@ -33,7 +33,7 @@ const { PracticeView } = require("./practice-view");
 const practiceKeys = require("./practice-keys");
 const practiceFullscreen = require("./practice-fullscreen");
 const practiceTools = require("./practice-tools");
-const { API_PRESETS, ApiClient, apiTurns, friendlyApiError, REQUEST_TIMEOUT_MS } = require("./api-client");
+const { API_PRESETS, ApiClient, apiTurns, friendlyApiError, LOCAL_REQUEST_TIMEOUT_MS, localProvider, REQUEST_TIMEOUT_MS } = require("./api-client");
 const modelDiscovery = require("./model-discovery");
 const reading = require("./reading");
 const tagTimer = require("./tag-timer");
@@ -396,6 +396,8 @@ QuestionTrackerPlugin.__test = {
   friendlyApiError,
   apiTurns,
   REQUEST_TIMEOUT_MS,
+  LOCAL_REQUEST_TIMEOUT_MS,
+  localProvider,
   modelDiscovery,
   reading,
   tagTimer,

@@ -66,6 +66,20 @@ function providerHttpError(status, reason) {
 
 /** No provider reply should spin forever; a request that hangs is a dead end for the user. */
 const REQUEST_TIMEOUT_MS = 120 * 1000;
+// A model on the user's own CPU is an order of magnitude slower than a hosted
+// one: qwen2.5:7b takes about 3 minutes to answer one import batch on 8 cores,
+// which the hosted deadline cut off. The local presets get their own instead.
+const LOCAL_REQUEST_TIMEOUT_MS = 15 * 60 * 1000;
+
+/**
+ * True when the configured provider runs on this computer, so a request is slow
+ * but free. The provider lives under `ai.api` in the settings, but a caller may
+ * hand in that object directly, so both shapes are read.
+ */
+function localProvider(ai) {
+  const a = ai && typeof ai === "object" ? (ai.api && typeof ai.api === "object" ? ai.api : ai) : {};
+  return (API_PRESETS[str(a.provider)] || {}).local === true;
+}
 
 function timeoutLabel(ms) {
   return ms >= 1000 ? Math.round(ms / 1000) + "s" : ms + "ms";
@@ -107,7 +121,7 @@ class ApiClient {
       }
     }
     return {
-      timeoutMs: Number(this.opts.timeoutMs) > 0 ? Number(this.opts.timeoutMs) : REQUEST_TIMEOUT_MS,
+      timeoutMs: Number(this.opts.timeoutMs) > 0 ? Number(this.opts.timeoutMs) : preset.local ? LOCAL_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS,
       preset,
       base,
       key: resolveApiKey(this.app, a),
@@ -357,5 +371,7 @@ module.exports = {
   apiTurns,
   ApiClient,
   REQUEST_TIMEOUT_MS,
+  LOCAL_REQUEST_TIMEOUT_MS,
+  localProvider,
   withinTimeout,
 };
