@@ -22326,7 +22326,7 @@ function pdfPageLines(page) {
   for (let i = 1; i < raw.length; i++) {
     const before = raw[i - 1].y;
     const after = raw[i].y;
-    if (Number.isFinite(before) && Number.isFinite(after) && before > after) gaps.push(before - after);
+    if (Number.isFinite(before) && Number.isFinite(after) && after > before) gaps.push(after - before);
   }
   gaps.sort((a, b) => a - b);
   const median = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 12;
@@ -22335,7 +22335,7 @@ function pdfPageLines(page) {
   for (let i = 1; i < raw.length; i++) {
     const before = raw[i - 1].y;
     const after = raw[i].y;
-    if (Number.isFinite(before) && Number.isFinite(after) && before - after > threshold) out.push({ text: "", y: null });
+    if (Number.isFinite(before) && Number.isFinite(after) && after - before > threshold) out.push({ text: "", y: null });
     out.push(raw[i]);
   }
   return out;
@@ -36539,6 +36539,7 @@ class DocumentCardsModal extends QtModal {
     this.status = this.contentEl.createDiv({ cls: "qt-hint" });
     this.list = this.contentEl.createDiv({ cls: "qt-doc-card-list" });
     this.actions = this.contentEl.createDiv({ cls: "qt-row" });
+    this.actions.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
   }
 
   async scan() {
@@ -36572,9 +36573,10 @@ class DocumentCardsModal extends QtModal {
       row.createDiv({ cls: "qt-doc-card-front", text: card.front });
       row.createDiv({ cls: "qt-doc-card-back", text: card.back });
     }
-    if (!p.cards.length) return;
-    const importBtn = this.actions.createEl("button", { text: `Import ${p.cards.length} cards`, cls: "mod-cta" });
-    importBtn.addEventListener("click", () => this.importCards());
+    if (p.cards.length) {
+      const importBtn = this.actions.createEl("button", { text: `Import ${p.cards.length} cards`, cls: "mod-cta" });
+      importBtn.addEventListener("click", () => this.importCards());
+    }
     this.actions.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
   }
 
@@ -36639,7 +36641,7 @@ function pageSignals(text) {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
-  const numbered = lines.filter((line) => /^(?:\d{1,3}|Q\d+|[A-Z]\d+)[).:]\s+\S/.test(line));
+  const numbered = lines.filter((line) => /^(?:\d{1,3}|Q\d+|[A-Z]\d+|question\s*\d{1,3})[).:]\s+\S/i.test(line));
   const questionLines = numbered.filter((line) => line.length >= 20 || /\?\s*$/.test(line)).length;
   const choiceLines = lines.filter((line) => /^(?:[-*]\s*)?[A-H][).:]\s+\S/.test(line)).length;
   const cardLines = lines.filter((line) => /^[^:]{1,80}\s*[:—–-]\s*[^:]{1,120}$/.test(line)).length;
@@ -65771,10 +65773,12 @@ function itemsToGapLines(items, viewport) {
       h: Math.max(1, (it.height || 0) * scale),
     });
   }
-  // Group by baseline first, then read each row left to right. This keeps a
+  // Group by baseline first, then read each row left to right. Piece
+  // coordinates are in viewport pixels, where smaller y values are higher on
+  // the rendered page, so rows are ordered top to bottom. This keeps a
   // two-column term/definition table together even when the PDF stores each
   // column as a separate run of text.
-  pieces.sort((a, b) => b.y - a.y || a.x - b.x);
+  pieces.sort((a, b) => a.y - b.y || a.x - b.x);
   const rows = [];
   for (const piece of pieces) {
     let row = rows[rows.length - 1];
@@ -92583,7 +92587,7 @@ class PracticeView extends ItemView {
     }
 
     // The two shortcuts people reach for before choosing a preset or filter.
-    const shortcuts = root.createDiv({ cls: "qt-row qt-small-row" });
+    const shortcuts = root.createDiv({ cls: "qt-row qt-small-row qt-home-actions" });
     shortcuts.createEl("button", { text: "Import questions (needs AI)" }).addEventListener("click", () => this.startImport());
     shortcuts.createEl("button", { text: "Paste questions (offline)" }).addEventListener("click", () => p.openQuickAdd());
     if (st.ai.enabled) {
@@ -92756,7 +92760,7 @@ class PracticeView extends ItemView {
     start.disabled = inMode === 0;
     start.addEventListener("click", () => this.next());
 
-    const tools = root.createDiv({ cls: "qt-row qt-small-row" });
+    const tools = root.createDiv({ cls: "qt-row qt-small-row qt-home-actions" });
     tools.createEl("button", { text: "Today" }).addEventListener("click", () => p.activateToday());
     tools.createEl("button", { text: "Quick Practice" }).addEventListener("click", () => this.startQuickSetup());
     if (studySkinEnabled(st)) tools.createEl("button", { text: "Study cards" }).addEventListener("click", () => this.startStudySkin());
@@ -140156,6 +140160,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.307.17",
+    date: "November 18, 2026",
+    title: "PDF imports read in order",
+    summary:
+      "Two text-layer ordering defects scrambled PDF imports: rows arrived bottom-to-top and wide column gaps never became tabs. Imports now read top-to-bottom, Question N: documents route to MCQ, and the card extractor is always dismissible.",
+    highlights: [
+      {
+        title: "Tables and exams keep their order",
+        body: "Term/definition columns and numbered questions now import in document order, with the answer key staying aligned to its questions.",
+      },
+      {
+        title: "Question N: counts as questions",
+        body: "Documents written as Question 1: through Question N: are recognised as numbered questions and route to MCQ instead of being misclassified.",
+      },
+      {
+        title: "Cancel is always there",
+        body: "The document-card extractor shows its Cancel control from the start, so a mistaken scan can be dismissed before any preview appears.",
+      },
+      {
+        title: "Narrow and touch layouts harden",
+        body: "The home shortcut rows wrap on small panes, and touch targets cover the agent send, task-list controls, calendar header and suggestion dots.",
+      },
+    ],
+  },
   {
     version: "1.307.16",
     date: "November 16, 2026",

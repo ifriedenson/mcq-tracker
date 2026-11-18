@@ -142,6 +142,15 @@ test("plugin UI keeps keyboard and touch affordances", () => {
     /@media \(hover: none\) \{[\s\S]*?\.qt-chat-tab-close \{[^}]*opacity: 1;[^}]*pointer-events: auto;/s
   );
   assert.match(css, /\.qt-agent-suggestion-dot::after \{[^}]*inset: -6px/s);
+  assert.match(css, /button\.qt-agent-send-btn[\s\S]*?min-width: var\(--qt-touch-target\)/s);
+  assert.match(css, /button\.qt-task-list-star[\s\S]*?button\.qt-task-list-remove[\s\S]*?\.qt-task-list-row button[\s\S]*?min-width: var\(--qt-touch-target\)/s);
+  assert.match(css, /\.uni-calendar-container \.uni-header-controls[\s\S]*?flex-wrap: wrap/s);
+  assert.match(css, /\.uni-calendar-container \.uni-nav-btn[\s\S]*?flex: 1 1 calc\(\(100% - 2px\) \/ 3\);[\s\S]*?min-width: var\(--qt-touch-target\)/s);
+  assert.match(css, /\.qt-task-check-wrap[\s\S]*?width: var\(--qt-touch-target\);[\s\S]*?height: var\(--qt-touch-target\)/s);
+  assert.match(css, /select:is\(\.qt-agent-mode, \.qt-agent-role\)[\s\S]*?min-width: var\(--qt-touch-target\)/s);
+  assert.match(css, /\.qt-agent-suggestion-dot,[\s\S]*?flex: none;[\s\S]*?width: auto;[\s\S]*?min-width: var\(--qt-touch-target\);[\s\S]*?padding: 19px;[\s\S]*?background-clip: content-box/s);
+  assert.match(css, /body\.is-mobile \.qt-root \.qt-agent-suggestion-dot/
+  );
   assert.match(css, /\.qt-agent-composer:focus-within \{[^}]*border-color: var\(--interactive-accent\)/s);
   assert.match(css, /\.qt-hidden\.qt-hidden \{[^}]*display: none/s);
   assert.match(
@@ -160,6 +169,8 @@ test("long navigation is a compact picker instead of a clipped rail", () => {
 });
 
 test("audited surfaces wrap or scroll at a narrow width", () => {
+  assert.match(css, /\.qt-small-row\.qt-home-actions \{[^}]*flex-wrap:\s*wrap/s);
+  assert.match(css, /\.qt-small-row\.qt-home-actions > button \{[^}]*flex:\s*1 1 7rem/s);
   assert.match(css, /\.qt-pdf-editor-toolbar \{[^}]*flex-wrap:\s*wrap/s);
   assert.match(css, /\.qt-pdf-editor-row \{[^}]*flex-wrap:\s*wrap/s);
   assert.match(css, /\.qt-pdf-editor-file \{[^}]*word-break:\s*break-all/s);

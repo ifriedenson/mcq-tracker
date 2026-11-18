@@ -166,6 +166,7 @@ class DocumentCardsModal extends QtModal {
     this.status = this.contentEl.createDiv({ cls: "qt-hint" });
     this.list = this.contentEl.createDiv({ cls: "qt-doc-card-list" });
     this.actions = this.contentEl.createDiv({ cls: "qt-row" });
+    this.actions.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
   }
 
   async scan() {
@@ -199,9 +200,10 @@ class DocumentCardsModal extends QtModal {
       row.createDiv({ cls: "qt-doc-card-front", text: card.front });
       row.createDiv({ cls: "qt-doc-card-back", text: card.back });
     }
-    if (!p.cards.length) return;
-    const importBtn = this.actions.createEl("button", { text: `Import ${p.cards.length} cards`, cls: "mod-cta" });
-    importBtn.addEventListener("click", () => this.importCards());
+    if (p.cards.length) {
+      const importBtn = this.actions.createEl("button", { text: `Import ${p.cards.length} cards`, cls: "mod-cta" });
+      importBtn.addEventListener("click", () => this.importCards());
+    }
     this.actions.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
   }
 

@@ -18,7 +18,7 @@ function pdfLib() {
                 return { items: pages[n - 1] || [] };
               },
               getViewport() {
-                return { width: 612, height: 792, scale: 1, transform: [1, 0, 0, 1, 0, 0] };
+                return { width: 612, height: 792, scale: 1, transform: [1, 0, 0, -1, 0, 792] };
               },
             };
           },

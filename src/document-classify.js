@@ -25,7 +25,7 @@ function pageSignals(text) {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
-  const numbered = lines.filter((line) => /^(?:\d{1,3}|Q\d+|[A-Z]\d+)[).:]\s+\S/.test(line));
+  const numbered = lines.filter((line) => /^(?:\d{1,3}|Q\d+|[A-Z]\d+|question\s*\d{1,3})[).:]\s+\S/i.test(line));
   const questionLines = numbered.filter((line) => line.length >= 20 || /\?\s*$/.test(line)).length;
   const choiceLines = lines.filter((line) => /^(?:[-*]\s*)?[A-H][).:]\s+\S/.test(line)).length;
   const cardLines = lines.filter((line) => /^[^:]{1,80}\s*[:—–-]\s*[^:]{1,120}$/.test(line)).length;

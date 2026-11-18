@@ -56,6 +56,27 @@ test("FRQ import: splits two PDF questions and keeps each rubric separate", () =
   assert.equal(out.items[1].valid, true);
 });
 
+test("FRQ import: line-ordered pages keep the prompt ahead of its rubric", () => {
+  const out = frqImport.splitFrqItems([
+    {
+      n: 1,
+      text: samplePages()[0].text,
+      lines: [
+        { text: "AP Chemistry", y: 72 },
+        { text: "Free Response Question 1", y: 88 },
+        { text: "A 2.0 mol sample of gas is heated at constant volume.", y: 104 },
+        { text: "Scoring Guidelines", y: 132 },
+        { text: "- [1] Setup: correct ideal-gas equation.", y: 148 },
+        { text: "- [2] Answer: correct moles.", y: 164 },
+      ],
+    },
+  ]);
+  assert.equal(out.items.length, 1);
+  assert.equal(out.items[0].prompt, "A 2.0 mol sample of gas is heated at constant volume.");
+  assert.equal(out.items[0].criteria.length, 2);
+  assert.equal(out.items[0].valid, true);
+});
+
 test("FRQ import: an item without a rubric stays visible but is not valid", () => {
   const out = frqImport.splitFrqItems([{ n: 3, text: "Question 1\nExplain the trend." }]);
   assert.equal(out.items.length, 1);

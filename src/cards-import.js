@@ -1681,7 +1681,7 @@ function pdfPageLines(page) {
   for (let i = 1; i < raw.length; i++) {
     const before = raw[i - 1].y;
     const after = raw[i].y;
-    if (Number.isFinite(before) && Number.isFinite(after) && before > after) gaps.push(before - after);
+    if (Number.isFinite(before) && Number.isFinite(after) && after > before) gaps.push(after - before);
   }
   gaps.sort((a, b) => a - b);
   const median = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 12;
@@ -1690,7 +1690,7 @@ function pdfPageLines(page) {
   for (let i = 1; i < raw.length; i++) {
     const before = raw[i - 1].y;
     const after = raw[i].y;
-    if (Number.isFinite(before) && Number.isFinite(after) && before - after > threshold) out.push({ text: "", y: null });
+    if (Number.isFinite(before) && Number.isFinite(after) && after - before > threshold) out.push({ text: "", y: null });
     out.push(raw[i]);
   }
   return out;

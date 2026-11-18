@@ -68,7 +68,8 @@ test("task dates: every day and every weekday set a repeat", () => {
   assert.deepEqual(TD.extractTaskRepeat("Weekly review"), { title: "review", repeat: "weekly" });
   const tuesday = TD.extractTaskRepeat("Review cells every Tuesday");
   assert.equal(tuesday.repeat, "weekly");
-  const dated = TD.extractTaskDue(tuesday.title);
+  // Pinned to the Monday before, so the coming Tuesday is 2026-11-17 whatever today is.
+  const dated = TD.extractTaskDue(tuesday.title, "2026-11-16");
   assert.equal(dated.title, "Review cells");
   assert.equal(dated.due, "2026-11-17");
   assert.deepEqual(TD.extractTaskRepeat("Just a title"), { title: "Just a title", repeat: "" });
@@ -113,7 +114,12 @@ test("plugin: a repeat in the title becomes a repeating task", async () => {
   const task = await plugin.addStudyTask({ title: "Review cells every Tuesday" });
   assert.equal(task.repeat, "weekly");
   assert.equal(task.title, "Review cells");
-  assert.equal(task.due, "2026-11-17");
+  // "every Tuesday" lands on the coming Tuesday relative to today, so the
+  // expectation is computed from the same rule instead of a hardcoded date.
+  const now = new Date();
+  const coming = new Date(now.getFullYear(), now.getMonth(), now.getDate() + ((2 - now.getDay() + 7) % 7));
+  const expectedDue = `${coming.getFullYear()}-${String(coming.getMonth() + 1).padStart(2, "0")}-${String(coming.getDate()).padStart(2, "0")}`;
+  assert.equal(task.due, expectedDue);
   const daily = await plugin.addStudyTask({ title: "Water plants every day" });
   assert.equal(daily.repeat, "daily");
   assert.equal(daily.title, "Water plants");

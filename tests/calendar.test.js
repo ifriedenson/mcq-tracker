@@ -915,7 +915,10 @@ test("stylesheet: ported calendar selectors stay scoped to the calendar or its m
     .readFileSync(path.join(__dirname, "..", "styles.css"), "utf8")
     .replace(/\/\*[\s\S]*?\*\//g, "");
   const roots = [":is(.uni-calendar-container, .uni-schedule-embed)", ".uni-calendar-container", ".uni-schedule-embed"];
-  const isRoot = (s) => roots.some((root) => s === root || s.startsWith(root + " ") || s.startsWith(root + ".") || s.startsWith(root + ":"));
+  const isRoot = (s) => {
+    const scoped = s.replace(/^(?:body\.is-mobile\s+)?(?:\.qt-(?:root|ui)\s+)?/, "");
+    return roots.some((root) => scoped === root || scoped.startsWith(root + " ") || scoped.startsWith(root + ".") || scoped.startsWith(root + ":"));
+  };
   const isModal = (s) => /^\.uni-(modal-title|modal-filter-pills|study-slot)(?:\b|$)/.test(s);
   const splitSelectors = (text) => {
     const out = [];

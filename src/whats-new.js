@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.17",
+    date: "November 18, 2026",
+    title: "PDF imports read in order",
+    summary:
+      "Two text-layer ordering defects scrambled PDF imports: rows arrived bottom-to-top and wide column gaps never became tabs. Imports now read top-to-bottom, Question N: documents route to MCQ, and the card extractor is always dismissible.",
+    highlights: [
+      {
+        title: "Tables and exams keep their order",
+        body: "Term/definition columns and numbered questions now import in document order, with the answer key staying aligned to its questions.",
+      },
+      {
+        title: "Question N: counts as questions",
+        body: "Documents written as Question 1: through Question N: are recognised as numbered questions and route to MCQ instead of being misclassified.",
+      },
+      {
+        title: "Cancel is always there",
+        body: "The document-card extractor shows its Cancel control from the start, so a mistaken scan can be dismissed before any preview appears.",
+      },
+      {
+        title: "Narrow and touch layouts harden",
+        body: "The home shortcut rows wrap on small panes, and touch targets cover the agent send, task-list controls, calendar header and suggestion dots.",
+      },
+    ],
+  },
+  {
     version: "1.307.16",
     date: "November 16, 2026",
     title: "A calendar that fits the sidebar",

@@ -56,6 +56,25 @@ test("document classification: MCQ pages need choices and numbered questions", (
   assert.ok(result.reasons.some((reason) => /answer-choice/.test(reason)));
 });
 
+test("document classification: Question N: lines count as numbered questions", () => {
+  const text = [
+    "Question 1: What is 2 + 2?",
+    "A. 3",
+    "B. 4",
+    "C. 5",
+    "D. 6",
+    "Question 2: Which gas do plants take in?",
+    "A. Oxygen",
+    "B. Carbon dioxide",
+    "C. Nitrogen",
+    "D. Hydrogen",
+  ].join("\n");
+  const result = classify.classifyText(text);
+  assert.equal(result.kind, "mcq");
+  assert.ok(result.counts.questions >= 2);
+  assert.ok(result.counts.choices >= 8);
+});
+
 test("document classification: rubric and free-response language become FRQ", () => {
   const result = classify.classifyText(FRQ);
   assert.equal(result.kind, "frq");

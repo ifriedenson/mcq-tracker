@@ -565,6 +565,7 @@ test("practice view: filters show counts, and the folder filter can switch to a 
   assert.ok(texts.includes("Search")); // switch to the search box
   assert.ok(texts.includes("Timed test"));
   assert.ok(texts.includes("Weak spots & errors"));
+  assert.equal(dom.all.filter((el) => el.classes && el.classes.has("qt-home-actions")).length, 2);
   await dom.click("Search");
   assert.equal(plugin.settings.folderFilterStyle, "search");
   v.render();

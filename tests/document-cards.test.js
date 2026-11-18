@@ -2,6 +2,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { load } = require("./helpers/load");
+const { makeApp, makeDom } = require("./helpers/fake");
 const { T } = load();
 const d = T.documentCards;
 
@@ -40,4 +41,14 @@ test("document cards: AI fallback is opt-in", () => {
   const source = require("fs").readFileSync(require("path").join(__dirname, "..", "src", "document-cards.js"), "utf8");
   assert.match(source, /opts\.useAi === true/);
   assert.match(source, /if \(!local\.cards\.length && opts\.useAi === true\)/);
+});
+
+test("document cards: the extractor can be dismissed before preview", async () => {
+  const dom = makeDom();
+  const modal = new d.DocumentCardsModal(makeApp([]), { settings: { cards: { defaultDeck: "Imported" } } }, { deck: "Imported" });
+  modal.contentEl = dom.root;
+  modal.onOpen();
+  assert.ok(dom.texts().includes("Cancel"));
+  await dom.click("Cancel");
+  assert.equal(modal.closed, true);
 });

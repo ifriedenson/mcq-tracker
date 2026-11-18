@@ -70,10 +70,12 @@ function itemsToGapLines(items, viewport) {
       h: Math.max(1, (it.height || 0) * scale),
     });
   }
-  // Group by baseline first, then read each row left to right. This keeps a
+  // Group by baseline first, then read each row left to right. Piece
+  // coordinates are in viewport pixels, where smaller y values are higher on
+  // the rendered page, so rows are ordered top to bottom. This keeps a
   // two-column term/definition table together even when the PDF stores each
   // column as a separate run of text.
-  pieces.sort((a, b) => b.y - a.y || a.x - b.x);
+  pieces.sort((a, b) => a.y - b.y || a.x - b.x);
   const rows = [];
   for (const piece of pieces) {
     let row = rows[rows.length - 1];

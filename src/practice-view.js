@@ -695,7 +695,7 @@ class PracticeView extends ItemView {
     }
 
     // The two shortcuts people reach for before choosing a preset or filter.
-    const shortcuts = root.createDiv({ cls: "qt-row qt-small-row" });
+    const shortcuts = root.createDiv({ cls: "qt-row qt-small-row qt-home-actions" });
     shortcuts.createEl("button", { text: "Import questions (needs AI)" }).addEventListener("click", () => this.startImport());
     shortcuts.createEl("button", { text: "Paste questions (offline)" }).addEventListener("click", () => p.openQuickAdd());
     if (st.ai.enabled) {
@@ -868,7 +868,7 @@ class PracticeView extends ItemView {
     start.disabled = inMode === 0;
     start.addEventListener("click", () => this.next());
 
-    const tools = root.createDiv({ cls: "qt-row qt-small-row" });
+    const tools = root.createDiv({ cls: "qt-row qt-small-row qt-home-actions" });
     tools.createEl("button", { text: "Today" }).addEventListener("click", () => p.activateToday());
     tools.createEl("button", { text: "Quick Practice" }).addEventListener("click", () => this.startQuickSetup());
     if (studySkinEnabled(st)) tools.createEl("button", { text: "Study cards" }).addEventListener("click", () => this.startStudySkin());

@@ -387,6 +387,14 @@ body.theme-dark .qt-task-pill.is-overdue {
   font-size: var(--qt-type-base);
 }
 
+.qt-small-row.qt-home-actions {
+  flex-wrap: wrap;
+}
+
+.qt-small-row.qt-home-actions > button {
+  flex: 1 1 7rem;
+}
+
 .qt-grow {
   flex: 1;
 }
@@ -17805,9 +17813,53 @@ body.is-mobile .qt-review-sidebar-review, body.is-mobile .qt-review-sidebar-grad
   .qt-ui :is(button, select, textarea, input:not([type="checkbox"]):not([type="radio"])) {
     min-height: var(--qt-touch-target);
   }
-  .qt-root :is(button.clickable-icon, button.qt-chat-tab-new, button.qt-chat-tab-close, button.qt-agent-iconbtn),
-  .qt-ui :is(button.clickable-icon, button.qt-chat-tab-new, button.qt-chat-tab-close, button.qt-agent-iconbtn) {
+  .qt-root :is(button.clickable-icon, button.qt-chat-tab-new, button.qt-chat-tab-close, button.qt-agent-iconbtn, button.qt-agent-send-btn, button.qt-task-list-star, button.qt-task-list-remove, .qt-task-list-row button),
+  .qt-ui :is(button.clickable-icon, button.qt-chat-tab-new, button.qt-chat-tab-close, button.qt-agent-iconbtn, button.qt-agent-send-btn, button.qt-task-list-star, button.qt-task-list-remove, .qt-task-list-row button),
+  .qt-root select:is(.qt-agent-mode, .qt-agent-role),
+  .qt-ui select:is(.qt-agent-mode, .qt-agent-role) {
     min-width: var(--qt-touch-target);
+  }
+  /* The compact 300px calendar query intentionally squeezes its header, so
+     restore a full touch width underneath it on touch and narrow layouts. */
+  body.is-mobile .uni-calendar-container .uni-header-controls,
+  body.is-mobile .uni-schedule-embed .uni-header-controls,
+  .qt-root .uni-calendar-container .uni-header-controls,
+  .qt-root .uni-schedule-embed .uni-header-controls,
+  .qt-ui .uni-calendar-container .uni-header-controls,
+  .qt-ui .uni-schedule-embed .uni-header-controls {
+    flex-wrap: wrap;
+  }
+  body.is-mobile .uni-calendar-container .uni-nav-btn,
+  body.is-mobile .uni-schedule-embed .uni-nav-btn,
+  .qt-root .uni-calendar-container .uni-nav-btn,
+  .qt-root .uni-schedule-embed .uni-nav-btn,
+  .qt-ui .uni-calendar-container .uni-nav-btn,
+  .qt-ui .uni-schedule-embed .uni-nav-btn {
+    flex: 1 1 calc((100% - 2px) / 3);
+    min-width: var(--qt-touch-target);
+  }
+  /* The 18px native checkbox cannot be stretched directly without looking
+     wrong, so its label becomes the full touch target. */
+  .qt-root .qt-task-check-wrap,
+  .qt-ui .qt-task-check-wrap {
+    width: var(--qt-touch-target);
+    height: var(--qt-touch-target);
+  }
+  /* The suggestion dots read as 6px pagination marks, so their touch target
+     is padding around the mark rather than a larger visible button. */
+  body.is-mobile .qt-root .qt-agent-suggestion-dot,
+  body.is-mobile .qt-ui .qt-agent-suggestion-dot,
+  .qt-root .qt-agent-suggestion-dot,
+  .qt-ui .qt-agent-suggestion-dot {
+    flex: none;
+    width: auto;
+    min-width: var(--qt-touch-target);
+    padding: 19px;
+    background-clip: content-box;
+  }
+  .qt-root .qt-agent-suggestion-dot::after,
+  .qt-ui .qt-agent-suggestion-dot::after {
+    content: none;
   }
 }
 

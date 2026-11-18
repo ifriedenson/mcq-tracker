@@ -210,14 +210,59 @@ test("quizlet PDF: tab-separated answer keys are read", () => {
 test("pdf lines: a wide gap between columns becomes a tab", () => {
   const lines = T.pdf.itemsToGapLines(
     [
-      { str: "hola", transform: [1, 0, 0, 1, 50, 700], width: 20, height: 10 },
-      { str: "hello", transform: [1, 0, 0, 1, 250, 700], width: 30, height: 10 },
-      { str: "adiós", transform: [1, 0, 0, 1, 50, 680], width: 24, height: 10 },
-      { str: "goodbye", transform: [1, 0, 0, 1, 250, 680], width: 40, height: 10 },
+      { str: "hola", transform: [1, 0, 0, 1, 50, 680], width: 20, height: 10 },
+      { str: "hello", transform: [1, 0, 0, 1, 250, 680], width: 30, height: 10 },
+      { str: "adiós", transform: [1, 0, 0, 1, 50, 700], width: 24, height: 10 },
+      { str: "goodbye", transform: [1, 0, 0, 1, 250, 700], width: 40, height: 10 },
     ],
     { scale: 1, transform: [1, 0, 0, 1, 0, 0], width: 600, height: 800 }
   );
   assert.deepEqual(lines.map((line) => line.text), ["hola\thello", "adiós\tgoodbye"]);
+});
+
+test("pdf lines: PDF.js viewport coordinates are returned top to bottom", () => {
+  const viewport = { scale: 1, transform: [1, 0, 0, -1, 0, 792], width: 612, height: 792 };
+  const item = (text, x, pdfY) => ({ str: text, transform: [1, 0, 0, 1, x, pdfY], width: text.length * 5, height: 12 });
+  const lines = T.pdf.itemsToGapLines(
+    [item("second term", 72, 696), item("second definition", 360, 696), item("first term", 72, 720), item("first definition", 360, 720)],
+    viewport
+  );
+  assert.deepEqual(
+    lines.map((line) => line.text),
+    ["first term\tfirst definition", "second term\tsecond definition"]
+  );
+});
+
+test("quizlet PDF: viewport line order keeps numbered questions in order", () => {
+  const viewport = { scale: 1, transform: [1, 0, 0, -1, 0, 792], width: 612, height: 792 };
+  const item = (text, pdfY) => ({ str: text, transform: [1, 0, 0, 1, 72, pdfY], width: text.length * 5, height: 12 });
+  const lines = T.pdf.itemsToGapLines(
+    [
+      item("1. Which empire built the Grand Canal?", 688),
+      item("A. Rome", 674),
+      item("B. China", 660),
+      item("C. Egypt", 646),
+      item("D. Greece", 632),
+      item("2. Who wrote the Declaration of Independence?", 604),
+      item("A. Washington", 590),
+      item("B. Jefferson", 576),
+      item("C. Adams", 562),
+      item("D. Franklin", 548),
+      item("Answer Key", 520),
+      item("1. B", 506),
+      item("2. B", 492),
+    ],
+    viewport
+  );
+  const result = importer.parseQuizletPdf([{ n: 1, lines }], { sourcePath: "test-bank.pdf", deck: "AP World" });
+  assert.equal(result.errors.length, 0);
+  assert.deepEqual(
+    result.cards.map((card) => [card.front, card.back]),
+    [
+      ["Which empire built the Grand Canal?", "China"],
+      ["Who wrote the Declaration of Independence?", "Jefferson"],
+    ]
+  );
 });
 
 test("quizlet PDF: numbered term/definition pairs are not glued into one card", () => {
