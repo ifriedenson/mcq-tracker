@@ -28,6 +28,33 @@ What is ${n} + ${n}?
 `;
 }
 
+// Quiz-generator replies: valid quiz JSON whose keys are B, so the stand-in
+// blind checker (always "Answer: B") agrees with the draft key.
+function quizReply() {
+  return JSON.stringify({
+    questions: [
+      {
+        question: "What is 11 + 11?",
+        choices: ["11", "22", "33", "44"],
+        answer: "B",
+        type: "mcq",
+        explanation: "11 + 11 equals 22.",
+        difficulty: "easy",
+        subtopic: "arithmetic",
+      },
+      {
+        question: "What is 12 + 12?",
+        choices: ["12", "24", "36", "48"],
+        answer: "B",
+        type: "mcq",
+        explanation: "12 + 12 equals 24.",
+        difficulty: "easy",
+        subtopic: "arithmetic",
+      },
+    ],
+  });
+}
+
 export function startStandIn(port) {
   const log = [];
   let fail429 = 0;
@@ -58,7 +85,9 @@ let fail429verify = 0;
       if (req.method === "POST" && /\/chat\/completions$/.test(req.url)) {
         const messages = (payload && payload.messages) || [];
         const system = String((messages[0] && messages[0].content) || "");
+        const haystack = messages.map((m) => String((m && m.content) || "")).join("\n");
         const verifyKind = /independent exam answer checker/i.test(system);
+        const quizKind = !verifyKind && /\{"questions":/s.test(haystack);
         if (fail429 > 0 || (verifyKind && fail429verify > 0)) {
           if (verifyKind && fail429verify > 0 && fail429 <= 0) fail429verify--;
           else fail429--;
@@ -66,8 +95,8 @@ let fail429verify = 0;
           res.writeHead(429, { "content-type": "application/json", "retry-after": "1" });
           return res.end(JSON.stringify({ error: { code: 429, message: "rate limit, please retry", status: "RESOURCE_EXHAUSTED" } }));
         }
-        entry.kind = verifyKind ? "verify" : "note";
-        const text = entry.kind === "verify" ? VERIFY_REPLY : noteReply();
+        entry.kind = verifyKind ? "verify" : quizKind ? "quiz" : "note";
+        const text = entry.kind === "verify" ? VERIFY_REPLY : entry.kind === "quiz" ? quizReply() : noteReply();
         res.writeHead(200, { "content-type": "application/json" });
         return res.end(
           JSON.stringify({
