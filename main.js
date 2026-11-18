@@ -8224,6 +8224,20 @@ function providerHttpError(status, reason) {
 
 /** No provider reply should spin forever; a request that hangs is a dead end for the user. */
 const REQUEST_TIMEOUT_MS = 120 * 1000;
+// A model on the user's own CPU is an order of magnitude slower than a hosted
+// one: qwen2.5:7b takes about 3 minutes to answer one import batch on 8 cores,
+// which the hosted deadline cut off. The local presets get their own instead.
+const LOCAL_REQUEST_TIMEOUT_MS = 15 * 60 * 1000;
+
+/**
+ * True when the configured provider runs on this computer, so a request is slow
+ * but free. The provider lives under `ai.api` in the settings, but a caller may
+ * hand in that object directly, so both shapes are read.
+ */
+function localProvider(ai) {
+  const a = ai && typeof ai === "object" ? (ai.api && typeof ai.api === "object" ? ai.api : ai) : {};
+  return (API_PRESETS[str(a.provider)] || {}).local === true;
+}
 
 function timeoutLabel(ms) {
   return ms >= 1000 ? Math.round(ms / 1000) + "s" : ms + "ms";
@@ -8265,7 +8279,7 @@ class ApiClient {
       }
     }
     return {
-      timeoutMs: Number(this.opts.timeoutMs) > 0 ? Number(this.opts.timeoutMs) : REQUEST_TIMEOUT_MS,
+      timeoutMs: Number(this.opts.timeoutMs) > 0 ? Number(this.opts.timeoutMs) : preset.local ? LOCAL_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS,
       preset,
       base,
       key: resolveApiKey(this.app, a),
@@ -8515,6 +8529,8 @@ module.exports = {
   apiTurns,
   ApiClient,
   REQUEST_TIMEOUT_MS,
+  LOCAL_REQUEST_TIMEOUT_MS,
+  localProvider,
   withinTimeout,
 };
 };
@@ -51211,7 +51227,7 @@ const { MAX_SOURCE_BYTES, readDocumentSource, readPagesForSource } = require("./
 const { AGENT_SYSTEM, absoluteVaultPath, agentPrompt, aiFlags, answerKeyText, buildReportMarkdown, carryPassages, ensureProviders, extractNotesChunk, finalizeNote, groupIssues, mergeNotes, modelFromMessages, noteIssues, parseNote } = require("./importer");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { findDuplicateIds, indexOfficialIds, officialIdOf } = require("./filters");
-const { friendlyApiError } = require("./api-client");
+const { friendlyApiError, LOCAL_REQUEST_TIMEOUT_MS, localProvider } = require("./api-client");
 const { findAnswerKey } = require("./notes");
 const { checkDocumentText, summaryText } = require("./import-preflight");
 const { ImportCompleteModal } = require("./import-complete-modal");
@@ -51517,12 +51533,15 @@ class PdfImportModal extends QtModal {
     // error. It cannot become progress, so it is reported after this grace
     // instead of waiting out the whole silence allowance.
     this.agentEmptyReplyMs = 2 * 60 * 1000;
-    this.apiChunkTimeoutMs = 3 * 60 * 1000;
     this.pdfPasswords = init.pdfPasswords instanceof Map ? new Map(init.pdfPasswords) : new Map();
     this.pdfFile = this.file || this.vaultDoc || null;
     this.pdfPassword = this.pdfPasswords.get(this.pdfFile) || "";
     this.pdfPromptResolve = null;
     const st = plugin.settings;
+    // A local model on this computer needs minutes per batch where a hosted one
+    // needs seconds, so its batch deadline is the local request deadline rather
+    // than the 3-minute hosted one (qwen2.5:7b takes about 3 minutes here).
+    this.apiChunkTimeoutMs = localProvider(st.ai) ? LOCAL_REQUEST_TIMEOUT_MS : 3 * 60 * 1000;
     this.meta = Object.assign(
       { test: "", course: "", section: "", domain: "", skill: "", unit: "", difficulty: "", prefix: "", start: "1", pages: "" },
       st.importDefaults || {}
@@ -54293,11 +54312,19 @@ function parseNote(text) {
   return { fm, body, sec: parseSections(body) };
 }
 
+/**
+ * The note separator, as loosely as a model actually writes it: a small local
+ * model answered with "=====" and "NOTE=====" on two lines (qwen2.5:7b on a
+ * CPU), and splitting on the exact marker alone threw away all three notes it
+ * had written correctly.
+ */
+const NOTE_MARKER = /^[=\-*_]{3,}[ \t]*\r?\n?[ \t]*NOTE[ \t]*[=\-*_]{3,}[ \t]*$/im;
+
 /** Splits an AI reply into notes. */
 function splitNotes(reply) {
   const t = str(reply).replace(/```(?:markdown|md|yaml)?\s*\n/gi, "").replace(/\n```\s*(?=\n|$)/g, "\n");
   return t
-    .split(/^=====NOTE=====\s*$/m)
+    .split(NOTE_MARKER)
     .map((b) => b.trim())
     .filter((b) => /^---\s*\n/.test(b));
 }
@@ -54340,12 +54367,64 @@ function noteSig(parsed) {
   return [num, norm(s.question, 80), num ? "" : norm(s.stimulus, 40), norm(s.choices[0] ? s.choices[0].text : "", 30)].join("|");
 }
 
+/**
+ * A small model sometimes fills its Stimulus section by copying the question
+ * and its choices instead of writing a passage (qwen2.5:7b did this for the two
+ * questions that had no passage). That is not a passage: it duplicates the
+ * stem, gives the note a stimulus_id nothing points at, and can carry the stem
+ * into the next batch as a "passage carried over". Compare the section with the
+ * question once punctuation and spacing are gone: an echo is the question, then
+ * every choice in order, and then nothing.
+ */
+function stimulusEchoesQuestion(sec) {
+  const flat = (t) => str(t).toLowerCase().replace(/[^a-z0-9]/g, "");
+  const choices = Array.isArray(sec && sec.choices) ? sec.choices : [];
+  if (choices.length < 2) return false;
+  const question = flat(sec.question);
+  if (question.length < 12) return false;
+  let rest = flat(sec.stimulus);
+  if (!rest.startsWith(question)) return false;
+  rest = rest.slice(question.length);
+  for (const c of choices) {
+    const text = flat(c.text);
+    if (!text) return false;
+    const letter = flat(c.letter);
+    // "A Easing of tensions" and "Easing of tensions" are the same echo.
+    if (letter && rest.startsWith(letter + text)) rest = rest.slice(letter.length);
+    if (!rest.startsWith(text)) return false;
+    rest = rest.slice(text.length);
+  }
+  return rest === "";
+}
+
+/** Drops a "## Stimulus" section from a note body (used when it only echoes the question). */
+function withoutStimulusSection(body) {
+  const names = new Set((HEAD_ALIASES.stimulus || []).map((n) => headName({ heading: n })));
+  const out = [];
+  let skipping = false;
+  for (const line of str(body).replace(/\r\n/g, "\n").split("\n")) {
+    const m = line.trim().match(/^(#{1,6})\s+(.*?)\s*#*\s*$/);
+    if (m) {
+      if (names.has(headName({ heading: m[2] }))) {
+        skipping = true;
+        continue;
+      }
+      skipping = false;
+    }
+    if (skipping) continue;
+    out.push(line);
+  }
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 /** The passages of the last few notes, so the next batch can attach questions to a passage from the page before. */
 function carryPassages(blocks) {
   const seen = new Set();
   const out = [];
   for (const text of [...blocks].reverse()) {
-    const st = str(parseNote(text).sec.stimulus).trim();
+    const parsed = parseNote(text);
+    if (stimulusEchoesQuestion(parsed.sec)) continue;
+    const st = str(parsed.sec.stimulus).trim();
     const key = st.toLowerCase().replace(/\s+/g, " ");
     if (!st || seen.has(key)) continue;
     seen.add(key);
@@ -54421,8 +54500,9 @@ function finalizeNote(text, meta, qid, stamp) {
     fm[k] = sv;
     extra++;
   }
+  const echo = stimulusEchoesQuestion(sec);
   const stimId = stamp.stimId !== undefined ? stamp.stimId : src.stimulus_id;
-  if (stimId && str(sec.stimulus).trim()) fm.stimulus_id = str(stimId);
+  if (stimId && !echo && str(sec.stimulus).trim()) fm.stimulus_id = str(stimId);
 
   // Provenance: keep an explicit source if the note already names one, otherwise
   // use the copied file the import modal passes in. The page is optional.
@@ -54516,6 +54596,7 @@ function finalizeNote(text, meta, qid, stamp) {
     .replace(/^\s*> \[!warning\] AI-generated[^\n]*(?:\n>[^\n]*)*\n+/i, "")
     .replace(/^> \[!warning\] Answer check (?:failed|did not finish)[^\n]*(?:\n>[^\n]*)*\n*/m, "")
     .trim();
+  if (echo) cleaned = withoutStimulusSection(cleaned);
   let notice = "";
   if (ai) {
     const what = f.aiAnswer && f.aiExp ? "answer and explanation" : f.aiAnswer ? "answer" : "explanation";
@@ -54569,6 +54650,8 @@ module.exports = {
   answerKeyText,
   extractNotesChunk,
   noteSig,
+  stimulusEchoesQuestion,
+  withoutStimulusSection,
   carryPassages,
   mergeNotes,
   aiFlags,
@@ -65973,6 +66056,241 @@ function figMarker(f) {
   return `[FIGURE page ${f.page}: ![[${f.path}]]${f.pagePath ? ` (the whole page: ![[${f.pagePath}]])` : ""}]`;
 }
 
+/**
+ * A QR code, a Data Matrix or another two-dimensional barcode: a near-square patch of pure
+ * black and white modules. Text has already been taken out of these boxes, so a patch that is
+ * mostly one tone, or that keeps mid-grey tones, is a photo, a chart or a logo and stays a
+ * figure. Printed symbols are never a picture worth attaching to a question, so they are
+ * dropped before a crop is written.
+ */
+function qrSignature(data, W, H, box) {
+  if (!data || !W || !H || !box) return false;
+  const w = Math.round(box.x1 - box.x0);
+  const h = Math.round(box.y1 - box.y0);
+  if (w < 24 || h < 24) return false;
+  const ratio = w / h;
+  if (ratio < 0.72 || ratio > 1.38) return false; // square, unlike a chart, a rule or a barcode strip
+  if (w < 0.035 * W || w > 0.45 * W) return false; // bigger than an icon, smaller than the page
+  const x0 = Math.max(0, Math.round(box.x0));
+  const y0 = Math.max(0, Math.round(box.y0));
+  const x1 = Math.min(W, Math.round(box.x1));
+  const y1 = Math.min(H, Math.round(box.y1));
+  if (x1 - x0 < 24 || y1 - y0 < 24) return false;
+
+  const tone = (x, y) => {
+    const i = (y * W + x) * 4;
+    if (data[i + 3] < 20) return 255; // a transparent pixel prints white
+    return (data[i] + data[i + 1] + data[i + 2]) / 3;
+  };
+
+  const step = Math.max(1, Math.round(Math.min(w, h) / 140));
+  let dark = 0;
+  let light = 0;
+  let mid = 0;
+  for (let y = y0; y < y1; y += step) {
+    for (let x = x0; x < x1; x += step) {
+      const v = tone(x, y);
+      if (v < 96) dark++;
+      else if (v > 176) light++;
+      else mid++;
+    }
+  }
+  const total = dark + light + mid;
+  if (!total) return false;
+  if (mid / total > 0.22) return false; // photos, charts and gradients live in mid grey
+  const ink = dark / total;
+  if (ink < 0.22 || ink > 0.78) return false; // a symbol is part dark and part light
+
+  // A printed symbol changes colour many times along its own middle row and column; a bar
+  // chart, a pie chart, a logo or a shaded box changes a handful of times.
+  const switches = (horizontal) => {
+    const fixed = Math.round(horizontal ? (y0 + y1) / 2 : (x0 + x1) / 2);
+    const from = horizontal ? x0 : y0;
+    const to = horizontal ? x1 : y1;
+    let count = 0;
+    let prev = null;
+    for (let p = from; p < to; p++) {
+      const v = horizontal ? tone(p, fixed) : tone(fixed, p);
+      const now = v < 136;
+      if (prev !== null && now !== prev) count++;
+      prev = now;
+    }
+    return count;
+  };
+  return switches(true) >= 6 && switches(false) >= 6;
+}
+
+/** Text that only exists to point at a QR code: a "scan me" caption or the bare link under it. */
+function isQrScaffoldLine(text) {
+  const line = str(text).trim();
+  if (!line) return false;
+  if (/^(?:\(?scan\b|open the camera)/i.test(line) && /\b(?:to|for)\s+(?:open|view|read|download|learn|play|pay|order|buy|see|join|access|watch|listen|get|find|start|unlock|explore|discover|continue)\b/i.test(line)) return true;
+  if (/^scan (?:me|here|this|the (?:qr )?code|below|above)\b/i.test(line)) return true;
+  if (/^(?:https?:\/\/|www\.)\S+$/i.test(line)) return true; // the link a QR code stands for
+  return false;
+}
+
+/** The page's lines with QR-code captions and their bare links left out. */
+function withoutQrScaffold(lines) {
+  const list = Array.isArray(lines) ? lines : [];
+  return list.filter((line) => !isQrScaffoldLine(line && line.text));
+}
+
+/* The strips at the top and bottom of a page, where running headers, footers and stamps live. */
+const FURNITURE_TOP = 0.1;
+const FURNITURE_BOTTOM = 0.88;
+
+/** Which strip of its page a line sits in: "top", "bottom" or "" for the page body. */
+function furnitureBand(line, pageHeight) {
+  if (!line || typeof line.y !== "number" || !Number.isFinite(line.y)) return "";
+  if (!(Number(pageHeight) > 0)) return "";
+  const ratio = line.y / Number(pageHeight);
+  if (ratio <= FURNITURE_TOP) return "top";
+  if (ratio >= FURNITURE_BOTTOM) return "bottom";
+  return "";
+}
+
+/** A line's identity for the furniture test: its words, not its spacing or its case. */
+function furnitureKey(text) {
+  return str(text).replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/**
+ * Page furniture: the lines that repeat in the same strip of most pages — a running header, a
+ * copyright footer, a "downloaded by" stamp, a watermark id. Repetition is the evidence, never a
+ * publisher's wording, so a line that only appears on some pages (a heading, a source passage that
+ * is quoted twice) and a line in the body of a page are both kept. A document of one or two pages
+ * has no furniture to find.
+ *
+ * `pages` is [{ pageHeight, textLines, lines }], the shape readPdfPages collects.
+ * Returns a Set of furnitureKey strings.
+ */
+function repeatedFurniture(pages, options) {
+  const opts = options || {};
+  const minimum = Number.isFinite(opts.minimum) ? Math.max(2, Math.floor(opts.minimum)) : 3;
+  const share = Number.isFinite(opts.share) && opts.share > 0 && opts.share <= 1 ? opts.share : 0.6;
+  const list = (Array.isArray(pages) ? pages : []).filter((page) => page && Number(page.pageHeight) > 0);
+  if (list.length < minimum) return new Set();
+  const needed = Math.max(minimum, Math.ceil(list.length * share));
+  const seen = new Map();
+  for (const page of list) {
+    const keys = new Set();
+    for (const line of [...(page.textLines || []), ...(page.lines || [])]) {
+      if (!furnitureBand(line, page.pageHeight)) continue;
+      const key = furnitureKey(line.text);
+      if (key.length >= 4) keys.add(key); // a bare "A" or "B" is an answer choice, not furniture
+    }
+    for (const key of keys) seen.set(key, (seen.get(key) || 0) + 1);
+  }
+  const out = new Set();
+  for (const [key, count] of seen) if (count >= needed) out.add(key);
+  return out;
+}
+
+/**
+ * A page number printed in a page's own footer: "Page 12 of 21", "12 / 21", "- 12 -". It changes
+ * on every page, so repetition cannot find it; its own number is what makes it furniture.
+ */
+function isPageNumberLine(text, pageNumber) {
+  const line = str(text).trim();
+  if (!line) return false;
+  const shown = Math.round(Number(pageNumber));
+  if (!Number.isFinite(shown)) return false;
+  const of = line.match(/^(?:page\s*)?(\d{1,4})\s*(?:of|\/)\s*(\d{1,4})$/i);
+  if (of) return Number(of[1]) === shown;
+  const bare = line.match(/^[-\u2013\u2014]\s*(\d{1,4})\s*[-\u2013\u2014]$/);
+  if (bare) return Number(bare[1]) === shown;
+  const labelled = line.match(/^page\s+(\d{1,4})$/i);
+  if (labelled) return Number(labelled[1]) === shown;
+  return false;
+}
+
+/* ------------------------------------------------------------ cover preamble */
+
+/** A bare web address, a domain on its own, or a "visit example.com" invitation. */
+function isBareUrlLine(text) {
+  const line = str(text).trim();
+  if (!line) return false;
+  if (/^(?:https?:\/\/|www\.)\S+$/i.test(line)) return true;
+  if (/^(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/\S*)?$/i.test(line)) return true;
+  if (/^(?:visit|go to|see|open|browse|learn more at|find us at|shop at|read more at|download (?:it )?(?:at|from))\s+(?:https?:\/\/|www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,}\b/i.test(line)) return true;
+  return false;
+}
+
+/** A publisher's identifier: a long numeric id, a watermark-style id, a download slug or a file name. */
+function isIdentifierLine(text) {
+  const line = str(text).trim();
+  if (!line) return false;
+  if (/\b\d{7,}\b/.test(line)) return true; // 682243944
+  if (/\b[A-Za-z]{2,}\|\d{3,}\b/.test(line)) return true; // lOMoARcPSD|64937195
+  if (/\b[\w-]+\.(?:pdf|docx?|pptx?|xlsx?|zip|epub|rtf)\b/i.test(line)) return true; // a file name
+  if (/\b\d{4,}[-_][A-Za-z][\w-]{3,}/.test(line)) return true; // an id-leading slug
+  return false;
+}
+
+/** The first line of a page that is real document content rather than a cover block. */
+function isContentAnchorLine(text) {
+  const line = str(text).trim();
+  if (!line) return false;
+  if (/^\d{1,3}\s*[.):]\s*\S/.test(line)) return true; // "1. Which of the following..."
+  if (/^(?:question|q)\s*\d{1,3}\b/i.test(line)) return true;
+  if (/^(?:source|document|passage|text|excerpt|figure|table)\s+\d{1,3}\b/i.test(line)) return true;
+  if (/^(?:directions|instructions|section|part|unit|chapter|name|date|period|class|student)\b/i.test(line) && line.length <= 60) return true;
+  if (/^[A-Z][A-Z0-9 ,.'\u2019&()\/-]{10,}$/.test(line)) return true; // an all-caps heading
+  return false;
+}
+
+/**
+ * A downloaded PDF opens with a cover block: the site's address, a tagline printed around a preview
+ * image (often twice), and the file's own id or download slug. Only the lines before the page's first
+ * real question, source or heading are examined, and only the ones that are duplicates of another
+ * line on that page, an address, or an identifier are dropped - a title, an instruction, a class
+ * heading or the first question in the same place is content and stays.
+ */
+function withoutCoverPreamble(lines) {
+  const list = Array.isArray(lines) ? lines : [];
+  if (list.length < 2) return list;
+  const limit = Math.min(list.length, 12); // a cover block is a handful of lines at the top
+  let end = limit;
+  for (let i = 0; i < limit; i++) {
+    if (isContentAnchorLine(list[i] && list[i].text)) {
+      end = i;
+      break;
+    }
+  }
+  if (!end) return list;
+  const counts = new Map();
+  for (let i = 0; i < end; i++) {
+    const key = furnitureKey(list[i] && list[i].text);
+    if (key) counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  const kept = [];
+  for (let i = 0; i < list.length; i++) {
+    if (i >= end) {
+      kept.push(list[i]);
+      continue;
+    }
+    const text = list[i] && list[i].text;
+    const key = furnitureKey(text);
+    if (key && (counts.get(key) || 0) > 1) continue; // the block printed the line twice
+    if (isBareUrlLine(text)) continue;
+    if (isIdentifierLine(text)) continue;
+    kept.push(list[i]);
+  }
+  return kept;
+}
+
+/** The page's lines with any repeated page furniture (and its printed page number) left out. */
+function withoutRepeatedFurniture(lines, furniture, pageHeight, pageNumber) {
+  const list = Array.isArray(lines) ? lines : [];
+  const names = furniture && furniture.size ? furniture : null;
+  return list.filter((line) => {
+    if (!furnitureBand(line, pageHeight)) return true;
+    if (names && names.has(furnitureKey(line && line.text))) return false;
+    return !isPageNumberLine(line && line.text, pageNumber);
+  });
+}
+
 /** The page's text with a marker line where each figure sits. */
 function pageText(lines, figs) {
   const out = [];
@@ -66057,6 +66375,7 @@ function detectFigures(data, W, H, boxes, scale) {
     if (c.y1 < 0.07 * H || c.y0 > 0.93 * H) continue; // logos in the header and footer
     if (w * h > 0.85 * W * H) continue; // a page frame
     if ((c.n * cell * cell) / (w * h) < 0.01) continue; // almost nothing in it
+    if (qrSignature(data, W, H, c)) continue; // a QR code or another printed symbol, never a figure
     let tArea = 0;
     for (const b of boxes) {
       const ox = Math.min(c.x1, b.x1) - Math.max(c.x0, b.x0);
@@ -66202,14 +66521,37 @@ async function readPdfPages(buf, spec, progress, cap, password) {
       }
       pages.push({
         n,
-        text: pageText(itemsToLines(tc.items, vp), figs),
-        lines: itemsToGapLines(tc.items, vp),
+        textLines: withoutQrScaffold(itemsToLines(tc.items, vp)),
+        gapLines: withoutQrScaffold(itemsToGapLines(tc.items, vp)),
+        figs,
         pageHeight: vp.height,
         pageWidth: vp.width,
-        figs: figs.length,
+        figCount: figs.length,
       });
     }
-    return { pages, total: doc.numPages, warnings, figCount };
+    // One page cannot show furniture, so the whole document is read before the repeated lines are
+    // named. Each page's text and table lines are then built without them.
+    const furniture = repeatedFurniture(pages);
+    // The cover block only ever opens the document, so only the first page runs through that rule.
+    const coverPage = pages.length > 1 && pages[0] ? pages[0].n : null;
+    return {
+      pages: pages.map((page) => {
+        const textLines = withoutRepeatedFurniture(page.textLines, furniture, page.pageHeight, page.n);
+        const gapLines = withoutRepeatedFurniture(page.gapLines, furniture, page.pageHeight, page.n);
+        const cover = page.n === coverPage;
+        return {
+          n: page.n,
+          text: pageText(cover ? withoutCoverPreamble(textLines) : textLines, page.figs),
+          lines: cover ? withoutCoverPreamble(gapLines) : gapLines,
+          pageHeight: page.pageHeight,
+          pageWidth: page.pageWidth,
+          figs: page.figCount,
+        };
+      }),
+      total: doc.numPages,
+      warnings,
+      figCount,
+    };
   } finally {
     try {
       await doc.destroy();
@@ -66328,6 +66670,18 @@ module.exports = {
   textBoxes,
   figMarker,
   pageText,
+  qrSignature,
+  isQrScaffoldLine,
+  withoutQrScaffold,
+  furnitureBand,
+  furnitureKey,
+  repeatedFurniture,
+  isPageNumberLine,
+  withoutRepeatedFurniture,
+  isBareUrlLine,
+  isIdentifierLine,
+  isContentAnchorLine,
+  withoutCoverPreamble,
   detectFigures,
   renderPage,
   canvasToPng,
@@ -140308,6 +140662,56 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.21",
+    date: "November 18, 2026",
+    title: "A free local model's notes arrive whole",
+    summary:
+      "Document import can run on a model that never leaves your computer. Driving it against a real 7B model on a CPU returned all three questions with the right answers, and the plugin still threw part of that answer away. The four defects it exposed are fixed, and the recipe that was actually run is in the README.",
+    highlights: [
+      {
+        title: "A broken separator no longer loses the notes",
+        body: "The model writes \"=====\" and \"NOTE=====\" on two lines. The importer accepts that shape, so a complete answer is read as the notes it is instead of as an empty document.",
+      },
+      {
+        title: "A repeated question is not a passage",
+        body: "For the two questions with no passage, the model filled the Stimulus section with the stem and its choices. That section is recognised, removed, and never given a passage id or passed on to the next batch as a real passage. A genuine passage, even one that opens with the stem's words, is kept.",
+      },
+      {
+        title: "A slow local model is not a dead one",
+        body: "A local server gets 15 minutes for one request instead of the 120 seconds meant for a cloud API, and the import window now reads the provider from the right place, so its own 3-minute limit no longer applies to a local server.",
+      },
+      {
+        title: "A recipe that was actually run",
+        body: "Ollama, qwen2.5:7b, 4.7 GB, no API key, CPU only: the pull command, the settings and the measured speed are in the README. No note format, setting key, review schedule or network default changed.",
+      },
+    ],
+  },
+  {
+    version: "1.307.20",
+    date: "November 18, 2026",
+    title: "PDF junk stops reaching your questions",
+    summary:
+      "An imported PDF carries a QR code, a download stamp, a running header, a page number and a cover block a host site prints on page 1. All of it used to be handed to the model as exam text, so a stamp could become a source line and a \"Page 7 of 21\" an answer choice. Three passes now clean the page before anything reads it.",
+    highlights: [
+      {
+        title: "A printed symbol is not a figure",
+        body: "A QR code is recognised from its own pixels, and its \"scan to open\" caption and bare link are dropped, so no code is cropped into the vault and no URL reaches a question. Photos, logos and bar-code strips are kept.",
+      },
+      {
+        title: "Page furniture is named by repetition",
+        body: "A line printed in the same top or bottom margin on most pages is furniture, and is dropped only in that margin, so the same words in the body of a page stay. A printed page number is dropped only on its own page.",
+      },
+      {
+        title: "The cover block on page 1 goes",
+        body: "Only the first page's leading lines are examined, and only a line printed twice, an address or an identifier is removed, so a title, an instruction, a class heading and the first question survive.",
+      },
+      {
+        title: "Nothing else changed",
+        body: "No note format, setting key, review schedule or network default changed.",
+      },
+    ],
+  },
+  {
     version: "1.307.19",
     date: "November 18, 2026",
     title: "Every PDF import path, proven",
@@ -143116,7 +143520,7 @@ const { PracticeView } = require("./practice-view");
 const practiceKeys = require("./practice-keys");
 const practiceFullscreen = require("./practice-fullscreen");
 const practiceTools = require("./practice-tools");
-const { API_PRESETS, ApiClient, apiTurns, friendlyApiError, REQUEST_TIMEOUT_MS } = require("./api-client");
+const { API_PRESETS, ApiClient, apiTurns, friendlyApiError, LOCAL_REQUEST_TIMEOUT_MS, localProvider, REQUEST_TIMEOUT_MS } = require("./api-client");
 const modelDiscovery = require("./model-discovery");
 const reading = require("./reading");
 const tagTimer = require("./tag-timer");
@@ -143479,6 +143883,8 @@ QuestionTrackerPlugin.__test = {
   friendlyApiError,
   apiTurns,
   REQUEST_TIMEOUT_MS,
+  LOCAL_REQUEST_TIMEOUT_MS,
+  localProvider,
   modelDiscovery,
   reading,
   tagTimer,

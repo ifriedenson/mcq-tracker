@@ -123,6 +123,241 @@ function figMarker(f) {
   return `[FIGURE page ${f.page}: ![[${f.path}]]${f.pagePath ? ` (the whole page: ![[${f.pagePath}]])` : ""}]`;
 }
 
+/**
+ * A QR code, a Data Matrix or another two-dimensional barcode: a near-square patch of pure
+ * black and white modules. Text has already been taken out of these boxes, so a patch that is
+ * mostly one tone, or that keeps mid-grey tones, is a photo, a chart or a logo and stays a
+ * figure. Printed symbols are never a picture worth attaching to a question, so they are
+ * dropped before a crop is written.
+ */
+function qrSignature(data, W, H, box) {
+  if (!data || !W || !H || !box) return false;
+  const w = Math.round(box.x1 - box.x0);
+  const h = Math.round(box.y1 - box.y0);
+  if (w < 24 || h < 24) return false;
+  const ratio = w / h;
+  if (ratio < 0.72 || ratio > 1.38) return false; // square, unlike a chart, a rule or a barcode strip
+  if (w < 0.035 * W || w > 0.45 * W) return false; // bigger than an icon, smaller than the page
+  const x0 = Math.max(0, Math.round(box.x0));
+  const y0 = Math.max(0, Math.round(box.y0));
+  const x1 = Math.min(W, Math.round(box.x1));
+  const y1 = Math.min(H, Math.round(box.y1));
+  if (x1 - x0 < 24 || y1 - y0 < 24) return false;
+
+  const tone = (x, y) => {
+    const i = (y * W + x) * 4;
+    if (data[i + 3] < 20) return 255; // a transparent pixel prints white
+    return (data[i] + data[i + 1] + data[i + 2]) / 3;
+  };
+
+  const step = Math.max(1, Math.round(Math.min(w, h) / 140));
+  let dark = 0;
+  let light = 0;
+  let mid = 0;
+  for (let y = y0; y < y1; y += step) {
+    for (let x = x0; x < x1; x += step) {
+      const v = tone(x, y);
+      if (v < 96) dark++;
+      else if (v > 176) light++;
+      else mid++;
+    }
+  }
+  const total = dark + light + mid;
+  if (!total) return false;
+  if (mid / total > 0.22) return false; // photos, charts and gradients live in mid grey
+  const ink = dark / total;
+  if (ink < 0.22 || ink > 0.78) return false; // a symbol is part dark and part light
+
+  // A printed symbol changes colour many times along its own middle row and column; a bar
+  // chart, a pie chart, a logo or a shaded box changes a handful of times.
+  const switches = (horizontal) => {
+    const fixed = Math.round(horizontal ? (y0 + y1) / 2 : (x0 + x1) / 2);
+    const from = horizontal ? x0 : y0;
+    const to = horizontal ? x1 : y1;
+    let count = 0;
+    let prev = null;
+    for (let p = from; p < to; p++) {
+      const v = horizontal ? tone(p, fixed) : tone(fixed, p);
+      const now = v < 136;
+      if (prev !== null && now !== prev) count++;
+      prev = now;
+    }
+    return count;
+  };
+  return switches(true) >= 6 && switches(false) >= 6;
+}
+
+/** Text that only exists to point at a QR code: a "scan me" caption or the bare link under it. */
+function isQrScaffoldLine(text) {
+  const line = str(text).trim();
+  if (!line) return false;
+  if (/^(?:\(?scan\b|open the camera)/i.test(line) && /\b(?:to|for)\s+(?:open|view|read|download|learn|play|pay|order|buy|see|join|access|watch|listen|get|find|start|unlock|explore|discover|continue)\b/i.test(line)) return true;
+  if (/^scan (?:me|here|this|the (?:qr )?code|below|above)\b/i.test(line)) return true;
+  if (/^(?:https?:\/\/|www\.)\S+$/i.test(line)) return true; // the link a QR code stands for
+  return false;
+}
+
+/** The page's lines with QR-code captions and their bare links left out. */
+function withoutQrScaffold(lines) {
+  const list = Array.isArray(lines) ? lines : [];
+  return list.filter((line) => !isQrScaffoldLine(line && line.text));
+}
+
+/* The strips at the top and bottom of a page, where running headers, footers and stamps live. */
+const FURNITURE_TOP = 0.1;
+const FURNITURE_BOTTOM = 0.88;
+
+/** Which strip of its page a line sits in: "top", "bottom" or "" for the page body. */
+function furnitureBand(line, pageHeight) {
+  if (!line || typeof line.y !== "number" || !Number.isFinite(line.y)) return "";
+  if (!(Number(pageHeight) > 0)) return "";
+  const ratio = line.y / Number(pageHeight);
+  if (ratio <= FURNITURE_TOP) return "top";
+  if (ratio >= FURNITURE_BOTTOM) return "bottom";
+  return "";
+}
+
+/** A line's identity for the furniture test: its words, not its spacing or its case. */
+function furnitureKey(text) {
+  return str(text).replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/**
+ * Page furniture: the lines that repeat in the same strip of most pages — a running header, a
+ * copyright footer, a "downloaded by" stamp, a watermark id. Repetition is the evidence, never a
+ * publisher's wording, so a line that only appears on some pages (a heading, a source passage that
+ * is quoted twice) and a line in the body of a page are both kept. A document of one or two pages
+ * has no furniture to find.
+ *
+ * `pages` is [{ pageHeight, textLines, lines }], the shape readPdfPages collects.
+ * Returns a Set of furnitureKey strings.
+ */
+function repeatedFurniture(pages, options) {
+  const opts = options || {};
+  const minimum = Number.isFinite(opts.minimum) ? Math.max(2, Math.floor(opts.minimum)) : 3;
+  const share = Number.isFinite(opts.share) && opts.share > 0 && opts.share <= 1 ? opts.share : 0.6;
+  const list = (Array.isArray(pages) ? pages : []).filter((page) => page && Number(page.pageHeight) > 0);
+  if (list.length < minimum) return new Set();
+  const needed = Math.max(minimum, Math.ceil(list.length * share));
+  const seen = new Map();
+  for (const page of list) {
+    const keys = new Set();
+    for (const line of [...(page.textLines || []), ...(page.lines || [])]) {
+      if (!furnitureBand(line, page.pageHeight)) continue;
+      const key = furnitureKey(line.text);
+      if (key.length >= 4) keys.add(key); // a bare "A" or "B" is an answer choice, not furniture
+    }
+    for (const key of keys) seen.set(key, (seen.get(key) || 0) + 1);
+  }
+  const out = new Set();
+  for (const [key, count] of seen) if (count >= needed) out.add(key);
+  return out;
+}
+
+/**
+ * A page number printed in a page's own footer: "Page 12 of 21", "12 / 21", "- 12 -". It changes
+ * on every page, so repetition cannot find it; its own number is what makes it furniture.
+ */
+function isPageNumberLine(text, pageNumber) {
+  const line = str(text).trim();
+  if (!line) return false;
+  const shown = Math.round(Number(pageNumber));
+  if (!Number.isFinite(shown)) return false;
+  const of = line.match(/^(?:page\s*)?(\d{1,4})\s*(?:of|\/)\s*(\d{1,4})$/i);
+  if (of) return Number(of[1]) === shown;
+  const bare = line.match(/^[-\u2013\u2014]\s*(\d{1,4})\s*[-\u2013\u2014]$/);
+  if (bare) return Number(bare[1]) === shown;
+  const labelled = line.match(/^page\s+(\d{1,4})$/i);
+  if (labelled) return Number(labelled[1]) === shown;
+  return false;
+}
+
+/* ------------------------------------------------------------ cover preamble */
+
+/** A bare web address, a domain on its own, or a "visit example.com" invitation. */
+function isBareUrlLine(text) {
+  const line = str(text).trim();
+  if (!line) return false;
+  if (/^(?:https?:\/\/|www\.)\S+$/i.test(line)) return true;
+  if (/^(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/\S*)?$/i.test(line)) return true;
+  if (/^(?:visit|go to|see|open|browse|learn more at|find us at|shop at|read more at|download (?:it )?(?:at|from))\s+(?:https?:\/\/|www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,}\b/i.test(line)) return true;
+  return false;
+}
+
+/** A publisher's identifier: a long numeric id, a watermark-style id, a download slug or a file name. */
+function isIdentifierLine(text) {
+  const line = str(text).trim();
+  if (!line) return false;
+  if (/\b\d{7,}\b/.test(line)) return true; // 682243944
+  if (/\b[A-Za-z]{2,}\|\d{3,}\b/.test(line)) return true; // lOMoARcPSD|64937195
+  if (/\b[\w-]+\.(?:pdf|docx?|pptx?|xlsx?|zip|epub|rtf)\b/i.test(line)) return true; // a file name
+  if (/\b\d{4,}[-_][A-Za-z][\w-]{3,}/.test(line)) return true; // an id-leading slug
+  return false;
+}
+
+/** The first line of a page that is real document content rather than a cover block. */
+function isContentAnchorLine(text) {
+  const line = str(text).trim();
+  if (!line) return false;
+  if (/^\d{1,3}\s*[.):]\s*\S/.test(line)) return true; // "1. Which of the following..."
+  if (/^(?:question|q)\s*\d{1,3}\b/i.test(line)) return true;
+  if (/^(?:source|document|passage|text|excerpt|figure|table)\s+\d{1,3}\b/i.test(line)) return true;
+  if (/^(?:directions|instructions|section|part|unit|chapter|name|date|period|class|student)\b/i.test(line) && line.length <= 60) return true;
+  if (/^[A-Z][A-Z0-9 ,.'\u2019&()\/-]{10,}$/.test(line)) return true; // an all-caps heading
+  return false;
+}
+
+/**
+ * A downloaded PDF opens with a cover block: the site's address, a tagline printed around a preview
+ * image (often twice), and the file's own id or download slug. Only the lines before the page's first
+ * real question, source or heading are examined, and only the ones that are duplicates of another
+ * line on that page, an address, or an identifier are dropped - a title, an instruction, a class
+ * heading or the first question in the same place is content and stays.
+ */
+function withoutCoverPreamble(lines) {
+  const list = Array.isArray(lines) ? lines : [];
+  if (list.length < 2) return list;
+  const limit = Math.min(list.length, 12); // a cover block is a handful of lines at the top
+  let end = limit;
+  for (let i = 0; i < limit; i++) {
+    if (isContentAnchorLine(list[i] && list[i].text)) {
+      end = i;
+      break;
+    }
+  }
+  if (!end) return list;
+  const counts = new Map();
+  for (let i = 0; i < end; i++) {
+    const key = furnitureKey(list[i] && list[i].text);
+    if (key) counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  const kept = [];
+  for (let i = 0; i < list.length; i++) {
+    if (i >= end) {
+      kept.push(list[i]);
+      continue;
+    }
+    const text = list[i] && list[i].text;
+    const key = furnitureKey(text);
+    if (key && (counts.get(key) || 0) > 1) continue; // the block printed the line twice
+    if (isBareUrlLine(text)) continue;
+    if (isIdentifierLine(text)) continue;
+    kept.push(list[i]);
+  }
+  return kept;
+}
+
+/** The page's lines with any repeated page furniture (and its printed page number) left out. */
+function withoutRepeatedFurniture(lines, furniture, pageHeight, pageNumber) {
+  const list = Array.isArray(lines) ? lines : [];
+  const names = furniture && furniture.size ? furniture : null;
+  return list.filter((line) => {
+    if (!furnitureBand(line, pageHeight)) return true;
+    if (names && names.has(furnitureKey(line && line.text))) return false;
+    return !isPageNumberLine(line && line.text, pageNumber);
+  });
+}
+
 /** The page's text with a marker line where each figure sits. */
 function pageText(lines, figs) {
   const out = [];
@@ -207,6 +442,7 @@ function detectFigures(data, W, H, boxes, scale) {
     if (c.y1 < 0.07 * H || c.y0 > 0.93 * H) continue; // logos in the header and footer
     if (w * h > 0.85 * W * H) continue; // a page frame
     if ((c.n * cell * cell) / (w * h) < 0.01) continue; // almost nothing in it
+    if (qrSignature(data, W, H, c)) continue; // a QR code or another printed symbol, never a figure
     let tArea = 0;
     for (const b of boxes) {
       const ox = Math.min(c.x1, b.x1) - Math.max(c.x0, b.x0);
@@ -352,14 +588,37 @@ async function readPdfPages(buf, spec, progress, cap, password) {
       }
       pages.push({
         n,
-        text: pageText(itemsToLines(tc.items, vp), figs),
-        lines: itemsToGapLines(tc.items, vp),
+        textLines: withoutQrScaffold(itemsToLines(tc.items, vp)),
+        gapLines: withoutQrScaffold(itemsToGapLines(tc.items, vp)),
+        figs,
         pageHeight: vp.height,
         pageWidth: vp.width,
-        figs: figs.length,
+        figCount: figs.length,
       });
     }
-    return { pages, total: doc.numPages, warnings, figCount };
+    // One page cannot show furniture, so the whole document is read before the repeated lines are
+    // named. Each page's text and table lines are then built without them.
+    const furniture = repeatedFurniture(pages);
+    // The cover block only ever opens the document, so only the first page runs through that rule.
+    const coverPage = pages.length > 1 && pages[0] ? pages[0].n : null;
+    return {
+      pages: pages.map((page) => {
+        const textLines = withoutRepeatedFurniture(page.textLines, furniture, page.pageHeight, page.n);
+        const gapLines = withoutRepeatedFurniture(page.gapLines, furniture, page.pageHeight, page.n);
+        const cover = page.n === coverPage;
+        return {
+          n: page.n,
+          text: pageText(cover ? withoutCoverPreamble(textLines) : textLines, page.figs),
+          lines: cover ? withoutCoverPreamble(gapLines) : gapLines,
+          pageHeight: page.pageHeight,
+          pageWidth: page.pageWidth,
+          figs: page.figCount,
+        };
+      }),
+      total: doc.numPages,
+      warnings,
+      figCount,
+    };
   } finally {
     try {
       await doc.destroy();
@@ -478,6 +737,18 @@ module.exports = {
   textBoxes,
   figMarker,
   pageText,
+  qrSignature,
+  isQrScaffoldLine,
+  withoutQrScaffold,
+  furnitureBand,
+  furnitureKey,
+  repeatedFurniture,
+  isPageNumberLine,
+  withoutRepeatedFurniture,
+  isBareUrlLine,
+  isIdentifierLine,
+  isContentAnchorLine,
+  withoutCoverPreamble,
   detectFigures,
   renderPage,
   canvasToPng,

@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 460 groups, 3197 exports. **Commands:** 242. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 462 groups, 3211 exports. **Commands:** 242. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -45,6 +45,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `HotkeyAuditModal` | 0 | `tests/hotkey-audit.test.js` |
 | `ImportCompleteModal` | 0 | `tests/opencode-status.test.js` |
 | `InsightsView` | 0 | `tests/knowledge-record-scenario.test.js`, `tests/knowledge-view.test.js`, `tests/study-plan.test.js`, `tests/views.test.js` |
+| `LOCAL_REQUEST_TIMEOUT_MS` | 0 | `tests/api-client.test.js` |
 | `LocalEventModal` | 0 | `tests/feature-surfaces.test.js` |
 | `LocalEventsView` | 0 | `tests/mobile-calendar-agenda.test.js` |
 | `MAX_OPENCODE_MAJOR` | 0 | `tests/feature-surfaces.test.js` |
@@ -274,7 +275,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `hubs` | 4 | `tests/hub-views.test.js` |
 | `importAiState` | 0 | `tests/ai-import-help.test.js` |
 | `importModal` | 3 | `tests/overnight-import.test.js` |
-| `importer` | 23 | `tests/importer-prompt.test.js` |
+| `importer` | 25 | `tests/import.test.js`, `tests/importer-prompt.test.js` |
 | `indexOfficialIds` | 0 | `tests/import.test.js` |
 | `inferMode` | 0 | `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/question-types.test.js` |
 | `intervalPreview` | 4 | `tests/interval-preview.test.js` |
@@ -287,6 +288,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `loadQuestionData` | 0 | `tests/parameterized.test.js`, `tests/study-modes.test.js`, `tests/study-skin.test.js` |
 | `localEvents` | 18 | `tests/local-events.test.js` |
 | `localModels` | 5 | `tests/local-models.test.js` |
+| `localProvider` | 0 | `tests/api-client.test.js` |
 | `makeKeyboardClickable` | 0 | `tests/ui-view-accessibility.test.js` |
 | `masteryBandOf` | 0 | `tests/progress.test.js` |
 | `masteryPicker` | 15 | `tests/mastery-picker.test.js` |
@@ -332,7 +334,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `parseSections` | 0 | `tests/grading.test.js`, `tests/hints.test.js`, `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/needs-fixing.test.js`, `tests/question-types.test.js`, `tests/views.test.js` |
 | `partsToTurns` | 0 | `tests/chat-panel-copilot.test.js`, `tests/feature-surfaces.test.js` |
 | `pauseQuickSession` | 0 | `tests/uncited-groups.test.js` |
-| `pdf` | 17 | `tests/cards-import.test.js`, `tests/feature-engines.test.js`, `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-backlinks.test.js`, `tests/pdf-deep-link.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-latex.test.js`, `tests/pdf-plus-boot.test.js`, `tests/pdf-plus.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/settings-navigation.test.js`, `tests/study-modules-3.test.js` |
+| `pdf` | 29 | `tests/cards-import.test.js`, `tests/feature-engines.test.js`, `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-backlinks.test.js`, `tests/pdf-deep-link.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-latex.test.js`, `tests/pdf-plus-boot.test.js`, `tests/pdf-plus.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/settings-navigation.test.js`, `tests/study-modules-3.test.js` |
 | `pdfAnnotationIndex` | 7 | `tests/study-modules-3.test.js` |
 | `pdfAnnotations` | 22 | `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-deep-link.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/study-modules-3.test.js` |
 | `pdfAnnotatorSidebar` | 8 | `tests/pdf-annotator-sidebar.test.js` |

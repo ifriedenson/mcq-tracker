@@ -367,6 +367,17 @@ If you stop, the summary reports what was kept and which file was stopped:
 
 <img src="docs/images/import-stopped.png" alt="The Import stopped popup showing no question notes imported and the current file marked Stopped." width="620">
 
+#### A free local model, with Ollama
+
+Document import needs a model, but not a paid one or a cloud one: a 7B model on the same computer reads a few pages of exam text well enough to draft the notes, and nothing leaves the machine.
+
+1. Install Ollama and start it (`ollama serve`, or the Ollama app).
+2. Pull the model once, while online: `ollama pull qwen2.5:7b` (4.7 GB, `Q4_K_M`).
+3. In **Settings → AI and the assistant**, choose **AI backend: Direct API**, then **Provider: Ollama**, **Base URL `http://127.0.0.1:11434/v1`** and **Model `qwen2.5:7b`**. A local server needs no API key.
+4. Import a file as usual and read the review screen before you create the notes.
+
+Measured on an 8-core CPU with no GPU: about 4–11 tokens per second depending on what else the machine is doing. With the model already loaded, a three-page exam with three questions reached the review screen in under a minute; the first request after starting Ollama took about 3½ minutes, because the 4.7 GB model has to be read into memory before it can answer. One local request is allowed up to 15 minutes, so a slow machine is not mistaken for a dead one. A 3B model is too small for this prompt (it merged two questions into one and lost the rest), and a 14B model answers at about 2 tokens per second here, over ten minutes for the same pages. Ollama's own variables still apply — `OLLAMA_MODELS` keeps the models on another disk, `OLLAMA_HOST` moves the port — and the base URL must name the address Ollama is actually listening on.
+
 **Local imports.** Ready-made cards can be imported without AI from Quizlet, Kahoot, Moodle XML, QTI, GIFT, `.apkg`, CrowdAnki JSON, Mochi Markdown and Anki text, plus CSV and Markdown. Export a study bundle, a card archive, `.apkg`, ICS, CSV, Markdown or JSON where the format supports it.
 
 ### Commands
@@ -383,7 +394,7 @@ Open the command palette with `Ctrl/Cmd+P` and search **MCQ Tracker**, **Cards**
 
 ### How it compares with Spaceforge
 
-Spaceforge is a strong spaced-repetition and study suite. This comparison is based on its public README (reference `dralkh/spaceforge` at `1.2.92`) and on this 1.307.19 build. The point is to show the trade-offs, not to claim that one plugin wins every row.
+Spaceforge is a strong spaced-repetition and study suite. This comparison is based on its public README (reference `dralkh/spaceforge` at `1.2.92`) and on this 1.307.21 build. The point is to show the trade-offs, not to claim that one plugin wins every row.
 
 | Capability | MCQ Tracker | Spaceforge | The practical difference |
 | --- | --- | --- | --- |

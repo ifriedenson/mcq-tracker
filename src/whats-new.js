@@ -6,6 +6,56 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.21",
+    date: "November 18, 2026",
+    title: "A free local model's notes arrive whole",
+    summary:
+      "Document import can run on a model that never leaves your computer. Driving it against a real 7B model on a CPU returned all three questions with the right answers, and the plugin still threw part of that answer away. The four defects it exposed are fixed, and the recipe that was actually run is in the README.",
+    highlights: [
+      {
+        title: "A broken separator no longer loses the notes",
+        body: "The model writes \"=====\" and \"NOTE=====\" on two lines. The importer accepts that shape, so a complete answer is read as the notes it is instead of as an empty document.",
+      },
+      {
+        title: "A repeated question is not a passage",
+        body: "For the two questions with no passage, the model filled the Stimulus section with the stem and its choices. That section is recognised, removed, and never given a passage id or passed on to the next batch as a real passage. A genuine passage, even one that opens with the stem's words, is kept.",
+      },
+      {
+        title: "A slow local model is not a dead one",
+        body: "A local server gets 15 minutes for one request instead of the 120 seconds meant for a cloud API, and the import window now reads the provider from the right place, so its own 3-minute limit no longer applies to a local server.",
+      },
+      {
+        title: "A recipe that was actually run",
+        body: "Ollama, qwen2.5:7b, 4.7 GB, no API key, CPU only: the pull command, the settings and the measured speed are in the README. No note format, setting key, review schedule or network default changed.",
+      },
+    ],
+  },
+  {
+    version: "1.307.20",
+    date: "November 18, 2026",
+    title: "PDF junk stops reaching your questions",
+    summary:
+      "An imported PDF carries a QR code, a download stamp, a running header, a page number and a cover block a host site prints on page 1. All of it used to be handed to the model as exam text, so a stamp could become a source line and a \"Page 7 of 21\" an answer choice. Three passes now clean the page before anything reads it.",
+    highlights: [
+      {
+        title: "A printed symbol is not a figure",
+        body: "A QR code is recognised from its own pixels, and its \"scan to open\" caption and bare link are dropped, so no code is cropped into the vault and no URL reaches a question. Photos, logos and bar-code strips are kept.",
+      },
+      {
+        title: "Page furniture is named by repetition",
+        body: "A line printed in the same top or bottom margin on most pages is furniture, and is dropped only in that margin, so the same words in the body of a page stay. A printed page number is dropped only on its own page.",
+      },
+      {
+        title: "The cover block on page 1 goes",
+        body: "Only the first page's leading lines are examined, and only a line printed twice, an address or an identifier is removed, so a title, an instruction, a class heading and the first question survive.",
+      },
+      {
+        title: "Nothing else changed",
+        body: "No note format, setting key, review schedule or network default changed.",
+      },
+    ],
+  },
+  {
     version: "1.307.19",
     date: "November 18, 2026",
     title: "Every PDF import path, proven",
