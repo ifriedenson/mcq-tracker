@@ -8,6 +8,12 @@ const W = T.studyWorkspace;
 const TD = T.taskDates;
 const TM = T.taskMirror;
 
+function nextWeekdayKey(day) {
+  const base = new Date(`${T.util.localDate()}T12:00:00`);
+  base.setDate(base.getDate() + ((day - base.getDay() + 7) % 7));
+  return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}-${String(base.getDate()).padStart(2, "0")}`;
+}
+
 async function setup() {
   const app = makeApp([]);
   const plugin = new QT(app);
@@ -70,7 +76,7 @@ test("task dates: every day and every weekday set a repeat", () => {
   assert.equal(tuesday.repeat, "weekly");
   const dated = TD.extractTaskDue(tuesday.title);
   assert.equal(dated.title, "Review cells");
-  assert.equal(dated.due, "2026-11-17");
+  assert.equal(dated.due, nextWeekdayKey(2), "the next Tuesday from today");
   assert.deepEqual(TD.extractTaskRepeat("Just a title"), { title: "Just a title", repeat: "" });
 });
 
@@ -113,7 +119,7 @@ test("plugin: a repeat in the title becomes a repeating task", async () => {
   const task = await plugin.addStudyTask({ title: "Review cells every Tuesday" });
   assert.equal(task.repeat, "weekly");
   assert.equal(task.title, "Review cells");
-  assert.equal(task.due, "2026-11-17");
+  assert.equal(task.due, nextWeekdayKey(2), "the next Tuesday from today");
   const daily = await plugin.addStudyTask({ title: "Water plants every day" });
   assert.equal(daily.repeat, "daily");
   assert.equal(daily.title, "Water plants");
