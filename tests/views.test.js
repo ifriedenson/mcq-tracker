@@ -907,3 +907,54 @@ test("insights progress: the registry supplies a scope before a note has a cours
   assert.equal(plugin.settings.masteryScope, "Biology");
   assert.ok(dom.texts().some((text) => /No questions in Biology yet\./.test(text)));
 });
+
+test("insights progress: the adaptive focus ranks course-scoped facets and starts that pool", async () => {
+  const history = (prefix, result) =>
+    Array.from({ length: 4 }, (_v, i) => `2026-10-0${i + 1}|${result}|10|A|2||${prefix}-${i}`);
+  const app = makeApp([
+    {
+      path: "Questions/chem-unit2.md",
+      fm: {
+        course: "CHEM 101",
+        unit: 2,
+        skill: "stoichiometry",
+        attempts: 4,
+        correct_count: 0,
+        target_seconds: 10,
+        history: history("chem", "incorrect"),
+      },
+    },
+    {
+      path: "Questions/bio-unit2.md",
+      fm: {
+        course: "BIO 201",
+        unit: 2,
+        skill: "cell respiration",
+        attempts: 4,
+        correct_count: 4,
+        target_seconds: 10,
+        history: history("bio", "correct"),
+      },
+    },
+  ]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  let started = null;
+  plugin.practiceQuestionPool = async (pool, label) => {
+    started = { paths: pool.map((question) => question.file.path), label };
+  };
+  const dom = makeDom();
+  const v = makeView(T.InsightsView, plugin, app, dom);
+  v.tab = "progress";
+  v.render();
+  const texts = dom.texts();
+  assert.ok(texts.includes("Adaptive focus"));
+  assert.ok(texts.includes("Unit: 2 · CHEM 101"));
+  assert.ok(texts.includes("Unit: 2 · BIO 201"));
+  assert.ok(texts.indexOf("Unit: 2 · CHEM 101") < texts.indexOf("Unit: 2 · BIO 201"), "the weaker course's unit ranks first");
+  const go = dom.last((el) => el.meta && el.meta.attrs && el.meta.attrs["aria-label"] === "Practice unit 2 in CHEM 101");
+  assert.ok(go, "the weak facet has its own practice control");
+  for (const handler of go.handlers.filter((entry) => entry.ev === "click")) await handler.fn({});
+  assert.deepEqual(started.paths, ["Questions/chem-unit2.md"]);
+  assert.equal(started.label, "Adaptive focus · Unit: 2 · CHEM 101");
+});

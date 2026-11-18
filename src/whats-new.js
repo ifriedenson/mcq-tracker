@@ -6,7 +6,7 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
-    version: "1.307.17",
+    version: "1.307.18",
     date: "November 18, 2026",
     title: "PDF imports read in order",
     summary:
@@ -27,6 +27,31 @@ const RELEASES = [
       {
         title: "Narrow and touch layouts harden",
         body: "The home shortcut rows wrap on small panes, and touch targets cover the agent send, task-list controls, calendar header and suggestion dots.",
+      },
+    ],
+  },
+  {
+    version: "1.307.17",
+    date: "November 18, 2026",
+    title: "An import that says how long is left",
+    summary:
+      "A long import showed activity but no sense of time. The import window now estimates time left from measured progress and the review screen counts the questions that will become notes.",
+    highlights: [
+      {
+        title: "Know the wait",
+        body: "After each batch the AI-reading line adds an estimate from the finished batches.",
+      },
+      {
+        title: "Watch the notes land",
+        body: "Note creation reads “Created 3 of 12... about 40 seconds left”, from that run's pace.",
+      },
+      {
+        title: "See what will be added",
+        body: "The review screen shows “Add 4 of 9 questions.” and follows every tick and Select all/none.",
+      },
+      {
+        title: "Quiet when it cannot know",
+        body: "No estimate appears before the first batch or note finishes, or at the end.",
       },
     ],
   },

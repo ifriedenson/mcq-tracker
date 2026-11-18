@@ -195,6 +195,7 @@ test("Direct AI: the real extracted text reaches the review list and then a note
   assert.ok(asked.indexOf("Question 1") < asked.indexOf("Question 2"), "the lines keep their reading order");
   assert.ok(asked.indexOf("A. 3") < asked.indexOf("B. 4"), "choices keep their order");
   assert.ok(dom.texts().includes("Found 1 question"), "the Direct AI review list appears");
+  assert.ok(dom.texts().includes("Add 1 of 1 question."), "the review states how many questions will be added");
   assert.ok(state.files.has("Questions/Unit 1/Unit 1.pdf"), "the source copy exists during review");
   assert.ok(![...state.files.keys()].some((path) => /\.md$/i.test(path)), "review alone writes no note");
 
@@ -203,6 +204,59 @@ test("Direct AI: the real extracted text reaches the review list and then a note
   assert.ok(notePath, "the reviewed question became a note");
   assert.match(state.files.get(notePath).text, /What is 2 \+ 2\?/);
   assert.ok(state.files.has("Questions/Unit 1/Unit 1.pdf"), "a finished import keeps its source copy");
+});
+
+test("Direct AI: the review count follows the questions still ticked", async () => {
+  const state = await setup([]);
+  enableAi(state.plugin);
+  state.plugin.verifyDraftQuestions = async () => {};
+  state.plugin.aiChat = async () =>
+    `${noteReply(1, "What is 2 + 2?", ["3", "4"], "B")}\n=====NOTE=====\n${noteReply(2, "Which gas do plants take in?", ["Oxygen", "Carbon dioxide"], "B")}`;
+
+  const bytes = await textPdf();
+  const { modal, dom } = openImport(state.plugin, bytes);
+  await modal.start();
+  assert.ok(dom.texts().includes("Found 2 questions"));
+  assert.ok(dom.texts().includes("Add 2 of 2 questions."));
+
+  await dom.click("Select none");
+  assert.ok(dom.texts().includes("Add 0 of 2 questions."), "unticking every question updates the count");
+  await dom.click("Select all");
+  assert.ok(dom.texts().includes("Add 2 of 2 questions."));
+  modal.close();
+});
+
+test("creating notes: the line counts progress and shows an estimate", async () => {
+  const state = await setup([]);
+  enableAi(state.plugin);
+  state.plugin.verifyDraftQuestions = async () => {};
+  state.plugin.aiChat = async () =>
+    `${noteReply(1, "What is 2 + 2?", ["3", "4"], "B")}\n=====NOTE=====\n${noteReply(2, "Which gas do plants take in?", ["Oxygen", "Carbon dioxide"], "B")}`;
+
+  const bytes = await textPdf();
+  const { modal, dom } = openImport(state.plugin, bytes);
+  await modal.start();
+
+  let noteCalls = 0;
+  let releaseSecond;
+  const secondGate = new Promise((resolve) => {
+    releaseSecond = resolve;
+  });
+  const realCreate = state.app.vault.create;
+  state.app.vault.create = async (path, text) => {
+    noteCalls++;
+    if (noteCalls === 2) await secondGate;
+    return realCreate.call(state.app.vault, path, text);
+  };
+
+  const run = modal.createNotes();
+  try {
+    await waitFor(() => dom.texts().some((text) => /^Created 1 of 2/.test(text)), "the note progress line");
+    assert.match(dom.texts().join("\n"), /(less than 10 seconds|about \d+ seconds|about \d+ minutes) left/);
+  } finally {
+    releaseSecond();
+  }
+  await run;
 });
 
 /* ------------------------------------------------- cleanup after the check */

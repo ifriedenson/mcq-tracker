@@ -16,6 +16,21 @@ const { checkDocumentText, summaryText } = require("./import-preflight");
 const { ImportCompleteModal } = require("./import-complete-modal");
 const { isCapMessage } = require("./overnight-checks");
 
+/** Human-readable time left from observed progress; empty until there is a sample. */
+function estimateRemainingText(startedAt, done, total, now) {
+  const finished = Number(done) || 0;
+  const all = Number(total) || 0;
+  if (finished < 1 || finished >= all) return "";
+  const elapsed = Math.max(0, (now === undefined ? Date.now() : now) - startedAt);
+  const remaining = (elapsed / finished) * (all - finished);
+  if (!Number.isFinite(remaining) || remaining < 0) return "";
+  if (remaining < 10000) return "less than 10 seconds left";
+  const seconds = Math.ceil(remaining / 1000);
+  if (seconds < 60) return `about ${seconds} seconds left`;
+  const minutes = Math.ceil(seconds / 60);
+  return `about ${minutes} minute${minutes === 1 ? "" : "s"} left`;
+}
+
 /** Vault-safe folder segment for a picked file; legal characters and spaces stay as they are. */
 function folderBase(name, fallback) {
   return str(name).replace(/[\\/:*?"<>|]/g, "-").trim() || fallback || "File";
@@ -2257,9 +2272,11 @@ class PdfImportModal extends QtModal {
     const blocks = [];
     let carry = [];
     let failures = 0;
+    const readStartedAt = Date.now();
     for (let i = 0; i < chunks.length && !this.stop && !this.closed; i++) {
       const ch = chunks[i];
-      this.status(`Asking the AI to read pages ${ch[0].n}-${ch[ch.length - 1].n} (batch ${i + 1} of ${chunks.length}). ${mergeNotes(blocks).length} questions found so far.`);
+      const eta = estimateRemainingText(readStartedAt, i, chunks.length);
+      this.status(`Asking the AI to read pages ${ch[0].n}-${ch[ch.length - 1].n} (batch ${i + 1} of ${chunks.length}). ${mergeNotes(blocks).length} questions found so far.${eta ? " " + eta : ""}`);
       try {
         const chunk = await this.awaitCancellable(
           this.requestWithTimeout(
@@ -2457,6 +2474,7 @@ class PdfImportModal extends QtModal {
       cls: "qt-hint",
       text: "Check these against the original file. Answers the AI wrote itself are marked, and will be labelled at the top of the note. Untick anything you don't want.",
     });
+    const selection = el.createEl("p", { cls: "qt-hint qt-import-selection" });
     const tools = el.createDiv({ cls: "qt-row qt-small-row" });
     const list = el.createDiv({ cls: "qt-imp-list" });
     const create = el.createEl("button", { cls: "mod-cta qt-modal-btn" });
@@ -2465,6 +2483,7 @@ class PdfImportModal extends QtModal {
       const n = items.filter((q) => q.include).length;
       create.setText(`Create ${n} note${n === 1 ? "" : "s"}`);
       create.disabled = n === 0;
+      selection.setText(`Add ${n} of ${items.length} question${items.length === 1 ? "" : "s"}.`);
     };
     items.forEach((q) => {
       const row = list.createDiv({ cls: "qt-imp-row" });
@@ -2518,6 +2537,7 @@ class PdfImportModal extends QtModal {
     el.createEl("h3", { text: "Creating notes" });
     this.statusEl = el.createDiv({ cls: "qt-hint", text: "Working..." });
     this.running = true;
+    const createStartedAt = Date.now();
     try {
       const { folder, prefix, sourcePath, kind } = this.ctx;
       const nums = chosen.map((q) => q.fm.number);
@@ -2563,7 +2583,8 @@ class PdfImportModal extends QtModal {
         if (fl.aiAnswer || fl.aiExp) result.ai++;
         if (!fl.hasAnswer) result.noAnswer++;
         result.made++;
-        this.status(`Created ${result.made} of ${chosen.length}...`);
+        const eta = estimateRemainingText(createStartedAt, i + 1, chosen.length);
+        this.status(`Created ${result.made} of ${chosen.length}...${eta ? " " + eta : ""}`);
         if (this.unattended && result.made % 10 === 0) await sleep(0);
       }
       await this.pruneImages(folder, result);

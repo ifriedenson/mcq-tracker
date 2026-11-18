@@ -455,7 +455,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `unpackQuickSession` | 0 | `tests/uncited-groups.test.js` |
 | `unpackTestSession` | 0 | `tests/parameterized.test.js`, `tests/stats.test.js` |
 | `urlSafety` | 5 | `tests/security-hardening.test.js`, `tests/security-inventory.test.js` |
-| `util` | 23 | `tests/error-message-paths.test.js` |
+| `util` | 23 | `tests/error-message-paths.test.js`, `tests/study-tasks-plus.test.js` |
 | `vaultSearch` | 8 | `tests/vault-search.test.js` |
 | `vaultTaskIndex` | 9 | `tests/vault-task-index.test.js` |
 | `vectorField` | 14 | `tests/reference-advanced.test.js` |
