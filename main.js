@@ -140308,6 +140308,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.19",
+    date: "November 18, 2026",
+    title: "Every PDF import path, proven",
+    summary:
+      "Every way a PDF reaches the tracker was driven in a real vault — main import, free response, Quizlet cards, document cards, overnight batches, quiz generation, OCR and LaTeX — and each path wrote its notes without an error.",
+    highlights: [
+      {
+        title: "Nine paths, one vault",
+        body: "Each import route ran on the shipped bundle in Obsidian 1.15.1 against a real vault, not a harness mock.",
+      },
+      {
+        title: "Notes read back from disk",
+        body: "Main imports stay verified against their key and keep the PDF, and cards keep their format and source frontmatter.",
+      },
+      {
+        title: "Refusals leave the vault clean",
+        body: "A damaged PDF, a scanned document and an import with AI off each stop with plain words and write nothing.",
+      },
+      {
+        title: "The quiz path is covered",
+        body: "The e2e stand-in now answers PDF-sourced quiz prompts with valid JSON, so generate-quiz-from-PDF is proven too.",
+      },
+    ],
+  },
+  {
     version: "1.307.18",
     date: "November 18, 2026",
     title: "PDF imports read in order",
