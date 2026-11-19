@@ -1077,6 +1077,173 @@ module.exports = {
 };
 };
 
+/* ---- src/agent-edit-history-modal.js ---- */
+__defs["agent-edit-history-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
+const { Notice } = require("obsidian");
+const { str } = require("./util");
+
+/*
+ * Review and undo agent edits: every applied OpenCode review is journalled
+ * with its before text, so any message's edits can be rolled back on their own
+ * instead of only the latest one (which also survives a reload this way).
+ */
+class AgentEditHistoryModal extends QtModal {
+  constructor(app, plugin) {
+    super(app);
+    this.plugin = plugin;
+  }
+
+  records() {
+    if (!this.plugin || typeof this.plugin.agentEditHistory !== "function") return [];
+    try {
+      return this.plugin.agentEditHistory() || [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("qt-agent-review");
+    contentEl.createEl("h3", { text: "Agent edit history" });
+    contentEl.createDiv({
+      cls: "setting-item-description",
+      text: "Each entry is one applied review. Undo restores the notes to how they were before that review; notes you edited since are left alone and listed as skipped.",
+    });
+    this.list(contentEl);
+  }
+
+  list(contentEl) {
+    const host = contentEl.createDiv({ cls: "qt-agent-history" });
+    const records = this.records();
+    if (!records.length) {
+      host.createDiv({ cls: "qt-hint", text: "No applied agent edits yet. Apply an OpenCode review to start a history." });
+      return;
+    }
+    for (const record of records) {
+      const row = host.createDiv({ cls: "qt-agent-file" });
+      const head = row.createDiv({ cls: "qt-agent-file-head" });
+      head.createSpan({ cls: "qt-agent-file-name", text: `${record.date} · ${record.changes.length} note${record.changes.length === 1 ? "" : "s"}` });
+      if (str(record.label).trim()) head.createSpan({ cls: "qt-agent-count", text: str(record.label).trim() });
+      const undo = head.createEl("button", { text: "Undo", cls: "qt-link" });
+      undo.setAttribute("aria-label", `Undo the agent edits from ${record.date}`);
+      undo.addEventListener("click", async () => {
+        undo.disabled = true;
+        undo.setText("Undoing…");
+        try {
+          const result = await this.plugin.undoAgentEdit(record.id);
+          new Notice(
+            result.restored
+              ? `Restored ${result.restored} note${result.restored === 1 ? "" : "s"} from ${record.date}${result.skipped ? `; ${result.skipped} skipped (changed since).` : "."}`
+              : "Nothing to undo: those notes changed since that review.",
+            9000
+          );
+        } catch (error) {
+          new Notice(`Could not undo those edits: ${error && error.message ? error.message : error}`, 10000);
+        }
+        this.onOpen();
+      });
+      const paths = row.createDiv({ cls: "qt-agent-proposal-note" });
+      paths.setText(record.changes.map((change) => change.path).join(", "));
+    }
+  }
+}
+
+module.exports = { AgentEditHistoryModal };
+};
+
+/* ---- src/agent-edit-journal.js ---- */
+__defs["agent-edit-journal"] = function (module, exports, require) {
+/*
+ * A persistent, per-message journal of applied OpenCode agent edits. The
+ * in-memory `agentEditUndo` slot only ever held the last review and vanished
+ * on reload, so any earlier message's edits were final; every applied review
+ * is now journalled with its before/after text and can be undone on its own.
+ * Device-local like the AI write journal: paths belong to this vault, and a
+ * synced list could point at files another device does not have.
+ */
+const { localDate, str } = require("./util");
+
+const AGENT_EDIT_STORAGE_KEY = "mcq-tracker-agent-edits";
+const MAX_AGENT_EDIT_RECORDS = 10;
+const MAX_CHANGES_PER_RECORD = 12;
+const MAX_CHANGE_TEXT = 65536;
+
+function capText(value) {
+  const text = value === null || value === undefined ? null : String(value).replace(/\r\n?/g, "\n");
+  if (text === null) return null;
+  return text.length > MAX_CHANGE_TEXT ? text.slice(0, MAX_CHANGE_TEXT) : text;
+}
+
+function cleanChange(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const path = str(source.path).trim();
+  if (!path) return null;
+  return {
+    path,
+    status: source.status === "added" || source.status === "deleted" ? source.status : "modified",
+    before: capText(source.before === undefined ? null : source.before),
+    after: capText(source.after === undefined ? null : source.after),
+  };
+}
+
+function makeAgentEditRecord(input) {
+  const source = input && typeof input === "object" ? input : {};
+  const changes = [];
+  for (const raw of Array.isArray(source.changes) ? source.changes : []) {
+    const change = cleanChange(raw);
+    if (!change) continue;
+    changes.push(change);
+    if (changes.length >= MAX_CHANGES_PER_RECORD) break;
+  }
+  if (!changes.length) return null;
+  return {
+    id: str(source.id).trim() || `ae-${Date.now().toString(36)}-${changes.length}`,
+    date: str(source.date).trim() || localDate(),
+    label: str(source.label).trim().slice(0, 160),
+    changes,
+  };
+}
+
+function normalizeAgentEditRecords(value) {
+  const out = [];
+  for (const raw of Array.isArray(value) ? value : []) {
+    const record = makeAgentEditRecord(raw);
+    if (!record) continue;
+    out.push(record);
+    if (out.length >= MAX_AGENT_EDIT_RECORDS) break;
+  }
+  return out;
+}
+
+function appendAgentEditRecord(list, record) {
+  if (!record) return normalizeAgentEditRecords(list);
+  return [record, ...normalizeAgentEditRecords(list)].slice(0, MAX_AGENT_EDIT_RECORDS);
+}
+
+function latestAgentEditRecord(list) {
+  return normalizeAgentEditRecords(list)[0] || null;
+}
+
+function findAgentEditRecord(list, id) {
+  return normalizeAgentEditRecords(list).find((record) => record.id === str(id)) || null;
+}
+
+module.exports = {
+  AGENT_EDIT_STORAGE_KEY,
+  MAX_AGENT_EDIT_RECORDS,
+  MAX_CHANGES_PER_RECORD,
+  MAX_CHANGE_TEXT,
+  appendAgentEditRecord,
+  findAgentEditRecord,
+  latestAgentEditRecord,
+  makeAgentEditRecord,
+  normalizeAgentEditRecords,
+};
+};
+
 /* ---- src/agent-edit-review.js ---- */
 __defs["agent-edit-review"] = function (module, exports, require) {
 /*
@@ -1255,6 +1422,14 @@ class AgentEditReviewModal extends QtModal {
       head.createSpan({ cls: `qt-agent-status is-${change.status}`, text: STATUS_LABELS[change.status] || change.status });
       const counts = change.diff.added || change.diff.removed ? ` +${change.diff.added} -${change.diff.removed}` : "";
       if (counts) head.createSpan({ cls: "qt-agent-count", text: counts.trim() });
+      const show = head.createEl("button", {
+        text: "Show in note",
+        cls: "qt-link",
+        attr: { "aria-label": `Show the proposed change to ${change.path} in its note` },
+      });
+      show.addEventListener("click", () => {
+        if (this.plugin && typeof this.plugin.revealChangeInNote === "function") this.plugin.revealChangeInNote(change, 0);
+      });
 
       const details = wrap.createEl("details", { cls: "qt-agent-details" });
       details.createEl("summary", { text: change.diff.lines.length ? "Show diff" : "No text changes" });
@@ -15449,6 +15624,7 @@ class CalendarView extends ItemView {
       this.headerButton(controls, "chevron-left", "Previous week", () => this.shiftWeek(-1));
       this.todayButton(controls);
       this.headerButton(controls, "chevron-right", "Next week", () => this.shiftWeek(1));
+      this.headerButton(controls, "image-down", "Export the week as a PNG image", () => this.plugin.exportWeekImage(), "uni-export-btn");
     } else {
       this.todayButton(controls);
     }
@@ -30825,6 +31001,13 @@ class ChatPanel {
         row.createSpan({ cls: "qt-agent-proposal-path", text: str(change.path) || "Note" });
         row.createSpan({ cls: "qt-agent-proposal-file-state", text: PROPOSAL_FILE_LABELS[change.status] || "Changed" });
         row.createSpan({ cls: "qt-agent-proposal-count", text: `+${Number(diff.added) || 0} -${Number(diff.removed) || 0}` });
+        const showButton = row.createEl("button", { cls: "qt-link qt-agent-proposal-show", text: "Show in note" });
+        showButton.setAttr("aria-label", `Show the proposed change to ${change.path} in its note`);
+        showButton.addEventListener("click", () => {
+          if (this.view && this.view.plugin && typeof this.view.plugin.revealChangeInNote === "function") {
+            this.view.plugin.revealChangeInNote(change, 0);
+          }
+        });
         const lines = Array.isArray(diff.lines) ? diff.lines.slice(0, 6) : [];
         if (lines.length) {
           const preview = card.createDiv({ cls: "qt-agent-proposal-diff", attr: { "aria-label": `Diff preview for ${change.path}` } });
@@ -30855,6 +31038,9 @@ class ChatPanel {
 
   setProposalCard(card) {
     this.proposalCard = card && typeof card === "object" ? card : null;
+    if (this.view && this.view.plugin && typeof this.view.plugin.noteProposalChanges === "function") {
+      this.view.plugin.noteProposalChanges(this.proposalCard && this.proposalCard.changes);
+    }
     this.sig = "";
     this.draw();
     return this.proposalCard;
@@ -32906,6 +33092,100 @@ module.exports = {
   normalizeCitationSettings,
   parseBibTeX,
   safeCitationName,
+};
+};
+
+/* ---- src/class-dots.js ---- */
+__defs["class-dots"] = function (module, exports, require) {
+/*
+ * Class-held dots for the course hub: one dot per scheduled class meeting this
+ * term. A dot is filled when that day's lecture note exists, a ring when
+ * attendance was checked without a note, and empty when the class did not meet.
+ * Clicking an empty dot creates the note from the existing course template.
+ *
+ * Pure: the plugin supplies the meetings and the note/attendance sets; this
+ * only matches days, orders them and caps the row.
+ */
+const { str } = require("./util");
+
+const MAX_DOTS = 90;
+
+function courseKeyOf(value) {
+  return str(value).trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function dayKeyOf(value) {
+  const text = str(value).trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+}
+
+function normalizeMeeting(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const course = courseKeyOf(source.course);
+  const key = dayKeyOf(source.key);
+  if (!course || !key) return null;
+  return {
+    course,
+    name: str(source.name).trim() || str(source.course).trim(),
+    key,
+    label: str(source.label).trim(),
+    event: source.event === undefined ? null : source.event,
+  };
+}
+
+function idSet(value) {
+  const out = new Set();
+  for (const entry of Array.isArray(value) ? value : []) {
+    const text = str(entry).trim().toLowerCase();
+    if (text) out.add(text);
+  }
+  return out;
+}
+
+/**
+ * meetings: [{ course, name?, key, label?, event? }]; noted/checked hold
+ * "course|key" ids (course already lowercased, or any case). termStart/termEnd
+ * bound the meetings; cap bounds one course's dots with an overflow count.
+ */
+function buildClassDots(input) {
+  const opts = input && typeof input === "object" ? input : {};
+  const noted = idSet(opts.noted);
+  const checked = idSet(opts.checked);
+  const termStart = dayKeyOf(opts.termStart);
+  const termEnd = dayKeyOf(opts.termEnd);
+  const cap = Math.max(1, Math.min(MAX_DOTS, Math.round(Number(opts.cap) || MAX_DOTS)));
+  const courses = new Map();
+  for (const raw of Array.isArray(opts.meetings) ? opts.meetings : []) {
+    const meeting = normalizeMeeting(raw);
+    if (!meeting) continue;
+    if (termStart && meeting.key < termStart) continue;
+    if (termEnd && meeting.key > termEnd) continue;
+    if (!courses.has(meeting.course)) {
+      courses.set(meeting.course, { course: meeting.course, name: meeting.name, dots: [], overflow: 0 });
+    }
+    const entry = courses.get(meeting.course);
+    if (!entry.name && meeting.name) entry.name = meeting.name;
+    const id = `${meeting.course}|${meeting.key}`;
+    const state = noted.has(id) ? "held" : checked.has(id) ? "checked" : "empty";
+    entry.dots.push({ key: meeting.key, state, label: meeting.label, event: meeting.event });
+  }
+  let total = 0;
+  for (const entry of courses.values()) {
+    entry.dots.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    total += entry.dots.length;
+    if (entry.dots.length > cap) {
+      entry.overflow = entry.dots.length - cap;
+      entry.dots = entry.dots.slice(0, cap);
+    }
+  }
+  return { courses: [...courses.values()], total };
+}
+
+module.exports = {
+  MAX_DOTS,
+  buildClassDots,
+  courseKeyOf,
+  normalizeMeeting,
 };
 };
 
@@ -38221,6 +38501,98 @@ module.exports = {
   normalizeRecallDays,
   recordRecallDay,
   requiredDaysOf,
+};
+};
+
+/* ---- src/editor-diff-nav.js ---- */
+__defs["editor-diff-nav"] = function (module, exports, require) {
+/*
+ * The diff the transcript card and the review dialog already show, brought into
+ * the note itself: instead of a second overlay, stepping through a proposal
+ * selects the changed lines in the open editor, so the change is seen in place.
+ * Pure: hunk spans are derived from the shipped diffPreview rows, and the
+ * selection only touches a duck-typed editor, so the headless suite can prove
+ * it without Obsidian.
+ */
+
+/**
+ * One span per maximal changed block, in old-file line numbers (what the open
+ * editor holds before applying). A pure insertion anchors on the line it
+ * follows, or line 1 when the file starts with the change.
+ */
+function hunkSpans(diff) {
+  const lines = diff && Array.isArray(diff.lines) ? diff.lines : [];
+  const spans = [];
+  let current = null;
+  let anchor = null;
+  const push = () => {
+    if (!current) return;
+    if (current.startOld === null) current.startOld = current.endOld = anchor === null ? 1 : anchor;
+    spans.push(current);
+    current = null;
+  };
+  for (const line of lines || []) {
+    const kind = line && line.kind;
+    if (kind !== "add" && kind !== "del") {
+      push();
+      if (kind === "context" && typeof line.oldNo === "number") anchor = line.oldNo;
+      continue;
+    }
+    if (!current) current = { startOld: null, endOld: null, startNew: null, endNew: null, anchor };
+    if (typeof line.oldNo === "number" && line.oldNo !== null) {
+      if (current.startOld === null || line.oldNo < current.startOld) current.startOld = line.oldNo;
+      if (current.endOld === null || line.oldNo > current.endOld) current.endOld = line.oldNo;
+    }
+    if (typeof line.newNo === "number" && line.newNo !== null) {
+      if (current.startNew === null || line.newNo < current.startNew) current.startNew = line.newNo;
+      if (current.endNew === null || line.newNo > current.endNew) current.endNew = line.newNo;
+    }
+  }
+  push();
+  return spans;
+}
+
+/** Hunk spans per changed path, skipping changes with no hunks. */
+function spansForChanges(changes) {
+  const out = [];
+  for (const change of Array.isArray(changes) ? changes : []) {
+    if (!change) continue;
+    const spans = hunkSpans(change.diff);
+    if (!spans.length) continue;
+    out.push({ path: String(change.path || ""), status: String(change.status || ""), spans });
+  }
+  return out;
+}
+
+/**
+ * Select an old-file hunk in an open editor and scroll it into view. Returns
+ * true only when the selection landed; anything missing or throwing answers
+ * false so callers can fall back to opening the note instead.
+ */
+function selectHunk(editor, span) {
+  if (!editor || !span) return false;
+  try {
+    if (typeof editor.getLine !== "function" || typeof editor.setSelection !== "function") return false;
+    const last = typeof editor.lastLine === "function" ? Math.max(0, Math.round(Number(editor.lastLine()) || 0)) : 0;
+    const start = Math.max(1, Math.round(Number(span.startOld) || 1));
+    const end = Math.max(start, Math.round(Number(span.endOld) || start));
+    const fromLine = Math.min(start - 1, last);
+    const toLine = Math.min(end - 1, last);
+    const toText = editor.getLine(toLine);
+    editor.setSelection({ line: fromLine, ch: 0 }, { line: toLine, ch: String(toText === null || toText === undefined ? "" : toText).length });
+    if (typeof editor.scrollIntoView === "function") {
+      editor.scrollIntoView({ from: { line: fromLine, ch: 0 }, to: { line: toLine, ch: 0 } }, true);
+    }
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+module.exports = {
+  hunkSpans,
+  selectHunk,
+  spansForChanges,
 };
 };
 
@@ -76081,7 +76453,7 @@ const agentWriteGuard = require("./agent-write-guard");
 const agentEditReview = require("./agent-edit-review");
 const { CalculationPreviewModal } = require("./calculation-preview-modal");
 const { CalendarImportModal, CalendarView, SemesterRolloverModal, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
-const { applyTermWeeks, cleanSubjectTitle, eventKey, examMatchesCourse, examReviewCap, findRegisteredCourse, isExamEvent, mergeCalendarSettings, nextClassStatus, normalizeFolder, normalizeTermDate, rolloverCourses, subjectKey, visibleEvents } = require("./calendar-model");
+const { applyTermWeeks, classColor, cleanSubjectTitle, eventKey, eventsOnDay, examMatchesCourse, examReviewCap, findRegisteredCourse, formatTime, isExamEvent, mergeCalendarSettings, nextClassStatus, normalizeFolder, normalizeTermDate, parseClassDetails, rolloverCourses, subjectKey, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan, normalizeStudyPlanDays } = require("./study-plan");
 const { buildDashboard, courseMatches } = require("./analytics");
 const { bandQuestions, buildMastery, buildMasteryTrend, buildProgress, masteryScopes, masteryWindowDays, scopeQuestions } = require("./progress");
@@ -76174,6 +76546,7 @@ const snapshotCache = require("./snapshot-cache");
 const quizDedup = require("./quiz-dedup");
 const localEvents = require("./local-events");
 const calendarMerge = require("./calendar-merge");
+const calendarWeek = require("./calendar-week");
 const noteReviewDock = require("./note-review-dock");
 const sessionReport = require("./session-report");
 const { NoteReviewDock } = require("./note-review-dock");
@@ -76197,6 +76570,22 @@ const hubs = require("./hubs");
 const { hubViewClass } = require("./hub-view");
 const taskDates = require("./task-dates");
 const taskMirror = require("./task-mirror");
+// Lazy: the quarter features below only load when their view, command or
+// postprocessor runs, keeping startup under the module budget.
+let _classDots = null;
+let _weekImage = null;
+let _taskChips = null;
+let _editorDiffNav = null;
+let _agentEditJournal = null;
+let _agentEditHistoryModal = null;
+let _taskChipDateModal = null;
+const classDots = () => (_classDots || (_classDots = require("./class-dots")));
+const weekImage = () => (_weekImage || (_weekImage = require("./week-image")));
+const taskChips = () => (_taskChips || (_taskChips = require("./task-chips")));
+const editorDiffNav = () => (_editorDiffNav || (_editorDiffNav = require("./editor-diff-nav")));
+const agentEditJournal = () => (_agentEditJournal || (_agentEditJournal = require("./agent-edit-journal")));
+const agentEditHistoryModal = () => (_agentEditHistoryModal || (_agentEditHistoryModal = require("./agent-edit-history-modal")));
+const taskChipDateModal = () => (_taskChipDateModal || (_taskChipDateModal = require("./task-chip-date-modal")));
 const { PomodoroView } = require("./pomodoro-view");
 const { applySpacedReview, buildSpacedQueue, normalizeSpacedEverything, renderSpacedTemplate, spacedCaptureText } = require("./spaced-everything");
 const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
@@ -76382,6 +76771,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (typeof this.registerMarkdownPostProcessor === "function") {
       this.registerMarkdownPostProcessor((el) => satCallout.syncSatCallouts(el));
       this.registerMarkdownPostProcessor((el, ctx) => this.decorateTableEditor(el, ctx));
+      this.registerMarkdownPostProcessor((el, ctx) => this.decorateTaskChips(el, ctx));
     }
     if (typeof activeDocument !== "undefined" && activeDocument) {
       this.registerDomEvent(activeDocument, "click", (event) => {
@@ -76448,6 +76838,9 @@ class QuestionTrackerPlugin extends Plugin {
     });
     this.addCommand({ id: "ai-undo-last-write", name: "AI: undo the last generated notes", callback: () => this.undoLastAiWriteCommand() });
     this.addCommand({ id: "ai-undo-agent-edits", name: "AI: undo the last agent edits", callback: () => this.undoLastAgentEditCommand() });
+    this.addCommand({ id: "ai-review-agent-edits", name: "AI: review and undo agent edits", callback: () => this.openAgentEditHistory() });
+    this.addCommand({ id: "calendar-export-week", name: "Calendar: export the current week as a PNG image", callback: () => this.exportWeekImage() });
+    this.addCommand({ id: "agent-show-change", name: "Study agent: show the next proposed change in its note", callback: () => this.revealNextProposalChange() });
     this.addCommand({ id: "course-notes-import", name: "Import course notes from a lecture or chapter", callback: () => this.openCourseNotesImport() });
     this.addCommand({ id: "paper-scanner", name: "Paper scanner: photos to PDF", callback: () => this.openPaperScanner() });
     this.addCommand({ id: "document-review", name: "Review a document for import", callback: () => this.openDocumentReview() });
@@ -82725,15 +83118,78 @@ class QuestionTrackerPlugin extends Plugin {
     }
     if (applied.length) {
       this.agentEditUndo = selected.filter((change) => applied.includes(change.path));
+      // Journal every applied review so any message's edits undo on their own.
+      this.recordAgentEdit(agentEditJournal().makeAgentEditRecord({
+        id: `ae-${Date.now().toString(36)}`,
+        date: localDate(),
+        label: "Agent review",
+        changes: this.agentEditUndo,
+      }));
       this.refreshViews();
     }
     return { applied, conflicts };
   }
 
+  /** Show the proposed change in its note: select the hunk in the editor. */
+  noteProposalChanges(changes) {
+    this._proposalChanges = Array.isArray(changes) ? changes : [];
+    this._revealCursor = 0;
+  }
+
+  async revealChangeInNote(change, hunkIndex) {
+    if (!change || !str(change.path).trim()) {
+      new Notice("No proposed change to show.");
+      return false;
+    }
+    const path = str(change.path).trim();
+    const spans = editorDiffNav().hunkSpans(change.diff);
+    const span = spans.length ? spans[Math.min(Math.max(0, Math.round(Number(hunkIndex) || 0)), spans.length - 1)] : null;
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) {
+      new Notice(`Could not find ${path}.`);
+      return false;
+    }
+    const active = this.app.workspace.getActiveFile ? this.app.workspace.getActiveFile() : null;
+    if (active && active.path === file.path) {
+      const editor = this.app.workspace.activeEditor && this.app.workspace.activeEditor.editor;
+      if (span && editor && editorDiffNav().selectHunk(editor, span)) return true;
+    } else if (this.app.workspace.getLeaf) {
+      const leaf = this.app.workspace.getLeaf("tab");
+      if (leaf && typeof leaf.openFile === "function") await leaf.openFile(file);
+      const editor = this.app.workspace.activeEditor && this.app.workspace.activeEditor.editor;
+      if (span && editor && editorDiffNav().selectHunk(editor, span)) return true;
+    }
+    new Notice(span ? `Opened ${path}; the change is listed in the proposal card.` : `Opened ${path}.`);
+    return true;
+  }
+
+  /** Step through every pending proposal hunk, one command press each. */
+  async revealNextProposalChange() {
+    const groups = editorDiffNav().spansForChanges(this._proposalChanges);
+    if (!groups.length) {
+      new Notice("No pending proposal changes to show. Apply or review an agent proposal first.");
+      return false;
+    }
+    const sources = Array.isArray(this._proposalChanges) ? this._proposalChanges : [];
+    const flat = [];
+    groups.forEach((group, order) => {
+      const source = sources[order] || { path: group.path, status: group.status };
+      group.spans.forEach((span, hunk) => flat.push({ source, hunk }));
+    });
+    if (!flat.length) return false;
+    const cursor = Math.min(Math.max(0, Math.round(Number(this._revealCursor) || 0)), flat.length - 1);
+    this._revealCursor = (cursor + 1) % flat.length;
+    return this.revealChangeInNote(flat[cursor].source, flat[cursor].hunk);
+  }
+
   /** Reverse the last applied agent review. */
   async undoLastAgentEdit() {
     const changes = Array.isArray(this.agentEditUndo) ? this.agentEditUndo : [];
-    if (!changes.length) return { restored: 0, paths: [] };
+    if (!changes.length) {
+      const latest = agentEditJournal().latestAgentEditRecord(this.agentEditHistory());
+      if (!latest) return { restored: 0, paths: [] };
+      return this.undoAgentEdit(latest.id);
+    }
     const paths = [];
     for (const change of changes) {
       if (change.before === null) await this.trashAgentFile(change.path);
@@ -82743,6 +83199,50 @@ class QuestionTrackerPlugin extends Plugin {
     this.agentEditUndo = null;
     this.refreshViews();
     return { restored: paths.length, paths };
+  }
+
+  /** The persisted per-message agent-edit journal (device-local, like AI writes). */
+  agentEditHistory() {
+    try {
+      return agentEditJournal().normalizeAgentEditRecords(this.app.loadLocalStorage(agentEditJournal().AGENT_EDIT_STORAGE_KEY));
+    } catch (error) {
+      return [];
+    }
+  }
+
+  recordAgentEdit(record) {
+    if (!record) return null;
+    try {
+      this.app.saveLocalStorage(agentEditJournal().AGENT_EDIT_STORAGE_KEY, agentEditJournal().appendAgentEditRecord(this.agentEditHistory(), record));
+    } catch (error) {
+      return null;
+    }
+    return record;
+  }
+
+  /** Undo one journalled review by id; notes edited since are skipped. */
+  async undoAgentEdit(id) {
+    const record = agentEditJournal().findAgentEditRecord(this.agentEditHistory(), id);
+    if (!record) return { restored: 0, skipped: 0, paths: [] };
+    const paths = [];
+    let skipped = 0;
+    for (const change of record.changes) {
+      const file = this.app.vault.getAbstractFileByPath(change.path);
+      const current = file instanceof TFile ? await this.app.vault.cachedRead(file) : null;
+      if (agentEditReview.normalizeText(current) !== change.after) {
+        skipped += 1;
+        continue;
+      }
+      if (change.before === null) await this.trashAgentFile(change.path);
+      else await this.writeAgentFile(change.path, change.before);
+      paths.push(change.path);
+    }
+    this.refreshViews();
+    return { restored: paths.length, skipped, paths };
+  }
+
+  openAgentEditHistory() {
+    new (agentEditHistoryModal().AgentEditHistoryModal)(this.app, this).open();
   }
 
   async undoLastAgentEditCommand() {
@@ -86068,6 +86568,65 @@ ${body}
     return result;
   }
 
+  /** Class-held dots for the course hub: one dot per scheduled class meeting. */
+  classDotsData() {
+    if (this.moduleOff("calendar")) return { courses: [], total: 0 };
+    const settings = this.calendarSettings();
+    const today = localDate();
+    const shiftDay = (key, delta) => {
+      const parts = str(key).split("-").map(Number);
+      const at = new Date(parts[0], parts[1] - 1, parts[2], 12);
+      if (Number.isNaN(at.getTime())) return "";
+      at.setDate(at.getDate() + delta);
+      return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`;
+    };
+    const termStart = str(settings.semesterStart).trim() || shiftDay(today, -60);
+    const termEnd = str(settings.semesterEnd).trim() || shiftDay(today, 120);
+    const meetings = [];
+    const noted = new Set();
+    const index = this.calendarNoteIndex();
+    const folders = this.calendarFolders();
+    for (const event of this.calendarEvents() || []) {
+      try {
+        if (!event || event.termReadingWeek || event.foreign || isExamEvent(event)) continue;
+        const key = str(event.dateKey).trim();
+        const course = str(event.course).trim() || cleanSubjectTitle(event.summary);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || !course) continue;
+        if (key < termStart || key > termEnd) continue;
+        meetings.push({ course, name: course, key, label: str(event.summary).trim(), event });
+        let found = null;
+        try {
+          found = findClassNote(this.app, settings, event, key, index, folders);
+        } catch (error) {
+          found = null;
+        }
+        if (found) noted.add(`${course.toLowerCase()}|${key}`);
+      } catch (error) {
+        continue;
+      }
+    }
+    const checked = new Set();
+    try {
+      const lectures = (this.studyToolsSettings && this.studyToolsSettings().lectureLog.lectures) || [];
+      for (const lecture of Array.isArray(lectures) ? lectures : []) {
+        if (!lecture || !lecture.course || !lecture.date) continue;
+        if (lecture.date < termStart || lecture.date > termEnd) continue;
+        const id = `${classDots().courseKeyOf(lecture.course)}|${lecture.date}`;
+        checked.add(id);
+        if (str(lecture.notePath).trim()) noted.add(id);
+      }
+      const absences = (this.studyWorkspaceSettings && this.studyWorkspaceSettings().subjectManager.absences) || [];
+      for (const absence of Array.isArray(absences) ? absences : []) {
+        if (!absence || !absence.subject || !absence.date) continue;
+        if (absence.date < termStart || absence.date > termEnd) continue;
+        checked.add(`${classDots().courseKeyOf(absence.subject)}|${absence.date}`);
+      }
+    } catch (error) {
+      // Dots degrade to meetings-only rather than breaking the hub.
+    }
+    return classDots().buildClassDots({ meetings, noted: [...noted], checked: [...checked], termStart, termEnd });
+  }
+
   /** Adds a saved resource to the exam's class note, creating the note when needed. */
   async addApResourceToClassNote(event, key, entry) {
     if (!event || !entry) return null;
@@ -86619,6 +87178,105 @@ ${body}
     }
     new Notice(`Exported ${sheet.count} due question${sheet.count === 1 ? "" : "s"} to ${path}.`, 7000);
     return { path, count: sheet.count };
+  }
+
+  /** The exact rows the week card draws, reused by the PNG export. */
+  buildWeekLayout(startKey) {
+    const settings = this.calendarSettings();
+    const keys = calendarWeek.weekDayKeys(startKey);
+    const range = new Date(`${startKey}T12:00:00`);
+    const allEvents = this.calendarEvents(range);
+    const layers = calendarMerge.enabledLayers(this, settings.layers);
+    const events = layers.classes ? allEvents : [];
+    const merged = calendarMerge.collect(this, { events: allEvents, startKey, endKey: keys[keys.length - 1], layers });
+    const rowsByDay = new Map(keys.map((key) => [key, (merged.byDay.get(key) || []).slice()]));
+    if (merged.layers.classes) {
+      for (const key of keys) {
+        for (const event of eventsOnDay(events, key)) {
+          const startMin = calendarWeek.dayMinutes(event.dtstart);
+          if (startMin === null) continue;
+          const endMin = calendarWeek.dayMinutes(event.dtend);
+          let details = null;
+          try {
+            details = parseClassDetails(event.summary, event.description, event.location);
+          } catch (error) {
+            details = null;
+          }
+          rowsByDay.get(key).push({
+            layer: "classes",
+            title: str(event.summary) || "Class",
+            time: `${formatTime(settings, event.dtstart)}${event.dtend ? ` \u2013 ${formatTime(settings, event.dtend)}` : ""}`,
+            startMin,
+            endMin: endMin !== null && endMin > startMin ? endMin : startMin + calendarWeek.LONG_EVENT_MINUTES,
+            color: classColor(settings, details, event.summary),
+          });
+        }
+      }
+    }
+    return calendarWeek.buildWeek({ startKey, firstDayOfWeek: settings.firstDayOfWeek, rowsByDay, now: new Date() });
+  }
+
+  /** Rasterize the current week grid and save it next to the .ics export. */
+  async exportWeekImage() {
+    if (this.moduleOff("calendar")) return { exported: false };
+    if (typeof document === "undefined" || typeof Image === "undefined") {
+      new Notice("Week image export needs the app window.");
+      return { exported: false, reason: "no-window" };
+    }
+    const settings = this.calendarSettings();
+    const startKey = calendarWeek.weekStartKey(localDate(), settings.firstDayOfWeek);
+    const layout = this.buildWeekLayout(startKey);
+    const drawn = weekImage().buildWeekSvg(layout, {
+      hourLabel: (hour) => formatTime(settings, new Date(2026, 0, 5, hour, 0)),
+    });
+    const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(drawn.svg)}`;
+    let image = null;
+    try {
+      image = await new Promise((resolve, reject) => {
+        const probe = new Image();
+        probe.onload = () => resolve(probe);
+        probe.onerror = () => reject(new Error("image"));
+        probe.src = url;
+      });
+    } catch (error) {
+      new Notice("Could not render the week image.");
+      return { exported: false, reason: "raster" };
+    }
+    const scale = 2;
+    const canvas = document.createElement("canvas");
+    canvas.width = drawn.width * scale;
+    canvas.height = drawn.height * scale;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      new Notice("Could not render the week image.");
+      return { exported: false, reason: "raster" };
+    }
+    ctx.scale(scale, scale);
+    ctx.drawImage(image, 0, 0, drawn.width, drawn.height);
+    const blob = await new Promise((resolve) => {
+      try {
+        canvas.toBlob((made) => resolve(made), "image/png");
+      } catch (error) {
+        resolve(null);
+      }
+    });
+    if (!blob) {
+      new Notice("Could not render the week image.");
+      return { exported: false, reason: "raster" };
+    }
+    const buffer = await blob.arrayBuffer();
+    const target = weekImage().weekImageFileName(startKey);
+    const existing = this.app.vault.getAbstractFileByPath(target);
+    if (existing instanceof TFile && typeof this.app.vault.modifyBinary === "function") {
+      await this.app.vault.modifyBinary(existing, buffer);
+    } else if (typeof this.app.vault.createBinary === "function") {
+      await this.app.vault.createBinary(target, buffer);
+    } else {
+      new Notice("This Obsidian version cannot save images from the plugin.");
+      return { exported: false, reason: "no-binary" };
+    }
+    new Notice(`Exported the week as ${target}.`);
+    return { exported: true, path: target };
   }
 
   async exportCalendarIcs() {
@@ -89561,6 +90219,75 @@ ${body}
   }
 
   /** Attach editing only to rendered tables in a real reading view note. */
+  /** Inline task chips for reading view: schedule tokens become small chips. */
+  decorateTaskChips(el, ctx) {
+    try {
+      if (!el || !ctx || typeof ctx.getSectionInfo !== "function") return;
+      const current = this.studyWorkspaceSettings().studyTasks;
+      if (!current || current.enabled === false) return;
+      const sourcePath = str(ctx.sourcePath).trim();
+      if (!sourcePath) return;
+      const info = ctx.getSectionInfo(el);
+      if (!info) return;
+      const lineStart = Math.max(0, Math.round(Number(info.lineStart) || 0));
+      const rows = typeof el.querySelectorAll === "function" ? Array.from(el.querySelectorAll(":scope > ul, :scope > ol")) : [];
+      const lists = rows.length ? rows : [];
+      if (!lists.length && typeof el.children !== "undefined") {
+        for (const child of Array.from(el.children || [])) {
+          if (child && /^(UL|OL)$/i.test(String(child.tagName || child.meta && child.meta.tag || ""))) lists.push(child);
+        }
+      }
+      let line = lineStart;
+      for (const list of lists) {
+        const count = taskChips().decorateTaskList(list, {
+          startLine: line,
+          onDate: (lineNo) => this.openTaskChipDate(sourcePath, lineNo),
+          onPriority: (lineNo) => this.stepTaskChipPriority(sourcePath, lineNo),
+        });
+        line += count;
+      }
+    } catch (error) {
+      // Decoration never breaks reading.
+    }
+  }
+
+  /** Rewrite one chip token on one note line; reading view re-renders itself. */
+  async applyTaskChipEdit(sourcePath, lineNo, edit) {
+    const file = this.app.vault.getAbstractFileByPath(sourcePath);
+    if (!(file instanceof TFile) || !edit) return false;
+    const text = await this.app.vault.read(file);
+    const lines = String(text === null || text === undefined ? "" : text).split("\n");
+    const index = Math.round(Number(lineNo) || 0) - 1;
+    if (index < 0 || index >= lines.length) return false;
+    const next = taskChips().applyChipEdit(lines[index], edit);
+    if (next === lines[index]) return false;
+    lines[index] = next;
+    await this.app.vault.modify(file, lines.join("\n"));
+    return true;
+  }
+
+  async openTaskChipDate(sourcePath, lineNo) {
+    const file = this.app.vault.getAbstractFileByPath(sourcePath);
+    if (!(file instanceof TFile)) return;
+    const text = await this.app.vault.read(file);
+    const line = String(text === null || text === undefined ? "" : text).split("\n")[Math.round(Number(lineNo) || 0) - 1] || "";
+    const current = taskChips().parseTaskLine(line).due;
+    new (taskChipDateModal().TaskChipDateModal)(this.app, current, async (day) => {
+      const changed = await this.applyTaskChipEdit(sourcePath, lineNo, { field: "due", value: day });
+      if (changed) new Notice(day ? `Due ${day}.` : "Due date cleared.");
+    }).open();
+  }
+
+  async stepTaskChipPriority(sourcePath, lineNo) {
+    const file = this.app.vault.getAbstractFileByPath(sourcePath);
+    if (!(file instanceof TFile)) return;
+    const text = await this.app.vault.read(file);
+    const line = String(text === null || text === undefined ? "" : text).split("\n")[Math.round(Number(lineNo) || 0) - 1] || "";
+    const high = taskChips().parseTaskLine(line).priority !== "high";
+    const changed = await this.applyTaskChipEdit(sourcePath, lineNo, { field: "priority", value: high ? "high" : "" });
+    if (changed) new Notice(high ? "Marked high priority." : "Back to normal priority.");
+  }
+
   decorateTableEditor(el, ctx) {
     if (!this.tableEditorEnabled() || !el) return;
     if (typeof el.closest === "function" && el.closest(".markdown-embed")) return;
@@ -90434,7 +91161,13 @@ ${body}
   async updateStudyTask(id, patch) {
     const current = this.studyWorkspaceSettings().studyTasks;
     const before = current.tasks.find((task) => task.id === id) || null;
-    const tasks = current.tasks.map((task) => (task.id === id ? { ...task, ...(patch || {}) } : task));
+    const change = patch && typeof patch === "object" ? patch : {};
+    // The agenda's Done-today section needs a completion day: finishing stamps
+    // it (an explicit doneAt wins), reopening clears it.
+    const became = change.done === true && (!before || !before.done);
+    const reopened = change.done === false && before && before.done;
+    const stamp = became ? str(change.doneAt).trim() || localDate() : reopened ? "" : null;
+    const tasks = current.tasks.map((task) => (task.id === id ? { ...task, ...change, ...(stamp === null ? {} : { doneAt: stamp }) } : task));
     this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({ ...current, tasks });
     await this.save();
     this.refreshViews();
@@ -125297,6 +126030,7 @@ function normalizeStudyTask(value) {
     due: dayValue(source.due),
     time: timeValue(source.time),
     done: source.done === true,
+    doneAt: dayValue(source.doneAt),
     priority: priorityValue(source.priority),
     repeat: repeatValue(source.repeat),
     source: boundedText(source.source, 40) || "manual",
@@ -125315,7 +126049,12 @@ function normalizeStudyTasks(value) {
     tasks.push(task);
     if (tasks.length >= MAX_TASKS) break;
   }
-  return { enabled: enabledValue(value), tasks, mirrorNote: boundedText(source.mirrorNote, 200) };
+  return {
+    enabled: enabledValue(value),
+    tasks,
+    mirrorNote: boundedText(source.mirrorNote, 200),
+    agenda: source.agenda === true,
+  };
 }
 
 function createStudyTask(input, now) {
@@ -125438,6 +126177,69 @@ function hasFollowUp(tasks, followUp) {
       dayValue(task.due) === dayValue(wanted.due) &&
       repeatValue(task.repeat) === repeatValue(wanted.repeat)
   );
+}
+
+const AGENDA_SECTION_CAP = 20;
+
+function agendaDayTitle(key) {
+  const day = dayValue(key);
+  if (!day) return "";
+  const [year, month, date] = day.split("-").map(Number);
+  const at = new Date(year, month - 1, date, 12);
+  if (Number.isNaN(at.getTime())) return day;
+  const names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  return `${names[at.getDay()]}, ${MONTH_SHORT[month - 1]} ${date}`;
+}
+
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function compareAgendaTasks(a, b) {
+  const dueA = dayValue(a && a.due) || "\uffff";
+  const dueB = dayValue(b && b.due) || "\uffff";
+  if (dueA !== dueB) return dueA < dueB ? -1 : 1;
+  const timeA = str(a && a.time);
+  const timeB = str(b && b.time);
+  if (timeA !== timeB) return timeA < timeB ? -1 : 1;
+  return str(a && a.title).localeCompare(str(b && b.title));
+}
+
+/**
+ * Group open plugin tasks into an agenda: overdue, today, one section per
+ * upcoming day, later, no-date, then today's done tasks. Later and no-date
+ * sections are capped at AGENDA_SECTION_CAP with a total count. Pure.
+ */
+function agendaSections(tasks, today) {
+  const day = dayValue(today) || localDate();
+  const open = (Array.isArray(tasks) ? tasks : []).filter((task) => task && !task.done);
+  const doneToday = (Array.isArray(tasks) ? tasks : []).filter((task) => task && task.done && (!task.doneAt || task.doneAt === day));
+  const overdue = open.filter((task) => dayValue(task.due) && dayValue(task.due) < day).sort(compareAgendaTasks);
+  const dueToday = open.filter((task) => dayValue(task.due) === day).sort(compareAgendaTasks);
+  const upcoming = new Map();
+  for (const task of open) {
+    const due = dayValue(task.due);
+    if (!due || due <= day) continue;
+    if (!upcoming.has(due)) upcoming.set(due, []);
+    upcoming.get(due).push(task);
+  }
+  const upcomingDays = [...upcoming.keys()].sort();
+  const sections = [];
+  if (overdue.length) sections.push({ id: "overdue", title: "Overdue", tasks: overdue, total: overdue.length });
+  if (dueToday.length) sections.push({ id: "today", title: "Today", tasks: dueToday, total: dueToday.length });
+  for (const key of upcomingDays.slice(0, 7)) {
+    const rows = upcoming.get(key).sort(compareAgendaTasks);
+    sections.push({ id: `day-${key}`, title: agendaDayTitle(key), key, tasks: rows, total: rows.length });
+  }
+  const laterKeys = upcomingDays.slice(7);
+  const later = laterKeys.flatMap((key) => upcoming.get(key)).sort(compareAgendaTasks);
+  if (later.length) {
+    sections.push({ id: "later", title: "Later", tasks: later.slice(0, AGENDA_SECTION_CAP), total: later.length, capped: later.length > AGENDA_SECTION_CAP });
+  }
+  const noDate = open.filter((task) => !dayValue(task.due)).sort(compareAgendaTasks);
+  if (noDate.length) {
+    sections.push({ id: "nodate", title: "No date", tasks: noDate.slice(0, AGENDA_SECTION_CAP), total: noDate.length, capped: noDate.length > AGENDA_SECTION_CAP });
+  }
+  if (doneToday.length) sections.push({ id: "done", title: "Done today", tasks: doneToday.slice().sort(compareAgendaTasks), total: doneToday.length });
+  return sections;
 }
 
 function taskSummary(tasks, today) {
@@ -125831,6 +126633,8 @@ module.exports = {
   recallDueUnits,
   recallStats,
   hasFollowUp,
+  agendaSections,
+  agendaDayTitle,
   nextWeekday,
   repeatFollowUp,
   repeatValue,
@@ -126873,6 +127677,15 @@ class StudyWorkspaceView extends ItemView {
     stat(data.grades.length, "grades");
     stat(totalWeight ? `${overall}%` : "—", "weighted average");
     stat(graded.length, "courses graded");
+    let dotsByCourse = new Map();
+    try {
+      const dotsData = this.plugin.classDotsData ? this.plugin.classDotsData() : null;
+      if (dotsData && Array.isArray(dotsData.courses)) {
+        dotsByCourse = new Map(dotsData.courses.map((course) => [course.course, course]));
+      }
+    } catch (error) {
+      dotsByCourse = new Map();
+    }
     const cards = root.createDiv({ cls: "qt-study-grid" });
     for (const entry of dashboard) {
       const card = cards.createDiv({ cls: "qt-study-card qt-course-card" });
@@ -126885,6 +127698,25 @@ class StudyWorkspaceView extends ItemView {
       if (entry.graded) chip.addClass(`is-${entry.letter.toLowerCase()}`);
       head.createEl("button", { text: "Overview", cls: "qt-link" }).addEventListener("click", () => this.plugin.openCourseOverview(entry.courseId || entry.name));
       card.createDiv({ cls: "qt-study-row-meta", text: `${entry.lectures} lecture${entry.lectures === 1 ? "" : "s"} · ${entry.absences} absence${entry.absences === 1 ? "" : "s"}${entry.folder ? ` · ${entry.folder}` : ""}` });
+      const dots = dotsByCourse.get(str(entry.name).trim().toLowerCase());
+      if (dots && dots.dots.length) {
+        const row = card.createDiv({ cls: "qt-course-dots" });
+        row.setAttr("role", "group");
+        row.setAttr("aria-label", `Class meetings for ${entry.name}`);
+        for (const dot of dots.dots) {
+          const held = dot.state === "held";
+          const checked = dot.state === "checked";
+          const button = row.createEl("button", {
+            cls: `qt-course-dot is-${dot.state}`,
+            attr: {
+              title: `${dot.key}: ${held ? "note exists" : checked ? "attendance checked, no note" : "no class held yet — create the note"}`,
+              "aria-label": `${entry.name} on ${dot.key}: ${held ? "note exists, open it" : checked ? "attendance checked, open or create the note" : "no class held yet, create the note"}`,
+            },
+          });
+          button.addEventListener("click", () => this.plugin.openClassNote(dot.event, dot.key));
+        }
+        if (dots.overflow) row.createSpan({ cls: "qt-course-dots-more", text: `+${dots.overflow}` });
+      }
       if (entry.lastLecture) card.createDiv({ cls: "qt-study-row-meta", text: `Last lecture: ${entry.lastLecture.date} · ${entry.lastLecture.title}` });
       if (entry.grades.length) {
         const list = card.createDiv({ cls: "qt-study-list" });
@@ -133422,6 +134254,278 @@ async function renderTallyBlock(plugin, source, el, ctx) {
 module.exports = { TallyBlock, renderTallyBlock };
 };
 
+/* ---- src/task-chip-date-modal.js ---- */
+__defs["task-chip-date-modal"] = function (module, exports, require) {
+const { QtModal } = require("./a11y");
+const { str } = require("./util");
+
+/*
+ * The due-date half of inline task chips: reading view shows a chip, and the
+ * chip opens this picker. Setting writes `📅 YYYY-MM-DD` into that line only;
+ * clearing removes the token. Priority needs no dialog and steps directly.
+ */
+class TaskChipDateModal extends QtModal {
+  constructor(app, currentDay, onPick) {
+    super(app);
+    this.currentDay = str(currentDay);
+    this.onPick = onPick;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h3", { text: "Task due date" });
+    const input = contentEl.createEl("input", { type: "date", cls: "qt-input" });
+    input.setAttribute("aria-label", "Task due date");
+    if (/^\d{4}-\d{2}-\d{2}$/.test(this.currentDay)) input.value = this.currentDay;
+    const row = contentEl.createDiv({ cls: "qt-row" });
+    const clear = row.createEl("button", { text: "Clear", cls: "qt-grow" });
+    clear.addEventListener("click", () => {
+      this.close();
+      if (typeof this.onPick === "function") this.onPick("");
+    });
+    const save = row.createEl("button", { text: "Set date", cls: "mod-cta qt-grow" });
+    save.addEventListener("click", () => {
+      const day = str(input.value).trim();
+      this.close();
+      if (typeof this.onPick === "function") this.onPick(/^\d{4}-\d{2}-\d{2}$/.test(day) ? day : "");
+    });
+  }
+}
+
+module.exports = { TaskChipDateModal };
+};
+
+/* ---- src/task-chips.js ---- */
+__defs["task-chips"] = function (module, exports, require) {
+/*
+ * Inline task chips for Markdown task lines: in reading view a trailing
+ * `📅 2026-11-01`, `⏰ 15:00`, `⏫` or `🔁 every week` reads as a small chip
+ * instead of raw emoji syntax. Clicking the date chip opens a date picker and
+ * clicking priority steps it; the edit rewrites only that token in the source
+ * line. Nothing here touches the vault; the plugin supplies the line edits.
+ */
+const { str } = require("./util");
+
+const TOKEN_PATTERNS = [
+  { field: "due", re: /📅\s*(\d{4}-\d{2}-\d{2})/u },
+  { field: "time", re: /⏰\s*([01]?\d:[0-5]\d)/u },
+  { field: "start", re: /⏳\s*(\d{4}-\d{2}-\d{2})/u },
+  { field: "scheduled", re: /🛫\s*(\d{4}-\d{2}-\d{2})/u },
+  { field: "repeat", re: /🔁\s*every\s+(day|weekday|week)/u },
+  { field: "priority", re: /⏫/u },
+];
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** Every schedule token in line order, with its exact text and offset. */
+function findTokens(text) {
+  const source = str(text);
+  const out = [];
+  for (const pattern of TOKEN_PATTERNS) {
+    const re = new RegExp(pattern.re.source, pattern.re.flags.includes("g") ? pattern.re.flags : `${pattern.re.flags}g`);
+    let hit = null;
+    while ((hit = re.exec(source)) !== null) {
+      out.push({ field: pattern.field, token: hit[0], value: hit[1] === undefined ? "" : hit[1], index: hit.index });
+      if (hit[0] === "") break;
+    }
+  }
+  out.sort((a, b) => a.index - b.index);
+  return out;
+}
+
+function validDay(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(str(value))) return "";
+  const [year, month, day] = str(value).split("-").map(Number);
+  const date = new Date(year, month - 1, day, 12);
+  if (Number.isNaN(date.getTime()) || date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return "";
+  return str(value);
+}
+
+/** "2026-11-19" -> "Nov 19"; anything else is shown as-is. */
+function formatChipDate(value) {
+  const key = validDay(value);
+  if (!key) return str(value);
+  const [year, month, day] = key.split("-").map(Number);
+  const now = new Date();
+  const sameYear = year === now.getFullYear();
+  return `${MONTHS[month - 1]} ${day}${sameYear ? "" : `, ${year}`}`;
+}
+
+function repeatLabel(value) {
+  if (value === "day") return "daily";
+  if (value === "weekday") return "weekdays";
+  if (value === "week") return "weekly";
+  return str(value);
+}
+
+/** A task line split into display title and chip tokens. */
+function parseTaskLine(text) {
+  const source = str(text);
+  const tokens = findTokens(source);
+  let title = source;
+  for (const token of tokens) title = title.replace(token.token, " ");
+  title = title.replace(/\s{2,}/g, " ").trim();
+  const first = (field) => tokens.find((token) => token.field === field) || null;
+  return {
+    title,
+    tokens,
+    due: first("due") ? first("due").value : "",
+    time: first("time") ? first("time").value : "",
+    start: first("start") ? first("start").value : "",
+    scheduled: first("scheduled") ? first("scheduled").value : "",
+    repeat: first("repeat") ? first("repeat").value : "",
+    priority: tokens.some((token) => token.field === "priority") ? "high" : "",
+  };
+}
+
+function chipLabel(field, value) {
+  if (field === "due") return `Due ${formatChipDate(value)}`;
+  if (field === "time") return str(value);
+  if (field === "start") return `Starts ${formatChipDate(value)}`;
+  if (field === "scheduled") return `Scheduled ${formatChipDate(value)}`;
+  if (field === "repeat") return `Repeats ${repeatLabel(value)}`;
+  if (field === "priority") return "High priority";
+  return str(value);
+}
+
+/**
+ * Rewrite one chip token in the source line and leave everything else alone.
+ * Unknown fields and unusable values return the line unchanged.
+ */
+function applyChipEdit(text, edit) {
+  const source = str(text);
+  const change = edit && typeof edit === "object" ? edit : {};
+  if (change.field === "due") {
+    const day = validDay(change.value);
+    if (!day) return source;
+    if (/📅\s*\d{4}-\d{2}-\d{2}/u.test(source)) return source.replace(/📅\s*\d{4}-\d{2}-\d{2}/u, `📅 ${day}`);
+    return `${source.trimEnd()} 📅 ${day}`;
+  }
+  if (change.field === "priority") {
+    if (change.value === "high") {
+      if (/⏫/u.test(source)) return source;
+      return `${source.trimEnd()} ⏫`;
+    }
+    if (change.value === "") return source.replace(/\s*⏫/u, "").replace(/\s{2,}/g, " ").trimEnd();
+    return source;
+  }
+  return source;
+}
+
+function isElement(node) {
+  return !!node && node.nodeType === 1;
+}
+
+function tagOf(node) {
+  return isElement(node) ? String(node.tagName || "").toUpperCase() : "";
+}
+
+function textNodesUnder(root) {
+  const out = [];
+  const walk = (node) => {
+    if (!node) return;
+    if (node.nodeType === 3) {
+      out.push(node);
+      return;
+    }
+    if (isElement(node) && /^(UL|OL)$/i.test(tagOf(node))) return;
+    const children = node.childNodes || [];
+    for (const child of children) walk(child);
+  };
+  walk(root);
+  return out;
+}
+
+/**
+ * Replace a trailing token run inside one task line with chip buttons.
+ * Operates on standard DOM only (real reading view or a test double); returns
+ * true when the line gained chips. Clicks call back with the chip's field.
+ */
+function decorateTaskLine(li, actions) {
+  if (!li || !actions) return false;
+  const nodes = textNodesUnder(li);
+  if (!nodes.length) return false;
+  const joined = nodes.map((node) => str(node.textContent)).join("");
+  const tokens = findTokens(joined);
+  if (!tokens.length) return false;
+  // Chips only when the token run reaches the end of the line's text.
+  const first = tokens[0];
+  const tail = joined.slice(first.index);
+  const covered = tail.replace(/\s+/g, " ").trim();
+  const tokenText = tokens.map((token) => token.token).join(" ").replace(/\s+/g, " ").trim();
+  if (covered !== tokenText) return false;
+  const headText = joined.slice(0, first.index);
+  const last = nodes[nodes.length - 1];
+  const doc = (li.ownerDocument || (typeof document !== "undefined" ? document : null));
+  if (!doc || typeof doc.createElement !== "function") return false;
+  // Trim the trailing run off the last text node; earlier text stays.
+  let kept = headText.length;
+  for (const node of nodes) {
+    const text = str(node.textContent);
+    if (kept <= 0) {
+      node.textContent = "";
+    } else if (text.length <= kept) {
+      kept -= text.length;
+    } else {
+      node.textContent = text.slice(0, kept);
+      kept = 0;
+    }
+  }
+  const parent = last.parentNode;
+  if (!parent || typeof parent.insertBefore !== "function") return false;
+  const next = last.nextSibling || null;
+  for (const token of tokens) {
+    const chip = doc.createElement("button");
+    chip.setAttribute("type", "button");
+    chip.setAttribute("class", `qt-task-chip is-${token.field}`);
+    chip.setAttribute("title", token.field === "due" ? "Pick a date" : token.field === "priority" ? "Step priority" : chipLabel(token.field, token.value));
+    chip.setAttribute("aria-label", token.field === "due" ? `Change due date, currently ${token.value}` : token.field === "priority" ? "Step priority" : chipLabel(token.field, token.value));
+    chip.textContent = chipLabel(token.field, token.value);
+    if (token.field === "due" && typeof actions.onDate === "function") {
+      chip.addEventListener("click", () => actions.onDate());
+    } else if (token.field === "priority" && typeof actions.onPriority === "function") {
+      chip.addEventListener("click", () => actions.onPriority());
+    } else {
+      chip.setAttribute("aria-disabled", "true");
+    }
+    parent.insertBefore(chip, next);
+  }
+  return true;
+}
+
+/**
+ * Decorate every task line under a rendered list. `listEl` holds the `<li>`
+ * rows; `startLine` is the 0-based source line of the first row so clicks map
+ * back to the note. Returns the row count visited, so callers stride across
+ * several lists without drifting.
+ */
+function decorateTaskList(listEl, actions) {
+  if (!listEl || !actions) return 0;
+  const host = /^(UL|OL)$/i.test(tagOf(listEl)) ? listEl : null;
+  const rows = host ? Array.from(host.children || []).filter((node) => tagOf(node) === "LI") : [];
+  rows.forEach((li, index) => {
+    const line = Number(actions.startLine) + index + 1;
+    decorateTaskLine(li, {
+      onDate: () => actions.onDate && actions.onDate(line),
+      onPriority: () => actions.onPriority && actions.onPriority(line),
+    });
+  });
+  return rows.length;
+}
+
+module.exports = {
+  applyChipEdit,
+  chipLabel,
+  decorateTaskLine,
+  decorateTaskList,
+  findTokens,
+  formatChipDate,
+  parseTaskLine,
+  repeatLabel,
+};
+};
+
 /* ---- src/task-dates.js ---- */
 __defs["task-dates"] = function (module, exports, require) {
 /*
@@ -133785,6 +134889,26 @@ function tidyTitle(text) {
  * Pass { takeDate: false } or { takeTime: false } to leave a half the caller
  * already has alone: its words then stay in the title.
  */
+/**
+ * What the quick-add row will store before the learner presses Add: spoken
+ * repeats and dates are read out of the title, while picked dates win over
+ * spoken ones. Pure; the view mirrors the add flow with this.
+ */
+function previewTaskEntry(title, now, picks) {
+  const spoken = extractTaskRepeat(str(title));
+  const chosen = picks && typeof picks === "object" ? picks : {};
+  const when = extractTaskWhen(spoken.title, now, {
+    takeDate: !str(chosen.due).trim(),
+    takeTime: !str(chosen.time).trim(),
+  });
+  return {
+    title: when.title,
+    due: str(chosen.due).trim() || when.due,
+    time: str(chosen.time).trim() || when.time,
+    repeat: spoken.repeat,
+  };
+}
+
 function extractTaskWhen(title, now, options) {
   const input = str(title);
   if (!input.trim()) return { title: input.trim(), due: "", time: "" };
@@ -133849,6 +134973,7 @@ module.exports = {
   extractTaskDue,
   extractTaskRepeat,
   extractTaskWhen,
+  previewTaskEntry,
   formatTaskTime,
   parseTaskDate,
   parseTaskRepeat,
@@ -133862,8 +134987,8 @@ __defs["task-list-view"] = function (module, exports, require) {
 const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_TASK_LIST } = require("./constants");
 const { localDate } = require("./util");
-const { formatTaskTime } = require("./task-dates");
-const { compareStudyTasks, isHighPriority, taskSummary } = require("./study-workspace");
+const { formatTaskTime, previewTaskEntry } = require("./task-dates");
+const { agendaSections, compareStudyTasks, isHighPriority, normalizeStudyTasks, taskSummary } = require("./study-workspace");
 
 /*
  * The sidebar task list: the same local `studyTasks` rows the Study Workspace
@@ -133962,6 +135087,21 @@ class TaskListView extends ItemView {
       cls: "qt-task-list-count",
       text: `${summary.open} open · ${summary.overdue} overdue · ${summary.dueToday} due today`,
     });
+    const agenda = this.plugin.settings.studyTasks.agenda === true;
+    const layout = head.createDiv({ cls: "qt-task-list-layout", attr: { role: "group", "aria-label": "Task list layout" } });
+    for (const [id, label] of [["list", "List"], ["agenda", "Agenda"]]) {
+      const active = (id === "agenda") === agenda;
+      const tab = layout.createEl("button", {
+        cls: `qt-task-list-layout-tab${active ? " is-active" : ""}`,
+        text: label,
+        attr: { "aria-pressed": active ? "true" : "false" },
+      });
+      tab.addEventListener("click", async () => {
+        this.plugin.settings.studyTasks = normalizeStudyTasks({ ...this.plugin.settings.studyTasks, agenda: id === "agenda" });
+        await this.plugin.save();
+        this.render();
+      });
+    }
 
     const form = root.createDiv({ cls: "qt-task-list-add" });
     const title = form.createEl("input", {
@@ -133995,6 +135135,7 @@ class TaskListView extends ItemView {
       addHigh = !addHigh;
       priority.setText(addHigh ? "★ High" : "☆ High");
       priority.setAttribute("aria-pressed", addHigh ? "true" : "false");
+      if (typeof updatePreview === "function") updatePreview();
     });
     const add = async () => {
       const task = await this.plugin.addStudyTask({
@@ -134016,6 +135157,24 @@ class TaskListView extends ItemView {
         add();
       });
     }
+    const preview = form.createDiv({ cls: "qt-task-list-preview", attr: { "aria-live": "polite" } });
+    const updatePreview = () => {
+      const draft = previewTaskEntry(title.value, new Date(), { due: due.value });
+      const name = (draft.title || title.value).trim();
+      if (!name) {
+        preview.setText("");
+        return;
+      }
+      const bits = [`Adds “${name}”`];
+      if (draft.due) bits.push(`due ${draft.due}`);
+      if (draft.time) bits.push(formatTaskTime(draft.time));
+      if (draft.repeat) bits.push(`repeats ${draft.repeat === "weekday" ? "weekdays" : draft.repeat}`);
+      if (tags.value.trim()) bits.push(`tags ${tags.value.trim()}`);
+      if (addHigh) bits.push("high priority");
+      preview.setText(bits.join(" · "));
+    };
+    for (const field of [title, due, tags]) field.addEventListener("input", updatePreview);
+    updatePreview();
     root.createDiv({ cls: "qt-task-list-hint", text: "Tip: name a day (tomorrow, Tuesday), a time (at 3pm, in 2 hours) or a repeat (every Monday, daily) to schedule it. Star the urgent ones, or ★ High before adding." });
     if (this.focusNewAfterRender) {
       this.focusNewAfterRender = false;
@@ -134065,6 +135224,10 @@ class TaskListView extends ItemView {
       return;
     }
 
+    if (agenda) {
+      this.renderAgenda(root, visible, today);
+      return;
+    }
     const list = root.createDiv({ cls: "qt-task-list-rows" });
     for (const task of this.ordered(visible)) this.renderRow(list, task, today);
   }
@@ -134182,6 +135345,22 @@ class TaskListView extends ItemView {
         // Study Workspace queue goes through the same helper.
         await this.plugin.deleteStudyTaskWithUndo(task.id, () => this.render());
       });
+  }
+
+  renderAgenda(root, tasks, today) {
+    const sections = agendaSections(tasks, today);
+    if (!sections.length) {
+      root.createDiv({ cls: "qt-task-list-empty", text: "Nothing scheduled. Add a task above." });
+      return;
+    }
+    const host = root.createDiv({ cls: "qt-task-list-agenda" });
+    for (const section of sections) {
+      host.createEl("h3", { cls: "qt-task-list-agenda-title", text: section.title });
+      if (section.capped) {
+        host.createDiv({ cls: "qt-task-list-meta", text: `Showing ${section.tasks.length} of ${section.total}. Add dates to more tasks to plan further ahead.` });
+      }
+      for (const task of section.tasks) this.renderRow(host, task, today);
+    }
   }
 
   async toggle(task) {
@@ -140791,6 +141970,168 @@ class WebBrowserView extends ItemView {
 module.exports = { WebBrowserView };
 };
 
+/* ---- src/week-image.js ---- */
+__defs["week-image"] = function (module, exports, require) {
+/*
+ * Week image export for the Class Timetable set: render the current week at
+ * full size in the active theme's light ink and save or copy it, for sharing a
+ * timetable without a screenshot. The SVG is pure and deterministic; the plugin
+ * rasterizes it to PNG with a canvas and writes the file, which needs the app
+ * window and is guarded there.
+ */
+const { str } = require("./util");
+
+const DAY_WIDTH = 150;
+const GUTTER = 64;
+const TITLE_HEIGHT = 52;
+const HEADER_HEIGHT = 40;
+const ALLDAY_HEIGHT = 24;
+const PAD = 16;
+const FONT_SIZE = 12;
+
+const LAYER_FILL = {
+  classes: "#dbe7ff",
+  planned: "#d9efdc",
+  events: "#e8defc",
+  review: "#fbeecd",
+  tasks: "#e5e7eb",
+};
+
+const LAYER_EDGE = {
+  classes: "#2f5fd0",
+  planned: "#2e7d32",
+  events: "#7a4fc9",
+  review: "#b26a00",
+  tasks: "#6b7280",
+};
+
+function weekImageFileName(startKey) {
+  const key = /^\d{4}-\d{2}-\d{2}$/.test(str(startKey).trim()) ? str(startKey).trim() : "";
+  return key ? `week-timetable-${key}.png` : "week-timetable.png";
+}
+
+function escapeSvg(text) {
+  return str(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function ellipsize(text, maxChars) {
+  const clean = str(text).replace(/\s+/g, " ").trim();
+  const limit = Math.max(4, Math.round(Number(maxChars) || 20));
+  return clean.length > limit ? `${clean.slice(0, limit - 1)}…` : clean;
+}
+
+function textWidth(chars) {
+  return Math.max(0, Math.round(Number(chars) || 0)) * (FONT_SIZE * 0.55);
+}
+
+/**
+ * An SVG of the week grid: title, day headers, hour lines, one rect per timed
+ * block with a lane offset, small all-day chips, and the now-line. Returns
+ * { svg, width, height, blocks } so tests can count what was drawn.
+ */
+function buildWeekSvg(layout, options) {
+  const view = layout && typeof layout === "object" ? layout : {};
+  const opts = options && typeof options === "object" ? options : {};
+  const days = Array.isArray(view.days) ? view.days : [];
+  const hours = Array.isArray(view.hours) ? view.hours : [];
+  const hourHeight = Number(view.hourHeight) > 0 ? Number(view.hourHeight) : 44;
+  const dayCount = Math.max(1, days.length);
+  const width = Math.round(GUTTER + dayCount * DAY_WIDTH + PAD * 2);
+  const hasAllDay = days.some((day) => day && Array.isArray(day.allDay) && day.allDay.length);
+  const alldayHeight = hasAllDay ? ALLDAY_HEIGHT : 0;
+  const gridTop = TITLE_HEIGHT + HEADER_HEIGHT + alldayHeight;
+  const gridHeight = Math.max(1, hours.length * hourHeight);
+  const height = Math.round(gridTop + gridHeight + PAD);
+  const hourLabel = typeof opts.hourLabel === "function" ? opts.hourLabel : (hour) => `${String(hour).padStart(2, "0")}:00`;
+
+  const parts = [];
+  parts.push(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" font-family="system-ui, sans-serif" font-size="${FONT_SIZE}">`
+  );
+  parts.push(`<rect x="0" y="0" width="${width}" height="${height}" fill="#ffffff"/>`);
+  parts.push(`<text x="${PAD}" y="32" font-size="18" font-weight="700" fill="#111111">${escapeSvg(`Week of ${str(view.label) || ""}`)}</text>`);
+
+  for (let index = 0; index < days.length; index++) {
+    const day = days[index] || {};
+    const x = PAD + GUTTER + index * DAY_WIDTH;
+    const head = `${str(day.weekday)} ${day.dayOfMonth || ""}`.trim();
+    parts.push(`<text x="${x + 4}" y="${TITLE_HEIGHT + 24}" font-weight="700" fill="#111111">${escapeSvg(ellipsize(head, 18))}</text>`);
+    parts.push(`<line x1="${x}" y1="${TITLE_HEIGHT}" x2="${x}" y2="${height - PAD}" stroke="#d7dbe0" stroke-width="1"/>`);
+    if (day.isToday) {
+      parts.push(`<rect x="${x}" y="${TITLE_HEIGHT}" width="${DAY_WIDTH}" height="${height - TITLE_HEIGHT - PAD}" fill="#2f5fd0" fill-opacity="0.06"/>`);
+    }
+  }
+
+  for (const hour of hours) {
+    const y = gridTop + (hour - (Number(view.dayStart) || 0)) * hourHeight;
+    parts.push(`<text x="${PAD}" y="${Math.round(y + 4)}" fill="#6b7280">${escapeSvg(hourLabel(hour))}</text>`);
+    parts.push(`<line x1="${PAD + GUTTER}" y1="${Math.round(y)}" x2="${width - PAD}" y2="${Math.round(y)}" stroke="#e5e7eb" stroke-width="1"/>`);
+  }
+
+  let blocks = 0;
+  for (let index = 0; index < days.length; index++) {
+    const day = days[index] || {};
+    const x = PAD + GUTTER + index * DAY_WIDTH;
+    const allDay = Array.isArray(day.allDay) ? day.allDay.slice(0, 2) : [];
+    allDay.forEach((row, rowIndex) => {
+      const label = str(row && row.title);
+      if (!label) return;
+      parts.push(
+        `<text x="${x + 4}" y="${TITLE_HEIGHT + HEADER_HEIGHT - 8 + rowIndex * 0}" fill="#374151">${escapeSvg(ellipsize(label, 22))}</text>`
+      );
+    });
+    if (Array.isArray(day.allDay) && day.allDay.length > 2) {
+      parts.push(`<text x="${x + 4}" y="${TITLE_HEIGHT + HEADER_HEIGHT - 8}" fill="#6b7280">${escapeSvg(`+${day.allDay.length - 2}`)}</text>`);
+    }
+    for (const block of Array.isArray(day.blocks) ? day.blocks : []) {
+      const laneWidth = (Number(block.width) || 100) / 100;
+      const laneLeft = (Number(block.left) || 0) / 100;
+      const bx = x + 2 + laneLeft * (DAY_WIDTH - 4);
+      const bw = Math.max(8, laneWidth * (DAY_WIDTH - 4) - 2);
+      const by = gridTop + (Number(block.top) || 0);
+      const bh = Math.max(10, Number(block.height) || 0);
+      const layer = str(block.layer);
+      const fill = LAYER_FILL[layer] || LAYER_FILL.tasks;
+      const edge = LAYER_EDGE[layer] || LAYER_EDGE.tasks;
+      const maxChars = Math.max(4, Math.floor(bw / (FONT_SIZE * 0.55)) - 1);
+      parts.push(`<rect x="${Math.round(bx)}" y="${Math.round(by)}" width="${Math.round(bw)}" height="${Math.round(bh)}" rx="3" fill="${fill}" stroke="${edge}" stroke-width="1"/>`);
+      parts.push(`<rect x="${Math.round(bx)}" y="${Math.round(by)}" width="3" height="${Math.round(bh)}" fill="${edge}"/>`);
+      const title = ellipsize(block.title, maxChars);
+      if (title && bh >= 16) {
+        parts.push(`<text x="${Math.round(bx + 7)}" y="${Math.round(by + 13)}" fill="#111111">${escapeSvg(title)}</text>`);
+      }
+      blocks += 1;
+    }
+  }
+
+  if (view.now && typeof view.now === "object") {
+    const now = view.now;
+    const dayIndex = Math.round(Number(now.dayIndex) || 0);
+    const y = gridTop + (Number(now.top) || 0);
+    if (dayIndex >= 0 && dayIndex < days.length) {
+      const x = PAD + GUTTER + dayIndex * DAY_WIDTH;
+      parts.push(`<line x1="${x}" y1="${Math.round(y)}" x2="${x + DAY_WIDTH}" y2="${Math.round(y)}" stroke="#d33" stroke-width="2"/>`);
+      parts.push(`<circle cx="${x}" cy="${Math.round(y)}" r="3" fill="#d33"/>`);
+    }
+  }
+
+  parts.push("</svg>");
+  return { svg: parts.join(""), width, height, blocks };
+}
+
+module.exports = {
+  ALLDAY_HEIGHT,
+  DAY_WIDTH,
+  GUTTER,
+  HEADER_HEIGHT,
+  buildWeekSvg,
+  ellipsize,
+  escapeSvg,
+  textWidth,
+  weekImageFileName,
+};
+};
+
 /* ---- src/welcome.js ---- */
 __defs["welcome"] = function (module, exports, require) {
 /* First-run guide data and per-device onboarding state. Nothing here touches a vault note. */
@@ -141274,6 +142615,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.307.25",
+    date: "November 19, 2026",
+    title: "Class dots, week export, agenda, chips, and per-message agent undo",
+    summary:
+      "The finish-scope pass ships everything the plan still listed as partial or unimplemented that could be built locally: class-held dots on the course hub, a week PNG export, an agenda rail with a quick-add preview and inline task chips, per-message agent-edit undo, and in-editor diff navigation.",
+    highlights: [
+      {
+        title: "Class-held dots on the course hub",
+        body: "Each course card shows one dot per scheduled meeting this term: filled when the lecture note exists, a ring when attendance was checked without a note, empty otherwise. Clicking an empty dot creates the note from the course template.",
+      },
+      {
+        title: "The week exports as a PNG image",
+        body: "Calendar: export the current week as a PNG image saves week-timetable-<date>.png beside the .ics export, drawn from the same rows the week grid shows. Rendering needs the app window; scheduling data is untouched.",
+      },
+      {
+        title: "An agenda rail and a preview before adding",
+        body: "The task list gains a List|Agenda toggle grouping open work by day with capped tails, a done-today section fed by a new completion stamp, and a live line under the add box showing the date and repeat the title will get.",
+      },
+      {
+        title: "Task chips and agent changes in place",
+        body: "Reading view shows schedule tokens as chips with a date picker and priority stepping, every applied agent review gets its own Undo that survives reloads, and proposal cards show each change in its note with hunk-by-hunk stepping.",
+      },
+    ],
+  },
   {
     version: "1.307.24",
     date: "November 19, 2026",
@@ -144775,6 +146141,34 @@ QuestionTrackerPlugin.__test = {
   // Lazy: a test-surface entry must not be paid for at plugin startup.
   get snapshotCache() {
     return require("./snapshot-cache");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get classDots() {
+    return require("./class-dots");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get weekImage() {
+    return require("./week-image");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get taskChips() {
+    return require("./task-chips");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get editorDiffNav() {
+    return require("./editor-diff-nav");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get agentEditJournal() {
+    return require("./agent-edit-journal");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get agentEditHistoryModal() {
+    return require("./agent-edit-history-modal");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get taskChipDateModal() {
+    return require("./task-chip-date-modal");
   },
   // Lazy: a test-surface entry must not be paid for at plugin startup.
   get quizDedup() {

@@ -602,6 +602,34 @@ QuestionTrackerPlugin.__test = {
     return require("./snapshot-cache");
   },
   // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get classDots() {
+    return require("./class-dots");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get weekImage() {
+    return require("./week-image");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get taskChips() {
+    return require("./task-chips");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get editorDiffNav() {
+    return require("./editor-diff-nav");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get agentEditJournal() {
+    return require("./agent-edit-journal");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get agentEditHistoryModal() {
+    return require("./agent-edit-history-modal");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
+  get taskChipDateModal() {
+    return require("./task-chip-date-modal");
+  },
+  // Lazy: a test-surface entry must not be paid for at plugin startup.
   get quizDedup() {
     return require("./quiz-dedup");
   },

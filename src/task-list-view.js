@@ -2,8 +2,8 @@
 const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_TASK_LIST } = require("./constants");
 const { localDate } = require("./util");
-const { formatTaskTime } = require("./task-dates");
-const { compareStudyTasks, isHighPriority, taskSummary } = require("./study-workspace");
+const { formatTaskTime, previewTaskEntry } = require("./task-dates");
+const { agendaSections, compareStudyTasks, isHighPriority, normalizeStudyTasks, taskSummary } = require("./study-workspace");
 
 /*
  * The sidebar task list: the same local `studyTasks` rows the Study Workspace
@@ -102,6 +102,21 @@ class TaskListView extends ItemView {
       cls: "qt-task-list-count",
       text: `${summary.open} open · ${summary.overdue} overdue · ${summary.dueToday} due today`,
     });
+    const agenda = this.plugin.settings.studyTasks.agenda === true;
+    const layout = head.createDiv({ cls: "qt-task-list-layout", attr: { role: "group", "aria-label": "Task list layout" } });
+    for (const [id, label] of [["list", "List"], ["agenda", "Agenda"]]) {
+      const active = (id === "agenda") === agenda;
+      const tab = layout.createEl("button", {
+        cls: `qt-task-list-layout-tab${active ? " is-active" : ""}`,
+        text: label,
+        attr: { "aria-pressed": active ? "true" : "false" },
+      });
+      tab.addEventListener("click", async () => {
+        this.plugin.settings.studyTasks = normalizeStudyTasks({ ...this.plugin.settings.studyTasks, agenda: id === "agenda" });
+        await this.plugin.save();
+        this.render();
+      });
+    }
 
     const form = root.createDiv({ cls: "qt-task-list-add" });
     const title = form.createEl("input", {
@@ -135,6 +150,7 @@ class TaskListView extends ItemView {
       addHigh = !addHigh;
       priority.setText(addHigh ? "★ High" : "☆ High");
       priority.setAttribute("aria-pressed", addHigh ? "true" : "false");
+      if (typeof updatePreview === "function") updatePreview();
     });
     const add = async () => {
       const task = await this.plugin.addStudyTask({
@@ -156,6 +172,24 @@ class TaskListView extends ItemView {
         add();
       });
     }
+    const preview = form.createDiv({ cls: "qt-task-list-preview", attr: { "aria-live": "polite" } });
+    const updatePreview = () => {
+      const draft = previewTaskEntry(title.value, new Date(), { due: due.value });
+      const name = (draft.title || title.value).trim();
+      if (!name) {
+        preview.setText("");
+        return;
+      }
+      const bits = [`Adds “${name}”`];
+      if (draft.due) bits.push(`due ${draft.due}`);
+      if (draft.time) bits.push(formatTaskTime(draft.time));
+      if (draft.repeat) bits.push(`repeats ${draft.repeat === "weekday" ? "weekdays" : draft.repeat}`);
+      if (tags.value.trim()) bits.push(`tags ${tags.value.trim()}`);
+      if (addHigh) bits.push("high priority");
+      preview.setText(bits.join(" · "));
+    };
+    for (const field of [title, due, tags]) field.addEventListener("input", updatePreview);
+    updatePreview();
     root.createDiv({ cls: "qt-task-list-hint", text: "Tip: name a day (tomorrow, Tuesday), a time (at 3pm, in 2 hours) or a repeat (every Monday, daily) to schedule it. Star the urgent ones, or ★ High before adding." });
     if (this.focusNewAfterRender) {
       this.focusNewAfterRender = false;
@@ -205,6 +239,10 @@ class TaskListView extends ItemView {
       return;
     }
 
+    if (agenda) {
+      this.renderAgenda(root, visible, today);
+      return;
+    }
     const list = root.createDiv({ cls: "qt-task-list-rows" });
     for (const task of this.ordered(visible)) this.renderRow(list, task, today);
   }
@@ -322,6 +360,22 @@ class TaskListView extends ItemView {
         // Study Workspace queue goes through the same helper.
         await this.plugin.deleteStudyTaskWithUndo(task.id, () => this.render());
       });
+  }
+
+  renderAgenda(root, tasks, today) {
+    const sections = agendaSections(tasks, today);
+    if (!sections.length) {
+      root.createDiv({ cls: "qt-task-list-empty", text: "Nothing scheduled. Add a task above." });
+      return;
+    }
+    const host = root.createDiv({ cls: "qt-task-list-agenda" });
+    for (const section of sections) {
+      host.createEl("h3", { cls: "qt-task-list-agenda-title", text: section.title });
+      if (section.capped) {
+        host.createDiv({ cls: "qt-task-list-meta", text: `Showing ${section.tasks.length} of ${section.total}. Add dates to more tasks to plan further ahead.` });
+      }
+      for (const task of section.tasks) this.renderRow(host, task, today);
+    }
   }
 
   async toggle(task) {

@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 463 groups, 3228 exports. **Commands:** 244. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 470 groups, 3266 exports. **Commands:** 247. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -84,7 +84,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `StudyStatusModal` | 0 | `tests/feature-surfaces.test.js` |
 | `StudyToolsView` | 0 | `tests/lecture-links.test.js`, `tests/mobile-module-layout.test.js`, `tests/study-tools.test.js` |
 | `StudyWorkspaceView` | 0 | `tests/citations.test.js`, `tests/fsrs-fit.test.js`, `tests/glossary.test.js`, `tests/mobile-module-layout.test.js`, `tests/reading-library.test.js`, `tests/settings-consolidation.test.js`, `tests/study-modules-2.test.js`, `tests/study-modules-3.test.js`, `tests/study-tasks-plus.test.js`, `tests/study-workspace-health.test.js`, `tests/study-workspace-layout.test.js`, `tests/study-workspace-tabs.test.js`, `tests/study-workspace.test.js`, `tests/task-list.test.js`, `tests/task-tags.test.js`, `tests/time-blocks.test.js`, `tests/undo-everywhere.test.js`, `tests/vault-task-index.test.js`, `tests/wordnet.test.js`, `tests/writing-sessions.test.js` |
-| `TaskListView` | 0 | `tests/study-tasks-plus.test.js`, `tests/task-dates.test.js`, `tests/task-list.test.js`, `tests/task-priority-quickadd.test.js`, `tests/task-recurrence.test.js`, `tests/task-times.test.js` |
+| `TaskListView` | 0 | `tests/study-tasks-plus.test.js`, `tests/task-agenda.test.js`, `tests/task-chips.test.js`, `tests/task-dates.test.js`, `tests/task-list.test.js`, `tests/task-priority-quickadd.test.js`, `tests/task-recurrence.test.js`, `tests/task-times.test.js` |
 | `TestView` | 0 | `tests/error-message-paths.test.js`, `tests/views.test.js` |
 | `TodayView` | 0 | `tests/ap-exam-resources.test.js`, `tests/core-values.test.js`, `tests/daily-quiz-freeze.test.js`, `tests/daily-quiz.test.js`, `tests/focus.test.js`, `tests/frq-review.test.js`, `tests/reading-plan.test.js`, `tests/study-plan.test.js`, `tests/study-tools.test.js`, `tests/today-dom.test.js`, `tests/today.test.js` |
 | `TranscriptPracticeModal` | 0 | `tests/feature-surfaces.test.js` |
@@ -95,6 +95,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `adaptiveSession` | 5 | `tests/adaptive-session.test.js` |
 | `adaptiveTargetRank` | 0 | `tests/filters.test.js` |
 | `adaptiveWeight` | 0 | `tests/filters.test.js` |
+| `agentEditHistoryModal` | 1 | `tests/editor-diff-nav.test.js` |
+| `agentEditJournal` | 9 | `tests/agent-edit-journal.test.js` |
 | `agentEditReview` | 9 | `tests/agent-edit-review.test.js` |
 | `agentNote` | 2 | `tests/agent-view.test.js` |
 | `agentRetrieval` | 14 | `tests/agent-retrieval.test.js` |
@@ -160,7 +162,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `calendarNotes` | 8 | `tests/calendar.test.js` |
 | `calendarPlanner` | 10 | `tests/calendar-planner.test.js` |
 | `calendarSettings` | 2 | `tests/settings-error-paths.test.js` |
-| `calendarWeek` | 16 | `tests/calendar-week.test.js` |
+| `calendarWeek` | 16 | `tests/calendar-week.test.js`, `tests/week-image.test.js` |
 | `candidateAssetNames` | 0 | `tests/feature-surfaces.test.js` |
 | `cardArchive` | 8 | `tests/card-archive.test.js` |
 | `cardGenerator` | 11 | `tests/card-generator.test.js`, `tests/spaced-quiz.test.js` |
@@ -194,6 +196,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `chatStream` | 5 | `tests/chat-stream.test.js` |
 | `chooseRelease` | 0 | `tests/opencode-compat.test.js` |
 | `citations` | 11 | `tests/citations.test.js` |
+| `classDots` | 4 | `tests/class-dots.test.js` |
 | `cloneFilters` | 0 | `tests/uncited-groups.test.js` |
 | `complex` | 27 | `tests/complex.test.js`, `tests/graph-complex.test.js` |
 | `computeStats` | 0 | `tests/p1-knowledge.test.js`, `tests/skip-insights.test.js`, `tests/stats.test.js` |
@@ -215,6 +218,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `documents` | 18 | `tests/documents.test.js`, `tests/import-source.test.js` |
 | `downloadFile` | 0 | — |
 | `durability` | 9 | `tests/durability.test.js` |
+| `editorDiffNav` | 3 | `tests/editor-diff-nav.test.js` |
 | `emptyState` | 0 | `tests/empty-state.test.js` |
 | `epub` | 8 | `tests/epub.test.js` |
 | `epubAnnotations` | 17 | `tests/epub.test.js` |
@@ -432,7 +436,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `studyStatus` | 18 | `tests/study-status.test.js` |
 | `studyToolSettings` | 4 | `tests/calendar.test.js`, `tests/modules.test.js`, `tests/reading-library.test.js`, `tests/settings-consolidation.test.js`, `tests/settings-navigation.test.js`, `tests/study-tool-settings.test.js`, `tests/table-editor.test.js` |
 | `studyTools` | 19 | `tests/core-values.test.js`, `tests/study-modules-2.test.js`, `tests/study-tools.test.js` |
-| `studyWorkspace` | 86 | `tests/core-values.test.js`, `tests/quiz-attempts.test.js`, `tests/settings-consolidation.test.js`, `tests/study-tasks-plus.test.js`, `tests/study-workspace-health.test.js`, `tests/study-workspace.test.js`, `tests/subject-projects.test.js`, `tests/task-recurrence.test.js`, `tests/task-times.test.js`, `tests/vocab-stats.test.js` |
+| `studyWorkspace` | 88 | `tests/core-values.test.js`, `tests/quiz-attempts.test.js`, `tests/settings-consolidation.test.js`, `tests/study-tasks-plus.test.js`, `tests/study-workspace-health.test.js`, `tests/study-workspace.test.js`, `tests/subject-projects.test.js`, `tests/task-agenda.test.js`, `tests/task-recurrence.test.js`, `tests/task-times.test.js`, `tests/vocab-stats.test.js` |
 | `suggestMinutes` | 0 | `tests/stats.test.js` |
 | `support` | 8 | `tests/support.test.js` |
 | `survey` | 4 | `tests/survey.test.js` |
@@ -442,7 +446,9 @@ the table and fails if a group, export count, command or citing test drifts.
 | `tableEditor` | 59 | `tests/advanced-tables-executable-parity.test.js`, `tests/advanced-tables-upstream.test.js`, `tests/table-commands.test.js`, `tests/table-editor.test.js` |
 | `tagTimer` | 26 | `tests/tag-timer.test.js` |
 | `tally` | 15 | `tests/tally.test.js` |
-| `taskDates` | 10 | `tests/study-tasks-plus.test.js`, `tests/task-dates.test.js`, `tests/task-recurrence.test.js`, `tests/task-times.test.js` |
+| `taskChipDateModal` | 1 | `tests/task-chips.test.js` |
+| `taskChips` | 8 | `tests/task-chips.test.js` |
+| `taskDates` | 11 | `tests/study-tasks-plus.test.js`, `tests/task-agenda.test.js`, `tests/task-dates.test.js`, `tests/task-recurrence.test.js`, `tests/task-times.test.js` |
 | `taskMirror` | 6 | `tests/study-tasks-plus.test.js`, `tests/task-recurrence.test.js`, `tests/task-times.test.js` |
 | `taskTags` | 5 | `tests/task-tags.test.js` |
 | `testSections` | 6 | `tests/test-sections.test.js` |
@@ -458,7 +464,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `unpackQuickSession` | 0 | `tests/uncited-groups.test.js` |
 | `unpackTestSession` | 0 | `tests/parameterized.test.js`, `tests/stats.test.js` |
 | `urlSafety` | 5 | `tests/security-hardening.test.js`, `tests/security-inventory.test.js` |
-| `util` | 23 | `tests/error-message-paths.test.js`, `tests/study-tasks-plus.test.js`, `tests/task-recurrence.test.js` |
+| `util` | 23 | `tests/class-dots.test.js`, `tests/error-message-paths.test.js`, `tests/study-tasks-plus.test.js`, `tests/task-agenda.test.js`, `tests/task-recurrence.test.js`, `tests/week-image.test.js` |
 | `vaultSearch` | 8 | `tests/vault-search.test.js` |
 | `vaultTaskIndex` | 9 | `tests/vault-task-index.test.js` |
 | `vectorField` | 14 | `tests/reference-advanced.test.js` |
@@ -466,6 +472,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `voiceMemo` | 12 | `tests/voice-memo.test.js` |
 | `weakSpot` | 4 | `tests/weak-spot.test.js` |
 | `weakestRow` | 0 | `tests/stats.test.js` |
+| `weekImage` | 9 | `tests/week-image.test.js` |
 | `weekStart` | 0 | `tests/stats.test.js` |
 | `weeklyAccuracy` | 0 | `tests/stats.test.js` |
 | `weightOf` | 0 | `tests/uncited-groups.test.js` |
@@ -503,12 +510,15 @@ the table and fails if a group, export count, command or citing test drifts.
 | `check-opencode` | Check that OpenCode is running | `checkOpenCodeServer` | `tests/opencode-status.test.js` |
 | `import-service-export` | Import notes from an export (Airtable, Notion, Evernote, Keep, Bear, Roam) | `importActiveServiceExport` | `tests/error-message-paths.test.js`, `tests/service-import.test.js` |
 | `import-service-clipboard` | Import notes from a pasted export | `importServiceClipboard` | `tests/error-message-paths.test.js`, `tests/service-import.test.js` |
-| `quick-add` | Quick add questions from pasted text | `openQuickAdd` | `tests/a11y-labels.test.js`, `tests/ai-import-help.test.js`, `tests/hotkey-audit.test.js`, `tests/import-preflight.test.js`, `tests/note-quiz-clipboard.test.js`, `tests/plugin.test.js`, `tests/quick-add.test.js`, `tests/quiz-generator.test.js`, `tests/starter-pack.test.js`, `tests/task-priority-quickadd.test.js` |
+| `quick-add` | Quick add questions from pasted text | `openQuickAdd` | `tests/a11y-labels.test.js`, `tests/ai-import-help.test.js`, `tests/hotkey-audit.test.js`, `tests/import-preflight.test.js`, `tests/note-quiz-clipboard.test.js`, `tests/plugin.test.js`, `tests/quick-add.test.js`, `tests/quiz-generator.test.js`, `tests/starter-pack.test.js`, `tests/task-agenda.test.js`, `tests/task-priority-quickadd.test.js` |
 | `import-quiz-clipboard` | Import a generated quiz from the clipboard | `openQuizClipboardImport` | `tests/note-quiz-clipboard.test.js` |
 | `export-study-bundle` | Export a study bundle (backup of questions and cards) | `exportStudyBundle` | `tests/study-bundle-import.test.js`, `tests/study-bundle.test.js` |
 | `import-study-bundle` | Import a study bundle (restore questions and cards) | `importStudyBundle` | `tests/study-bundle-import.test.js` |
 | `ai-undo-last-write` | AI: undo the last generated notes | `undoLastAiWriteCommand` | `tests/command-effects.test.js` |
 | `ai-undo-agent-edits` | AI: undo the last agent edits | `undoLastAgentEditCommand` | `tests/command-effects.test.js` |
+| `ai-review-agent-edits` | AI: review and undo agent edits | `openAgentEditHistory` | `tests/agent-edit-journal.test.js` |
+| `calendar-export-week` | Calendar: export the current week as a PNG image | `exportWeekImage` | `tests/week-image.test.js` |
+| `agent-show-change` | Study agent: show the next proposed change in its note | `revealNextProposalChange` | `tests/editor-diff-nav.test.js` |
 | `course-notes-import` | Import course notes from a lecture or chapter | `openCourseNotesImport` | `tests/command-effects.test.js` |
 | `paper-scanner` | Paper scanner: photos to PDF | `openPaperScanner` | `tests/plugin.test.js`, `tests/security-inventory.test.js` |
 | `document-review` | Review a document for import | `openDocumentReview` | `tests/plugin.test.js` |
@@ -560,7 +570,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `pomodoro-skip` | Pomodoro: skip the current phase | `skipPomodoro` | `tests/plugin.test.js`, `tests/pomodoro.test.js` |
 | `calendar-add-schedule` | Calendar: add an .ics schedule | `openCalendarImport` | `tests/command-effects.test.js` |
 | `calendar-note-next-class` | Calendar: create or open the note for the next class | `openNextClassNote` | `tests/command-effects.test.js` |
-| `calendar-export` | Calendar: export the visible schedule to .ics | `exportCalendarIcs` | `tests/calendar.test.js`, `tests/term-calendar.test.js` |
+| `calendar-export` | Calendar: export the visible schedule to .ics | `exportCalendarIcs` | `tests/calendar.test.js`, `tests/term-calendar.test.js`, `tests/week-image.test.js` |
 | `open-cards` | Open cards | `activateCards` | `tests/cards.test.js`, `tests/hotkey-audit.test.js`, `tests/hotkey-cleanup.test.js`, `tests/plugin.test.js` |
 | `ankiweb-find-deck` | Cards: find a deck on AnkiWeb | `openAnkiWebSearch` | `tests/plugin.test.js` |
 | `open-assignments` | Open assignments and grades | `activateAssignments` | `tests/core-values.test.js`, `tests/plugin.test.js`, `tests/today.test.js` |

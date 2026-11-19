@@ -228,7 +228,7 @@ const agentWriteGuard = require("./agent-write-guard");
 const agentEditReview = require("./agent-edit-review");
 const { CalculationPreviewModal } = require("./calculation-preview-modal");
 const { CalendarImportModal, CalendarView, SemesterRolloverModal, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
-const { applyTermWeeks, cleanSubjectTitle, eventKey, examMatchesCourse, examReviewCap, findRegisteredCourse, isExamEvent, mergeCalendarSettings, nextClassStatus, normalizeFolder, normalizeTermDate, rolloverCourses, subjectKey, visibleEvents } = require("./calendar-model");
+const { applyTermWeeks, classColor, cleanSubjectTitle, eventKey, eventsOnDay, examMatchesCourse, examReviewCap, findRegisteredCourse, formatTime, isExamEvent, mergeCalendarSettings, nextClassStatus, normalizeFolder, normalizeTermDate, parseClassDetails, rolloverCourses, subjectKey, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan, normalizeStudyPlanDays } = require("./study-plan");
 const { buildDashboard, courseMatches } = require("./analytics");
 const { bandQuestions, buildMastery, buildMasteryTrend, buildProgress, masteryScopes, masteryWindowDays, scopeQuestions } = require("./progress");
@@ -321,6 +321,7 @@ const snapshotCache = require("./snapshot-cache");
 const quizDedup = require("./quiz-dedup");
 const localEvents = require("./local-events");
 const calendarMerge = require("./calendar-merge");
+const calendarWeek = require("./calendar-week");
 const noteReviewDock = require("./note-review-dock");
 const sessionReport = require("./session-report");
 const { NoteReviewDock } = require("./note-review-dock");
@@ -344,6 +345,22 @@ const hubs = require("./hubs");
 const { hubViewClass } = require("./hub-view");
 const taskDates = require("./task-dates");
 const taskMirror = require("./task-mirror");
+// Lazy: the quarter features below only load when their view, command or
+// postprocessor runs, keeping startup under the module budget.
+let _classDots = null;
+let _weekImage = null;
+let _taskChips = null;
+let _editorDiffNav = null;
+let _agentEditJournal = null;
+let _agentEditHistoryModal = null;
+let _taskChipDateModal = null;
+const classDots = () => (_classDots || (_classDots = require("./class-dots")));
+const weekImage = () => (_weekImage || (_weekImage = require("./week-image")));
+const taskChips = () => (_taskChips || (_taskChips = require("./task-chips")));
+const editorDiffNav = () => (_editorDiffNav || (_editorDiffNav = require("./editor-diff-nav")));
+const agentEditJournal = () => (_agentEditJournal || (_agentEditJournal = require("./agent-edit-journal")));
+const agentEditHistoryModal = () => (_agentEditHistoryModal || (_agentEditHistoryModal = require("./agent-edit-history-modal")));
+const taskChipDateModal = () => (_taskChipDateModal || (_taskChipDateModal = require("./task-chip-date-modal")));
 const { PomodoroView } = require("./pomodoro-view");
 const { applySpacedReview, buildSpacedQueue, normalizeSpacedEverything, renderSpacedTemplate, spacedCaptureText } = require("./spaced-everything");
 const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
@@ -529,6 +546,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (typeof this.registerMarkdownPostProcessor === "function") {
       this.registerMarkdownPostProcessor((el) => satCallout.syncSatCallouts(el));
       this.registerMarkdownPostProcessor((el, ctx) => this.decorateTableEditor(el, ctx));
+      this.registerMarkdownPostProcessor((el, ctx) => this.decorateTaskChips(el, ctx));
     }
     if (typeof activeDocument !== "undefined" && activeDocument) {
       this.registerDomEvent(activeDocument, "click", (event) => {
@@ -595,6 +613,9 @@ class QuestionTrackerPlugin extends Plugin {
     });
     this.addCommand({ id: "ai-undo-last-write", name: "AI: undo the last generated notes", callback: () => this.undoLastAiWriteCommand() });
     this.addCommand({ id: "ai-undo-agent-edits", name: "AI: undo the last agent edits", callback: () => this.undoLastAgentEditCommand() });
+    this.addCommand({ id: "ai-review-agent-edits", name: "AI: review and undo agent edits", callback: () => this.openAgentEditHistory() });
+    this.addCommand({ id: "calendar-export-week", name: "Calendar: export the current week as a PNG image", callback: () => this.exportWeekImage() });
+    this.addCommand({ id: "agent-show-change", name: "Study agent: show the next proposed change in its note", callback: () => this.revealNextProposalChange() });
     this.addCommand({ id: "course-notes-import", name: "Import course notes from a lecture or chapter", callback: () => this.openCourseNotesImport() });
     this.addCommand({ id: "paper-scanner", name: "Paper scanner: photos to PDF", callback: () => this.openPaperScanner() });
     this.addCommand({ id: "document-review", name: "Review a document for import", callback: () => this.openDocumentReview() });
@@ -6872,15 +6893,78 @@ class QuestionTrackerPlugin extends Plugin {
     }
     if (applied.length) {
       this.agentEditUndo = selected.filter((change) => applied.includes(change.path));
+      // Journal every applied review so any message's edits undo on their own.
+      this.recordAgentEdit(agentEditJournal().makeAgentEditRecord({
+        id: `ae-${Date.now().toString(36)}`,
+        date: localDate(),
+        label: "Agent review",
+        changes: this.agentEditUndo,
+      }));
       this.refreshViews();
     }
     return { applied, conflicts };
   }
 
+  /** Show the proposed change in its note: select the hunk in the editor. */
+  noteProposalChanges(changes) {
+    this._proposalChanges = Array.isArray(changes) ? changes : [];
+    this._revealCursor = 0;
+  }
+
+  async revealChangeInNote(change, hunkIndex) {
+    if (!change || !str(change.path).trim()) {
+      new Notice("No proposed change to show.");
+      return false;
+    }
+    const path = str(change.path).trim();
+    const spans = editorDiffNav().hunkSpans(change.diff);
+    const span = spans.length ? spans[Math.min(Math.max(0, Math.round(Number(hunkIndex) || 0)), spans.length - 1)] : null;
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) {
+      new Notice(`Could not find ${path}.`);
+      return false;
+    }
+    const active = this.app.workspace.getActiveFile ? this.app.workspace.getActiveFile() : null;
+    if (active && active.path === file.path) {
+      const editor = this.app.workspace.activeEditor && this.app.workspace.activeEditor.editor;
+      if (span && editor && editorDiffNav().selectHunk(editor, span)) return true;
+    } else if (this.app.workspace.getLeaf) {
+      const leaf = this.app.workspace.getLeaf("tab");
+      if (leaf && typeof leaf.openFile === "function") await leaf.openFile(file);
+      const editor = this.app.workspace.activeEditor && this.app.workspace.activeEditor.editor;
+      if (span && editor && editorDiffNav().selectHunk(editor, span)) return true;
+    }
+    new Notice(span ? `Opened ${path}; the change is listed in the proposal card.` : `Opened ${path}.`);
+    return true;
+  }
+
+  /** Step through every pending proposal hunk, one command press each. */
+  async revealNextProposalChange() {
+    const groups = editorDiffNav().spansForChanges(this._proposalChanges);
+    if (!groups.length) {
+      new Notice("No pending proposal changes to show. Apply or review an agent proposal first.");
+      return false;
+    }
+    const sources = Array.isArray(this._proposalChanges) ? this._proposalChanges : [];
+    const flat = [];
+    groups.forEach((group, order) => {
+      const source = sources[order] || { path: group.path, status: group.status };
+      group.spans.forEach((span, hunk) => flat.push({ source, hunk }));
+    });
+    if (!flat.length) return false;
+    const cursor = Math.min(Math.max(0, Math.round(Number(this._revealCursor) || 0)), flat.length - 1);
+    this._revealCursor = (cursor + 1) % flat.length;
+    return this.revealChangeInNote(flat[cursor].source, flat[cursor].hunk);
+  }
+
   /** Reverse the last applied agent review. */
   async undoLastAgentEdit() {
     const changes = Array.isArray(this.agentEditUndo) ? this.agentEditUndo : [];
-    if (!changes.length) return { restored: 0, paths: [] };
+    if (!changes.length) {
+      const latest = agentEditJournal().latestAgentEditRecord(this.agentEditHistory());
+      if (!latest) return { restored: 0, paths: [] };
+      return this.undoAgentEdit(latest.id);
+    }
     const paths = [];
     for (const change of changes) {
       if (change.before === null) await this.trashAgentFile(change.path);
@@ -6890,6 +6974,50 @@ class QuestionTrackerPlugin extends Plugin {
     this.agentEditUndo = null;
     this.refreshViews();
     return { restored: paths.length, paths };
+  }
+
+  /** The persisted per-message agent-edit journal (device-local, like AI writes). */
+  agentEditHistory() {
+    try {
+      return agentEditJournal().normalizeAgentEditRecords(this.app.loadLocalStorage(agentEditJournal().AGENT_EDIT_STORAGE_KEY));
+    } catch (error) {
+      return [];
+    }
+  }
+
+  recordAgentEdit(record) {
+    if (!record) return null;
+    try {
+      this.app.saveLocalStorage(agentEditJournal().AGENT_EDIT_STORAGE_KEY, agentEditJournal().appendAgentEditRecord(this.agentEditHistory(), record));
+    } catch (error) {
+      return null;
+    }
+    return record;
+  }
+
+  /** Undo one journalled review by id; notes edited since are skipped. */
+  async undoAgentEdit(id) {
+    const record = agentEditJournal().findAgentEditRecord(this.agentEditHistory(), id);
+    if (!record) return { restored: 0, skipped: 0, paths: [] };
+    const paths = [];
+    let skipped = 0;
+    for (const change of record.changes) {
+      const file = this.app.vault.getAbstractFileByPath(change.path);
+      const current = file instanceof TFile ? await this.app.vault.cachedRead(file) : null;
+      if (agentEditReview.normalizeText(current) !== change.after) {
+        skipped += 1;
+        continue;
+      }
+      if (change.before === null) await this.trashAgentFile(change.path);
+      else await this.writeAgentFile(change.path, change.before);
+      paths.push(change.path);
+    }
+    this.refreshViews();
+    return { restored: paths.length, skipped, paths };
+  }
+
+  openAgentEditHistory() {
+    new (agentEditHistoryModal().AgentEditHistoryModal)(this.app, this).open();
   }
 
   async undoLastAgentEditCommand() {
@@ -10215,6 +10343,65 @@ ${body}
     return result;
   }
 
+  /** Class-held dots for the course hub: one dot per scheduled class meeting. */
+  classDotsData() {
+    if (this.moduleOff("calendar")) return { courses: [], total: 0 };
+    const settings = this.calendarSettings();
+    const today = localDate();
+    const shiftDay = (key, delta) => {
+      const parts = str(key).split("-").map(Number);
+      const at = new Date(parts[0], parts[1] - 1, parts[2], 12);
+      if (Number.isNaN(at.getTime())) return "";
+      at.setDate(at.getDate() + delta);
+      return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`;
+    };
+    const termStart = str(settings.semesterStart).trim() || shiftDay(today, -60);
+    const termEnd = str(settings.semesterEnd).trim() || shiftDay(today, 120);
+    const meetings = [];
+    const noted = new Set();
+    const index = this.calendarNoteIndex();
+    const folders = this.calendarFolders();
+    for (const event of this.calendarEvents() || []) {
+      try {
+        if (!event || event.termReadingWeek || event.foreign || isExamEvent(event)) continue;
+        const key = str(event.dateKey).trim();
+        const course = str(event.course).trim() || cleanSubjectTitle(event.summary);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || !course) continue;
+        if (key < termStart || key > termEnd) continue;
+        meetings.push({ course, name: course, key, label: str(event.summary).trim(), event });
+        let found = null;
+        try {
+          found = findClassNote(this.app, settings, event, key, index, folders);
+        } catch (error) {
+          found = null;
+        }
+        if (found) noted.add(`${course.toLowerCase()}|${key}`);
+      } catch (error) {
+        continue;
+      }
+    }
+    const checked = new Set();
+    try {
+      const lectures = (this.studyToolsSettings && this.studyToolsSettings().lectureLog.lectures) || [];
+      for (const lecture of Array.isArray(lectures) ? lectures : []) {
+        if (!lecture || !lecture.course || !lecture.date) continue;
+        if (lecture.date < termStart || lecture.date > termEnd) continue;
+        const id = `${classDots().courseKeyOf(lecture.course)}|${lecture.date}`;
+        checked.add(id);
+        if (str(lecture.notePath).trim()) noted.add(id);
+      }
+      const absences = (this.studyWorkspaceSettings && this.studyWorkspaceSettings().subjectManager.absences) || [];
+      for (const absence of Array.isArray(absences) ? absences : []) {
+        if (!absence || !absence.subject || !absence.date) continue;
+        if (absence.date < termStart || absence.date > termEnd) continue;
+        checked.add(`${classDots().courseKeyOf(absence.subject)}|${absence.date}`);
+      }
+    } catch (error) {
+      // Dots degrade to meetings-only rather than breaking the hub.
+    }
+    return classDots().buildClassDots({ meetings, noted: [...noted], checked: [...checked], termStart, termEnd });
+  }
+
   /** Adds a saved resource to the exam's class note, creating the note when needed. */
   async addApResourceToClassNote(event, key, entry) {
     if (!event || !entry) return null;
@@ -10766,6 +10953,105 @@ ${body}
     }
     new Notice(`Exported ${sheet.count} due question${sheet.count === 1 ? "" : "s"} to ${path}.`, 7000);
     return { path, count: sheet.count };
+  }
+
+  /** The exact rows the week card draws, reused by the PNG export. */
+  buildWeekLayout(startKey) {
+    const settings = this.calendarSettings();
+    const keys = calendarWeek.weekDayKeys(startKey);
+    const range = new Date(`${startKey}T12:00:00`);
+    const allEvents = this.calendarEvents(range);
+    const layers = calendarMerge.enabledLayers(this, settings.layers);
+    const events = layers.classes ? allEvents : [];
+    const merged = calendarMerge.collect(this, { events: allEvents, startKey, endKey: keys[keys.length - 1], layers });
+    const rowsByDay = new Map(keys.map((key) => [key, (merged.byDay.get(key) || []).slice()]));
+    if (merged.layers.classes) {
+      for (const key of keys) {
+        for (const event of eventsOnDay(events, key)) {
+          const startMin = calendarWeek.dayMinutes(event.dtstart);
+          if (startMin === null) continue;
+          const endMin = calendarWeek.dayMinutes(event.dtend);
+          let details = null;
+          try {
+            details = parseClassDetails(event.summary, event.description, event.location);
+          } catch (error) {
+            details = null;
+          }
+          rowsByDay.get(key).push({
+            layer: "classes",
+            title: str(event.summary) || "Class",
+            time: `${formatTime(settings, event.dtstart)}${event.dtend ? ` \u2013 ${formatTime(settings, event.dtend)}` : ""}`,
+            startMin,
+            endMin: endMin !== null && endMin > startMin ? endMin : startMin + calendarWeek.LONG_EVENT_MINUTES,
+            color: classColor(settings, details, event.summary),
+          });
+        }
+      }
+    }
+    return calendarWeek.buildWeek({ startKey, firstDayOfWeek: settings.firstDayOfWeek, rowsByDay, now: new Date() });
+  }
+
+  /** Rasterize the current week grid and save it next to the .ics export. */
+  async exportWeekImage() {
+    if (this.moduleOff("calendar")) return { exported: false };
+    if (typeof document === "undefined" || typeof Image === "undefined") {
+      new Notice("Week image export needs the app window.");
+      return { exported: false, reason: "no-window" };
+    }
+    const settings = this.calendarSettings();
+    const startKey = calendarWeek.weekStartKey(localDate(), settings.firstDayOfWeek);
+    const layout = this.buildWeekLayout(startKey);
+    const drawn = weekImage().buildWeekSvg(layout, {
+      hourLabel: (hour) => formatTime(settings, new Date(2026, 0, 5, hour, 0)),
+    });
+    const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(drawn.svg)}`;
+    let image = null;
+    try {
+      image = await new Promise((resolve, reject) => {
+        const probe = new Image();
+        probe.onload = () => resolve(probe);
+        probe.onerror = () => reject(new Error("image"));
+        probe.src = url;
+      });
+    } catch (error) {
+      new Notice("Could not render the week image.");
+      return { exported: false, reason: "raster" };
+    }
+    const scale = 2;
+    const canvas = document.createElement("canvas");
+    canvas.width = drawn.width * scale;
+    canvas.height = drawn.height * scale;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      new Notice("Could not render the week image.");
+      return { exported: false, reason: "raster" };
+    }
+    ctx.scale(scale, scale);
+    ctx.drawImage(image, 0, 0, drawn.width, drawn.height);
+    const blob = await new Promise((resolve) => {
+      try {
+        canvas.toBlob((made) => resolve(made), "image/png");
+      } catch (error) {
+        resolve(null);
+      }
+    });
+    if (!blob) {
+      new Notice("Could not render the week image.");
+      return { exported: false, reason: "raster" };
+    }
+    const buffer = await blob.arrayBuffer();
+    const target = weekImage().weekImageFileName(startKey);
+    const existing = this.app.vault.getAbstractFileByPath(target);
+    if (existing instanceof TFile && typeof this.app.vault.modifyBinary === "function") {
+      await this.app.vault.modifyBinary(existing, buffer);
+    } else if (typeof this.app.vault.createBinary === "function") {
+      await this.app.vault.createBinary(target, buffer);
+    } else {
+      new Notice("This Obsidian version cannot save images from the plugin.");
+      return { exported: false, reason: "no-binary" };
+    }
+    new Notice(`Exported the week as ${target}.`);
+    return { exported: true, path: target };
   }
 
   async exportCalendarIcs() {
@@ -13708,6 +13994,75 @@ ${body}
   }
 
   /** Attach editing only to rendered tables in a real reading view note. */
+  /** Inline task chips for reading view: schedule tokens become small chips. */
+  decorateTaskChips(el, ctx) {
+    try {
+      if (!el || !ctx || typeof ctx.getSectionInfo !== "function") return;
+      const current = this.studyWorkspaceSettings().studyTasks;
+      if (!current || current.enabled === false) return;
+      const sourcePath = str(ctx.sourcePath).trim();
+      if (!sourcePath) return;
+      const info = ctx.getSectionInfo(el);
+      if (!info) return;
+      const lineStart = Math.max(0, Math.round(Number(info.lineStart) || 0));
+      const rows = typeof el.querySelectorAll === "function" ? Array.from(el.querySelectorAll(":scope > ul, :scope > ol")) : [];
+      const lists = rows.length ? rows : [];
+      if (!lists.length && typeof el.children !== "undefined") {
+        for (const child of Array.from(el.children || [])) {
+          if (child && /^(UL|OL)$/i.test(String(child.tagName || child.meta && child.meta.tag || ""))) lists.push(child);
+        }
+      }
+      let line = lineStart;
+      for (const list of lists) {
+        const count = taskChips().decorateTaskList(list, {
+          startLine: line,
+          onDate: (lineNo) => this.openTaskChipDate(sourcePath, lineNo),
+          onPriority: (lineNo) => this.stepTaskChipPriority(sourcePath, lineNo),
+        });
+        line += count;
+      }
+    } catch (error) {
+      // Decoration never breaks reading.
+    }
+  }
+
+  /** Rewrite one chip token on one note line; reading view re-renders itself. */
+  async applyTaskChipEdit(sourcePath, lineNo, edit) {
+    const file = this.app.vault.getAbstractFileByPath(sourcePath);
+    if (!(file instanceof TFile) || !edit) return false;
+    const text = await this.app.vault.read(file);
+    const lines = String(text === null || text === undefined ? "" : text).split("\n");
+    const index = Math.round(Number(lineNo) || 0) - 1;
+    if (index < 0 || index >= lines.length) return false;
+    const next = taskChips().applyChipEdit(lines[index], edit);
+    if (next === lines[index]) return false;
+    lines[index] = next;
+    await this.app.vault.modify(file, lines.join("\n"));
+    return true;
+  }
+
+  async openTaskChipDate(sourcePath, lineNo) {
+    const file = this.app.vault.getAbstractFileByPath(sourcePath);
+    if (!(file instanceof TFile)) return;
+    const text = await this.app.vault.read(file);
+    const line = String(text === null || text === undefined ? "" : text).split("\n")[Math.round(Number(lineNo) || 0) - 1] || "";
+    const current = taskChips().parseTaskLine(line).due;
+    new (taskChipDateModal().TaskChipDateModal)(this.app, current, async (day) => {
+      const changed = await this.applyTaskChipEdit(sourcePath, lineNo, { field: "due", value: day });
+      if (changed) new Notice(day ? `Due ${day}.` : "Due date cleared.");
+    }).open();
+  }
+
+  async stepTaskChipPriority(sourcePath, lineNo) {
+    const file = this.app.vault.getAbstractFileByPath(sourcePath);
+    if (!(file instanceof TFile)) return;
+    const text = await this.app.vault.read(file);
+    const line = String(text === null || text === undefined ? "" : text).split("\n")[Math.round(Number(lineNo) || 0) - 1] || "";
+    const high = taskChips().parseTaskLine(line).priority !== "high";
+    const changed = await this.applyTaskChipEdit(sourcePath, lineNo, { field: "priority", value: high ? "high" : "" });
+    if (changed) new Notice(high ? "Marked high priority." : "Back to normal priority.");
+  }
+
   decorateTableEditor(el, ctx) {
     if (!this.tableEditorEnabled() || !el) return;
     if (typeof el.closest === "function" && el.closest(".markdown-embed")) return;
@@ -14581,7 +14936,13 @@ ${body}
   async updateStudyTask(id, patch) {
     const current = this.studyWorkspaceSettings().studyTasks;
     const before = current.tasks.find((task) => task.id === id) || null;
-    const tasks = current.tasks.map((task) => (task.id === id ? { ...task, ...(patch || {}) } : task));
+    const change = patch && typeof patch === "object" ? patch : {};
+    // The agenda's Done-today section needs a completion day: finishing stamps
+    // it (an explicit doneAt wins), reopening clears it.
+    const became = change.done === true && (!before || !before.done);
+    const reopened = change.done === false && before && before.done;
+    const stamp = became ? str(change.doneAt).trim() || localDate() : reopened ? "" : null;
+    const tasks = current.tasks.map((task) => (task.id === id ? { ...task, ...change, ...(stamp === null ? {} : { doneAt: stamp }) } : task));
     this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({ ...current, tasks });
     await this.save();
     this.refreshViews();

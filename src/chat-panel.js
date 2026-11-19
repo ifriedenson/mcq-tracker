@@ -2805,6 +2805,13 @@ class ChatPanel {
         row.createSpan({ cls: "qt-agent-proposal-path", text: str(change.path) || "Note" });
         row.createSpan({ cls: "qt-agent-proposal-file-state", text: PROPOSAL_FILE_LABELS[change.status] || "Changed" });
         row.createSpan({ cls: "qt-agent-proposal-count", text: `+${Number(diff.added) || 0} -${Number(diff.removed) || 0}` });
+        const showButton = row.createEl("button", { cls: "qt-link qt-agent-proposal-show", text: "Show in note" });
+        showButton.setAttr("aria-label", `Show the proposed change to ${change.path} in its note`);
+        showButton.addEventListener("click", () => {
+          if (this.view && this.view.plugin && typeof this.view.plugin.revealChangeInNote === "function") {
+            this.view.plugin.revealChangeInNote(change, 0);
+          }
+        });
         const lines = Array.isArray(diff.lines) ? diff.lines.slice(0, 6) : [];
         if (lines.length) {
           const preview = card.createDiv({ cls: "qt-agent-proposal-diff", attr: { "aria-label": `Diff preview for ${change.path}` } });
@@ -2835,6 +2842,9 @@ class ChatPanel {
 
   setProposalCard(card) {
     this.proposalCard = card && typeof card === "object" ? card : null;
+    if (this.view && this.view.plugin && typeof this.view.plugin.noteProposalChanges === "function") {
+      this.view.plugin.noteProposalChanges(this.proposalCard && this.proposalCard.changes);
+    }
     this.sig = "";
     this.draw();
     return this.proposalCard;

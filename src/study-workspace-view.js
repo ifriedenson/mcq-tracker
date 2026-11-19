@@ -1026,6 +1026,15 @@ class StudyWorkspaceView extends ItemView {
     stat(data.grades.length, "grades");
     stat(totalWeight ? `${overall}%` : "—", "weighted average");
     stat(graded.length, "courses graded");
+    let dotsByCourse = new Map();
+    try {
+      const dotsData = this.plugin.classDotsData ? this.plugin.classDotsData() : null;
+      if (dotsData && Array.isArray(dotsData.courses)) {
+        dotsByCourse = new Map(dotsData.courses.map((course) => [course.course, course]));
+      }
+    } catch (error) {
+      dotsByCourse = new Map();
+    }
     const cards = root.createDiv({ cls: "qt-study-grid" });
     for (const entry of dashboard) {
       const card = cards.createDiv({ cls: "qt-study-card qt-course-card" });
@@ -1038,6 +1047,25 @@ class StudyWorkspaceView extends ItemView {
       if (entry.graded) chip.addClass(`is-${entry.letter.toLowerCase()}`);
       head.createEl("button", { text: "Overview", cls: "qt-link" }).addEventListener("click", () => this.plugin.openCourseOverview(entry.courseId || entry.name));
       card.createDiv({ cls: "qt-study-row-meta", text: `${entry.lectures} lecture${entry.lectures === 1 ? "" : "s"} · ${entry.absences} absence${entry.absences === 1 ? "" : "s"}${entry.folder ? ` · ${entry.folder}` : ""}` });
+      const dots = dotsByCourse.get(str(entry.name).trim().toLowerCase());
+      if (dots && dots.dots.length) {
+        const row = card.createDiv({ cls: "qt-course-dots" });
+        row.setAttr("role", "group");
+        row.setAttr("aria-label", `Class meetings for ${entry.name}`);
+        for (const dot of dots.dots) {
+          const held = dot.state === "held";
+          const checked = dot.state === "checked";
+          const button = row.createEl("button", {
+            cls: `qt-course-dot is-${dot.state}`,
+            attr: {
+              title: `${dot.key}: ${held ? "note exists" : checked ? "attendance checked, no note" : "no class held yet — create the note"}`,
+              "aria-label": `${entry.name} on ${dot.key}: ${held ? "note exists, open it" : checked ? "attendance checked, open or create the note" : "no class held yet, create the note"}`,
+            },
+          });
+          button.addEventListener("click", () => this.plugin.openClassNote(dot.event, dot.key));
+        }
+        if (dots.overflow) row.createSpan({ cls: "qt-course-dots-more", text: `+${dots.overflow}` });
+      }
       if (entry.lastLecture) card.createDiv({ cls: "qt-study-row-meta", text: `Last lecture: ${entry.lastLecture.date} · ${entry.lastLecture.title}` });
       if (entry.grades.length) {
         const list = card.createDiv({ cls: "qt-study-list" });

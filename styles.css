@@ -18441,3 +18441,90 @@ body {
     font-size: 10px;
   }
 }
+
+/* Class-held dots: one dot per scheduled meeting on each course-hub card. */
+.qt-course-dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+  margin: 6px 0 2px;
+}
+.qt-course-dot {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--background-modifier-border);
+  background: transparent;
+  cursor: pointer;
+  line-height: 1;
+}
+.qt-course-dot.is-checked {
+  border-color: var(--text-muted);
+  background: var(--background-modifier-hover);
+}
+.qt-course-dot.is-held {
+  border-color: var(--qt-accent-fill, var(--text-accent));
+  background: var(--qt-accent-fill, var(--text-accent));
+}
+.qt-course-dots-more {
+  font-size: var(--qt-type-xs);
+  color: var(--text-muted);
+}
+
+/* Inline task chips in reading view reuse .qt-task-chip; fields get a tint. */
+.qt-task-chip.is-due {
+  border-color: var(--background-modifier-border);
+  color: var(--text-normal);
+}
+.qt-task-chip.is-priority {
+  border-color: var(--text-error);
+  color: var(--text-error);
+}
+.qt-task-chip[aria-disabled="true"] {
+  cursor: default;
+}
+
+/* Doable agenda: layout toggle, quick-add preview, agenda section titles. */
+.qt-task-list-layout {
+  display: flex;
+  gap: 2px;
+  margin-top: 6px;
+}
+.qt-task-list-layout-tab {
+  border: 1px solid transparent;
+  border-radius: var(--qt-radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--qt-type-em-xs);
+  padding: 3px 10px;
+}
+.qt-task-list-layout-tab.is-active {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  border-color: var(--background-modifier-border);
+}
+.qt-task-list-preview {
+  font-size: var(--qt-type-xs);
+  color: var(--text-muted);
+  margin-top: 4px;
+  min-height: 1em;
+}
+.qt-task-list-agenda-title {
+  font-size: var(--qt-type-sm);
+  margin: 12px 0 4px;
+}
+
+/* Agent edit history modal rows reuse the review styles. */
+.qt-agent-history {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.qt-agent-proposal-show {
+  font-size: var(--qt-type-em-xs);
+  margin-left: auto;
+}

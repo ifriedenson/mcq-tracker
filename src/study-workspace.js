@@ -962,6 +962,7 @@ function normalizeStudyTask(value) {
     due: dayValue(source.due),
     time: timeValue(source.time),
     done: source.done === true,
+    doneAt: dayValue(source.doneAt),
     priority: priorityValue(source.priority),
     repeat: repeatValue(source.repeat),
     source: boundedText(source.source, 40) || "manual",
@@ -980,7 +981,12 @@ function normalizeStudyTasks(value) {
     tasks.push(task);
     if (tasks.length >= MAX_TASKS) break;
   }
-  return { enabled: enabledValue(value), tasks, mirrorNote: boundedText(source.mirrorNote, 200) };
+  return {
+    enabled: enabledValue(value),
+    tasks,
+    mirrorNote: boundedText(source.mirrorNote, 200),
+    agenda: source.agenda === true,
+  };
 }
 
 function createStudyTask(input, now) {
@@ -1103,6 +1109,69 @@ function hasFollowUp(tasks, followUp) {
       dayValue(task.due) === dayValue(wanted.due) &&
       repeatValue(task.repeat) === repeatValue(wanted.repeat)
   );
+}
+
+const AGENDA_SECTION_CAP = 20;
+
+function agendaDayTitle(key) {
+  const day = dayValue(key);
+  if (!day) return "";
+  const [year, month, date] = day.split("-").map(Number);
+  const at = new Date(year, month - 1, date, 12);
+  if (Number.isNaN(at.getTime())) return day;
+  const names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  return `${names[at.getDay()]}, ${MONTH_SHORT[month - 1]} ${date}`;
+}
+
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function compareAgendaTasks(a, b) {
+  const dueA = dayValue(a && a.due) || "\uffff";
+  const dueB = dayValue(b && b.due) || "\uffff";
+  if (dueA !== dueB) return dueA < dueB ? -1 : 1;
+  const timeA = str(a && a.time);
+  const timeB = str(b && b.time);
+  if (timeA !== timeB) return timeA < timeB ? -1 : 1;
+  return str(a && a.title).localeCompare(str(b && b.title));
+}
+
+/**
+ * Group open plugin tasks into an agenda: overdue, today, one section per
+ * upcoming day, later, no-date, then today's done tasks. Later and no-date
+ * sections are capped at AGENDA_SECTION_CAP with a total count. Pure.
+ */
+function agendaSections(tasks, today) {
+  const day = dayValue(today) || localDate();
+  const open = (Array.isArray(tasks) ? tasks : []).filter((task) => task && !task.done);
+  const doneToday = (Array.isArray(tasks) ? tasks : []).filter((task) => task && task.done && (!task.doneAt || task.doneAt === day));
+  const overdue = open.filter((task) => dayValue(task.due) && dayValue(task.due) < day).sort(compareAgendaTasks);
+  const dueToday = open.filter((task) => dayValue(task.due) === day).sort(compareAgendaTasks);
+  const upcoming = new Map();
+  for (const task of open) {
+    const due = dayValue(task.due);
+    if (!due || due <= day) continue;
+    if (!upcoming.has(due)) upcoming.set(due, []);
+    upcoming.get(due).push(task);
+  }
+  const upcomingDays = [...upcoming.keys()].sort();
+  const sections = [];
+  if (overdue.length) sections.push({ id: "overdue", title: "Overdue", tasks: overdue, total: overdue.length });
+  if (dueToday.length) sections.push({ id: "today", title: "Today", tasks: dueToday, total: dueToday.length });
+  for (const key of upcomingDays.slice(0, 7)) {
+    const rows = upcoming.get(key).sort(compareAgendaTasks);
+    sections.push({ id: `day-${key}`, title: agendaDayTitle(key), key, tasks: rows, total: rows.length });
+  }
+  const laterKeys = upcomingDays.slice(7);
+  const later = laterKeys.flatMap((key) => upcoming.get(key)).sort(compareAgendaTasks);
+  if (later.length) {
+    sections.push({ id: "later", title: "Later", tasks: later.slice(0, AGENDA_SECTION_CAP), total: later.length, capped: later.length > AGENDA_SECTION_CAP });
+  }
+  const noDate = open.filter((task) => !dayValue(task.due)).sort(compareAgendaTasks);
+  if (noDate.length) {
+    sections.push({ id: "nodate", title: "No date", tasks: noDate.slice(0, AGENDA_SECTION_CAP), total: noDate.length, capped: noDate.length > AGENDA_SECTION_CAP });
+  }
+  if (doneToday.length) sections.push({ id: "done", title: "Done today", tasks: doneToday.slice().sort(compareAgendaTasks), total: doneToday.length });
+  return sections;
 }
 
 function taskSummary(tasks, today) {
@@ -1496,6 +1565,8 @@ module.exports = {
   recallDueUnits,
   recallStats,
   hasFollowUp,
+  agendaSections,
+  agendaDayTitle,
   nextWeekday,
   repeatFollowUp,
   repeatValue,

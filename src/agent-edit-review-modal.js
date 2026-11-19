@@ -48,6 +48,14 @@ class AgentEditReviewModal extends QtModal {
       head.createSpan({ cls: `qt-agent-status is-${change.status}`, text: STATUS_LABELS[change.status] || change.status });
       const counts = change.diff.added || change.diff.removed ? ` +${change.diff.added} -${change.diff.removed}` : "";
       if (counts) head.createSpan({ cls: "qt-agent-count", text: counts.trim() });
+      const show = head.createEl("button", {
+        text: "Show in note",
+        cls: "qt-link",
+        attr: { "aria-label": `Show the proposed change to ${change.path} in its note` },
+      });
+      show.addEventListener("click", () => {
+        if (this.plugin && typeof this.plugin.revealChangeInNote === "function") this.plugin.revealChangeInNote(change, 0);
+      });
 
       const details = wrap.createEl("details", { cls: "qt-agent-details" });
       details.createEl("summary", { text: change.diff.lines.length ? "Show diff" : "No text changes" });

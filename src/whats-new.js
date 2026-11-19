@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.25",
+    date: "November 19, 2026",
+    title: "Class dots, week export, agenda, chips, and per-message agent undo",
+    summary:
+      "The finish-scope pass ships everything the plan still listed as partial or unimplemented that could be built locally: class-held dots on the course hub, a week PNG export, an agenda rail with a quick-add preview and inline task chips, per-message agent-edit undo, and in-editor diff navigation.",
+    highlights: [
+      {
+        title: "Class-held dots on the course hub",
+        body: "Each course card shows one dot per scheduled meeting this term: filled when the lecture note exists, a ring when attendance was checked without a note, empty otherwise. Clicking an empty dot creates the note from the course template.",
+      },
+      {
+        title: "The week exports as a PNG image",
+        body: "Calendar: export the current week as a PNG image saves week-timetable-<date>.png beside the .ics export, drawn from the same rows the week grid shows. Rendering needs the app window; scheduling data is untouched.",
+      },
+      {
+        title: "An agenda rail and a preview before adding",
+        body: "The task list gains a List|Agenda toggle grouping open work by day with capped tails, a done-today section fed by a new completion stamp, and a live line under the add box showing the date and repeat the title will get.",
+      },
+      {
+        title: "Task chips and agent changes in place",
+        body: "Reading view shows schedule tokens as chips with a date picker and priority stepping, every applied agent review gets its own Undo that survives reloads, and proposal cards show each change in its note with hunk-by-hunk stepping.",
+      },
+    ],
+  },
+  {
     version: "1.307.24",
     date: "November 19, 2026",
     title: "A week timetable, semester rollover, and Undo on every task edit",

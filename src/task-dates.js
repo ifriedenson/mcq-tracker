@@ -360,6 +360,26 @@ function tidyTitle(text) {
  * Pass { takeDate: false } or { takeTime: false } to leave a half the caller
  * already has alone: its words then stay in the title.
  */
+/**
+ * What the quick-add row will store before the learner presses Add: spoken
+ * repeats and dates are read out of the title, while picked dates win over
+ * spoken ones. Pure; the view mirrors the add flow with this.
+ */
+function previewTaskEntry(title, now, picks) {
+  const spoken = extractTaskRepeat(str(title));
+  const chosen = picks && typeof picks === "object" ? picks : {};
+  const when = extractTaskWhen(spoken.title, now, {
+    takeDate: !str(chosen.due).trim(),
+    takeTime: !str(chosen.time).trim(),
+  });
+  return {
+    title: when.title,
+    due: str(chosen.due).trim() || when.due,
+    time: str(chosen.time).trim() || when.time,
+    repeat: spoken.repeat,
+  };
+}
+
 function extractTaskWhen(title, now, options) {
   const input = str(title);
   if (!input.trim()) return { title: input.trim(), due: "", time: "" };
@@ -424,6 +444,7 @@ module.exports = {
   extractTaskDue,
   extractTaskRepeat,
   extractTaskWhen,
+  previewTaskEntry,
   formatTaskTime,
   parseTaskDate,
   parseTaskRepeat,

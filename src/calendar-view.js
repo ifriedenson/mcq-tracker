@@ -827,6 +827,7 @@ class CalendarView extends ItemView {
       this.headerButton(controls, "chevron-left", "Previous week", () => this.shiftWeek(-1));
       this.todayButton(controls);
       this.headerButton(controls, "chevron-right", "Next week", () => this.shiftWeek(1));
+      this.headerButton(controls, "image-down", "Export the week as a PNG image", () => this.plugin.exportWeekImage(), "uni-export-btn");
     } else {
       this.todayButton(controls);
     }

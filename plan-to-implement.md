@@ -2,7 +2,7 @@
 
 > Derived from [plan.md](plan.md) at commit `2ce2979` on November 8, 2026. This is a focused, read-only view, not the source of truth. It contains every open row and every explicitly captured future idea.
 >
-> **Current state: 0 unchecked roadmap rows, 0 partial/gated rows left open.** The last three owner passes closed on November 13, 2026 and the evidence is in plan.md §B; the 13 rows still blocked by a provider, credential, device or owner decision are in §3.9.6. There is no approved, locally implementable roadmap row left. Of the captured ideas below, 1.307.24 shipped Class Timetable 1 and 3 and Doable 4; the rest remain **not approved** and are not scheduled, and the deferred track is **not near-term**.
+> **Current state: 0 unchecked roadmap rows, 0 partial/gated rows left open.** The last three owner passes closed on November 13, 2026 and the evidence is in plan.md §B; the 13 rows still blocked by a provider, credential, device or owner decision are in §3.9.6. There is no approved, locally implementable roadmap row left. Of the captured ideas below, 1.307.24 shipped Class Timetable 1 and 3 and Doable 4, and 1.307.25 shipped the rest of the locally buildable set (Class Timetable 2 and 4, Doable 1-3, both adapted Copilot rows); the deferred track is **not near-term**.
 
 ## Status at a glance
 
@@ -10,7 +10,7 @@
 |---|---:|---|
 | Unchecked approved roadmap rows | 0 | Nothing is waiting in the core roadmap. |
 | Partial owner passes | 0 | All three closed Nov 13, 2026; evidence in plan.md §B. |
-| Captured idea sets | 2 | Class Timetable and Doable; three ideas shipped in 1.307.24, the rest not approved. |
+| Captured idea sets | 2 | Class Timetable and Doable; three ideas shipped in 1.307.24, the rest of the locally buildable set in 1.307.25. |
 | Deferred tracks | 1 | Standalone mobile and monetization; explicitly not near-term. |
 
 ## Partial roadmap rows
@@ -52,9 +52,9 @@ Both sections were captured on November 8, 2026. They add no checklist rows or r
 **Ideas worth considering, cheapest first:**
 
 1. **Week timetable for the existing Calendar** — **shipped in 1.307.24** (`src/calendar-week.js`, the calendar's Week mode, `Calendar: open the week timetable`); a real-clock Mon–Sun grid over the same merged rows, lanes for overlaps, a now-line and an all-day strip, with no new schedule storage.
-2. **Class-held dots on the course hub** — one dot per scheduled meeting this term: filled when that day's lecture note exists, a ring when attendance was checked without a note, empty when the class did not meet. Clicking an empty dot creates the note from the existing course template. It turns the existing attendance and lecture log into a semester record without a new property.
+2. **Class-held dots on the course hub** — **shipped in 1.307.25** (`src/class-dots.js`, `plugin.classDotsData()`, `tests/class-dots.test.js`); one dot per scheduled meeting, note/attendance states, empty-dot note creation, no new property.
 3. **Semester rollover** — **shipped in 1.307.24** (`Courses: start the next semester`, `rolloverCourses`, `SemesterRolloverModal`); one command stamps the label on courses that have none and moves the term window, without moving notes or rewriting the old term.
-4. **Week image export** — render the current week at full size in the active theme and save or copy it, for sharing a timetable without a screenshot. Optional and isolated; it changes no scheduling data.
+4. **Week image export** — **shipped in 1.307.25** (`src/week-image.js`, `Calendar: export the current week as a PNG image`, `tests/week-image.test.js`); SVG from the shared week layout, canvas raster in the app window.
 
 **Deliberately not revived:** the paste-a-timetable parser remains out (the Oct 30 pass kept subject-timetable parsing out; `.ics` import covers portal exports), and no planner, task or schedule data is duplicated. `Today` and `Upcoming` already exist, so a third "today" view is not proposed; if the §5.8 `uni-schedule`-style embed is built, it should reuse this week view rather than add a second block syntax.
 
@@ -66,9 +66,9 @@ Both sections were captured on November 8, 2026. They add no checklist rows or r
 
 **Ideas worth considering, cheapest first:**
 
-1. **Agenda rail over the existing task index** — a side panel grouping overdue, today, the next days one by one, later, no date and done today, with empty sections skipped and a visible section cap. Priority-coloured completion circles, click-to-open-source, and text/tag/note filtering. It reads and completes tasks through the existing paths; no new schema or store.
-2. **Plain-language quick add with a preview** — one input parsing "tomorrow", weekdays, "in 3 days", repeats, `!high` and tags; show the interpreted date/repeat/priority before writing. Then write the existing Tasks-compatible line into an inbox or today's note. Keep the parser local and dependency-free; no AI or network.
-3. **Inline task chips** — in Live Preview and Reading, show date/repeat/priority as small chips and reveal the raw Markdown when the cursor enters; click a date chip for a picker, click priority to step. Decoration only, never an early rewrite. The most implementation-heavy idea; optional and behind the existing module switch.
+1. **Agenda rail over the existing task index** — **shipped in 1.307.25** (List|Agenda toggle, `studyTasks.agenda`, `doneAt` stamping, `tests/task-agenda.test.js`); overdue/today/per-day/later/no-date/done-today, capped tails, existing paths.
+2. **Plain-language quick add with a preview** — **shipped in 1.307.25** (`previewTaskEntry()` in `src/task-dates.js`, live line in the add row, `tests/task-agenda.test.js`); picked dates win over spoken ones.
+3. **Inline task chips** — **shipped for Reading in 1.307.25** (`src/task-chips.js` postprocessor, date picker, priority step, `tests/task-chips.test.js`); the vault index stays read-only and Live Preview has no overlay (recorded limit).
 4. **Transient Undo on agenda edits** — **shipped for the plugin's own tasks in 1.307.24** (`updateStudyTaskWithUndo`): complete, reopen, star and repeat each leave the shared eight-second Undo. A reschedule or cancel of a Tasks-compatible line inside a Markdown note is still not written by the plugin, so that half remains captured.
 
 **Not proposed:** a second task format or store, a `doable`-specific syntax, bundled `rrule`, natural-language AI parsing, boards/Gantt/time tracking/calendar sync, or replacing the Tasks-compatible source of truth. If a query block is wanted later, support only the documented everyday subset and list unsupported clauses instead of silently changing results.
