@@ -4,7 +4,7 @@
  *
  * The source is stored as a vault path plus optional page/heading, and also as
  * a normal Obsidian link (`[[file.pdf#page=3]]`). The link is what opens the
- * exact page in Obsidian/PDF++; the path is what tools and a later reader can
+ * exact page in Obsidian; the path is what tools and a later reader can
  * use without parsing Markdown.
  */
 const { str } = require("./util");

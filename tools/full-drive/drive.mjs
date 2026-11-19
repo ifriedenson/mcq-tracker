@@ -36,7 +36,7 @@ const SETTINGS_PAGES = [
   "assignments", "pomodoro", "study-plan", "time-blocks", "local-events",
   "ap-exam", "reference", "reference-tools", "calculator", "periodic-table",
   "unit-converter", "equation-solver", "chemistry", "physics", "biology",
-  "transcript", "lectures", "courses", "pdf-plus", "welcome",
+  "transcript", "lectures", "courses", "welcome",
   "global", "mcq-ai", "mcq", "practice-settings", "appearance", "data",
   "diagnostics", "backup", "sync", "mobile", "accessibility", "shortcuts",
   "agent", "chat", "quick-ask", "knowledge", "analytics", "dashboard",

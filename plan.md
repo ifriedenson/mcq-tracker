@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status: v1.307.29 (Nov 19, 2026).** One MIT, dependency-free Obsidian plugin
+**Status: v1.307.30 (Nov 19, 2026).** One MIT, dependency-free Obsidian plugin
 (`mcq-tracker`) covering exam practice, cards and vocabulary, courses and
 calendars, study planning, document ingestion, reference/STEM tools and an
 optional BYOK/OpenCode AI layer.
@@ -15,7 +15,7 @@ surfaces, so unfinished ideas are not disguised as checked work.
 
 **Verified at this commit:** `node --test` → 3,105 tests pass, 0 fail;
 `npm run check` clean (no dynamic code across 379 source files, vendor guard,
-bundle up to date); `main.js` generated from 380 modules at 4,312,084 bytes.
+bundle up to date); `main.js` generated from 380 modules at 4,311,456 bytes.
 Re-run both before quoting these numbers.
 
 **Maintainability pass (Nov 10, 2026):** the duplicate `onTableEditorToggled` is merged into one method that updates the ribbon and repaints open reading views; question and card reads use path indexes with path/type-scoped invalidation; the PDF editor/reader stack loads only when a PDF is opened; the four document importers share `src/document-source.js`; and `npm run check` now rejects duplicate class members and export keys and enforces an eager module-load budget that keeps the PDF editor stack and the vendored PDF engines lazy. Measured in a real Obsidian 1.15.0 desktop under Xvfb, three launches per build: module evaluation fell from a median **63 ms** (57/63/64 ms) to **41 ms** (38/41/48 ms), while `onload` stayed at 16 ms versus 20 ms medians and parse was about 1 ms in both; launch-to-plugin-complete was about 0.9-1.0 s for both and is dominated by Obsidian's own boot, not the plugin. The module-registry/plugin split was assessed and deliberately deferred to a separate maintainability project: all 361 modules are reachable, the bundle remains dependency-free, and a split needs boundary ownership, a migration path and an external test harness first.
@@ -381,7 +381,7 @@ Legend: **MIT ✅** = MIT stated on the page or repo seen. **Verify ⚠️** = n
 
 | Plugin | What to learn from it | License | Link |
 |---|---|---|---|
-| **PDF++** | Backlinked PDF highlights and annotations; link to exact PDF locations | MIT ✅ | [GitHub](https://github.com/RyotaUshio/obsidian-pdf-plus) |
+| **PDF++** (removed 1.307.29; reference only, not bundled) | Backlinked PDF highlights and annotations; link to exact PDF locations | MIT ✅ | [GitHub](https://github.com/RyotaUshio/obsidian-pdf-plus) |
 | **Whisper** (TfTHacker) | Record and transcribe via Whisper API | MIT ✅ | [GitHub](https://github.com/TfTHacker/whisper-obsidian-plugin) |
 | **Audio to Text** | Transcribe linked audio files to new or current notes | MIT ✅ | [GitHub](https://github.com/aaldrich29/Audio-To-Text) |
 | **Local Whisper** | Offline transcription via whisper.cpp | MIT ✅ | [GitHub](https://github.com/cdiak/local-whisper) |
@@ -827,7 +827,7 @@ Core study systems:
 | Spaced Repetition | `st3v3nmw/obsidian-spaced-repetition` | MIT |
 | Obsidian Tutor | `st3v3nmw/obsidian-tutor` | MIT |
 | LearnKit | `ctrlaltwill/learnkit` | MIT |
-| PDF++ | `RyotaUshio/obsidian-pdf-plus` | MIT |
+| PDF++ (removed 1.307.29; not bundled) | `RyotaUshio/obsidian-pdf-plus` | MIT |
 | Tasks | `obsidian-tasks-group/obsidian-tasks` | MIT |
 | Full Calendar (original) | `obsidian-community/obsidian-full-calendar` | MIT |
 | VaultQuiz | `FilhoRicardo/vaultquiz` | MIT |
@@ -1355,11 +1355,11 @@ Build on the existing timed test.
 
 ### 5.13 Source ingestion  — **M–L**
 
-**Ideas from:** MCQ Tracker's PDF import, PDF++, Whisper/Audio to Text/Local Whisper, Lecture Transcriber.
+**Ideas from:** MCQ Tracker's PDF import, Whisper/Audio to Text/Local Whisper, Lecture Transcriber. (PDF++ was a past reference; its embedded subsystem was removed in 1.307.29.)
 
 **Scope**
 - **PDF → notes:** already exists for questions. Extend to lecture slides and textbook chapters (create course notes, not just questions).
-- **Provenance links:** each question/card stores the source note and, for PDFs, the page. Use PDF++ link style where available so a miss can open the exact page.
+- **Provenance links:** each question/card stores the source note and, for PDFs, the page. Use the plugin's PDF deep-link style (`[[file.pdf#page=N]]`) so a miss can open the exact page.
 - **Audio → transcript → notes:** do not rebuild transcription. Detect a transcript note (from Whisper, Audio to Text, Local Whisper, or Lecture Transcriber) in a course folder, then offer "generate practice from this lecture."
 - **Optional built-in transcription** only after the above, using API or local Whisper, with clear process/network disclosure.
 
@@ -2117,7 +2117,7 @@ One optional **Reference** module (off by default) for tools students expect bes
 | **No license shown** | Treat as all rights reserved. Do not copy. |
 | **"MIT with donation request"** | Read the exact text before reuse; Obsidian Scribe is the example. |
 
-**Also check:** bundled dependencies and data (fonts, icons, element datasets, question banks, zstd decoders, drawing libraries) each have their own license; sample packs must be original; import services require a terms review; `CONTRIBUTING.md` should state that contributions are MIT; CI should fail on a disallowed license (§8.5); still **Verify** ts-fsrs, Chem/RDKit, Ketcher, Latex Suite, PDF++, and every candidate below. Before any paid tier, re-read Obsidian's directory and developer policies on payments, accounts, network use and licensing, and disclose them in the README.
+**Also check:** bundled dependencies and data (fonts, icons, element datasets, question banks, zstd decoders, drawing libraries) each have their own license; sample packs must be original; import services require a terms review; `CONTRIBUTING.md` should state that contributions are MIT; CI should fail on a disallowed license (§8.5); still **Verify** ts-fsrs, Chem/RDKit, Ketcher, Latex Suite, and every candidate below. (PDF++ needs no verification: its embedded subsystem was removed in 1.307.29.) Before any paid tier, re-read Obsidian's directory and developer policies on payments, accounts, network use and licensing, and disclose them in the README.
 
 **New candidates worth auditing** (directory/repo licenses as reported on Oct 28, 2026; open each repo before copying)
 
@@ -2939,7 +2939,7 @@ The mission asked for every remaining plan item to be implemented. These cannot 
 - Activity Graph: https://community.obsidian.md/plugins/activity-graph
 
 **Ingestion**
-- PDF++: https://github.com/RyotaUshio/obsidian-pdf-plus
+- PDF++ (removed 1.307.29; pointer: docs/pdf-plus.md): https://github.com/RyotaUshio/obsidian-pdf-plus
 - Whisper: https://github.com/TfTHacker/whisper-obsidian-plugin
 - Audio to Text: https://github.com/aaldrich29/Audio-To-Text
 - Local Whisper: https://github.com/cdiak/local-whisper

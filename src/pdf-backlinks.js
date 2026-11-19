@@ -1,6 +1,6 @@
 "use strict";
 /*
- * PDF++-style backlink highlights.
+ * PDF deep-link backlink highlights.
  *
  * A Markdown wiki link is the annotation:
  *
@@ -8,7 +8,7 @@
  *
  * The reader scans notes for links to the open PDF and paints the selected
  * area, so annotations stay readable Markdown and can live in any note. This
- * module is pure: it parses links, maps PDF++ text ranges to page rectangles,
+ * module is pure: it parses links, maps PDF text ranges to page rectangles,
  * and returns rows for the reader. The sidecar annotator remains a separate,
  * durable model for ink, quotes, notes and marks.
  */
@@ -67,7 +67,7 @@ function matchesPdf(linkPath, pdfPath, sourcePath) {
   return !link.includes("/") && basename(link).toLowerCase() === basename(pdf).toLowerCase();
 }
 
-/** The exact text range in a PDF++ link, as four non-negative integers. */
+/** The exact text range in a PDF deep link, as four non-negative integers. */
 function selectionParts(value) {
   const selection = normalizeSelection(value);
   if (!selection) return null;
@@ -94,7 +94,7 @@ function itemGeometry(item) {
 }
 
 /**
- * Maps a PDF++ text range to one highlight rectangle per selected text item.
+ * Maps a PDF text range to one highlight rectangle per selected text item.
  * `items` are the normalized items returned by `readPdfPageText`, whose `i` is
  * the original pdf.js content-item index and whose `s` is the item's text.
  */
@@ -141,7 +141,7 @@ function selectionAreas(items, selection, options) {
 }
 
 /**
- * Turns a dragged rectangle into a PDF++ selection plus the text under it.
+ * Turns a dragged rectangle into a PDF text selection plus the text under it.
  * Partial first/last items are included by character offset, so a link can
  * point at part of a line instead of always expanding to whole text runs.
  */
@@ -208,7 +208,7 @@ function backlinkAreasFor(row, items) {
 }
 
 /**
- * Every PDF++-style link to `pdfPath` in the supplied notes. A note is
+ * Every PDF deep link to `pdfPath` in the supplied notes. A note is
  * `{ path, text }`; source, line, colour, page and the link itself are kept so
  * the reader can paint and open the note again.
  */
@@ -256,7 +256,7 @@ function byPosition(a, b) {
   return a.page - b.page || a.sourcePath.localeCompare(b.sourcePath) || a.line - b.line;
 }
 
-/** A PDF++-style link for a selection, used by the reader's copy action. */
+/** A PDF deep link for a selection, used by the reader's copy action. */
 function formatSelectionLink(pdfPath, page, options) {
   return formatPdfDeepLink(pdfPath, page, options);
 }

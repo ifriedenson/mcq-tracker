@@ -25,7 +25,7 @@ function round6(n) {
   return Math.round(n * 1e6) / 1e6;
 }
 
-/** A PDF++ text selection (`beginIndex,beginOffset,endIndex,endOffset`), or "". */
+/** A PDF text selection (`beginIndex,beginOffset,endIndex,endOffset`), or "". */
 function normalizeSelection(value) {
   const text = str(value).trim();
   if (!text) return "";
@@ -40,7 +40,7 @@ function normalizeSelection(value) {
   return `${beginIndex},${beginOffset},${endIndex},${endOffset}`;
 }
 
-/** A safe PDF++ highlight colour name, lower-cased, or "". */
+/** A safe PDF highlight colour name, lower-cased, or "". */
 function normalizeColor(value) {
   const text = str(value).trim().toLowerCase();
   return /^[a-z][a-z0-9_-]{0,23}$/.test(text) ? text : "";
