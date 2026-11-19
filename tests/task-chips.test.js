@@ -87,6 +87,8 @@ test("task chips: edits rewrite only the touched token", () => {
   assert.equal(C.applyChipEdit("Drill ⏫", { field: "priority", value: "high" }), "Drill ⏫");
   assert.equal(C.applyChipEdit("Drill ⏫ cells", { field: "priority", value: "" }), "Drill cells");
   assert.equal(C.applyChipEdit("Drill", { field: "unknown", value: "x" }), "Drill");
+  assert.equal(C.applyChipEdit("Drill 📅 2026-11-01", { field: "due", value: "" }), "Drill", "clear removes the due token");
+  assert.equal(C.applyChipEdit("Drill", { field: "due", value: "" }), "Drill", "clear with no token changes nothing");
 });
 
 test("task chips: trailing token runs become chips, mid-line tokens stay text", () => {

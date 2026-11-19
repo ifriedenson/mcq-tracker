@@ -6962,7 +6962,7 @@ class QuestionTrackerPlugin extends Plugin {
     const changes = Array.isArray(this.agentEditUndo) ? this.agentEditUndo : [];
     if (!changes.length) {
       const latest = agentEditJournal().latestAgentEditRecord(this.agentEditHistory());
-      if (!latest) return { restored: 0, paths: [] };
+      if (!latest) return { restored: 0, skipped: 0, paths: [] };
       return this.undoAgentEdit(latest.id);
     }
     const paths = [];
@@ -6973,7 +6973,7 @@ class QuestionTrackerPlugin extends Plugin {
     }
     this.agentEditUndo = null;
     this.refreshViews();
-    return { restored: paths.length, paths };
+    return { restored: paths.length, skipped: 0, paths };
   }
 
   /** The persisted per-message agent-edit journal (device-local, like AI writes). */
@@ -14014,12 +14014,19 @@ ${body}
       }
       let line = lineStart;
       for (const list of lists) {
+        let startLine = line;
+        try {
+          const own = ctx.getSectionInfo(list);
+          if (own && Number.isFinite(Number(own.lineStart))) startLine = Math.max(0, Math.round(Number(own.lineStart)));
+        } catch (error) {
+          // Fall back to striding from the section start.
+        }
         const count = taskChips().decorateTaskList(list, {
-          startLine: line,
+          startLine,
           onDate: (lineNo) => this.openTaskChipDate(sourcePath, lineNo),
           onPriority: (lineNo) => this.stepTaskChipPriority(sourcePath, lineNo),
         });
-        line += count;
+        line = startLine + count;
       }
     } catch (error) {
       // Decoration never breaks reading.

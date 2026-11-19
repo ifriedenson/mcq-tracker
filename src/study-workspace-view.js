@@ -1047,7 +1047,7 @@ class StudyWorkspaceView extends ItemView {
       if (entry.graded) chip.addClass(`is-${entry.letter.toLowerCase()}`);
       head.createEl("button", { text: "Overview", cls: "qt-link" }).addEventListener("click", () => this.plugin.openCourseOverview(entry.courseId || entry.name));
       card.createDiv({ cls: "qt-study-row-meta", text: `${entry.lectures} lecture${entry.lectures === 1 ? "" : "s"} · ${entry.absences} absence${entry.absences === 1 ? "" : "s"}${entry.folder ? ` · ${entry.folder}` : ""}` });
-      const dots = dotsByCourse.get(str(entry.name).trim().toLowerCase());
+      const dots = dotsByCourse.get(str(entry.name).trim().toLowerCase().replace(/\s+/g, " "));
       if (dots && dots.dots.length) {
         const row = card.createDiv({ cls: "qt-course-dots" });
         row.setAttr("role", "group");

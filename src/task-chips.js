@@ -98,6 +98,10 @@ function applyChipEdit(text, edit) {
   const source = str(text);
   const change = edit && typeof edit === "object" ? edit : {};
   if (change.field === "due") {
+    if (change.value === "" || change.value === null) {
+      if (!/📅\s*\d{4}-\d{2}-\d{2}/u.test(source)) return source;
+      return source.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}/u, "").replace(/\s{2,}/g, " ").trimEnd();
+    }
     const day = validDay(change.value);
     if (!day) return source;
     if (/📅\s*\d{4}-\d{2}-\d{2}/u.test(source)) return source.replace(/📅\s*\d{4}-\d{2}-\d{2}/u, `📅 ${day}`);

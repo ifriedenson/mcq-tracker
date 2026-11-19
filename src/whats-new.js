@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.26",
+    date: "November 19, 2026",
+    title: "Live-drive fixes for chips, dots, and agent undo",
+    summary:
+      "Every 1.307.25 surface was driven in a real Obsidian 1.15.1 window and the run fixed three defects the headless suite could not see: the chip Clear button, chip-to-line mapping, and the agent-undo result shape. The week export rasterized first try.",
+    highlights: [
+      {
+        title: "Clear really clears the due date",
+        body: "The date picker's Clear button closed the modal but left the token in place. An empty pick now removes the date token and collapses the leftover space, so the line reads clean and the notice says the date was cleared.",
+      },
+      {
+        title: "Chips keep their line",
+        body: "Reading-view chips drifted when prose sat between task lists because every list strode from the section start. Each list now re-anchors on its own section line first, so a chip click always edits the line it sits on.",
+      },
+      {
+        title: "Dots match every course name",
+        body: "A course with a double space in its name showed no class dots because the hub lookup skipped the whitespace folding the dot index uses. The lookup folds whitespace the same way, and the empty-dot click created the note live.",
+      },
+      {
+        title: "Undo answers one shape",
+        body: "The agent-undo result carried a skipped count on one path and not the other. Both paths now return restored, skipped, and paths together, and the live history modal restored the note through its own Undo button.",
+      },
+    ],
+  },
+  {
     version: "1.307.25",
     date: "November 19, 2026",
     title: "Class dots, week export, agenda, chips, and per-message agent undo",

@@ -83187,7 +83187,7 @@ class QuestionTrackerPlugin extends Plugin {
     const changes = Array.isArray(this.agentEditUndo) ? this.agentEditUndo : [];
     if (!changes.length) {
       const latest = agentEditJournal().latestAgentEditRecord(this.agentEditHistory());
-      if (!latest) return { restored: 0, paths: [] };
+      if (!latest) return { restored: 0, skipped: 0, paths: [] };
       return this.undoAgentEdit(latest.id);
     }
     const paths = [];
@@ -83198,7 +83198,7 @@ class QuestionTrackerPlugin extends Plugin {
     }
     this.agentEditUndo = null;
     this.refreshViews();
-    return { restored: paths.length, paths };
+    return { restored: paths.length, skipped: 0, paths };
   }
 
   /** The persisted per-message agent-edit journal (device-local, like AI writes). */
@@ -90239,12 +90239,19 @@ ${body}
       }
       let line = lineStart;
       for (const list of lists) {
+        let startLine = line;
+        try {
+          const own = ctx.getSectionInfo(list);
+          if (own && Number.isFinite(Number(own.lineStart))) startLine = Math.max(0, Math.round(Number(own.lineStart)));
+        } catch (error) {
+          // Fall back to striding from the section start.
+        }
         const count = taskChips().decorateTaskList(list, {
-          startLine: line,
+          startLine,
           onDate: (lineNo) => this.openTaskChipDate(sourcePath, lineNo),
           onPriority: (lineNo) => this.stepTaskChipPriority(sourcePath, lineNo),
         });
-        line += count;
+        line = startLine + count;
       }
     } catch (error) {
       // Decoration never breaks reading.
@@ -127698,7 +127705,7 @@ class StudyWorkspaceView extends ItemView {
       if (entry.graded) chip.addClass(`is-${entry.letter.toLowerCase()}`);
       head.createEl("button", { text: "Overview", cls: "qt-link" }).addEventListener("click", () => this.plugin.openCourseOverview(entry.courseId || entry.name));
       card.createDiv({ cls: "qt-study-row-meta", text: `${entry.lectures} lecture${entry.lectures === 1 ? "" : "s"} · ${entry.absences} absence${entry.absences === 1 ? "" : "s"}${entry.folder ? ` · ${entry.folder}` : ""}` });
-      const dots = dotsByCourse.get(str(entry.name).trim().toLowerCase());
+      const dots = dotsByCourse.get(str(entry.name).trim().toLowerCase().replace(/\s+/g, " "));
       if (dots && dots.dots.length) {
         const row = card.createDiv({ cls: "qt-course-dots" });
         row.setAttr("role", "group");
@@ -134397,6 +134404,10 @@ function applyChipEdit(text, edit) {
   const source = str(text);
   const change = edit && typeof edit === "object" ? edit : {};
   if (change.field === "due") {
+    if (change.value === "" || change.value === null) {
+      if (!/📅\s*\d{4}-\d{2}-\d{2}/u.test(source)) return source;
+      return source.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}/u, "").replace(/\s{2,}/g, " ").trimEnd();
+    }
     const day = validDay(change.value);
     if (!day) return source;
     if (/📅\s*\d{4}-\d{2}-\d{2}/u.test(source)) return source.replace(/📅\s*\d{4}-\d{2}-\d{2}/u, `📅 ${day}`);
@@ -142615,6 +142626,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.307.26",
+    date: "November 19, 2026",
+    title: "Live-drive fixes for chips, dots, and agent undo",
+    summary:
+      "Every 1.307.25 surface was driven in a real Obsidian 1.15.1 window and the run fixed three defects the headless suite could not see: the chip Clear button, chip-to-line mapping, and the agent-undo result shape. The week export rasterized first try.",
+    highlights: [
+      {
+        title: "Clear really clears the due date",
+        body: "The date picker's Clear button closed the modal but left the token in place. An empty pick now removes the date token and collapses the leftover space, so the line reads clean and the notice says the date was cleared.",
+      },
+      {
+        title: "Chips keep their line",
+        body: "Reading-view chips drifted when prose sat between task lists because every list strode from the section start. Each list now re-anchors on its own section line first, so a chip click always edits the line it sits on.",
+      },
+      {
+        title: "Dots match every course name",
+        body: "A course with a double space in its name showed no class dots because the hub lookup skipped the whitespace folding the dot index uses. The lookup folds whitespace the same way, and the empty-dot click created the note live.",
+      },
+      {
+        title: "Undo answers one shape",
+        body: "The agent-undo result carried a skipped count on one path and not the other. Both paths now return restored, skipped, and paths together, and the live history modal restored the note through its own Undo button.",
+      },
+    ],
+  },
   {
     version: "1.307.25",
     date: "November 19, 2026",
