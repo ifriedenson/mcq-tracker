@@ -35,16 +35,16 @@ test("what's new: every bundled release is complete and covers this version", ()
 
 test("what's new: a first install stays quiet, then an update shows once", async () => {
   const { app } = await setup();
-  assert.equal(whatsNew.whatsNewShouldShow(app, "1.297.0"), false, "a first install is owned by the welcome guide");
+  assert.equal(whatsNew.whatsNewShouldShow(app, "1.307.10"), false, "a first install is owned by the welcome guide");
 
-  welcome.markWelcomeSeen(app, "1.296.0");
-  assert.equal(whatsNew.whatsNewShouldShow(app, "1.297.0"), true, "a previous version unlocks the update note");
-  assert.equal(whatsNew.whatsNewShouldShow(app, "1.296.0"), false, "the same version does not repeat");
+  welcome.markWelcomeSeen(app, "1.307.9");
+  assert.equal(whatsNew.whatsNewShouldShow(app, "1.307.10"), true, "a previous version unlocks the update note");
+  assert.equal(whatsNew.whatsNewShouldShow(app, "1.307.9"), false, "the same version does not repeat");
 
-  const state = whatsNew.markWhatsNewSeen(app, "1.297.0");
-  assert.equal(state.seenVersion, "1.297.0");
+  const state = whatsNew.markWhatsNewSeen(app, "1.307.10");
+  assert.equal(state.seenVersion, "1.307.10");
   assert.ok(state.seenAt.length > 10);
-  assert.equal(whatsNew.whatsNewShouldShow(app, "1.297.0"), false, "the note is dismissed for this version");
+  assert.equal(whatsNew.whatsNewShouldShow(app, "1.307.10"), false, "the note is dismissed for this version");
 });
 
 test("what's new: an unknown version has no note and no popup", async () => {

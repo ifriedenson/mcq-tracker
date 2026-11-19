@@ -557,10 +557,6 @@ QuestionTrackerPlugin.__test = {
   mindmap,
   pdfDeepLink,
   pdfBacklinks,
-  // Lazy: a test-surface entry must not be paid for at plugin startup.
-  get pdfPlus() {
-    return require("./pdf-plus");
-  },
   pdfLatex,
   graph3d,
   graph3dPanel,
@@ -845,10 +841,6 @@ QuestionTrackerPlugin.__test = {
   // Lazy: a test-surface entry must not be paid for at plugin startup.
   get settingsCategories() {
     return require("./settings-categories");
-  },
-  // Lazy: a test-surface entry must not be paid for at plugin startup.
-  get pdfPlusSettings() {
-    return require("./pdf-plus-settings");
   },
   readingLibrary,
   studyWorkspace,

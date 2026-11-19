@@ -77,17 +77,15 @@ test("settings navigation: six categories hold every settings page exactly once"
     ["about", "ai", "daily", "practice", "review"],
     "every MCQ Tracker tab is its own destination"
   );
-  assert.ok(pages.some((page) => page.id === "pdf-plus" && page.module === "pdf-plus"), "PDF++ has a page");
   assert.equal(CATS.pageForModule("study-nudge"), "study-nudge");
   assert.equal(CATS.pageForModule("mcq"), "mcq-practice");
-  assert.equal(CATS.categoryForPage("pdf-plus").id, "app");
 });
 
 test("settings navigation: the category row and the page list render together", async () => {
   const { tab, dom } = openTab(await setup());
   let nodes = current(dom);
   assert.equal(byClass(nodes, "qt-settings-category").length, 6);
-  assert.equal(byClass(nodes, "qt-settings-page").length, 2, "the App & documents page list");
+  assert.equal(byClass(nodes, "qt-settings-page").length, 1, "the App & documents page list");
 
   assert.equal(tab.currentPage().id, "global");
   assert.ok(
@@ -157,140 +155,6 @@ test("settings navigation: the practice page exposes the mobile view switch", as
   assert.ok(obsidian.settingNames.includes("Distraction-free practice mode"));
 });
 
-test("settings navigation: PDF++ lives in the same navigation and hosts the vendor tab", async () => {
-  const plugin = await setup();
-  const { tab, dom } = openTab(plugin);
-  tab.openPage("pdf-plus");
-  assert.equal(tab.activePage, "pdf-plus");
-  const texts = current(dom).map((own) => own.meta.text || "");
-  assert.ok(texts.includes("PDF++"));
-  assert.ok(obsidian.settingNames.includes("Run the embedded PDF++ tools"), "the on/off switch is on the page");
-  assert.ok(texts.some((text) => /PDF\+\+'s options are not available yet/.test(text)), "the page explains an unavailable vendor tab");
-
-  // A vendor tab draws into the elements it created in its constructor, so the
-  // page mounts a second instance instead of reparenting the shared tab.
-  class FakeVendorTab {
-    constructor(hostPlugin) {
-      this.plugin = hostPlugin;
-      this.containerEl = dom.root.createDiv({ cls: "pdf-plus-settings" });
-      this.contentEl = this.containerEl.createDiv({ cls: "content" });
-    }
-    display() {
-      this.contentEl.createDiv({ text: "PDF++ vendor control" });
-    }
-  }
-  const vendorPlugin = { manifest: { id: "mcq-tracker-pdf-plus" } };
-  const vendor = new FakeVendorTab(vendorPlugin);
-  vendor.id = "mcq-tracker-pdf-plus";
-  plugin.app.setting = { pluginTabs: [vendor] };
-  tab.openPage("global");
-  tab.openPage("pdf-plus");
-  assert.ok(current(dom).some((own) => own.meta.text === "PDF++ vendor control"), "the vendor tab draws in the page");
-  assert.equal(plugin.app.setting.pluginTabs[0].containerEl, vendor.containerEl, "the real vendor tab keeps its own container");
-});
-
-test("pdf plus settings: vendor scroll targets inside Obsidian's settings pane", async () => {
-  const plugin = await setup();
-  const { tab, dom } = openTab(plugin);
-  class FakeScrollVendorTab {
-    constructor(hostPlugin) {
-      this.plugin = hostPlugin;
-      this.containerEl = dom.root.createDiv({ cls: "pdf-plus-settings" });
-      this.contentEl = this.containerEl.createDiv({ cls: "content" });
-      this.items = { colors: { settingEl: this.contentEl.createDiv({ text: "Colour swatches" }) } };
-    }
-    display() {
-      this.contentEl.createDiv({ text: "PDF++ scroll control" });
-    }
-    scrollTo(id, options) {
-      const setting = this.items[id];
-      if (setting) this.scrollToSetting(setting, options);
-    }
-    scrollToSetting() {
-      this.originalScrollCalls = (this.originalScrollCalls || 0) + 1;
-    }
-  }
-  const vendorPlugin = { manifest: { id: "mcq-tracker-pdf-plus" } };
-  const vendor = new FakeScrollVendorTab(vendorPlugin);
-  plugin.app.setting = { pluginTabs: [vendor] };
-  tab.openPage("pdf-plus");
-  const embedded = plugin._pdfPlusSettingsView;
-  assert.ok(embedded, "the embedded vendor tab was created");
-  const target = embedded.items.colors.settingEl;
-  embedded.scrollTo("colors", { behavior: "auto" });
-  assert.equal(target.__own.scrolledIntoView, true, "the real setting was scrolled into view");
-  assert.equal(embedded.originalScrollCalls, undefined, "the no-op vendor scroll was bypassed");
-});
-
-test("pdf plus settings: a moving target is scrolled again after the page settles", async () => {
-  const plugin = await setup();
-  const { tab, dom } = openTab(plugin);
-  let top = 840;
-  const calls = [];
-  const timers = [];
-  const target = {
-    isConnected: true,
-    scrollIntoView(options) {
-      calls.push(options);
-      if (calls.length === 2) top = 46;
-    },
-    getBoundingClientRect() {
-      return { top, bottom: top + 385, height: 385 };
-    },
-    ownerDocument: {
-      defaultView: {
-        innerHeight: 700,
-        setTimeout(fn, ms) {
-          timers.push({ fn, ms });
-          return timers.length;
-        },
-      },
-    },
-  };
-  class FakeMovingVendorTab {
-    constructor(hostPlugin) {
-      this.plugin = hostPlugin;
-      this.containerEl = dom.root.createDiv({ cls: "pdf-plus-settings" });
-      this.contentEl = this.containerEl.createDiv({ cls: "content" });
-      this.items = { colors: { settingEl: target } };
-    }
-    display() {}
-    scrollTo(id, options) {
-      if (id === "colors") this.scrollToSetting(this.items.colors, options);
-    }
-    scrollToSetting() {}
-  }
-  const vendor = new FakeMovingVendorTab({ manifest: { id: "mcq-tracker-pdf-plus" } });
-  plugin.app.setting = { pluginTabs: [vendor] };
-  tab.openPage("pdf-plus");
-  const embedded = plugin._pdfPlusSettingsView;
-  embedded.scrollTo("colors");
-  assert.equal(calls.length, 1, "the target is scrolled as soon as the page opens");
-  const settle = timers.find((timer) => timer.ms === 180);
-  assert.ok(settle, "a short post-render check is scheduled");
-  settle.fn();
-  assert.equal(calls.length, 2, "a target that moved below the viewport is scrolled again");
-  assert.equal(calls[1].behavior, "auto", "the corrective scroll is immediate");
-  for (const timer of timers) timer.fn();
-  assert.equal(calls.length, 2, "a visible target is not scrolled again");
-});
-
-test("pdf plus settings: Customize links open the integrated MCQ page", async () => {
-  const plugin = await setup();
-  const calls = [];
-  plugin.app.setting = {
-    open() {
-      calls.push("open");
-    },
-    openTabById(id) {
-      calls.push(id);
-    },
-  };
-  plugin.settingsTab = { openPage: (id) => calls.push(`page:${id}`) };
-  assert.equal(plugin.openPdfPlusSettingsTab(), true);
-  assert.deepEqual(calls, ["open", "mcq-tracker", "page:pdf-plus"]);
-});
-
 test("settings navigation: phones get the compact picker and tablets keep the desktop list", async () => {
   const original = { ...obsidian.Platform };
   try {
@@ -304,7 +168,7 @@ test("settings navigation: phones get the compact picker and tablets keep the de
       false,
       "an iPad keeps the desktop page list"
     );
-    assert.equal(byClass(nodes, "qt-settings-page").length, 2, "the tablet still renders the page list");
+    assert.equal(byClass(nodes, "qt-settings-page").length, 1, "the tablet still renders the page list");
 
     obsidian.Platform.isTablet = false;
     obsidian.Platform.isPhone = true;
@@ -364,28 +228,4 @@ test("settings navigation CSS: two columns on wide panes, the grouped picker on 
   assert.match(source("settings-tab.js"), /qt-settings-categories/);
   assert.match(source("settings-tab.js"), /aria-selected/);
   assert.match(source("settings-categories.js"), /const CATEGORIES = \[/);
-  assert.match(source("pdf-plus-settings.js"), /renderPdfPlusSettings/);
-  assert.match(
-    css,
-    /\.qt-settings-body \.qt-settings-grid \.qt-pdf-plus-embedded\.vertical-tab-content > \.header-container\s*\{[\s\S]*?overflow: hidden;[\s\S]*?flex-wrap: wrap;/s,
-    "the embedded PDF++ icon header wraps without its own horizontal scrollbar"
-  );
-  assert.match(
-    css,
-    /\.qt-settings-body \.qt-pdf-plus-embedded \.content \.dropdown\.is-measuring \{\s*display: none/s,
-    "invisible dropdown measuring clones do not widen the embedded page"
-  );
-});
-
-test("pdf plus settings: the page renderer is exported and finds the hosted tab", () => {
-  assert.equal(typeof T.pdfPlusSettings.renderPdfPlusSettings, "function");
-  assert.equal(typeof T.pdfPlusSettings.pdfPlusSettingsTab, "function");
-  assert.equal(T.pdfPlusSettings.pdfPlusSettingsTab({ app: {} }), null, "no registry means no tab");
-  const tab = { id: "mcq-tracker-pdf-plus", containerEl: "x", display() {} };
-  assert.equal(T.pdfPlusSettings.pdfPlusSettingsTab({ app: { setting: { pluginTabs: [tab] } } }), tab);
-  assert.equal(
-    T.pdfPlusSettings.pdfPlusSettingsTab({ pdfPlus: { settingTab: tab } }),
-    tab,
-    "the captured host tab is preferred over the app registry"
-  );
 });

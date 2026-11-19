@@ -178,30 +178,6 @@ test("hubs: toggling every study module off closes an empty Study hub", async ()
   assert.ok(detached.includes(hubs.hubSpec("study").type), "the Study hub closes");
 });
 
-test("pdf++: its three toggles ride in one button's menu", async () => {
-  const plugin = await setup();
-  const calls = [];
-  plugin._pdfPlusRibbons = [
-    { icon: "copy", title: "PDF++: Toggle auto-copy", callback: () => calls.push("copy") },
-    { icon: "focus", title: "PDF++: Toggle auto-focus", callback: () => calls.push("focus") },
-    { icon: "clipboard", title: "PDF++: Toggle auto-paste", callback: () => calls.push("paste") },
-  ];
-  const ribbon = ribbonOf(plugin);
-  const pdfButtons = ribbon.filter((item) => item.title.startsWith("PDF++"));
-  assert.equal(pdfButtons.length, 1, "one PDF++ button");
-  assert.equal(pdfButtons[0].title, "PDF++ toggles");
-  const menu = pdfButtons[0].onClick({});
-  assert.ok(menu.shown, "the menu opens on the click");
-  assert.equal(menu.items.length, 4, "three toggles plus PDF++ settings");
-  assert.equal(menu.separators, 1, "the settings entry is separated");
-  for (const item of menu.items.slice(0, 3)) item.click();
-  assert.deepEqual(calls, ["copy", "focus", "paste"], "each entry runs its own toggle");
-  assert.ok(obsidian.menus.includes(menu), "a real Menu was used");
-  plugin._pdfPlusRibbons = [];
-  const after = ribbonOf(plugin);
-  assert.ok(!after.some((item) => item.title.startsWith("PDF++")), "no PDF++ button without toggles");
-});
-
 test("hubs: tabs are keyboard-operable Apple-style tab controls", async () => {
   const plugin = await setup();
   const spec = hubs.hubSpec("today");

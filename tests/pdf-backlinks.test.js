@@ -8,7 +8,7 @@ const deep = T.pdfDeepLink;
 const backlinks = T.pdfBacklinks;
 const ink = T.pdfInk;
 
-test("pdf backlinks: selection and colour round-trip as PDF++ links", () => {
+test("pdf backlinks: selection and colour round-trip as deep links", () => {
   const link = deep.formatPdfDeepLink("Papers/Exam.pdf", 3, { selection: "4,0,5,20", color: "Green" });
   assert.equal(link, "[[Papers/Exam.pdf#page=3&selection=4,0,5,20&color=green]]");
   const parsed = deep.parsePdfDeepLink(link);

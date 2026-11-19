@@ -178,18 +178,6 @@ function renderModules(containerEl, plugin, redisplay, openModule) {
       status: `${tools.filter((tool) => tool.enabled).length} of ${tools.length} on`,
     });
     renderStudyToolIndex(toolsBody, plugin, openModule, tools);
-
-    const advanced = renderDisclosure(containerEl, {
-      title: "Advanced",
-      description: "Embedded document tools and specialist options.",
-      status: "Optional",
-    });
-    new Setting(advanced)
-      .setName("Embedded PDF++ tools")
-      .setDesc("Run the full MIT-licensed PDF++ 0.40.31 native PDF viewer integration and set it up on its own settings page.")
-      .addButton((b) =>
-        b.setButtonText("Open PDF++ settings").onClick(() => (typeof openModule === "function" ? openModule("pdf-plus") : redisplay()))
-      );
   } else {
     containerEl.createEl("p", {
       cls: "setting-item-description qt-settings-footnote",

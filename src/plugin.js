@@ -35,7 +35,6 @@ const pdfDeepLink = () => (_pdfDeepLink || (_pdfDeepLink = require("./pdf-deep-l
 let _pdfBacklinks = null;
 // Lazy: this feature is only needed when used, not at plugin startup.
 const pdfBacklinks = () => (_pdfBacklinks || (_pdfBacklinks = require("./pdf-backlinks")));
-const pdfPlus = require("./pdf-plus");
 const pdfLatex = require("./pdf-latex");
 const epub = require("./epub");
 const epubAnnotations = require("./epub-annotations");
@@ -426,13 +425,7 @@ class QuestionTrackerPlugin extends Plugin {
   async onload() {
     // A previous plugin instance or a crash may have left the body class behind.
     practiceFullscreen.setPracticeFullscreen(null, false);
-    this.pdfPlus = null;
-    this._pdfPlusSettingsView = null;
     this.settingsTab = null;
-    this.pdfPlusError = "";
-    this.pdfPlusPaused = false;
-    this.pdfPlusUiDepth = 0;
-    this._pdfPlusQueue = Promise.resolve();
     await this.loadSettings();
     this.knowledgeRecord = knowledgeRecord.emptyRecord();
     this._knowledgeRecordLoaded = false;
@@ -473,7 +466,6 @@ class QuestionTrackerPlugin extends Plugin {
 
     this.manager = new OpenCodeManager(this);
     this.app.workspace.onLayoutReady(() => {
-      this.startPdfPlus().catch(() => {});
       this.startDeferredStartup();
       this.loadKnowledgeRecord().catch(() => {});
       const version = this.manifest && this.manifest.version;
@@ -1576,7 +1568,6 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.audioBookmarks = audioBookmarks.normalizeAudioBookmarkSettings(saved.audioBookmarks);
     this.settings.feynmanAi = feynmanAi.normalizeFeynmanAiSettings(saved.feynmanAi);
     this.settings.pdfAnnotationIndex = pdfAnnotationIndex.normalizePdfAnnotationIndexSettings(saved.pdfAnnotationIndex);
-    this.settings.pdfPlus = pdfPlus.normalizePdfPlusSettings(saved.pdfPlus);
     this.settings.quickAdaptive = normalizeQuickAdaptive(saved.quickAdaptive);
     this.settings.reminder = normalizeReminder(saved.reminder);
     this.settings.practicePath = str(this.settings.practicePath).trim();
@@ -3539,12 +3530,6 @@ class QuestionTrackerPlugin extends Plugin {
     }
     try { practiceFullscreen.setPracticeFullscreen(null, false); } catch (e) { /* never block unload */ }
     try { if (this.manager) this.manager.stop(); } catch (e) { /* never block unload */ }
-    this.pdfPlusPaused = true;
-    this.pdfPlusUiDepth = 0;
-    try {
-      const r = pdfPlus.stop(this);
-      if (r && typeof r.catch === 'function') r.catch(() => {});
-    } catch (e) { /* never block unload */ }
     } catch (e) { /* Obsidian disable/update must never report failure */ }
   }
 
@@ -4398,40 +4383,7 @@ class QuestionTrackerPlugin extends Plugin {
     for (const id of Object.keys(this.ribbonAdded || {})) {
       if (!wanted.has(id)) this.removeModuleRibbon(id);
     }
-    this.refreshPdfPlusRibbon();
     this.refreshStudyNudgeLabel();
-  }
-
-  /** One PDF++ button instead of its three toggles; the toggles live in its menu. */
-  refreshPdfPlusRibbon() {
-    const items = Array.isArray(this._pdfPlusRibbons) ? this._pdfPlusRibbons : [];
-    if (!items.length) {
-      this.removeModuleRibbon("pdf-plus");
-      return;
-    }
-    this.addModuleRibbon("pdf-plus", "file-text", "PDF++ toggles", (event) => this.openPdfPlusMenu(event, items));
-  }
-
-  openPdfPlusMenu(event, items) {
-    const menu = new Menu();
-    for (const item of items) {
-      menu.addItem((entry) => {
-        entry.setTitle(String(item.title || "PDF++"));
-        if (typeof entry.setIcon === "function") entry.setIcon(item.icon || "file-text");
-        entry.onClick(() => {
-          try {
-            item.callback(event);
-          } catch (error) {
-            new Notice("Could not run that PDF++ toggle.");
-          }
-        });
-      });
-    }
-    if (typeof menu.addSeparator === "function") menu.addSeparator();
-    menu.addItem((entry) => entry.setTitle("PDF++ settings").onClick(() => this.openPdfPlusSettingsTab()));
-    if (event && typeof menu.showAtMouseEvent === "function") menu.showAtMouseEvent(event);
-    else if (typeof menu.showAtPosition === "function") menu.showAtPosition({ x: 0, y: 0 });
-    return menu;
   }
 
   /** Opens a hub leaf on one of its tabs, creating the leaf only when needed. */
@@ -4472,105 +4424,6 @@ class QuestionTrackerPlugin extends Plugin {
 
   setupCalendarRibbon() {
     this.refreshRibbon();
-  }
-
-  /** Whether the embedded PDF++ native-viewer subsystem is enabled. */
-  pdfPlusEnabled() {
-    return pdfPlus.normalizePdfPlusSettings(this.settings && this.settings.pdfPlus).enabled;
-  }
-
-  /**
-   * Serialize PDF++ start and stop. A reader that opens and closes in the same tick
-   * queues a stop and a start, and PDF++ must never patch and unpatch at once.
-   */
-  queuePdfPlusTransition(fn) {
-    const previous = this._pdfPlusQueue || Promise.resolve();
-    const next = previous.then(fn, fn);
-    this._pdfPlusQueue = next.catch(() => {});
-    return next;
-  }
-
-  /** Start PDF++ after the workspace is ready; a failure leaves the rest of the plugin working. */
-  async startPdfPlus() {
-    return this.queuePdfPlusTransition(() => this.startPdfPlusNow());
-  }
-
-  async startPdfPlusNow() {
-    if (!this.pdfPlusEnabled() || this.pdfPlusPaused) return null;
-    try {
-      const host = await pdfPlus.start(this);
-      this.pdfPlus = host;
-      if (host) this.pdfPlusError = "";
-      else if (this.pdfPlusError) new Notice(this.pdfPlusError);
-      return host;
-    } catch (err) {
-      this.pdfPlusError = err && err.message ? String(err.message) : String(err);
-      new Notice(`PDF++ tools could not start: ${this.pdfPlusError}`);
-      return null;
-    }
-  }
-
-  async stopPdfPlus() {
-    return this.queuePdfPlusTransition(() => this.stopPdfPlusNow());
-  }
-
-  async stopPdfPlusNow() {
-    await pdfPlus.stop(this);
-    this.pdfPlus = null;
-  }
-
-  async setPdfPlusEnabled(enabled) {
-    const next = pdfPlus.normalizePdfPlusSettings(this.settings.pdfPlus);
-    next.enabled = enabled === true;
-    this.settings.pdfPlus = next;
-    await this.save();
-    if (next.enabled && !this.pdfPlusPaused) await this.startPdfPlus();
-    else await this.stopPdfPlus();
-  }
-
-  /**
-   * Opens MCQ Tracker's own PDF++ page. PDF++'s vendor tab is captured rather
-   * than registered as a separate top-level plugin tab, so every "Customize..."
-   * link in PDF++ lands on the one integrated settings page.
-   */
-  openPdfPlusSettingsTab() {
-    const setting = this.app && this.app.setting;
-    if (setting && typeof setting.open === "function") setting.open();
-    const pluginId = (this.manifest && this.manifest.id) || "mcq-tracker";
-    if (setting && typeof setting.openTabById === "function") setting.openTabById(pluginId);
-    if (this.settingsTab && typeof this.settingsTab.openPage === "function") {
-      // PDF++ is an advanced page; a deep link from its own UI reveals it even
-      // while the rest of the settings stay in Simple mode.
-      this.settingsTab.openPage("pdf-plus", { reveal: true });
-      return true;
-    }
-    new Notice("Open Settings → App & documents → PDF++.");
-    return false;
-  }
-
-  /**
-   * An MCQ Tracker PDF surface (the reader or the page/form editor) is taking the file.
-   *
-   * PDF++ decorates Obsidian's native PDF view and patches its internals, while the MCQ
-   * reader and editor draw their own canvas overlays over the same file. Running both
-   * would give a user two competing PDF UIs, so the embedded host is stopped while any
-   * MCQ PDF surface is open and started again when the last one closes. Nested opens
-   * are counted, so a second surface closing never restarts the host early.
-   */
-  beginMcqPdfUi() {
-    this.pdfPlusUiDepth = (this.pdfPlusUiDepth || 0) + 1;
-    if (this.pdfPlusUiDepth > 1) return Promise.resolve();
-    this.pdfPlusPaused = true;
-    return this.stopPdfPlus();
-  }
-
-  /** The last MCQ PDF surface closed; resume the embedded host when the module is on. */
-  endMcqPdfUi() {
-    this.pdfPlusUiDepth = Math.max(0, (this.pdfPlusUiDepth || 0) - 1);
-    if (this.pdfPlusUiDepth > 0) return Promise.resolve();
-    this.pdfPlusPaused = false;
-    if (!this.pdfPlusEnabled()) return Promise.resolve();
-    return this.startPdfPlus();
   }
 
   /** Says a module is off and points at settings. True when it is off, so callers can stop. */

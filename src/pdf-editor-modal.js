@@ -238,28 +238,9 @@ class PdfEditorModal extends QtModal {
     this.undoButton = null;
     this.redoButton = null;
     this.historyHint = null;
-    this.pdfPlusClaimed = false;
-  }
-
-  /** This editor owns the PDF UI while it is open, so the embedded PDF++ host pauses. */
-  claimPdfPlus() {
-    if (this.pdfPlusClaimed) return;
-    this.pdfPlusClaimed = true;
-    if (this.plugin && typeof this.plugin.beginMcqPdfUi === "function") {
-      Promise.resolve(this.plugin.beginMcqPdfUi()).catch(() => {});
-    }
-  }
-
-  releasePdfPlus() {
-    if (!this.pdfPlusClaimed) return;
-    this.pdfPlusClaimed = false;
-    if (this.plugin && typeof this.plugin.endMcqPdfUi === "function") {
-      Promise.resolve(this.plugin.endMcqPdfUi()).catch(() => {});
-    }
   }
 
   onOpen() {
-    this.claimPdfPlus();
     this.modalEl.addClass("qt-pdf-editor-modal");
     this.renderShell();
     if (this.modalEl && typeof this.modalEl.addEventListener === "function") {
@@ -269,7 +250,6 @@ class PdfEditorModal extends QtModal {
   }
 
   onClose() {
-    this.releasePdfPlus();
     this.thumbToken += 1;
     for (const url of this.thumbUrls) {
       try {

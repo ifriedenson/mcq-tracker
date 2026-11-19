@@ -45,7 +45,6 @@ const MUST_STAY_LAZY = [
   "pdf-editor-modal",
   "pdf-ink-modal",
   "vendor/pdf-lib",
-  "vendor/pdf-plus",
 ];
 
 const GLOBAL_STUBS = ["window", "document", "activeWindow", "activeDocument", "localStorage", "app"];

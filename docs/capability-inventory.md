@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 470 groups, 3266 exports. **Commands:** 249. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 468 groups, 3255 exports. **Commands:** 249. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -29,7 +29,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `CardView` | 0 | `tests/card-cram.test.js`, `tests/card-learning.test.js`, `tests/card-mother-cram.test.js`, `tests/card-reveal.test.js`, `tests/card-speech.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/interval-preview.test.js`, `tests/mobile-module-layout.test.js`, `tests/source-recall.test.js`, `tests/study-status.test.js`, `tests/undo-everywhere.test.js` |
 | `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/chat-branches.test.js`, `tests/chat-panel-copilot.test.js`, `tests/chat-panel-mentions.test.js`, `tests/diagnostics-gauge.test.js`, `tests/memory-export.test.js`, `tests/note-context.test.js`, `tests/quick-ask.test.js`, `tests/security-hardening.test.js`, `tests/skills-pricing.test.js`, `tests/think-first.test.js` |
 | `CourseOverviewModal` | 0 | `tests/core-values.test.js` |
-| `DEFAULT_SETTINGS` | 119 | `tests/grading.test.js` |
+| `DEFAULT_SETTINGS` | 118 | `tests/grading.test.js` |
 | `DocumentReviewModal` | 0 | `tests/feature-surfaces.test.js`, `tests/import-edge-robustness.test.js` |
 | `DueQueueModal` | 0 | `tests/due-queue.test.js`, `tests/feature-surfaces.test.js` |
 | `EpubReaderModal` | 0 | `tests/epub.test.js` |
@@ -339,19 +339,17 @@ the table and fails if a group, export count, command or citing test drifts.
 | `parseSections` | 0 | `tests/grading.test.js`, `tests/hints.test.js`, `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/needs-fixing.test.js`, `tests/question-types.test.js`, `tests/views.test.js` |
 | `partsToTurns` | 0 | `tests/chat-panel-copilot.test.js`, `tests/feature-surfaces.test.js` |
 | `pauseQuickSession` | 0 | `tests/uncited-groups.test.js` |
-| `pdf` | 29 | `tests/cards-import.test.js`, `tests/feature-engines.test.js`, `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-backlinks.test.js`, `tests/pdf-deep-link.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-latex.test.js`, `tests/pdf-plus-boot.test.js`, `tests/pdf-plus.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/settings-navigation.test.js`, `tests/study-modules-3.test.js` |
+| `pdf` | 29 | `tests/cards-import.test.js`, `tests/feature-engines.test.js`, `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-backlinks.test.js`, `tests/pdf-deep-link.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-latex.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/study-modules-3.test.js` |
 | `pdfAnnotationIndex` | 7 | `tests/study-modules-3.test.js` |
 | `pdfAnnotations` | 22 | `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-deep-link.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-reader-page-ops.test.js`, `tests/study-modules-3.test.js` |
 | `pdfAnnotatorSidebar` | 8 | `tests/pdf-annotator-sidebar.test.js` |
 | `pdfBacklinks` | 11 | `tests/pdf-backlinks.test.js` |
 | `pdfDeepLink` | 8 | `tests/feature-engines.test.js`, `tests/pdf-backlinks.test.js`, `tests/pdf-deep-link.test.js` |
-| `pdfEditor` | 56 | `tests/pdf-editor-window.test.js`, `tests/pdf-plus-boot.test.js`, `tests/pdf-reader-page-ops.test.js` |
-| `pdfEditorModal` | 3 | `tests/pdf-editor-window.test.js`, `tests/pdf-plus-boot.test.js` |
-| `pdfInk` | 26 | `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-backlinks.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-plus-boot.test.js`, `tests/pdf-reader-page-ops.test.js` |
-| `pdfInkModal` | 2 | `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-plus-boot.test.js`, `tests/pdf-reader-page-ops.test.js` |
+| `pdfEditor` | 56 | `tests/pdf-editor-window.test.js`, `tests/pdf-reader-page-ops.test.js` |
+| `pdfEditorModal` | 3 | `tests/pdf-editor-window.test.js` |
+| `pdfInk` | 26 | `tests/pdf-annotations.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-annotator.test.js`, `tests/pdf-backlinks.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-ink.test.js`, `tests/pdf-reader-page-ops.test.js` |
+| `pdfInkModal` | 2 | `tests/pdf-annotator-sidebar.test.js`, `tests/pdf-editor-window.test.js`, `tests/pdf-reader-page-ops.test.js` |
 | `pdfLatex` | 6 | `tests/feature-engines.test.js`, `tests/pdf-latex.test.js` |
-| `pdfPlus` | 8 | `tests/pdf-plus-boot.test.js`, `tests/pdf-plus.test.js`, `tests/settings-navigation.test.js` |
-| `pdfPlusSettings` | 2 | `tests/settings-navigation.test.js` |
 | `permissionConfigContent` | 0 | `tests/opencode-permissions.test.js` |
 | `pickQuestion` | 0 | `tests/mastery-picker.test.js`, `tests/study-status.test.js` |
 | `plainCards` | 6 | `tests/plain-cards.test.js` |

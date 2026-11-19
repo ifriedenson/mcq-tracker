@@ -115,7 +115,6 @@
   --qt-transition-ui: color var(--qt-duration-fast) var(--qt-ease-standard), background-color var(--qt-duration-fast) var(--qt-ease-standard), border-color var(--qt-duration-fast) var(--qt-ease-standard), opacity var(--qt-duration-fast) var(--qt-ease-standard), transform var(--qt-duration-base) var(--qt-ease-standard), box-shadow var(--qt-duration-fast) var(--qt-ease-standard);
 }
 
-
 /* The default light accent is a tint, not an ink: white on it is 3.4:1. Mix
    toward black for link text and filled controls so both themes clear AA. */
 body.theme-light {
@@ -1577,9 +1576,7 @@ body.theme-dark .qt-task-pill.is-overdue {
 
 .uni-study-slot-window,
 
-
 .uni-study-slot-count,
-
 
 .uni-study-slot-empty {
   font-size: var(--qt-type-base);
@@ -4792,7 +4789,6 @@ body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tra
   cursor: pointer;
 }
 
-
 /* Today: a phone-first launch card. Scoped under .qt-today so it never changes
    the exam-style practice screen. */
 .qt-today {
@@ -7120,7 +7116,6 @@ body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tra
   width: 100%;
 }
 
-
 /* Interleaved mixed review across questions, cards and vocabulary. */
 .qt-mixed-top {
   align-items: center;
@@ -7228,7 +7223,6 @@ body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tra
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
-
 
 /* AP score estimator in Reference. */
 .qt-ap-controls {
@@ -7609,7 +7603,6 @@ body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tra
   font-size: var(--qt-type-sm);
 }
 
-
 /* ---- study skin modes (Learn / Test / Match) ---- */
 .qt-study-results { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .qt-study-result { border: 1px solid var(--background-modifier-border); border-radius: var(--qt-radius-sm); padding: 8px 10px; }
@@ -7622,7 +7615,6 @@ body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tra
 .qt-match-card.is-wrong { outline: 2px solid var(--text-error); }
 .qt-match-message { margin-top: 6px; }
 @media (max-width: 480px) { .qt-match-board { flex-direction: column; } }
-
 
 /* ---- one-screen reference sheets ---- */
 .qt-ref-table-wrap { overflow-x: auto; margin: 8px 0; }
@@ -7716,7 +7708,6 @@ body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tra
 .qt-quiz-choices.is-static { pointer-events: none; }
 .qt-quiz-choice.is-static:disabled { cursor: default; opacity: 1; }
 .qt-quiz-choice.is-static.is-correct { border-color: var(--interactive-accent); }
-
 
 /* Quiz Maker packs: assertion/reason, correction, evidence and branching. */
 .qt-quiz-maker {
@@ -7842,7 +7833,6 @@ body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tra
   margin-top: 10px;
 }
 
-
 /* Spaced Everything capture and review extras. */
 .qt-spaced-capture-modal .qt-spaced-capture-text {
   min-height: 160px;
@@ -7851,7 +7841,6 @@ body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tra
 .qt-spaced-capture-modal .qt-error {
   margin-top: 6px;
 }
-
 
 /* Auto Anki confirmation and excerpt. */
 .qt-auto-anki-excerpt {
@@ -8375,7 +8364,6 @@ body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tra
   color: var(--text-error);
   font-size: var(--qt-type-base);
 }
-
 
 /* ---- Study tools: independent Cornell, lecture-log and goal modules ---- */
 .qt-study-tools-wrap {
@@ -11122,7 +11110,6 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   color: var(--text-normal);
 }
 
-
 /* A one-column Today view should not make every short panel as tall as the
    tallest dashboard row. */
 @media (max-width: 700px) {
@@ -12734,7 +12721,6 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   overflow: auto;
 }
 
-
 /* In-reader annotation sidebar */
 .qt-pdf-ink-layout {
   display: flex;
@@ -13208,7 +13194,6 @@ body:not(.theme-dark) .qt-chat-library-actions .qt-chat-library-delete {
     visibility: hidden;
   }
 }
-
 
 /* Tally counters: a local self-marking scratchpad for one practice run. */
 .qt-tally {
@@ -13832,7 +13817,6 @@ body:not(.theme-dark) .qt-chat-library-actions .qt-chat-library-delete {
   color: var(--text-warning);
 }
 
-
 /* Study agent plan-then-act: one reviewable step at a time. */
 .qt-chat-plan {
   border: 1px solid var(--background-modifier-border);
@@ -13899,7 +13883,6 @@ body:not(.theme-dark) .qt-chat-library-actions .qt-chat-library-delete {
   line-height: 1.2;
   font-size: var(--qt-type-sm);
 }
-
 
 /* Knowledge record: concept coverage, misconceptions and the learner digest. */
 .qt-knowledge-kpis {
@@ -16665,86 +16648,6 @@ body:not(.theme-dark) .qt-chat-library-actions .qt-chat-library-delete {
   color: var(--text-normal);
 }
 
-.qt-pdf-plus-settings {
-  margin-top: 4px;
-}
-
-/* PDF++'s vendor header is one non-wrapping 28px icon row. At the embedded
-   page's 419px width its 31 headings overflow by many times the page width and
-   the vendor scroller draws a horizontal scrollbar. Wrap the same vendor icons
-   inside the embedded page only; all headings stay visible and reachable. */
-.qt-settings-body .qt-settings-grid .qt-pdf-plus-embedded.vertical-tab-content > .header-container,
-.modal.mod-settings .qt-settings-body .qt-settings-grid .qt-pdf-plus-embedded.vertical-tab-content > .header-container {
-  box-sizing: border-box;
-  height: auto;
-  min-height: var(--pdf-plus-settings-header-height, 48px);
-  padding: 8px 16px;
-  overflow: hidden;
-  line-height: normal;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: center;
-  gap: 2px;
-}
-
-/* Obsidian's DropdownComponent leaves hidden measuring <select> elements in a
-   setting row. The two long PDF++ examples are 410px wide inside the 419px
-   page and add 23px to the page's scrollWidth. They are invisible measurement
-   nodes, not controls; removing them does not remove the visible dropdowns. */
-.qt-settings-body .qt-pdf-plus-embedded .content .dropdown.is-measuring {
-  display: none;
-}
-
-/* The vendor tab was laid out for a full-width settings window. Inside this
-   page Obsidian's .vertical-tab-content gutter plus PDF++'s own content gutter
-   left 259px rows whose info could grow past the row and clip its label.
-   Remove the outer gutter for the embedded copy, keep a smaller inner one, and
-   let long names and controls wrap inside the page. */
-.qt-settings-body .qt-settings-grid .qt-pdf-plus-embedded.vertical-tab-content,
-.modal.mod-settings .qt-settings-body .qt-settings-grid .qt-pdf-plus-embedded.vertical-tab-content {
-  width: 100%;
-  padding: 0;
-}
-
-.qt-settings-body .qt-settings-grid .qt-pdf-plus-embedded .content,
-.modal.mod-settings .qt-settings-body .qt-settings-grid .qt-pdf-plus-embedded .content {
-  box-sizing: border-box;
-  width: 100%;
-  max-width: none;
-  padding-left: 16px;
-  padding-right: 16px;
-}
-
-.qt-settings-body .qt-pdf-plus-embedded .setting-item-info {
-  flex: 1 1 auto;
-  width: auto;
-  min-width: 0;
-  max-width: 100%;
-}
-
-.qt-settings-body .qt-pdf-plus-embedded .setting-item-name,
-.qt-settings-body .qt-pdf-plus-embedded .setting-item-description {
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
-.qt-settings-body .qt-pdf-plus-embedded .setting-item-control {
-  flex: 0 1 auto;
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  min-width: 0;
-  max-width: 100%;
-}
-
-.qt-settings-body .qt-pdf-plus-embedded .setting-item-control > *,
-.qt-settings-body .qt-pdf-plus-embedded select,
-.qt-settings-body .qt-pdf-plus-embedded input[type="text"],
-.qt-settings-body .qt-pdf-plus-embedded input[type="number"],
-.qt-settings-body .qt-pdf-plus-embedded textarea {
-  max-width: 100%;
-}
-
-
 @container (max-width: 760px) {
   .qt-settings-grid {
     grid-template-columns: minmax(150px, 168px) minmax(0, 1fr);
@@ -16812,20 +16715,6 @@ body:not(.theme-dark) .qt-chat-library-actions .qt-chat-library-delete {
 
 .qt-settings-layout.is-phone > .qt-settings-module-picker {
   display: block;
-}
-
-
-/* App CSS sets padding-inline on .vertical-tab-content and PDF++'s own CSS
-   loads after ours. Include the settings modal in the selector so these scoped
-   rules outrank both without a forced declaration, and the vendor content uses the page
-   instead of a 92px column. */
-.modal.mod-settings .qt-pdf-plus-embedded.vertical-tab-content {
-  padding: 0;
-}
-
-.modal.mod-settings .qt-pdf-plus-embedded .content {
-  padding-left: 16px;
-  padding-right: 16px;
 }
 
 /* ---------------------------------------------------------------- Review sidebar */

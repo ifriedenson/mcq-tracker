@@ -94,17 +94,6 @@ test("Show all settings reveals every page, persists, and a hidden page falls ba
   assert.equal(byClass(current(dom), "qt-settings-category").length, 4);
 });
 
-test("a PDF++ deep link reveals the advanced page instead of dropping the link", async () => {
-  const plugin = await boot({ simpleSettings: true });
-  const { tab } = openTab(plugin);
-  tab.openPage("pdf-plus");
-  assert.equal(tab.activePage, "global", "an ordinary hidden page stays hidden");
-  tab.openPage("pdf-plus", { reveal: true });
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(tab.activePage, "pdf-plus");
-  assert.equal(plugin.settings.simpleSettings, false, "the advanced destination is visible");
-});
-
 test("an enabled optional module keeps its settings page in Simple mode", async () => {
   const plugin = await boot({ simpleSettings: true, cards: { enabled: true } });
   const { dom } = openTab(plugin);
@@ -130,12 +119,12 @@ test("advanced global settings keep the optional index collapsed and the summary
   const nodes = current(dom);
   const details = nodes.filter((own) => own.meta.tag === "details");
 
-  assert.equal(details.length, 2);
+  assert.equal(details.length, 1, "only the study-tool index is a disclosure");
   for (const disclosure of details) {
     assert.equal((disclosure.meta.attrs || {}).open, undefined, "advanced groups start closed");
   }
   const titles = byClass(nodes, "qt-settings-disclosure-title").map((own) => own.meta.text);
-  assert.deepEqual(titles, ["Study tools", "Advanced"]);
+  assert.deepEqual(titles, ["Study tools"]);
   const status = byClass(nodes, "qt-settings-disclosure-status").map((own) => own.meta.text);
   assert.match(status[0], /^\d+ of \d+ on$/, "the study-tool summary reports saved state");
   assert.ok(nodes.some((own) => own.classes.has("qt-settings-overview")), "the setup summary is at the top");

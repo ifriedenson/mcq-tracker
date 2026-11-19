@@ -9,6 +9,8 @@
  */
 const fs = require("fs");
 const path = require("path");
+const { minify } = require("./minify.js");
+const { mangleModule } = require("./mangle.js");
 
 const root = path.join(__dirname, "..");
 const srcDir = path.join(root, "src");
@@ -62,8 +64,16 @@ function __require(name) {
 }
 `;
   for (const id of ids) {
-    const code = fs.readFileSync(files.get(id), "utf8").replace(/^"use strict";\n/, "").trimEnd();
-    out += `\n/* ---- ${path.relative(root, files.get(id)).replace(/\\/g, "/")} ---- */\n__defs[${JSON.stringify(id)}] = function (module, exports, require) {\n${code}\n};\n`;
+    const file = files.get(id);
+    const vendored = id.startsWith("vendor/");
+    let code = minify(fs.readFileSync(file, "utf8"));
+    if (!vendored) {
+      const mangled = mangleModule(code);
+      if (mangled.bailed) console.warn(`build: ${id} ships minified-only (${mangled.bailed})`);
+      code = mangled.code;
+    }
+    code = code.replace(/^"use strict";/, "");
+    out += `\n__defs[${JSON.stringify(id)}] = function (module, exports, require) {\n${code}\n};\n`;
   }
   out += `\nmodule.exports = __load(${JSON.stringify(ENTRY)});\n`;
   return out;

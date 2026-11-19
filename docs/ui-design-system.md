@@ -77,8 +77,7 @@ Measured results after the final fixes:
 
 ## Not covered by this rendered matrix
 
-- The PDF and EPUB reader modals themselves were not rendered because the disposable vault had no PDF or EPUB fixture. The Reading library surface was rendered, and the PDF++ integration and PDF page-operation tests are green. The harness can target the reader modal when a fixture exists.
-- The embedded PDF++ settings page is vendor-owned. Its root does not overflow horizontally, but it keeps its own dense inline documentation links, 22 px inputs and off-canvas preview toolbar. The plugin does not restyle another plugin’s controls.
+- The PDF and EPUB reader modals themselves were not rendered because the disposable vault had no PDF or EPUB fixture. The Reading library surface was rendered, and the PDF annotation and page-operation tests are green. The harness can target the reader modal when a fixture exists.
 - The remaining 15 px inputs on plugin settings pages are Obsidian’s hidden checkbox inputs behind its compact switch; the plugin does not replace the core switch.
 - The Graph view is a core Obsidian surface; it was opened as a separate target and captured, not restyled by this plugin.
 

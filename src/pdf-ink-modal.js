@@ -252,28 +252,9 @@ class PdfInkModal extends QtModal {
     this.backlinkHighlights = new Map();
     this.backlinkCount = 0;
     this.lastSelection = null;
-    this.pdfPlusClaimed = false;
-  }
-
-  /** This reader owns the PDF UI while it is open, so the embedded PDF++ host pauses. */
-  claimPdfPlus() {
-    if (this.pdfPlusClaimed) return;
-    this.pdfPlusClaimed = true;
-    if (this.plugin && typeof this.plugin.beginMcqPdfUi === "function") {
-      Promise.resolve(this.plugin.beginMcqPdfUi()).catch(() => {});
-    }
-  }
-
-  releasePdfPlus() {
-    if (!this.pdfPlusClaimed) return;
-    this.pdfPlusClaimed = false;
-    if (this.plugin && typeof this.plugin.endMcqPdfUi === "function") {
-      Promise.resolve(this.plugin.endMcqPdfUi()).catch(() => {});
-    }
   }
 
   onOpen() {
-    this.claimPdfPlus();
     this.modalEl.addClass("qt-pdf-ink-modal");
     const last = this.plugin.pdfLastPage ? this.plugin.pdfLastPage(this.pdfPath) : 0;
     if (last > 0 && this.page === 1) this.page = last;
@@ -291,7 +272,6 @@ class PdfInkModal extends QtModal {
   }
 
   onClose() {
-    this.releasePdfPlus();
     this.loadToken++;
     if (this.dirty) this.save().catch(() => {});
     for (const url of this.objectUrls.concat(this.objectUrl ? [this.objectUrl] : [])) {
@@ -1009,7 +989,7 @@ class PdfInkModal extends QtModal {
     return opened;
   }
 
-  /** Copies a PDF++-compatible link for the last text selection. */
+  /** Copies a deep link for the last text selection. */
   async copySelectionLink() {
     const selection = this.lastSelection;
     if (!selection || selection.page !== Number(this.page) || !selection.selection) {

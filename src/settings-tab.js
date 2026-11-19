@@ -22,7 +22,6 @@ const { normalizeSpacedEverything } = require("./spaced-everything");
 const { formatCourseDays, parseCourseDays } = require("./study-status");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
 const { SETTINGS_PAGE_BY_ID, pageForModule, settingsCategoriesFor, settingsPageVisible } = require("./settings-categories");
-const { renderPdfPlusSettings } = require("./pdf-plus-settings");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const { ASSIGNMENTS_TABS, renderAssignmentsSettings } = require("./assignments-settings");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
@@ -130,11 +129,6 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
         },
         (moduleId) => this.openPage(pageForModule(moduleId))
       );
-      return;
-    }
-
-    if (this.activeModule === "pdf-plus") {
-      renderPdfPlusSettings(containerEl, this.plugin, () => this.display());
       return;
     }
 
@@ -1712,8 +1706,8 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     if (!SETTINGS_PAGE_BY_ID[id]) return;
     if (!settingsPageVisible(this.plugin, id)) {
       if (!options || options.reveal !== true) return;
-      // A deep link from an advanced surface (PDF++ Customize...) must still
-      // land on its page. Reveal the full tree rather than dropping the link.
+      // A deep link to a hidden advanced page must still land on its page.
+      // Reveal the full tree rather than dropping the link.
       this.plugin.settings.simpleSettings = false;
       const saving = this.plugin.save();
       if (saving && typeof saving.catch === "function") saving.catch(() => {});

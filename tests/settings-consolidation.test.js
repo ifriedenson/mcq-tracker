@@ -126,7 +126,7 @@ test("global settings: the study tools are an index, not duplicate toggles", asy
   assert.ok(!obsidian.settingNames.includes("AI features"), "AI has one home on its own page, not a duplicate Global switch");
 
   const details = all(host).filter((el) => el.tag === "details");
-  assert.equal(details.length, 2, "study tools and advanced options are disclosures");
+  assert.equal(details.length, 1, "the study tools are a disclosure");
   for (const disclosure of details) {
     assert.equal(disclosure.attrs.open, undefined, "advanced groups start collapsed");
   }

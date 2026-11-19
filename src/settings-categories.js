@@ -112,10 +112,9 @@ const CATEGORIES = [
     id: "app",
     label: "App & documents",
     icon: "settings",
-    description: "Plugin-wide switches, modules and the embedded PDF tools.",
+    description: "Plugin-wide switches and modules.",
     pages: [
       { id: "global", label: "Modules and global options", module: "global", icon: "toggle-left" },
-      { id: "pdf-plus", label: "PDF++", module: "pdf-plus", icon: "file-text" },
     ],
   },
 ];
