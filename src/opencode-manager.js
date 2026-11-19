@@ -156,7 +156,12 @@ function runCmd(cmd, args, opts) {
     const finish = (fn, v) => {
       if (done) return;
       done = true;
-      if (timer) activeWindow.clearTimeout(timer);
+      if (timer) {
+        try {
+          if (typeof activeWindow !== 'undefined' && activeWindow) activeWindow.clearTimeout(timer);
+          else clearTimeout(timer);
+        } catch (e) { /* ignore */ }
+      }
       fn(v);
     };
     const child = execFile(cmd, args, o, (err, stdout, stderr) => {
@@ -164,7 +169,7 @@ function runCmd(cmd, args, opts) {
       else finish(resolve, str(stdout));
     });
     if (limit) {
-      timer = activeWindow.setTimeout(() => {
+      timer = ((typeof activeWindow !== 'undefined' && activeWindow && typeof activeWindow.setTimeout === 'function') ? activeWindow : globalThis).setTimeout(() => {
         killTree(child);
         finish(reject, new Error(`Timed out after ${Math.round(limit / 1000)} seconds.`));
       }, limit);

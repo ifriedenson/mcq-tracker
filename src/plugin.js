@@ -87,6 +87,25 @@ const { VIEW_TYPE_TABLE_CONTROLS } = require("./constants");
 /** A calendar server that accepts the connection and never answers must not spin forever. */
 const CALENDAR_FETCH_TIMEOUT_MS = 45 * 1000;
 
+function safeTimerWindow() {
+  if (typeof activeWindow !== 'undefined' && activeWindow) return activeWindow;
+  if (typeof window !== 'undefined' && window) return window;
+  return null;
+}
+function safeClearTimer(id) {
+  if (id === null || id === undefined) return;
+  const w = safeTimerWindow();
+  try {
+    if (w && typeof w.clearTimeout === 'function') w.clearTimeout(id);
+    else clearTimeout(id);
+  } catch (e) { /* unload path must never throw */ }
+}
+function safeSetTimer(fn, ms) {
+  const w = safeTimerWindow();
+  if (w && typeof w.setTimeout === 'function') return w.setTimeout(fn, ms);
+  return setTimeout(fn, ms);
+}
+
 function withinDeadline(promise, ms, label) {
   let timer = null;
   const limit = new Promise((_, reject) => {
@@ -3460,6 +3479,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   onunload() {
+    try {
     if (this._quickChatModal) {
       try {
         this._quickChatModal.close();
@@ -3480,14 +3500,18 @@ class QuestionTrackerPlugin extends Plugin {
     this.pendingImportOptions = null;
     this._importWindowOpening = false;
     if (this._plainCardRefreshTimer) {
-      activeWindow.clearTimeout(this._plainCardRefreshTimer);
+      safeClearTimer(this._plainCardRefreshTimer);
       this._plainCardRefreshTimer = null;
     }
-    practiceFullscreen.setPracticeFullscreen(null, false);
-    if (this.manager) this.manager.stop();
+    try { practiceFullscreen.setPracticeFullscreen(null, false); } catch (e) { /* never block unload */ }
+    try { if (this.manager) this.manager.stop(); } catch (e) { /* never block unload */ }
     this.pdfPlusPaused = true;
     this.pdfPlusUiDepth = 0;
-    pdfPlus.stop(this).catch(() => {});
+    try {
+      const r = pdfPlus.stop(this);
+      if (r && typeof r.catch === 'function') r.catch(() => {});
+    } catch (e) { /* never block unload */ }
+    } catch (e) { /* Obsidian disable/update must never report failure */ }
   }
 
   /* ---- distraction-free practice ---- */
@@ -10864,9 +10888,9 @@ ${body}
   schedulePlainCardRefresh(delay) {
     const config = normalizePlainCards(this.settings.cards && this.settings.cards.plainMarkdown);
     if (!config.enabled || !config.folder) return null;
-    if (this._plainCardRefreshTimer) activeWindow.clearTimeout(this._plainCardRefreshTimer);
+    if (this._plainCardRefreshTimer) safeClearTimer(this._plainCardRefreshTimer);
     const wait = delay === undefined ? 300 : Math.max(0, Number(delay) || 0);
-    this._plainCardRefreshTimer = activeWindow.setTimeout(() => {
+    this._plainCardRefreshTimer = safeSetTimer(() => {
       this._plainCardRefreshTimer = null;
       this.refreshPlainCards()
         .then(() => this.refreshViews())

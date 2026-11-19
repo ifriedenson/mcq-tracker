@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.23",
+    date: "November 19, 2026",
+    title: "Updates no longer report a disable failure",
+    summary:
+      "Updating the plugin showed a \"failed to disable\" notice because the unload path could throw after the window helpers were already gone. Unloading is now bulletproof: every teardown step is guarded and the whole path can never throw.",
+    highlights: [
+      {
+        title: "Disabling can no longer fail",
+        body: "The plugin's unload routine is wrapped so it never throws: a missing window, a throwing server stop, or a failing embedded-PDF teardown is swallowed instead of reaching Obsidian as a disable failure during updates.",
+      },
+      {
+        title: "Timers no longer assume a window exists",
+        body: "The plain-card refresh timer, the Insights view timer, and the OpenCode command runner used the window's timer directly; each now falls back to the global timer when no window is present, so teardown after the window is gone stays quiet.",
+      },
+      {
+        title: "Pinned by regression tests",
+        body: "A new test unloads the plugin with no window present and a throwing server stop, and another schedules a plain-card refresh the same way; both prove the update path stays silent instead of reporting a failure.",
+      },
+      {
+        title: "No behaviour changes otherwise",
+        body: "No setting key, note format, review schedule, or network default changed. The full suite passes and the release-record, duplicate-guard, dynamic-code, vendor, startup-budget, build, and plan-status checks are all clean.",
+      },
+    ],
+  },
+  {
     version: "1.307.22",
     date: "November 19, 2026",
     title: "The release checks itself",

@@ -54758,12 +54758,19 @@ class InsightsView extends ItemView {
     this.render();
   }
   async onClose() {
-    if (this.timer) activeWindow.clearTimeout(this.timer);
+    try {
+      if (this.timer) {
+        if (typeof activeWindow !== 'undefined' && activeWindow) activeWindow.clearTimeout(this.timer);
+        else clearTimeout(this.timer);
+      }
+    } catch (e) { /* never block unload */ }
     this.timer = null;
   }
   later() {
     if (this.timer) return;
-    this.timer = activeWindow.setTimeout(() => {
+    const w = (typeof activeWindow !== 'undefined' && activeWindow) ? activeWindow : null;
+    const set = w && typeof w.setTimeout === 'function' ? w.setTimeout.bind(w) : setTimeout;
+    this.timer = set(() => {
       this.timer = null;
       this.render();
     }, 600);
@@ -63599,7 +63606,12 @@ function runCmd(cmd, args, opts) {
     const finish = (fn, v) => {
       if (done) return;
       done = true;
-      if (timer) activeWindow.clearTimeout(timer);
+      if (timer) {
+        try {
+          if (typeof activeWindow !== 'undefined' && activeWindow) activeWindow.clearTimeout(timer);
+          else clearTimeout(timer);
+        } catch (e) { /* ignore */ }
+      }
       fn(v);
     };
     const child = execFile(cmd, args, o, (err, stdout, stderr) => {
@@ -63607,7 +63619,7 @@ function runCmd(cmd, args, opts) {
       else finish(resolve, str(stdout));
     });
     if (limit) {
-      timer = activeWindow.setTimeout(() => {
+      timer = ((typeof activeWindow !== 'undefined' && activeWindow && typeof activeWindow.setTimeout === 'function') ? activeWindow : globalThis).setTimeout(() => {
         killTree(child);
         finish(reject, new Error(`Timed out after ${Math.round(limit / 1000)} seconds.`));
       }, limit);
@@ -75413,6 +75425,25 @@ const { VIEW_TYPE_TABLE_CONTROLS } = require("./constants");
 /** A calendar server that accepts the connection and never answers must not spin forever. */
 const CALENDAR_FETCH_TIMEOUT_MS = 45 * 1000;
 
+function safeTimerWindow() {
+  if (typeof activeWindow !== 'undefined' && activeWindow) return activeWindow;
+  if (typeof window !== 'undefined' && window) return window;
+  return null;
+}
+function safeClearTimer(id) {
+  if (id === null || id === undefined) return;
+  const w = safeTimerWindow();
+  try {
+    if (w && typeof w.clearTimeout === 'function') w.clearTimeout(id);
+    else clearTimeout(id);
+  } catch (e) { /* unload path must never throw */ }
+}
+function safeSetTimer(fn, ms) {
+  const w = safeTimerWindow();
+  if (w && typeof w.setTimeout === 'function') return w.setTimeout(fn, ms);
+  return setTimeout(fn, ms);
+}
+
 function withinDeadline(promise, ms, label) {
   let timer = null;
   const limit = new Promise((_, reject) => {
@@ -78786,6 +78817,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   onunload() {
+    try {
     if (this._quickChatModal) {
       try {
         this._quickChatModal.close();
@@ -78806,14 +78838,18 @@ class QuestionTrackerPlugin extends Plugin {
     this.pendingImportOptions = null;
     this._importWindowOpening = false;
     if (this._plainCardRefreshTimer) {
-      activeWindow.clearTimeout(this._plainCardRefreshTimer);
+      safeClearTimer(this._plainCardRefreshTimer);
       this._plainCardRefreshTimer = null;
     }
-    practiceFullscreen.setPracticeFullscreen(null, false);
-    if (this.manager) this.manager.stop();
+    try { practiceFullscreen.setPracticeFullscreen(null, false); } catch (e) { /* never block unload */ }
+    try { if (this.manager) this.manager.stop(); } catch (e) { /* never block unload */ }
     this.pdfPlusPaused = true;
     this.pdfPlusUiDepth = 0;
-    pdfPlus.stop(this).catch(() => {});
+    try {
+      const r = pdfPlus.stop(this);
+      if (r && typeof r.catch === 'function') r.catch(() => {});
+    } catch (e) { /* never block unload */ }
+    } catch (e) { /* Obsidian disable/update must never report failure */ }
   }
 
   /* ---- distraction-free practice ---- */
@@ -86190,9 +86226,9 @@ ${body}
   schedulePlainCardRefresh(delay) {
     const config = normalizePlainCards(this.settings.cards && this.settings.cards.plainMarkdown);
     if (!config.enabled || !config.folder) return null;
-    if (this._plainCardRefreshTimer) activeWindow.clearTimeout(this._plainCardRefreshTimer);
+    if (this._plainCardRefreshTimer) safeClearTimer(this._plainCardRefreshTimer);
     const wait = delay === undefined ? 300 : Math.max(0, Number(delay) || 0);
-    this._plainCardRefreshTimer = activeWindow.setTimeout(() => {
+    this._plainCardRefreshTimer = safeSetTimer(() => {
       this._plainCardRefreshTimer = null;
       this.refreshPlainCards()
         .then(() => this.refreshViews())
@@ -140661,6 +140697,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.307.23",
+    date: "November 19, 2026",
+    title: "Updates no longer report a disable failure",
+    summary:
+      "Updating the plugin showed a \"failed to disable\" notice because the unload path could throw after the window helpers were already gone. Unloading is now bulletproof: every teardown step is guarded and the whole path can never throw.",
+    highlights: [
+      {
+        title: "Disabling can no longer fail",
+        body: "The plugin's unload routine is wrapped so it never throws: a missing window, a throwing server stop, or a failing embedded-PDF teardown is swallowed instead of reaching Obsidian as a disable failure during updates.",
+      },
+      {
+        title: "Timers no longer assume a window exists",
+        body: "The plain-card refresh timer, the Insights view timer, and the OpenCode command runner used the window's timer directly; each now falls back to the global timer when no window is present, so teardown after the window is gone stays quiet.",
+      },
+      {
+        title: "Pinned by regression tests",
+        body: "A new test unloads the plugin with no window present and a throwing server stop, and another schedules a plain-card refresh the same way; both prove the update path stays silent instead of reporting a failure.",
+      },
+      {
+        title: "No behaviour changes otherwise",
+        body: "No setting key, note format, review schedule, or network default changed. The full suite passes and the release-record, duplicate-guard, dynamic-code, vendor, startup-budget, build, and plan-status checks are all clean.",
+      },
+    ],
+  },
   {
     version: "1.307.22",
     date: "November 19, 2026",

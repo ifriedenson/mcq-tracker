@@ -93,12 +93,19 @@ class InsightsView extends ItemView {
     this.render();
   }
   async onClose() {
-    if (this.timer) activeWindow.clearTimeout(this.timer);
+    try {
+      if (this.timer) {
+        if (typeof activeWindow !== 'undefined' && activeWindow) activeWindow.clearTimeout(this.timer);
+        else clearTimeout(this.timer);
+      }
+    } catch (e) { /* never block unload */ }
     this.timer = null;
   }
   later() {
     if (this.timer) return;
-    this.timer = activeWindow.setTimeout(() => {
+    const w = (typeof activeWindow !== 'undefined' && activeWindow) ? activeWindow : null;
+    const set = w && typeof w.setTimeout === 'function' ? w.setTimeout.bind(w) : setTimeout;
+    this.timer = set(() => {
       this.timer = null;
       this.render();
     }, 600);
