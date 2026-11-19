@@ -68,3 +68,7 @@ cannot re-derive the test count, so the recorded count is kept).
 Open a GitHub issue with the plugin version, Obsidian version, platform and the
 steps that reproduce the problem. Do not include API keys, private vault
 content or other secrets in an issue, a log or a screenshot.
+
+A security problem — a malicious PDF, a path outside the vault, a leaked key, a
+provider reply that runs code — goes through GitHub's private reporting, not a
+public issue: see [SECURITY.md](SECURITY.md).

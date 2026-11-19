@@ -2,20 +2,42 @@ name: CI
 
 # Runs the tests on every push and pull request. They include a check that the
 # committed main.js is the up-to-date build of the modules in src/.
+#
+# The suite reads the clock (task due dates, recurrences, review intervals), and
+# a date written into a test has already turned the suite red the next day
+# (1.307.18, and again in the "every Tuesday" cases 1.307.21 had to repair). The
+# matrix runs the furthest east and west of UTC as well, where the local date is
+# already tomorrow or still yesterday, so a test that hardcodes a date fails
+# here instead of in a release. The UTC+14 leg is how tests/spaced-everything
+# was caught expecting a UTC date from a local-date template.
 on:
   push:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
+    name: test (${{ matrix.tz }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tz: ["UTC", "Pacific/Kiritimati", "Etc/GMT+12"]
+    env:
+      TZ: ${{ matrix.tz }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
       - run: npm test
-      # Fails when main.js is stale or plan.md's status block no longer matches
-      # the version, row counts, source file count or bundle size.
-      - run: npm run check
+      # Fails when main.js is stale, when plan.md's status block no longer
+      # matches the version, row counts, source file count or bundle size, or
+      # when the release records disagree (manifest/package/versions/notes/tag).
+      # The time zone cannot change any of that, so it runs on one leg only.
+      - if: matrix.tz == 'UTC'
+        run: npm run check

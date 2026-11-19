@@ -201,7 +201,9 @@ test("export: Markdown carries metadata, redacts key-like text and refuses an em
   assert.doesNotMatch(text, /sk-live-abcdefghijklmnop/);
   assert.doesNotMatch(text, /ignore/, "only user and assistant turns are exported");
   assert.equal(exporter.exportMarkdown({ messages: [] }), "");
-  assert.match(exporter.exportFileName("A/B: C?", Date.UTC(2026, 10, 6)), /^A-B- C- 2026-11-06\.md$/);
+  // Local noon, not Date.UTC(2026, 10, 6): the file name carries the local date,
+  // so a UTC midnight is already 2026-11-05 west of UTC (CI runs a UTC-12 leg).
+  assert.match(exporter.exportFileName("A/B: C?", new Date(2026, 10, 6, 12)), /^A-B- C- 2026-11-06\.md$/);
 });
 
 test("export: a conversation is written through the Vault adapter with a unique name", async () => {

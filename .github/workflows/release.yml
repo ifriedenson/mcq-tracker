@@ -15,7 +15,12 @@ permissions:
   attestations: write
 
 concurrency:
-  group: release-${{ github.repository }}
+  # One run per push, not one per repository. GitHub keeps a single running and
+  # a single pending job per concurrency group, so a batch of quick pushes used
+  # to cancel the middle release runs — the hole repair-release.yml was written
+  # to patch. Every run resolves its own version from manifest.json and is
+  # idempotent for it, so letting them run side by side drops nothing.
+  group: release-${{ github.repository }}-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -59,8 +64,10 @@ jobs:
             echo "published=true" >> "$GITHUB_OUTPUT"
             gh release edit "$V" --title "$V" --notes-file "$NOTES"
             HAVE=$(gh release view "$V" --json assets --jq '.assets[].name')
+            # Repaired from the working tree at HEAD, so the checksums are too.
+            sha256sum main.js manifest.json styles.css > SHA256SUMS
             MISSING=""
-            for f in main.js manifest.json styles.css; do
+            for f in main.js manifest.json styles.css SHA256SUMS; do
               printf '%s\n' "$HAVE" | grep -qx "$f" || MISSING="$MISSING $f"
             done
             if [ -n "$MISSING" ]; then
@@ -69,7 +76,7 @@ jobs:
             if [ "$(gh release view "$V" --json isDraft --jq .isDraft)" = "true" ]; then
               gh release edit "$V" --draft=false
             fi
-            echo "Release $V is published with main.js, manifest.json and styles.css."
+            echo "Release $V is published with main.js, manifest.json, styles.css and SHA256SUMS."
             exit 0
           fi
           CODE=$(curl -s -o /dev/null -w '%{http_code}' \
@@ -114,9 +121,18 @@ jobs:
         if: steps.existing.outputs.published != 'true'
         run: npm test
 
-      - name: Check the plan status
+      # npm run check proves the committed main.js at this commit is a build of
+      # src/, keeps the plan status honest and ties manifest.json, package.json,
+      # versions.json, the notes file and the tag together
+      # (scripts/check-release-notes.js). Without it the release job published
+      # whatever main.js was committed and stayed green while CI went red.
+      - name: Check the committed bundle and the release records
         if: steps.existing.outputs.published != 'true'
-        run: npm run plan:status:check
+        run: npm run check
+
+      - name: Write the checksums for the release assets
+        if: steps.existing.outputs.published != 'true'
+        run: sha256sum main.js manifest.json styles.css > SHA256SUMS
 
       - name: Attest build provenance
         if: steps.existing.outputs.published != 'true'
@@ -126,6 +142,7 @@ jobs:
             main.js
             manifest.json
             styles.css
+            SHA256SUMS
 
       - name: Create the tag and release
         if: steps.existing.outputs.published != 'true'
@@ -169,18 +186,24 @@ jobs:
 
           if [ $status -eq 0 ]; then
             note "create release $V from the existing tag"
-            if ! gh release create "$V" main.js manifest.json styles.css \
+            if ! gh release create "$V" main.js manifest.json styles.css SHA256SUMS \
                 --title "$V" --notes-file "$NOTES" >>"$LOG" 2>&1; then
               status=1
             fi
           fi
 
-          if [ $status -ne 0 ] && [ -z "$REMOTE_TAG" ]; then
-            note "fallback: create the release and let the API create the tag"
-            if gh release create "$V" main.js manifest.json styles.css \
-                --title "$V" --notes-file "$NOTES" --target "$TARGET" >>"$LOG" 2>&1; then
-              status=0
-            fi
+          if [ $status -eq 0 ]; then
+            note "verify the published release and its assets"
+            gh release view "$V" --json tagName,assets --jq '.tagName, (.assets[].name)' >>"$LOG" 2>&1 || status=1
+          fi
+
+          # No fallback that lets the release API create the tag: `gh release
+          # create --target` makes a lightweight tag, which has no tagger, date
+          # or message and cannot be signed. 114 of this repository's tags are
+          # already like that. A failed tag step fails the release, with the log
+          # in the step summary, instead of publishing a weaker ref.
+          if [ $status -ne 0 ]; then
+            note "the annotated tag could not be created; not falling back to a lightweight tag"
           fi
 
           if [ $status -ne 0 ]; then

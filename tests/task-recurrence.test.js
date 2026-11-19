@@ -112,7 +112,7 @@ test("recurrence: an overdue task advances from its own due date, into the futur
   // 2026-01-01 is a Thursday, long past when the task is completed today.
   const weekly = await finish(plugin, { title: "OldWeekly", repeat: "weekly", due: "2026-01-01", time: "17:00" });
   const weeklyDue = weekly.successor.due;
-  assert.ok(weeklyDue > new Date().toISOString().slice(0, 10), "the successor is in the future");
+  assert.ok(weeklyDue > T.util.localDate(), "the successor is in the future");
   assert.equal(new Date(`${weeklyDue}T12:00:00`).getDay(), 4, "and still a Thursday");
   assert.equal(weekly.successor.time, "17:00");
 
@@ -120,10 +120,10 @@ test("recurrence: an overdue task advances from its own due date, into the futur
   const weekdayDue = weekday.successor.due;
   const weekdayDay = new Date(`${weekdayDue}T12:00:00`).getDay();
   assert.ok(weekdayDay !== 0 && weekdayDay !== 6, "a weekday rule never lands on a weekend");
-  assert.ok(weekdayDue > new Date().toISOString().slice(0, 10), "and never in the past");
+  assert.ok(weekdayDue > T.util.localDate(), "and never in the past");
 
   const daily = await finish(plugin, { title: "OldDaily", repeat: "daily", due: "2026-01-03" });
-  assert.ok(daily.successor.due > new Date().toISOString().slice(0, 10));
+  assert.ok(daily.successor.due > T.util.localDate());
 });
 
 test("recurrence: the successor is written to the saved data, and survives a reload", async () => {

@@ -1,0 +1,18 @@
+version: 2
+
+# Actions are the only dependencies this repository has. The plugin itself is
+# dependency-free by rule (CONTRIBUTING.md), vendor/ is pinned and verified by
+# scripts/check-vendor.js, and the workflows are what go stale silently, so only
+# the actions ecosystem is watched. One grouped pull request a week, not one per
+# action.
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "CI"
+    groups:
+      actions:
+        patterns:
+          - "*"

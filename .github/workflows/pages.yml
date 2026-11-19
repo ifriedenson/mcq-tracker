@@ -12,6 +12,10 @@ on:
     paths:
       - "docs/**"
       - ".github/workflows/pages.yml"
+    # Every release adds docs/release-notes/<version>.md, which is not part of
+    # the site. Without this, each release redeployed the landing page.
+    paths-ignore:
+      - "docs/release-notes/**"
   workflow_dispatch:
 
 permissions:

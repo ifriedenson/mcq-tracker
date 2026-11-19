@@ -73,7 +73,10 @@ test("spaced everything: review updates se-* only and leaves question tracking u
 });
 
 test("spaced everything: templates, capture notes, restart persistence and queue integration", async () => {
-  const now = new Date("2026-10-30T12:34:00Z");
+  // Built from local parts on purpose: {{date}} renders the vault's local date,
+  // so a UTC instant is already 2026-10-31 east of UTC and this fixture failed
+  // wherever the local date was a day ahead (CI now runs a UTC+14 leg).
+  const now = new Date(2026, 9, 30, 12, 34);
   const { app, plugin } = await start([{ path: "Notes/Due.md", fm: { question_id: undefined, "se-interval": 1, "se-last-reviewed": "2026-10-28T12:00:00Z" }, text: "# Due" }]);
   plugin.settings.spacedEverything = S.normalizeSpacedEverything({
     enabled: true,
