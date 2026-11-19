@@ -555,20 +555,6 @@ class CalendarView extends ItemView {
       return;
     }
 
-    if (!this.plugin.calendarSources().some((source) => !source.hidden)) {
-      const card = el.createDiv({ cls: "uni-month-card" });
-      this.renderMonthHeader(card, monthLabel(this.cursor.getFullYear(), this.cursor.getMonth()), "month");
-      renderEmptyState(
-        el,
-        "No university schedule added yet",
-        "Add an .ics file to your vault, or a public calendar feed, to see your classes and exams here.",
-        "Add a schedule",
-        () => this.plugin.openCalendarImport()
-      );
-      el.scrollTop = top;
-      return;
-    }
-
     // The cache window follows the month being viewed, not just today. Upcoming is
     // always relative to today and therefore uses the current window, and the
     // week grid reads the week that holds the selected day.
@@ -591,6 +577,23 @@ class CalendarView extends ItemView {
     const endKey = dateKey(addDays(new Date(`${startKey}T12:00:00`), days - 1));
     const merged = calendarMerge.collect(this.plugin, { events: allEvents, startKey, endKey, layers });
     this.merged = merged;
+    // The old empty state promised classes only, but this one calendar draws
+    // five layers. It stands in only when a month has no .ics source and
+    // nothing from any other layer either; week and day always draw their grid
+    // so the week-timetable command opens a timetable even in an empty vault.
+    if (this.mode === "month" && merged.byDay.size === 0 && !this.plugin.calendarSources().some((source) => !source.hidden)) {
+      const card = el.createDiv({ cls: "uni-month-card" });
+      this.renderMonthHeader(card, monthLabel(this.cursor.getFullYear(), this.cursor.getMonth()), "month");
+      renderEmptyState(
+        el,
+        "No university schedule added yet",
+        "Add an .ics file to your vault, or a public calendar feed, to see your classes and exams here.",
+        "Add a schedule",
+        () => this.plugin.openCalendarImport()
+      );
+      el.scrollTop = top;
+      return;
+    }
     this.renderModes(el);
     renderLayerChips(this.plugin, el, layers);
     if (this.mode === "month") {

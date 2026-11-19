@@ -1034,6 +1034,53 @@ test("view: the Week tab is a real-clock grid with the class in its day column",
   assert.equal(view.selectedKey, ics.dateKey(new Date()));
 });
 
+test("view: the week timetable draws its grid without an .ics source, and only an empty month shows the add-a-schedule prompt", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.calendar.enabled = true;
+  plugin.settings.localEvents.enabled = true;
+  const event = await plugin.saveLocalEvent({ title: "Library hour", date: local(new Date()), startTime: "10:00", endTime: "11:00" });
+
+  const view = new T.CalendarView({ app }, plugin);
+  view.app = app;
+  view.mode = "week";
+  const weekDom = makeDom();
+  view.contentEl = weekDom.root;
+  view.render();
+  const weekTexts = weekDom.texts();
+  assert.ok(weekTexts.some((text) => /^Week of /.test(text)), "the week header draws without a class feed");
+  assert.ok(!weekTexts.some((text) => /No university schedule added yet/.test(text)), "the month placeholder does not replace the timetable");
+  const attrsOf = (o) => (o.meta && (o.meta.attrs || o.meta.attr)) || {};
+  assert.equal(weekDom.all.filter((o) => attrsOf(o)["data-date"]).length, 7, "seven day columns");
+  assert.ok(
+    weekDom.all.some((o) => /Library hour/.test(String(attrsOf(o)["aria-label"] || ""))),
+    "the local event is drawn on the clock axis"
+  );
+
+  view.mode = "month";
+  const withEvent = makeDom();
+  view.contentEl = withEvent.root;
+  view.render();
+  assert.ok(
+    withEvent.texts().some((text) => /Library hour/.test(text)),
+    "the month grid keeps a local event without a class feed"
+  );
+  assert.ok(
+    !withEvent.texts().some((text) => /No university schedule added yet/.test(text)),
+    "a month with local events is not replaced by the placeholder"
+  );
+
+  await plugin.deleteLocalEvent(event.id);
+  const monthDom = makeDom();
+  view.contentEl = monthDom.root;
+  view.render();
+  assert.ok(
+    monthDom.texts().some((text) => /No university schedule added yet/.test(text)),
+    "an empty month still points at adding a schedule"
+  );
+});
+
 test("the calendar registers the week timetable command on the one merged view", async () => {
   const { plugin } = await pluginWith(TODAY_EVENT());
   const command = plugin.commands.find((entry) => entry.id === "open-calendar-week");
