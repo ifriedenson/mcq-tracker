@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status: v1.307.26 (Nov 19, 2026).** One MIT, dependency-free Obsidian plugin
+**Status: v1.307.27 (Nov 19, 2026).** One MIT, dependency-free Obsidian plugin
 (`mcq-tracker`) covering exam practice, cards and vocabulary, courses and
 calendars, study planning, document ingestion, reference/STEM tools and an
 optional BYOK/OpenCode AI layer.
@@ -13,9 +13,9 @@ surfaces, so unfinished ideas are not disguised as checked work.
 §3.9.6 is the gate table, §3.10 is the licence allow-list, and
 [docs/plan-decisions.md](docs/plan-decisions.md) is the owner decision sheet.
 
-**Verified at this commit:** `node --test` → 3,095 tests pass, 0 fail;
+**Verified at this commit:** `node --test` → 3,097 tests pass, 0 fail;
 `npm run check` clean (no dynamic code across 380 source files, vendor guard,
-bundle up to date); `main.js` generated from 383 modules at 7,675,207 bytes.
+bundle up to date); `main.js` generated from 383 modules at 7,678,524 bytes.
 Re-run both before quoting these numbers.
 
 **Maintainability pass (Nov 10, 2026):** the duplicate `onTableEditorToggled` is merged into one method that updates the ribbon and repaints open reading views; question and card reads use path indexes with path/type-scoped invalidation; the PDF editor/reader stack loads only when a PDF is opened; the four document importers share `src/document-source.js`; and `npm run check` now rejects duplicate class members and export keys and enforces an eager module-load budget that keeps the PDF editor stack and the vendored PDF engines lazy. Measured in a real Obsidian 1.15.0 desktop under Xvfb, three launches per build: module evaluation fell from a median **63 ms** (57/63/64 ms) to **41 ms** (38/41/48 ms), while `onload` stayed at 16 ms versus 20 ms medians and parse was about 1 ms in both; launch-to-plugin-complete was about 0.9-1.0 s for both and is dominated by Obsidian's own boot, not the plugin. The module-registry/plugin split was assessed and deliberately deferred to a separate maintainability project: all 361 modules are reachable, the bundle remains dependency-free, and a split needs boundary ownership, a migration path and an external test harness first.
@@ -1204,6 +1204,8 @@ Effort key: **S** (days), **M** (1–3 weeks), **L** (1+ months). Estimates assu
 - Disagreements are never silently shipped as correct.
 
 **Implemented in 1.70.0:** weak-spot and transcript generation plus both PDF import paths run the blind check before writing; the manual **AI: verify the answer for this note** command checks an existing note. A mismatch writes `needs_review: true`, `verified: false`, `verified_by`, `verified_on`, `verification: mismatch` and a visible warning banner, or is dropped when **Drop mismatched items** is selected. Answers with no letter key are recorded as `unchecked`, not as verified.
+
+**Shipped in 1.307.27:** the Quiz Generator path now records its check instead of discarding it. `generateQuizFromNotes` already ran `verifyDraftQuestions`, but the drafts were written through `quickAddNote`, which built frontmatter from a fixed key list and never carried the verdict, so a draft the checker answered differently was written as a clean note. `quickAddNote` now stamps `verification`, `verified`, `verified_by`, `verified_on`, `verified_answer`, `verification_method`, `needs_review` (mismatch/error/review) and the `[!warning] Answer check failed` banner through the same `verificationFields`/`verificationBanner` helpers the importer uses, and only when a draft arrives with a verification object, so hand-written Quick add notes are unchanged. The generator dialog reports how many checks ran, how many kept drafts disagreed (and are marked for review) and how many were dropped, both in the preview and in the creation notice; a disputed draft is still written with its original key so the learner can judge it. Pinned by `tests/quick-add.test.js` and `tests/quiz-generator.test.js`.
 
 ### 5.5 FRQ and AI grading  — **L**
 

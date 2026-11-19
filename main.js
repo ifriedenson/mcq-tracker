@@ -97724,6 +97724,7 @@ __defs["quick-add"] = function (module, exports, require) {
  */
 const { stringifyYaml } = require("obsidian");
 const { formatChoiceSet, parseChoiceSet } = require("./answer-types");
+const { verificationBanner, verificationFields } = require("./answer-verification");
 const { str } = require("./util");
 
 const LETTERS = "ABCDEFGH";
@@ -97942,8 +97943,19 @@ function quickAddNote(item, qid) {
   fm.answer = str(data.answer).trim();
   const accepted = Array.isArray(data.accepted) ? data.accepted.map((value) => str(value).trim()).filter(Boolean) : [];
   if (accepted.length) fm.accepted_answers = accepted;
+  // A generated draft arrives with its blind-check verdict. Record it the way
+  // an import does, so a question a second AI answered differently is visible
+  // in the note and in needs_review instead of looking silently checked.
+  const verification = data.verification && typeof data.verification === "object" ? data.verification : null;
+  if (verification) {
+    Object.assign(fm, verificationFields(verification));
+    const status = str(verification.status).trim();
+    if (status === "mismatch" || status === "error" || status === "review") fm.needs_review = true;
+  }
+  const banner = verification ? verificationBanner(verification).replace(/\n+$/, "") : "";
 
   const lines = ["---", stringifyYaml(fm).trimEnd(), "---", ""];
+  if (banner) lines.push(banner, "");
   const stimulus = str(data.stimulus).trim();
   if (stimulus) {
     lines.push("## Stimulus", "");
@@ -100036,6 +100048,13 @@ function sourceOption(mode) {
   return SOURCE_OPTIONS.find((option) => option.id === mode) || SOURCE_OPTIONS[0];
 }
 
+/** Drafts kept in "mark" mode whose blind check chose a different answer. */
+function disputedDrafts(items) {
+  return (Array.isArray(items) ? items : []).filter(
+    (item) => item && item.verification && item.verification.status === "mismatch" && !item.verification.drop
+  ).length;
+}
+
 /** A short, honest description of what a prepared draft will send. */
 function sourceSummary(source) {
   const s = source || {};
@@ -100291,6 +100310,14 @@ class QuizGeneratorModal extends QtModal {
     }
     if (g.items.length > 20) el.createEl("p", { cls: "qt-hint", text: `…and ${g.items.length - 20} more.` });
     el.createDiv({ cls: "qt-hint", text: `Drafted from ${sourceSummary(g.source)} in ${g.language}. Nothing was written yet.` });
+    const check = g.verification || {};
+    if (Number(check.checked) > 0) {
+      const parts = [`${Number(check.checked)} independent answer check${Number(check.checked) === 1 ? "" : "s"} ran`];
+      const review = disputedDrafts(g.items);
+      if (review > 0) parts.push(`${review} disagreed and ${review === 1 ? "is" : "are"} marked for review`);
+      if (Number(check.dropped) > 0) parts.push(`${Number(check.dropped)} dropped`);
+      el.createDiv({ cls: "qt-hint", text: parts.join(" · ") + "." });
+    }
     const skipped = skippedPdfDetail(g.source);
     if (skipped) el.createDiv({ cls: "qt-hint", text: skipped });
     const actions = el.createDiv({ cls: "qt-row" });
@@ -100374,7 +100401,9 @@ class QuizGeneratorModal extends QtModal {
         summary: "Question finder",
       });
       const made = result.created || 0;
-      new Notice(made ? `Created ${made} question${made === 1 ? "" : "s"}.` : "Nothing new was written.", 6000);
+      const review = disputedDrafts(this.generated.items);
+      const flagged = made && review ? ` · ${review} marked for review after an answer check disagreed` : "";
+      new Notice(made ? `Created ${made} question${made === 1 ? "" : "s"}${flagged}.` : "Nothing new was written.", 6000);
       this.close();
       this.onDone(result);
     } catch (e) {
@@ -142626,6 +142655,31 @@ const { loadWelcomeState } = require("./welcome");
 const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
+  {
+    version: "1.307.27",
+    date: "November 19, 2026",
+    title: "Generated questions keep their answer check",
+    summary:
+      "The Quiz Generator ran the blind answer check and then threw the verdict away, so a question the checker answered differently was written as a clean note. It now stamps the result the way an import does and the dialog says what the check found.",
+    highlights: [
+      {
+        title: "The verdict is in the note",
+        body: "A generated question now carries verification, verified, verified_by, verified_on, verified_answer and needs_review, plus the same warning banner import writes, so a disagreement is visible where the question lives instead of vanishing at write time.",
+      },
+      {
+        title: "The dialog says what happened",
+        body: "Before writing, the preview reports how many independent answer checks ran, how many drafts disagreed and are marked for review, and how many were dropped. The creation notice repeats the count.",
+      },
+      {
+        title: "Hand-written questions are untouched",
+        body: "Only a draft that arrived with a check carries these properties. A block you paste into Quick add yourself writes exactly the note it wrote before.",
+      },
+      {
+        title: "An unfinished check never reads as passed",
+        body: "A draft the checker could not answer records verification: unchecked instead of verified, the same way import treats a note with no letter key, so nothing is claimed that was not checked.",
+      },
+    ],
+  },
   {
     version: "1.307.26",
     date: "November 19, 2026",

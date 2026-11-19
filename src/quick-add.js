@@ -17,6 +17,7 @@
  */
 const { stringifyYaml } = require("obsidian");
 const { formatChoiceSet, parseChoiceSet } = require("./answer-types");
+const { verificationBanner, verificationFields } = require("./answer-verification");
 const { str } = require("./util");
 
 const LETTERS = "ABCDEFGH";
@@ -235,8 +236,19 @@ function quickAddNote(item, qid) {
   fm.answer = str(data.answer).trim();
   const accepted = Array.isArray(data.accepted) ? data.accepted.map((value) => str(value).trim()).filter(Boolean) : [];
   if (accepted.length) fm.accepted_answers = accepted;
+  // A generated draft arrives with its blind-check verdict. Record it the way
+  // an import does, so a question a second AI answered differently is visible
+  // in the note and in needs_review instead of looking silently checked.
+  const verification = data.verification && typeof data.verification === "object" ? data.verification : null;
+  if (verification) {
+    Object.assign(fm, verificationFields(verification));
+    const status = str(verification.status).trim();
+    if (status === "mismatch" || status === "error" || status === "review") fm.needs_review = true;
+  }
+  const banner = verification ? verificationBanner(verification).replace(/\n+$/, "") : "";
 
   const lines = ["---", stringifyYaml(fm).trimEnd(), "---", ""];
+  if (banner) lines.push(banner, "");
   const stimulus = str(data.stimulus).trim();
   if (stimulus) {
     lines.push("## Stimulus", "");

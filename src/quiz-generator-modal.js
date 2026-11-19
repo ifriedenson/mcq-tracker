@@ -40,6 +40,13 @@ function sourceOption(mode) {
   return SOURCE_OPTIONS.find((option) => option.id === mode) || SOURCE_OPTIONS[0];
 }
 
+/** Drafts kept in "mark" mode whose blind check chose a different answer. */
+function disputedDrafts(items) {
+  return (Array.isArray(items) ? items : []).filter(
+    (item) => item && item.verification && item.verification.status === "mismatch" && !item.verification.drop
+  ).length;
+}
+
 /** A short, honest description of what a prepared draft will send. */
 function sourceSummary(source) {
   const s = source || {};
@@ -295,6 +302,14 @@ class QuizGeneratorModal extends QtModal {
     }
     if (g.items.length > 20) el.createEl("p", { cls: "qt-hint", text: `…and ${g.items.length - 20} more.` });
     el.createDiv({ cls: "qt-hint", text: `Drafted from ${sourceSummary(g.source)} in ${g.language}. Nothing was written yet.` });
+    const check = g.verification || {};
+    if (Number(check.checked) > 0) {
+      const parts = [`${Number(check.checked)} independent answer check${Number(check.checked) === 1 ? "" : "s"} ran`];
+      const review = disputedDrafts(g.items);
+      if (review > 0) parts.push(`${review} disagreed and ${review === 1 ? "is" : "are"} marked for review`);
+      if (Number(check.dropped) > 0) parts.push(`${Number(check.dropped)} dropped`);
+      el.createDiv({ cls: "qt-hint", text: parts.join(" · ") + "." });
+    }
     const skipped = skippedPdfDetail(g.source);
     if (skipped) el.createDiv({ cls: "qt-hint", text: skipped });
     const actions = el.createDiv({ cls: "qt-row" });
@@ -378,7 +393,9 @@ class QuizGeneratorModal extends QtModal {
         summary: "Question finder",
       });
       const made = result.created || 0;
-      new Notice(made ? `Created ${made} question${made === 1 ? "" : "s"}.` : "Nothing new was written.", 6000);
+      const review = disputedDrafts(this.generated.items);
+      const flagged = made && review ? ` · ${review} marked for review after an answer check disagreed` : "";
+      new Notice(made ? `Created ${made} question${made === 1 ? "" : "s"}${flagged}.` : "Nothing new was written.", 6000);
       this.close();
       this.onDone(result);
     } catch (e) {

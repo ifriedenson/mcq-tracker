@@ -175,3 +175,40 @@ test("quick add: the command exists and writing is refused while MCQ Tracker is 
   await assert.rejects(() => plugin.createQuickAddQuestions(parseQuickAdd(PASTE).items, {}), /Turn on MCQ Tracker/);
   assert.equal(quickAddTitle("  A question?  "), "A question");
 });
+
+test("quick add: a blind-check verdict is stamped on the note", () => {
+  const base = {
+    question: "Which gas do plants take in?",
+    choices: ["Oxygen", "Carbon dioxide"],
+    answer: "B",
+    questionType: "mcq",
+  };
+  const failed = quickAddNote(
+    { ...base, verification: { status: "mismatch", match: false, answer: "A", key: "B", model: "checker", date: "2026-11-19" } },
+    "Which gas do plants take in"
+  );
+  const { fm } = T.parseNote(failed);
+  assert.equal(fm.verification, "mismatch");
+  assert.equal(fm.verified, false);
+  assert.equal(fm.verified_by, "checker");
+  assert.equal(fm.verified_on, "2026-11-19");
+  assert.equal(fm.verified_answer, "A");
+  assert.equal(fm.needs_review, true);
+  assert.equal(fm.answer, "B", "the drafted key is kept so the learner can judge it");
+  assert.match(failed, /> \[!warning\] Answer check failed/);
+  assert.ok(failed.indexOf("Answer check failed") < failed.indexOf("## Question"), "the warning sits above the question");
+
+  const passed = quickAddNote(
+    { ...base, verification: { status: "match", match: true, answer: "B", key: "B", model: "checker", date: "2026-11-19" } },
+    "Which gas do plants take in"
+  );
+  const ok = T.parseNote(passed).fm;
+  assert.equal(ok.verification, "match");
+  assert.equal(ok.verified, true);
+  assert.equal(ok.needs_review, undefined, "an agreeing check is not marked for review");
+  assert.doesNotMatch(passed, /\[!warning\]/);
+
+  const manual = T.parseNote(quickAddNote(base, "Which gas do plants take in")).fm;
+  assert.equal(manual.verification, undefined, "a hand-written item carries no check properties");
+  assert.equal(manual.verified, undefined);
+});

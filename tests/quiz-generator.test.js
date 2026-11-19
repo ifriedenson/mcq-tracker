@@ -545,3 +545,51 @@ test("quiz generator: every source mode uses the real provider request and write
     obsidian.requestImpl = previous;
   }
 });
+
+test("quiz generator: the blind-check verdict is written into the note, not thrown away", async () => {
+  const app = makeApp([{ path: "Notes/Bio.md", noFm: true, text: "ATP is the energy currency of the cell. Mitochondria make most of it." }]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.ai.enabled = true;
+  plugin.settings.ai.verifyPanel = false;
+  plugin.aiComplete = async (system, user) => {
+    if (/independent exam answer checker/i.test(system)) {
+      return /Which molecule/.test(user) ? '{"answer":"A","confidence":"high"}' : '{"answer":"B","confidence":"high"}';
+    }
+    return JSON.stringify({
+      questions: [
+        { question: "Which molecule carries energy in the cell?", choices: ["ATP", "DNA", "Lipid"], answer: "A" },
+        { question: "Where is most ATP made?", choices: ["Nucleus", "Mitochondria", "Ribosome"], answer: "A" },
+      ],
+    });
+  };
+  const generated = await plugin.generateQuizFromNotes({ sourceMode: "notes", folders: ["Notes"], count: 2, types: ["mcq"] });
+  assert.equal(generated.items.length, 2, "a disputed draft is kept for review in mark mode, not dropped");
+  assert.equal(generated.verification.checked, 2);
+  assert.equal(generated.verification.dropped, 0);
+  assert.deepEqual(
+    generated.items.map((item) => item.verification.status).sort(),
+    ["match", "mismatch"],
+    "one draft agreed with the independent check and one did not"
+  );
+  assert.equal(
+    generated.items.filter((item) => item.verification.status === "mismatch").length,
+    1,
+    "the dialog counts the draft it keeps for review"
+  );
+  const result = await plugin.createQuickAddQuestions(generated.items, { folder: "Questions" });
+  assert.equal(result.created, 2);
+  const texts = await Promise.all(result.paths.map((path) => app.vault.read(app.vault.getAbstractFileByPath(path))));
+  const passed = texts.find((text) => /verification: match/.test(text));
+  const flagged = texts.find((text) => /verification: mismatch/.test(text));
+  assert.ok(passed, "the agreeing draft records a passing check");
+  assert.match(passed, /verified: true/);
+  assert.doesNotMatch(passed, /needs_review/);
+  assert.doesNotMatch(passed, /\[!warning\]/);
+  assert.ok(flagged, "the disputed draft records the disagreement");
+  assert.match(flagged, /verified: false/);
+  assert.match(flagged, /needs_review: true/);
+  assert.match(flagged, /verified_answer: B/);
+  assert.match(flagged, /answer: A/, "the drafted key is kept for the learner to judge");
+  assert.match(flagged, /\[!warning\] Answer check failed/);
+});

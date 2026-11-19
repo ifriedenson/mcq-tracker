@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.27",
+    date: "November 19, 2026",
+    title: "Generated questions keep their answer check",
+    summary:
+      "The Quiz Generator ran the blind answer check and then threw the verdict away, so a question the checker answered differently was written as a clean note. It now stamps the result the way an import does and the dialog says what the check found.",
+    highlights: [
+      {
+        title: "The verdict is in the note",
+        body: "A generated question now carries verification, verified, verified_by, verified_on, verified_answer and needs_review, plus the same warning banner import writes, so a disagreement is visible where the question lives instead of vanishing at write time.",
+      },
+      {
+        title: "The dialog says what happened",
+        body: "Before writing, the preview reports how many independent answer checks ran, how many drafts disagreed and are marked for review, and how many were dropped. The creation notice repeats the count.",
+      },
+      {
+        title: "Hand-written questions are untouched",
+        body: "Only a draft that arrived with a check carries these properties. A block you paste into Quick add yourself writes exactly the note it wrote before.",
+      },
+      {
+        title: "An unfinished check never reads as passed",
+        body: "A draft the checker could not answer records verification: unchecked instead of verified, the same way import treats a note with no letter key, so nothing is claimed that was not checked.",
+      },
+    ],
+  },
+  {
     version: "1.307.26",
     date: "November 19, 2026",
     title: "Live-drive fixes for chips, dots, and agent undo",
