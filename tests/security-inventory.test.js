@@ -145,7 +145,7 @@ test("no credential shape is committed anywhere in source or documentation", () 
   }
 });
 
-test("vault writes stay inside the sixteen documented files", () => {
+test("vault writes stay inside the seventeen documented files", () => {
   assert.deepEqual(matching(/vault\.(createBinary|create|modify|process|delete|trash)\s*\(|adapter\.write|processFrontMatter\s*\(/), [
     "agent-note.js",
     "agent-view.js",
@@ -163,6 +163,7 @@ test("vault writes stay inside the sixteen documented files", () => {
     "pdf-ink-modal.js",
     "plugin.js",
     "reference-view.js",
+    "settings-backup.js",
   ]);
 });
 

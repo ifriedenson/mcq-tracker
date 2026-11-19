@@ -76265,7 +76265,12 @@ const pdfLatex = require("./pdf-latex");
 const epub = require("./epub");
 const epubAnnotations = require("./epub-annotations");
 const { EpubReaderModal } = require("./epub-reader-modal");
-const serviceImport = require("./service-import");
+let _serviceImport = null;
+// Lazy: the one-off service-export importers are only needed when an import runs, not at plugin startup.
+function serviceImport() {
+  if (!_serviceImport) _serviceImport = require("./service-import");
+  return _serviceImport;
+}
 const canvasMap = require("./canvas-map");
 const canvasKanban = require("./canvas-kanban");
 const { KanbanReportModal } = require("./canvas-kanban-view");
@@ -76837,6 +76842,12 @@ class QuestionTrackerPlugin extends Plugin {
       },
     });
     this.addCommand({ id: "ai-undo-last-write", name: "AI: undo the last generated notes", callback: () => this.undoLastAiWriteCommand() });
+    this.addCommand({ id: 'backup-settings-now', name: 'Back up plugin settings now', callback: async () => {
+      try { await this.backupSettingsNow(); } catch (e) { new Notice('Settings backup failed: ' + str(e && e.message ? e.message : e), 10000); }
+    } });
+    this.addCommand({ id: 'restore-settings-backup', name: 'Restore plugin settings from a backup', callback: async () => {
+      try { await this.restoreSettingsBackupCommand(); } catch (e) { new Notice('Settings restore failed: ' + str(e && e.message ? e.message : e), 10000); }
+    } });
     this.addCommand({ id: "ai-undo-agent-edits", name: "AI: undo the last agent edits", callback: () => this.undoLastAgentEditCommand() });
     this.addCommand({ id: "ai-review-agent-edits", name: "AI: review and undo agent edits", callback: () => this.openAgentEditHistory() });
     this.addCommand({ id: "calendar-export-week", name: "Calendar: export the current week as a PNG image", callback: () => this.exportWeekImage() });
@@ -84099,6 +84110,87 @@ class QuestionTrackerPlugin extends Plugin {
     return { path, counts: built.manifest.counts, manifest: built.manifest };
   }
 
+  /** Folder beside data.json that holds versioned settings backups (never the vault, so secrets stay out of notes). */
+  settingsBackupDir() {
+    const backup = require("./settings-backup");
+    const configDir = (this.app && this.app.vault && this.app.vault.configDir) || "";
+    const pluginId = (this.manifest && this.manifest.id) || "mcq-tracker";
+    return backup.backupDir(configDir, pluginId);
+  }
+
+  /** Write a timestamped copy of data.json beside it, keeping the newest ten. */
+  async backupSettingsNow() {
+    const backup = require("./settings-backup");
+    const adapter = this.app && this.app.vault && this.app.vault.adapter;
+    if (!adapter || typeof adapter.write !== "function") throw new Error("Settings backup needs the vault adapter, which is not available here.");
+    const dir = this.settingsBackupDir();
+    const name = backup.backupFileName(new Date());
+    await backup.writeBackup(adapter, dir, name, JSON.stringify(this.settings));
+    const names = await backup.listBackupNames(adapter, dir);
+    const { drop } = backup.pruneNames(names, backup.MAX_BACKUPS);
+    for (const old of drop) await backup.removeBackup(adapter, dir, old);
+    new Notice(`Settings backed up as ${name} (${Math.min(names.length, backup.MAX_BACKUPS)} kept).`, 6000);
+    return { name, dir, kept: Math.min(names.length, backup.MAX_BACKUPS) };
+  }
+
+  /** Newest-first names of the stored settings backups. */
+  async listSettingsBackups() {
+    const backup = require("./settings-backup");
+    const adapter = this.app && this.app.vault && this.app.vault.adapter;
+    if (!adapter) return [];
+    return backup.listBackupNames(adapter, this.settingsBackupDir());
+  }
+
+  /**
+   * Restore a settings backup. The current settings are backed up first, so
+   * a restore never destroys the only copy; the app then reloads from disk
+   * so every normalize step runs again.
+   */
+  async restoreSettingsBackup(name) {
+    const backup = require("./settings-backup");
+    const target = str(name).trim();
+    if (!target) throw new Error("Choose a backup to restore.");
+    const adapter = this.app && this.app.vault && this.app.vault.adapter;
+    if (!adapter || typeof adapter.read !== "function") throw new Error("Settings restore needs the vault adapter, which is not available here.");
+    const dir = this.settingsBackupDir();
+    const parsed = backup.parseBackupText(await backup.readBackup(adapter, dir, target));
+    if (!parsed.ok) throw new Error(parsed.error);
+    const confirmed = await this.askConfirm(
+      "Restore settings backup",
+      `Replace the current settings with ${target}? A backup of the current settings is taken first.`,
+      "Restore"
+    );
+    if (!confirmed) return null;
+    await this.backupSettingsNow();
+    await this.saveData(parsed.settings);
+    await this.loadSettings();
+    this.refreshViews();
+    new Notice(`Restored settings from ${target}.`, 6000);
+    return { name: target };
+  }
+
+  /** Restore entry point for the command: none, one, or a picker of backups. */
+  async restoreSettingsBackupCommand() {
+    const names = await this.listSettingsBackups();
+    if (!names.length) {
+      new Notice("No settings backups yet. Back up the settings first.");
+      return null;
+    }
+    if (names.length === 1) return this.restoreSettingsBackup(names[0]);
+    const backup = require("./settings-backup");
+    return new Promise((resolve) => {
+      const modal = new backup.SettingsBackupPickerModal(this.app, names, async (picked) => {
+        try {
+          resolve(await this.restoreSettingsBackup(picked));
+        } catch (e) {
+          new Notice(`Settings restore failed: ${str(e && e.message ? e.message : e)}`, 10000);
+          resolve(null);
+        }
+      });
+      modal.open();
+    });
+  }
+
   /** The newest bundle at the vault root, used by the import command. */
   newestStudyBundle() {
     const files = this.app.vault
@@ -88162,12 +88254,12 @@ ${body}
     const path = str(input.path);
     const filename = path || str(input.filename);
     if (/\.text(bundle|pack)$/i.test(filename)) {
-      throw new Error(serviceImport.detectServiceExport("", filename).error);
+      throw new Error(serviceImport().detectServiceExport("", filename).error);
     }
     const text = path ? await this.serviceExportText(path) : str(input.text);
-    const detected = serviceImport.detectServiceExport(text, filename);
+    const detected = serviceImport().detectServiceExport(text, filename);
     if (!detected.ok) throw new Error(detected.error);
-    const parsed = serviceImport.parseServiceExport(text, { kind: settings.kind || detected.kind, filename });
+    const parsed = serviceImport().parseServiceExport(text, { kind: settings.kind || detected.kind, filename });
     if (!parsed.ok) throw new Error(parsed.error);
     const folder = str(settings.folder).replace(/^\/+|\/+$/g, "") || `Imports/${detected.label}`;
     await ensureFolder(this.app, folder);
@@ -88175,12 +88267,12 @@ ${body}
     const written = [];
     let skipped = 0;
     for (const record of parsed.records) {
-      const notePath = serviceImport.uniqueNotePath(folder, record.title, taken);
+      const notePath = serviceImport().uniqueNotePath(folder, record.title, taken);
       if (this.app.vault.getAbstractFileByPath(notePath)) {
         skipped += 1;
         continue;
       }
-      await this.app.vault.create(notePath, serviceImport.recordMarkdown(record));
+      await this.app.vault.create(notePath, serviceImport().recordMarkdown(record));
       taken.add(notePath);
       written.push(notePath);
     }
@@ -113161,6 +113253,177 @@ module.exports = {
   normalizeSessionReportSettings,
   reportPath,
   sessionReportMarkdown,
+};
+};
+
+/* ---- src/settings-backup.js ---- */
+__defs["settings-backup"] = function (module, exports, require) {
+/*
+ * Versioned backups of the plugin's own settings (data.json).
+ *
+ * The study-bundle export covers question and card *notes*, but every
+ * schedule, preset, goal, task list and AI setting lives in data.json, and
+ * nothing backed that file up. These helpers keep timestamped copies beside
+ * it (the plugin's own data folder, never the vault, so secrets that are
+ * still in data.json are not synced as notes) and restore one on demand.
+ *
+ * Pure helpers stay dependency-free; the small adapter IO takes the vault
+ * adapter as an argument so tests can hand it a stand-in. This module is
+ * only required from inside the backup/restore commands, never at startup.
+ */
+const { QtFuzzySuggestModal } = require("./a11y");
+
+const BACKUP_PREFIX = "mcq-settings-backup-";
+const BACKUP_SUFFIX = ".json";
+const MAX_BACKUPS = 10;
+
+function pad2(value) {
+  return String(value).padStart(2, "0");
+}
+
+/** File name for a backup taken now: sortable, UTC, no characters a file system dislikes. */
+function backupFileName(now) {
+  const date = now instanceof Date ? now : new Date();
+  const stamp = `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())}T${pad2(date.getUTCHours())}-${pad2(date.getUTCMinutes())}-${pad2(date.getUTCSeconds())}Z`;
+  return `${BACKUP_PREFIX}${stamp}${BACKUP_SUFFIX}`;
+}
+
+function isBackupName(name) {
+  return (
+    typeof name === "string" &&
+    name.startsWith(BACKUP_PREFIX) &&
+    name.endsWith(BACKUP_SUFFIX)
+  );
+}
+
+/** Sort key for a backup name; unknown names sort before every real backup. */
+function backupOrder(name) {
+  if (!isBackupName(name)) return "";
+  return String(name).slice(BACKUP_PREFIX.length, -BACKUP_SUFFIX.length);
+}
+
+/** Split a name list into the newest `keep` to retain and the older ones to remove. */
+function pruneNames(names, keep) {
+  const limit = Number.isFinite(keep) ? Math.max(0, Math.floor(keep)) : MAX_BACKUPS;
+  const backups = [...new Set((Array.isArray(names) ? names : []).filter(isBackupName))].sort((a, b) =>
+    backupOrder(a) < backupOrder(b) ? -1 : backupOrder(a) > backupOrder(b) ? 1 : 0
+  );
+  if (limit === 0) return { keep: [], drop: backups };
+  return { keep: backups.slice(-limit), drop: backups.slice(0, Math.max(0, backups.length - limit)) };
+}
+
+/** The folder beside data.json that holds the backups. */
+function backupDir(configDir, pluginId) {
+  const base = String(configDir || "").replace(/\/+$/, "");
+  const id = String(pluginId || "mcq-tracker").replace(/\/+/g, "");
+  return `${base}/plugins/${id}/settings-backups`;
+}
+
+/** Parse and sanity-check backup text: it must be a plain settings object. */
+function parseBackupText(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(String(text));
+  } catch (e) {
+    return { ok: false, error: "That backup is not valid JSON." };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ok: false, error: "That backup does not hold plugin settings." };
+  }
+  return { ok: true, settings: parsed };
+}
+
+async function ensureDir(adapter, dir) {
+  if (!adapter) throw new Error("The vault adapter is not available.");
+  if (typeof adapter.mkdir === "function") {
+    try {
+      await adapter.mkdir(dir);
+    } catch (e) {
+      /* the folder already exists on most adapters */
+    }
+  }
+}
+
+async function listBackupNames(adapter, dir) {
+  if (!adapter || typeof adapter.list !== "function") return [];
+  let listed;
+  try {
+    listed = await adapter.list(dir);
+  } catch (e) {
+    return [];
+  }
+  const files = Array.isArray(listed) ? listed : listed && Array.isArray(listed.files) ? listed.files : [];
+  return files
+    .map((entry) => (typeof entry === "string" ? entry : entry && entry.path) || "")
+    .map((path) => String(path).split("/").pop())
+    .filter(isBackupName)
+    .sort((a, b) => (backupOrder(a) < backupOrder(b) ? 1 : backupOrder(a) > backupOrder(b) ? -1 : 0));
+}
+
+async function writeBackup(adapter, dir, name, text) {
+  if (!adapter || typeof adapter.write !== "function") throw new Error("The vault adapter cannot write here.");
+  await ensureDir(adapter, dir);
+  const path = `${dir}/${name}`;
+  await adapter.write(path, text);
+  return path;
+}
+
+async function readBackup(adapter, dir, name) {
+  if (!adapter || typeof adapter.read !== "function") throw new Error("The vault adapter cannot read here.");
+  if (!isBackupName(name)) throw new Error("That is not a settings backup.");
+  return adapter.read(`${dir}/${name}`);
+}
+
+async function removeBackup(adapter, dir, name) {
+  if (!adapter || typeof adapter.remove !== "function") return;
+  try {
+    await adapter.remove(`${dir}/${name}`);
+  } catch (e) {
+    /* a leftover backup must not fail the command */
+  }
+}
+
+/** A picker for the restore command: newest backup first. */
+class SettingsBackupPickerModal extends QtFuzzySuggestModal {
+  constructor(app, names, onPick) {
+    super(app);
+    this.names = Array.isArray(names) ? names : [];
+    this.onPick = onPick;
+  }
+
+  qtDialogLabel() {
+    return "Restore plugin settings from backup";
+  }
+
+  getItems() {
+    return this.names;
+  }
+
+  getItemText(item) {
+    return String(item);
+  }
+
+  onChooseItem(item) {
+    if (typeof this.onPick === "function") this.onPick(item);
+  }
+}
+
+module.exports = {
+  BACKUP_PREFIX,
+  BACKUP_SUFFIX,
+  MAX_BACKUPS,
+  backupDir,
+  backupFileName,
+  backupOrder,
+  isBackupName,
+  pruneNames,
+  parseBackupText,
+  ensureDir,
+  listBackupNames,
+  writeBackup,
+  readBackup,
+  removeBackup,
+  SettingsBackupPickerModal,
 };
 };
 
@@ -142656,6 +142919,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.28",
+    date: "November 19, 2026",
+    title: "Settings backups and a check on every AI write",
+    summary:
+      "Two palette commands back up data.json beside itself and restore it, and one table-driven test pins the blind-check verdict on every AI question-write path.",
+    highlights: [
+      {
+        title: "Back up and restore settings",
+        body: "Back up plugin settings now writes a timestamped copy beside data.json and keeps the newest ten; restoring backs up the current settings first and refuses a corrupt file.",
+      },
+      {
+        title: "Every AI write proves its check",
+        body: "The import finalizer, Quick add, transcript questions and Quick-add creation each stamp the blind-check verdict for a match, mismatch, error and review, while hand-written notes stay clean.",
+      },
+      {
+        title: "Lighter startup",
+        body: "The service-export importers load only when an import runs, freeing one eager module and about 20 KB of the startup budget.",
+      },
+      {
+        title: "Cards stay out of the check",
+        body: "A card has no letter key to check against, so card writes carry no blind-check verdict; the matrix test pins that documented exception too.",
+      },
+    ],
+  },
+  {
     version: "1.307.27",
     date: "November 19, 2026",
     title: "Generated questions keep their answer check",
@@ -145807,7 +146095,6 @@ const zipWrite = require("./zip-write");
 const epub = require("./epub");
 const epubAnnotations = require("./epub-annotations");
 const { EpubReaderModal } = require("./epub-reader-modal");
-const serviceImport = require("./service-import");
 const { MAX_OPENCODE_MAJOR, OpenCodeManager, assertExtractedTree, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, permissionConfigContent, platformTriple } = require("./opencode-manager");
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, sliceQuestionRange, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
 const { InsightsView } = require("./insights-view");
@@ -146299,7 +146586,10 @@ QuestionTrackerPlugin.__test = {
   epub,
   epubAnnotations,
   EpubReaderModal,
-  serviceImport,
+  // Lazy: the one-off service-export importers are only needed when an import runs, not at plugin startup.
+  get serviceImport() {
+    return require("./service-import");
+  },
   OpenCodeManager,
   permissionConfigContent,
   MAX_OPENCODE_MAJOR,

@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.28",
+    date: "November 19, 2026",
+    title: "Settings backups and a check on every AI write",
+    summary:
+      "Two palette commands back up data.json beside itself and restore it, and one table-driven test pins the blind-check verdict on every AI question-write path.",
+    highlights: [
+      {
+        title: "Back up and restore settings",
+        body: "Back up plugin settings now writes a timestamped copy beside data.json and keeps the newest ten; restoring backs up the current settings first and refuses a corrupt file.",
+      },
+      {
+        title: "Every AI write proves its check",
+        body: "The import finalizer, Quick add, transcript questions and Quick-add creation each stamp the blind-check verdict for a match, mismatch, error and review, while hand-written notes stay clean.",
+      },
+      {
+        title: "Lighter startup",
+        body: "The service-export importers load only when an import runs, freeing one eager module and about 20 KB of the startup budget.",
+      },
+      {
+        title: "Cards stay out of the check",
+        body: "A card has no letter key to check against, so card writes carry no blind-check verdict; the matrix test pins that documented exception too.",
+      },
+    ],
+  },
+  {
     version: "1.307.27",
     date: "November 19, 2026",
     title: "Generated questions keep their answer check",

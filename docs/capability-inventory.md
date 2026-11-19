@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 470 groups, 3266 exports. **Commands:** 247. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 470 groups, 3266 exports. **Commands:** 249. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -118,7 +118,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `answerSetFromSection` | 0 | `tests/question-types.test.js` |
 | `answerTrueFalseFromSection` | 0 | `tests/question-types.test.js` |
 | `answerTypes` | 9 | `tests/question-types.test.js` |
-| `answerVerification` | 14 | `tests/answer-verification.test.js`, `tests/computed-verification.test.js` |
+| `answerVerification` | 14 | `tests/answer-verification.test.js`, `tests/computed-verification.test.js`, `tests/verification-matrix.test.js` |
 | `apExamHistory` | 12 | `tests/ap-exam-history.test.js` |
 | `apExamResources` | 8 | `tests/ap-exam-resources.test.js` |
 | `apResourceNotes` | 19 | `tests/ap-resource-notes.test.js` |
@@ -232,7 +232,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `fillDefaults` | 0 | `tests/feature-surfaces.test.js` |
 | `filterOptionCounts` | 0 | `tests/filters.test.js` |
 | `filterOptions` | 0 | `tests/filters.test.js` |
-| `finalizeNote` | 0 | `tests/computed-verification.test.js`, `tests/import.test.js` |
+| `finalizeNote` | 0 | `tests/computed-verification.test.js`, `tests/import.test.js`, `tests/verification-matrix.test.js` |
 | `findAnswerKey` | 0 | `tests/question-types.test.js` |
 | `findBinaryIn` | 0 | — |
 | `findDuplicateIds` | 0 | `tests/import.test.js` |
@@ -334,7 +334,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `parameterized` | 14 | `tests/parameterized.test.js` |
 | `parseDashboardBlock` | 0 | `tests/analytics-embed.test.js` |
 | `parseHistory` | 0 | `tests/p1-knowledge.test.js`, `tests/stats.test.js` |
-| `parseNote` | 0 | `tests/adaptive-parity.test.js`, `tests/ai-beginner-wizard.test.js`, `tests/empty-state.test.js`, `tests/hints.test.js`, `tests/import-existing-folder.test.js`, `tests/import.test.js`, `tests/note-quiz-clipboard.test.js`, `tests/quick-add.test.js`, `tests/transcript.test.js` |
+| `parseNote` | 0 | `tests/adaptive-parity.test.js`, `tests/ai-beginner-wizard.test.js`, `tests/empty-state.test.js`, `tests/hints.test.js`, `tests/import-existing-folder.test.js`, `tests/import.test.js`, `tests/note-quiz-clipboard.test.js`, `tests/quick-add.test.js`, `tests/transcript.test.js`, `tests/verification-matrix.test.js` |
 | `parseScheduleBlock` | 0 | `tests/calendar.test.js` |
 | `parseSections` | 0 | `tests/grading.test.js`, `tests/hints.test.js`, `tests/matching.test.js`, `tests/math-rendering.test.js`, `tests/needs-fixing.test.js`, `tests/question-types.test.js`, `tests/views.test.js` |
 | `partsToTurns` | 0 | `tests/chat-panel-copilot.test.js`, `tests/feature-surfaces.test.js` |
@@ -363,7 +363,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `progress` | 18 | `tests/p1-knowledge.test.js` |
 | `provenance` | 10 | `tests/import.test.js`, `tests/source-recall.test.js` |
 | `qtiArchive` | 1 | `tests/cards-import.test.js` |
-| `quickAdd` | 7 | `tests/hints.test.js`, `tests/note-quiz-clipboard.test.js`, `tests/quick-add.test.js`, `tests/starter-pack.test.js` |
+| `quickAdd` | 7 | `tests/hints.test.js`, `tests/note-quiz-clipboard.test.js`, `tests/quick-add.test.js`, `tests/starter-pack.test.js`, `tests/verification-matrix.test.js` |
 | `quickAsk` | 8 | `tests/quick-ask.test.js` |
 | `quickPractice` | 10 | `tests/quick-practice-uri.test.js` |
 | `quickRemainingSeconds` | 0 | `tests/uncited-groups.test.js` |
@@ -456,7 +456,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `textTimer` | 12 | `tests/text-timer.test.js` |
 | `thinkFirst` | 6 | `tests/think-first.test.js` |
 | `timeBlocks` | 103 | `tests/time-blocks-kairos.test.js`, `tests/time-blocks-parity.test.js`, `tests/time-blocks.test.js` |
-| `transcript` | 10 | `tests/adaptive-parity.test.js`, `tests/ai-write-guard.test.js`, `tests/transcript.test.js` |
+| `transcript` | 10 | `tests/adaptive-parity.test.js`, `tests/ai-write-guard.test.js`, `tests/transcript.test.js`, `tests/verification-matrix.test.js` |
 | `trendBy` | 0 | `tests/stats.test.js` |
 | `trendDelta` | 0 | `tests/stats.test.js` |
 | `tutorPresets` | 7 | `tests/plugin.test.js`, `tests/tutor-presets.test.js` |
@@ -515,6 +515,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `export-study-bundle` | Export a study bundle (backup of questions and cards) | `exportStudyBundle` | `tests/study-bundle-import.test.js`, `tests/study-bundle.test.js` |
 | `import-study-bundle` | Import a study bundle (restore questions and cards) | `importStudyBundle` | `tests/study-bundle-import.test.js` |
 | `ai-undo-last-write` | AI: undo the last generated notes | `undoLastAiWriteCommand` | `tests/command-effects.test.js` |
+| `backup-settings-now` | Back up plugin settings now | `backupSettingsNow` | `tests/settings-backup.test.js` |
+| `restore-settings-backup` | Restore plugin settings from a backup | `restoreSettingsBackupCommand` | `tests/settings-backup.test.js` |
 | `ai-undo-agent-edits` | AI: undo the last agent edits | `undoLastAgentEditCommand` | `tests/command-effects.test.js` |
 | `ai-review-agent-edits` | AI: review and undo agent edits | `openAgentEditHistory` | `tests/agent-edit-journal.test.js` |
 | `calendar-export-week` | Calendar: export the current week as a PNG image | `exportWeekImage` | `tests/week-image.test.js` |

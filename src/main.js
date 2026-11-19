@@ -176,7 +176,6 @@ const zipWrite = require("./zip-write");
 const epub = require("./epub");
 const epubAnnotations = require("./epub-annotations");
 const { EpubReaderModal } = require("./epub-reader-modal");
-const serviceImport = require("./service-import");
 const { MAX_OPENCODE_MAJOR, OpenCodeManager, assertExtractedTree, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, permissionConfigContent, platformTriple } = require("./opencode-manager");
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, sliceQuestionRange, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
 const { InsightsView } = require("./insights-view");
@@ -668,7 +667,10 @@ QuestionTrackerPlugin.__test = {
   epub,
   epubAnnotations,
   EpubReaderModal,
-  serviceImport,
+  // Lazy: the one-off service-export importers are only needed when an import runs, not at plugin startup.
+  get serviceImport() {
+    return require("./service-import");
+  },
   OpenCodeManager,
   permissionConfigContent,
   MAX_OPENCODE_MAJOR,
