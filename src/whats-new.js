@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.22",
+    date: "November 19, 2026",
+    title: "The release checks itself",
+    summary:
+      "Three of this project's releases had drifted out of step: a version with notes and no release, a bundle that could be published without the check that it matches the source, and tests that passed here and failed a time zone away. The pipeline now verifies what it publishes and the records are checked against each other.",
+    highlights: [
+      {
+        title: "A release can no longer ship an unverified bundle",
+        body: "The release job now runs the same check as CI on the exact commit it publishes, so a stale main.js can no longer be released while the build check goes red. The published assets are read back after the release is created, not assumed.",
+      },
+      {
+        title: "Releases are checked against each other",
+        body: "One check now ties the version in manifest.json, package.json and versions.json to the notes file and the git tag. It exists because 1.307.20 had notes and a release commit but was merged as 1.307.21, so no tag or release was ever made for it and nothing complained.",
+      },
+      {
+        title: "Tests run in the far east and far west",
+        body: "The suite reads the clock, so CI now runs it in three time zones. The first run found three tests that hardcoded a date: a template fixture, an export file name and a recurrence check. All three now use the local day the plugin itself uses.",
+      },
+      {
+        title: "Downloads can be checked, and problems have a private door",
+        body: "Every release now carries a SHA256SUMS file for its main.js, manifest.json and styles.css, and SECURITY.md says how to report a malicious PDF, a path outside the vault or a leaked key privately instead of in a public issue.",
+      },
+    ],
+  },
+  {
     version: "1.307.21",
     date: "November 18, 2026",
     title: "A free local model's notes arrive whole",
