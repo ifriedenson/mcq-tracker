@@ -36,6 +36,7 @@ const { isAttachedToStudySlot } = require("./ap-resource-notes");
 const calendarPlanner = require("./calendar-planner");
 const timeBlocks = require("./time-blocks");
 const calendarMerge = require("./calendar-merge");
+const calendarWeek = require("./calendar-week");
 
 
 function detailsOf(event) {
@@ -569,15 +570,24 @@ class CalendarView extends ItemView {
     }
 
     // The cache window follows the month being viewed, not just today. Upcoming is
-    // always relative to today and therefore uses the current window.
-    const range = this.mode === "upcoming" ? new Date() : this.cursor;
+    // always relative to today and therefore uses the current window, and the
+    // week grid reads the week that holds the selected day.
+    const weekStart = this.mode === "week" ? calendarWeek.weekStartKey(this.selectedKey, this.plugin.calendarSettings().firstDayOfWeek) : "";
+    const range = this.mode === "upcoming" ? new Date() : this.mode === "week" ? new Date(`${weekStart}T12:00:00`) : this.cursor;
     this.range = range;
     const allEvents = this.plugin.calendarEvents(range);
     const layers = calendarMerge.enabledLayers(this.plugin, this.plugin.calendarSettings().layers);
     const events = layers.classes ? allEvents : [];
-    const days = this.mode === "upcoming" ? 14 : this.mode === "day" ? 1 : 49;
+    const days = this.mode === "upcoming" ? 14 : this.mode === "day" ? 1 : this.mode === "week" ? 7 : 49;
     const monthFirst = new Date(this.cursor.getFullYear(), this.cursor.getMonth(), 1);
-    const startKey = this.mode === "upcoming" ? dateKey(new Date()) : this.mode === "day" ? this.selectedKey : dateKey(addDays(monthFirst, -7));
+    const startKey =
+      this.mode === "upcoming"
+        ? dateKey(new Date())
+        : this.mode === "day"
+          ? this.selectedKey
+          : this.mode === "week"
+            ? weekStart
+            : dateKey(addDays(monthFirst, -7));
     const endKey = dateKey(addDays(new Date(`${startKey}T12:00:00`), days - 1));
     const merged = calendarMerge.collect(this.plugin, { events: allEvents, startKey, endKey, layers });
     this.merged = merged;
@@ -594,6 +604,9 @@ class CalendarView extends ItemView {
       this.renderMonthHeader(card, dayHeading(this.selectedKey), "day");
       renderDaySection(this.plugin, el, this.selectedKey, { title: false, events, now: range, liveNodes: this.liveNodes, plans: layers.planned });
       renderMergedRows(el, merged.extras(this.selectedKey), { title: "Also today" });
+      this.renderExamPanel(el, this.plugin.calendarEvents());
+    } else if (this.mode === "week") {
+      this.renderWeekCard(el, events, merged);
       this.renderExamPanel(el, this.plugin.calendarEvents());
     } else {
       const card = el.createDiv({ cls: "uni-month-card" });
@@ -612,7 +625,7 @@ class CalendarView extends ItemView {
 
   renderModes(container) {
     const modes = container.createDiv({ cls: "uni-calendar-modes" });
-    for (const [id, label] of [["month", "Month"], ["day", "Day"], ["upcoming", "Upcoming"]]) {
+    for (const [id, label] of [["month", "Month"], ["week", "Week"], ["day", "Day"], ["upcoming", "Upcoming"]]) {
       const button = modes.createEl("button", { cls: "uni-filter-btn", text: label });
       if (this.mode === id) button.addClass("is-active");
       button.addEventListener("click", () => {
@@ -705,6 +718,19 @@ class CalendarView extends ItemView {
 
   /** Re-render only when a class starts or ends; otherwise just update the countdown text. */
   refreshLive() {
+    if (this.mode === "week") {
+      if (!this._weekNow) return;
+      const current = new Date();
+      if (dateKey(current) !== this._weekNow.key) {
+        this.render();
+        return;
+      }
+      const { dayStart, hourHeight, node } = this._weekNow;
+      const minutes = current.getHours() * 60 + current.getMinutes();
+      const top = ((minutes - dayStart * 60) / 60) * hourHeight;
+      if (node && node.style) node.style.top = `${Math.max(0, top)}px`;
+      return;
+    }
     if (this.selectedKey !== dateKey(new Date())) return;
     const now = new Date();
     const events = this.plugin.calendarEvents(this.range || this.cursor);
@@ -797,6 +823,10 @@ class CalendarView extends ItemView {
       this.headerButton(controls, "chevron-left", "Previous day", () => this.shiftDay(-1));
       this.todayButton(controls);
       this.headerButton(controls, "chevron-right", "Next day", () => this.shiftDay(1));
+    } else if (mode === "week") {
+      this.headerButton(controls, "chevron-left", "Previous week", () => this.shiftWeek(-1));
+      this.todayButton(controls);
+      this.headerButton(controls, "chevron-right", "Next week", () => this.shiftWeek(1));
     } else {
       this.todayButton(controls);
     }
@@ -887,6 +917,112 @@ class CalendarView extends ItemView {
     this.contentEl.scrollTop = top;
   }
 
+  /** One real-clock Monday–Sunday grid over every enabled layer. */
+  renderWeekCard(container, events, merged) {
+    const settings = this.plugin.calendarSettings();
+    const startKey = calendarWeek.weekStartKey(this.selectedKey, settings.firstDayOfWeek);
+    const keys = calendarWeek.weekDayKeys(startKey);
+    const rowsByDay = new Map(keys.map((key) => [key, (merged.byDay.get(key) || []).slice()]));
+    if (merged.layers.classes) {
+      for (const key of keys) {
+        for (const event of eventsOnDay(events, key)) {
+          const startMin = calendarWeek.dayMinutes(event.dtstart);
+          if (startMin === null) continue;
+          const endMin = calendarWeek.dayMinutes(event.dtend);
+          rowsByDay.get(key).push({
+            layer: "classes",
+            title: str(event.summary) || "Class",
+            time: `${formatTime(settings, event.dtstart)}${event.dtend ? ` \u2013 ${formatTime(settings, event.dtend)}` : ""}`,
+            startMin,
+            endMin: endMin !== null && endMin > startMin ? endMin : startMin + calendarWeek.LONG_EVENT_MINUTES,
+            color: classColor(settings, detailsOf(event), event.summary),
+          });
+        }
+      }
+    }
+    const layout = calendarWeek.buildWeek({
+      startKey,
+      firstDayOfWeek: settings.firstDayOfWeek,
+      rowsByDay,
+      now: new Date(),
+    });
+
+    const card = container.createDiv({ cls: "uni-month-card uni-week-card" });
+    this.renderMonthHeader(card, `Week of ${layout.label}`, "week");
+
+    const head = card.createDiv({ cls: "uni-week-head" });
+    head.createDiv({ cls: "uni-week-gutter-head" });
+    for (const day of layout.days) {
+      const button = head.createEl("button", {
+        cls: `uni-week-day-head${day.isToday ? " is-today" : ""}${day.key === this.selectedKey ? " is-selected" : ""}`,
+        attr: { "aria-label": `Open ${dayHeading(day.key)}`, title: `Open ${dayHeading(day.key)}` },
+      });
+      button.createSpan({ cls: "uni-week-weekday", text: day.weekday });
+      button.createSpan({ cls: "uni-week-date", text: String(day.dayOfMonth) });
+      button.addEventListener("click", () => {
+        this.selectedKey = day.key;
+        this.mode = "day";
+        this.render();
+      });
+    }
+
+    const body = card.createDiv({ cls: "uni-week-body" });
+    body.style.setProperty("--uni-week-hour", `${layout.hourHeight}px`);
+    body.style.setProperty("--uni-week-height", `${(layout.dayEnd - layout.dayStart) * layout.hourHeight}px`);
+    const gutter = body.createDiv({ cls: "uni-week-gutter" });
+    for (const hour of layout.hours) {
+      gutter.createDiv({ cls: "uni-week-hour-label", text: formatTime(settings, new Date(2026, 0, 5, hour, 0)) });
+    }
+    let nowNode = null;
+    for (const day of layout.days) {
+      const col = body.createDiv({ cls: `uni-week-day${day.isToday ? " is-today" : ""}${day.key === this.selectedKey ? " is-selected" : ""}` });
+      col.setAttr("data-date", day.key);
+      for (const hour of layout.hours) {
+        const line = col.createDiv({ cls: "uni-week-hour" });
+        line.setAttr("data-hour", String(hour));
+      }
+      if (day.allDay.length) {
+        const strip = col.createDiv({ cls: "uni-week-allday" });
+        for (const row of day.allDay.slice(0, 4)) {
+          strip.createSpan({
+            cls: `uni-week-allday-chip is-layer-${row.layer}`,
+            text: row.title,
+            attr: { title: `${row.title}${row.time ? ` \u00b7 ${row.time}` : ""}` },
+          });
+        }
+        if (day.allDay.length > 4) strip.createSpan({ cls: "uni-week-allday-more", text: `+${day.allDay.length - 4}` });
+      }
+      for (const block of day.blocks) {
+        const node = col.createEl("button", {
+          cls: `uni-week-block is-layer-${block.layer}`,
+          attr: {
+            "aria-label": `${block.title}${block.time ? `, ${block.time}` : ""}, ${dayHeading(day.key)}`,
+            title: `${block.title}${block.time ? ` \u00b7 ${block.time}` : ""}${block.meta ? ` \u00b7 ${block.meta}` : ""}`,
+          },
+        });
+        node.style.top = `${block.top}px`;
+        node.style.height = `${block.height}px`;
+        node.style.left = `${block.left}%`;
+        node.style.width = `${block.width}%`;
+        if (block.color) node.style.borderLeftColor = block.color;
+        node.createSpan({ cls: "uni-week-block-title", text: block.title });
+        if (block.time) node.createSpan({ cls: "uni-week-block-time", text: block.time });
+        node.addEventListener("click", () => {
+          this.selectedKey = day.key;
+          this.mode = "day";
+          this.render();
+        });
+      }
+      if (day.isToday && layout.now) {
+        const line = col.createDiv({ cls: "uni-week-now" });
+        line.style.top = `${layout.now.top}px`;
+        line.setAttr("aria-hidden", "true");
+        nowNode = line;
+      }
+    }
+    this._weekNow = nowNode ? { node: nowNode, key: layout.now.key, dayStart: layout.dayStart, hourHeight: layout.hourHeight } : null;
+  }
+
   renderUpcoming(container, events, merged) {
     const now = new Date();
     const source = events || [];
@@ -923,6 +1059,14 @@ class CalendarView extends ItemView {
     const current = new Date(`${this.selectedKey}T12:00:00`);
     const base = Number.isNaN(current.getTime()) ? new Date() : current;
     const next = addDays(base, delta);
+    this.selectedKey = dateKey(next);
+    this.cursor = new Date(next.getFullYear(), next.getMonth(), 1);
+    this.render();
+  }
+
+  shiftWeek(delta) {
+    const startKey = calendarWeek.weekStartKey(this.selectedKey, this.plugin.calendarSettings().firstDayOfWeek);
+    const next = addDays(new Date(`${startKey}T12:00:00`), Number(delta) * 7 || 0);
     this.selectedKey = dateKey(next);
     this.cursor = new Date(next.getFullYear(), next.getMonth(), 1);
     this.render();
@@ -1160,10 +1304,76 @@ class CalendarImportModal extends QtModal {
   }
 }
 
+/* ------------------------------------------------------- semester rollover */
+
+/**
+ * Starting the next term is three fields, not a migration: stamp the semester
+ * label on courses that never had one, and point the term window at the new
+ * dates. No note is moved or rewritten and no old event is deleted.
+ */
+class SemesterRolloverModal extends QtModal {
+  constructor(app, plugin) {
+    super(app);
+    this.plugin = plugin;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h2", { cls: "uni-modal-title", text: "Start the next semester" });
+    contentEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "Courses without a semester get the label you type. The calendar then starts on the new date; notes, lecture history and imported events are left exactly where they are.",
+    });
+    const now = new Date();
+    const season = now.getMonth() <= 4 ? "Spring" : now.getMonth() <= 7 ? "Summer" : "Fall";
+    const draft = { label: `${season} ${now.getFullYear()}`, start: "", end: "" };
+
+    new Setting(contentEl)
+      .setName("Semester label for courses that have none")
+      .setDesc("Existing labels are kept; this only fills in the blank ones.")
+      .addText((text) => text.setValue(draft.label).onChange((value) => {
+        draft.label = value;
+      }));
+    new Setting(contentEl)
+      .setName("New semester starts")
+      .setDesc("Week 1 counts from this date, and classes before it are hidden until they are in term again.")
+      .addText((text) => {
+        text.inputEl.type = "date";
+        text.setValue(draft.start).onChange((value) => {
+          draft.start = value;
+        });
+      });
+    new Setting(contentEl)
+      .setName("New semester ends")
+      .setDesc("Optional. Exams are never hidden.")
+      .addText((text) => {
+        text.inputEl.type = "date";
+        text.setValue(draft.end).onChange((value) => {
+          draft.end = value;
+        });
+      });
+
+    const actions = contentEl.createDiv({ cls: "modal-button-container" });
+    actions.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
+    actions
+      .createEl("button", { cls: "mod-cta", text: "Start the next semester" })
+      .addEventListener("click", async () => {
+        const result = await this.plugin.rolloverSemester(draft);
+        if (!result) return;
+        const courses = `${result.stamped} course${result.stamped === 1 ? "" : "s"}`;
+        const label = result.label ? ` as \u201c${result.label}\u201d` : "";
+        new Notice(`Stamped ${courses}${label}. The calendar now starts ${result.start}.`, 8000);
+        this.close();
+      });
+  }
+}
+
 module.exports = {
   VIEW_TYPE_CALENDAR,
   CalendarView,
   CalendarImportModal,
+  SemesterRolloverModal,
   StudySlotModal,
   applyCalendarWidth,
   parseScheduleBlock,

@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 462 groups, 3211 exports. **Commands:** 242. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 463 groups, 3228 exports. **Commands:** 244. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -156,10 +156,11 @@ the table and fails if a group, export count, command or citing test drifts.
 | `calculus` | 5 | `tests/reference-tools.test.js` |
 | `calendarIcs` | 19 | `tests/calendar.test.js`, `tests/term-calendar.test.js` |
 | `calendarInterop` | 3 | `tests/calendar-interop.test.js` |
-| `calendarModel` | 52 | `tests/calendar.test.js`, `tests/core-values.test.js`, `tests/exam-schedule.test.js`, `tests/term-calendar.test.js` |
+| `calendarModel` | 53 | `tests/calendar.test.js`, `tests/core-values.test.js`, `tests/exam-schedule.test.js`, `tests/term-calendar.test.js` |
 | `calendarNotes` | 8 | `tests/calendar.test.js` |
 | `calendarPlanner` | 10 | `tests/calendar-planner.test.js` |
 | `calendarSettings` | 2 | `tests/settings-error-paths.test.js` |
+| `calendarWeek` | 16 | `tests/calendar-week.test.js` |
 | `candidateAssetNames` | 0 | `tests/feature-surfaces.test.js` |
 | `cardArchive` | 8 | `tests/card-archive.test.js` |
 | `cardGenerator` | 11 | `tests/card-generator.test.js`, `tests/spaced-quiz.test.js` |
@@ -535,7 +536,9 @@ the table and fails if a group, export count, command or citing test drifts.
 | `dismiss-reminder` | Dismiss today's study reminder | `dismissTodayReminder` | `tests/command-effects.test.js` |
 | `study-skin` | Open study cards | `openStudySkin` | `tests/command-effects.test.js` |
 | `retry-pending-attempts` | Retry saving offline practice results | `flushPendingAttempts` | `tests/offline.test.js` |
-| `open-calendar` | Open calendar | `activateCalendar` | `tests/plugin.test.js` |
+| `open-calendar` | Open calendar | `activateCalendar` | `tests/calendar.test.js`, `tests/plugin.test.js` |
+| `open-calendar-week` | Calendar: open the week timetable | `openMergedCalendar` | `tests/calendar.test.js` |
+| `semester-rollover` | Courses: start the next semester | `openSemesterRollover` | `tests/semester-rollover.test.js` |
 | `open-review-calendar` | Open review calendar | `activateReviewCalendar` | `tests/review-calendar.test.js` |
 | `open-review-sidebar` | Open review sidebar | `activateReviewSidebar` | `tests/review-sidebar.test.js` |
 | `review-next-note` | Next review note | `openAdjacentReviewNote` | `tests/review-sidebar.test.js` |
@@ -603,7 +606,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `open-task-list` | Open the task list | `activateTaskList` | `tests/plugin.test.js`, `tests/task-list.test.js` |
 | `mirror-study-tasks` | Tasks: mirror study tasks to a note | `mirrorStudyTasksCommand` | `tests/study-tasks-plus.test.js` |
 | `open-focus-day` | Open Focus day | `activateFocusDay` | `tests/focus-day.test.js`, `tests/hub-views.test.js` |
-| `open-plan-hub` | Open Plan (calendar, focus day, events) | `activatePlanHub` | `tests/hub-views.test.js`, `tests/plugin.test.js` |
+| `open-plan-hub` | Open Plan calendar | `activatePlanHub` | `tests/hub-views.test.js`, `tests/plugin.test.js` |
 | `open-reading-library` | Reading library: open the bookshelf | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/time-blocks-kairos.test.js` |
 | `new-feynman-cycle` | Feynman Learning: start a cycle | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |
 | `build-recall-queue` | Recall Scheduler: build a queue | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |

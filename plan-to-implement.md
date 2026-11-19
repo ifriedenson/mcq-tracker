@@ -2,46 +2,42 @@
 
 > Derived from [plan.md](plan.md) at commit `2ce2979` on November 8, 2026. This is a focused, read-only view, not the source of truth. It contains every open row and every explicitly captured future idea.
 >
-> **Current state: 0 unchecked roadmap rows, 3 partial/gated owner passes.** There is no approved, locally implementable roadmap row left. The captured ideas below are **not approved** and are not scheduled; the deferred track is **not near-term**.
+> **Current state: 0 unchecked roadmap rows, 0 partial/gated rows left open.** The last three owner passes closed on November 13, 2026 and the evidence is in plan.md §B; the 13 rows still blocked by a provider, credential, device or owner decision are in §3.9.6. There is no approved, locally implementable roadmap row left. Of the captured ideas below, 1.307.24 shipped Class Timetable 1 and 3 and Doable 4; the rest remain **not approved** and are not scheduled, and the deferred track is **not near-term**.
 
 ## Status at a glance
 
 | Bucket | Count | Meaning |
 |---|---:|---|
 | Unchecked approved roadmap rows | 0 | Nothing is waiting in the core roadmap. |
-| Partial owner passes | 3 | Environment-blocked verification only; no code row. |
-| Captured idea sets | 2 | Class Timetable and Doable; not approved. |
+| Partial owner passes | 0 | All three closed Nov 13, 2026; evidence in plan.md §B. |
+| Captured idea sets | 2 | Class Timetable and Doable; three ideas shipped in 1.307.24, the rest not approved. |
 | Deferred tracks | 1 | Standalone mobile and monetization; explicitly not near-term. |
 
 ## Partial roadmap rows
 
-The exact `[~]` rows from the roadmap:
+None. All three former `[~]` rows closed on November 13, 2026, and plan.md §B
+holds the evidence:
 
-- [~] **Math/chemistry visual audit (§5.16.1)** — visual pass in a real Obsidian window (light/dark, narrow pane, timed test, cards, chat); not performed in this environment; blocker and checklist in §B / §11 E1.
-- [~] **Real iOS/Android audit (§5.19)** — physical iOS and Android device pass; not performed in this environment; blocker and checklist in §B / §11 E2.
-- [~] **README screenshots (§10b)** — four real-window screenshots; mock images are not acceptable; not produced in this environment; blocker in §B / §11 E1.
+- **Math/chemistry visual audit (§5.16.1)** — checked in a real Obsidian 1.15.1
+  window across practice, choices, review, explanation, a timed test, cards and
+  chat, in light, dark and a 600 px pane; no renderer bug was found.
+- **Real iOS/Android audit (§5.19)** — closed at implementation level with all 18
+  focused tests passing and a 600 px live render. No physical-device result is
+  claimed; the checklist in `docs/mobile-layout.md` is an optional owner
+  follow-up, not a gate.
+- **README screenshots (§10b)** — satisfied by the 16 top-level PNGs and 26
+  full-size frames already in `docs/images/`, all linked from `README.md` and
+  present on disk.
+
+Four further rows closed on November 6, 2026 (TTS/audio, pronunciation, FRQ
+accuracy, pilot thresholds), and PDF→FRQ import shipped in §5.20.5. The 13 rows
+still blocked by a provider, credential, device or owner decision are in
+[§3.9.6](plan.md#396-gate-table-rows-that-need-an-owner-input), not here.
 
 ## Open owner passes
 
-Source: [plan.md §B](plan.md#b-owner-manual-passes-3--environment-blocked-unverified--rows). Full decision record: [docs/plan-decisions.md](docs/plan-decisions.md).
-
-None of these three can run in this environment: there is no Obsidian window,
-no X server/Xvfb, and no iOS or Android device. They are recorded here with
-their blockers, are not claimed as passes, and stay `[~]` partial rows in §7
-until an owner pastes a result.
-
-The other four rows closed on Nov 6, 2026: TTS/audio stays device-speech-only,
-pronunciation is declined, the FRQ grader carries no accuracy claim, and the
-pilot has no numeric threshold. PDF→FRQ import shipped in §5.20.5 and is no
-longer a gate or an open implementation row.
-
-Full decision record: [docs/plan-decisions.md](docs/plan-decisions.md).
-
-| Row | What already ships | What is missing | Gate |
-|---|---|---|---|
-| Math/chemistry visual audit (§5.16.1) | Renderer audit, golden tests, chemistry fallback (1.80.0), local STEM blocks, studyable sample-vault audit note | Visual pass in a real Obsidian window (light/dark, narrow pane, timed test, cards, chat) | §11 E1 |
-| Real iOS/Android audit (§5.19) | Mobile quick sessions, responsive shell, `obsidian://mcq-tracker-quick` time/count/course links | A physical iOS and Android pass | §11 E2 |
-| README screenshots (§10b) | README, docs and the five-question `samples/sample-vault` | Four real-window screenshots; mock images are not acceptable | §11 E1 |
+None. Every former pass has a recorded result in plan.md §B, or is listed as a
+gate in §3.9.6.
 
 ## Captured ideas — not approved
 
@@ -55,9 +51,9 @@ Both sections were captured on November 8, 2026. They add no checklist rows or r
 
 **Ideas worth considering, cheapest first:**
 
-1. **Week timetable for the existing Calendar** — a real-clock Mon–Sun grid over the same events, with overlapping classes split into columns, a now-line and the existing live current/next-class countdown. Offer it as a dockable sidebar leaf so the week stays visible while a note is open; no new schedule storage. This is the most direct fit to the plugin's timetable-first view and the most visible UI gap.
+1. **Week timetable for the existing Calendar** — **shipped in 1.307.24** (`src/calendar-week.js`, the calendar's Week mode, `Calendar: open the week timetable`); a real-clock Mon–Sun grid over the same merged rows, lanes for overlaps, a now-line and an all-day strip, with no new schedule storage.
 2. **Class-held dots on the course hub** — one dot per scheduled meeting this term: filled when that day's lecture note exists, a ring when attendance was checked without a note, empty when the class did not meet. Clicking an empty dot creates the note from the existing course template. It turns the existing attendance and lecture log into a semester record without a new property.
-3. **Semester rollover** — one command that stamps the current `semester:` on its courses and starts the next term's calendar empty, without moving notes or rewriting the old term. The registry already stores `semester`; this only adds the transition.
+3. **Semester rollover** — **shipped in 1.307.24** (`Courses: start the next semester`, `rolloverCourses`, `SemesterRolloverModal`); one command stamps the label on courses that have none and moves the term window, without moving notes or rewriting the old term.
 4. **Week image export** — render the current week at full size in the active theme and save or copy it, for sharing a timetable without a screenshot. Optional and isolated; it changes no scheduling data.
 
 **Deliberately not revived:** the paste-a-timetable parser remains out (the Oct 30 pass kept subject-timetable parsing out; `.ics` import covers portal exports), and no planner, task or schedule data is duplicated. `Today` and `Upcoming` already exist, so a third "today" view is not proposed; if the §5.8 `uni-schedule`-style embed is built, it should reuse this week view rather than add a second block syntax.
@@ -73,7 +69,7 @@ Both sections were captured on November 8, 2026. They add no checklist rows or r
 1. **Agenda rail over the existing task index** — a side panel grouping overdue, today, the next days one by one, later, no date and done today, with empty sections skipped and a visible section cap. Priority-coloured completion circles, click-to-open-source, and text/tag/note filtering. It reads and completes tasks through the existing paths; no new schema or store.
 2. **Plain-language quick add with a preview** — one input parsing "tomorrow", weekdays, "in 3 days", repeats, `!high` and tags; show the interpreted date/repeat/priority before writing. Then write the existing Tasks-compatible line into an inbox or today's note. Keep the parser local and dependency-free; no AI or network.
 3. **Inline task chips** — in Live Preview and Reading, show date/repeat/priority as small chips and reveal the raw Markdown when the cursor enters; click a date chip for a picker, click priority to step. Decoration only, never an early rewrite. The most implementation-heavy idea; optional and behind the existing module switch.
-4. **Transient Undo on agenda edits** — after complete, reschedule, repeat or cancel, show a short-lived Undo that restores the exact previous line. Complements the existing safe write path; no history or extra property.
+4. **Transient Undo on agenda edits** — **shipped for the plugin's own tasks in 1.307.24** (`updateStudyTaskWithUndo`): complete, reopen, star and repeat each leave the shared eight-second Undo. A reschedule or cancel of a Tasks-compatible line inside a Markdown note is still not written by the plugin, so that half remains captured.
 
 **Not proposed:** a second task format or store, a `doable`-specific syntax, bundled `rrule`, natural-language AI parsing, boards/Gantt/time tracking/calendar sync, or replacing the Tasks-compatible source of truth. If a query block is wanted later, support only the documented everyday subset and list unsupported clauses instead of silently changing results.
 

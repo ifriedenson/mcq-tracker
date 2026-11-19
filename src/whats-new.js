@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.24",
+    date: "November 19, 2026",
+    title: "A week timetable, semester rollover, and Undo on every task edit",
+    summary:
+      "An audit of the plan found three ideas that had been captured but never built and were small enough to finish properly. The calendar now has a real week grid, starting the next term is one command, and completing or changing a task can be undone.",
+    highlights: [
+      {
+        title: "A real week timetable",
+        body: "The calendar gains a Week mode beside Month, Day and Upcoming: one column per weekday and one row per hour, with classes, planned blocks, local events, review work and dated tasks placed at their own time and a now-line in today's column.",
+      },
+      {
+        title: "Overlaps get their own column",
+        body: "Two things at the same time are split into lanes instead of hiding each other, the axis widens only for a block outside 07:00-22:00, rows with no time wait in an all-day strip, and every day header and block opens that day.",
+      },
+      {
+        title: "Start the next semester in one command",
+        body: "Courses: start the next semester stamps the semester label on the courses that never had one, moves the term window to the new dates and reports how many it filled. Notes, lecture history and imported events are left exactly where they are.",
+      },
+      {
+        title: "Undo on every task edit",
+        body: "Completing, reopening, starring and changing a task's repeat now each leave the same eight-second Undo a delete does. Undoing a completion also removes the successor its repeat just scheduled, and a later edit is never overwritten.",
+      },
+    ],
+  },
+  {
     version: "1.307.23",
     date: "November 19, 2026",
     title: "Updates no longer report a disable failure",

@@ -1001,3 +1001,43 @@ test("course registry: total topics normalize to a bounded non-negative count", 
   assert.equal(rows[1].totalTopics, 0);
   assert.equal(rows[2].totalTopics, 500);
 });
+
+test("view: the Week tab is a real-clock grid with the class in its day column", async () => {
+  const { app, plugin } = await pluginWith(TODAY_EVENT());
+  await plugin.addCalendarFileSource("schedule.ics");
+  plugin.settings.calendar.enabled = true;
+  const dom = makeDom();
+  const view = new T.CalendarView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+  await dom.click("Week");
+  assert.equal(view.mode, "week");
+
+  const weekDom = makeDom();
+  view.contentEl = weekDom.root;
+  view.render();
+  const texts = weekDom.texts();
+  assert.ok(texts.includes("Month") && texts.includes("Week") && texts.includes("Day") && texts.includes("Upcoming"));
+  assert.ok(texts.some((text) => /^Week of /.test(text)), "the header names the week");
+
+  const attrsOf = (o) => (o.meta && (o.meta.attrs || o.meta.attr)) || {};
+  const block = weekDom.all.find((o) => /^Linear Algebra, /.test(String(attrsOf(o)["aria-label"] || "")));
+  assert.ok(block, "the class is a positioned block in the grid");
+  assert.equal(block.meta.tag, "button", "the block is a real control");
+  assert.ok(block.style.top && block.style.height, "the block is placed on the clock axis");
+  const columns = weekDom.all.filter((o) => attrsOf(o)["data-date"]);
+  assert.equal(columns.length, 7, "seven day columns");
+
+  await block.handlers.find((h) => h.ev === "click").fn({});
+  assert.equal(view.mode, "day", "opening a block shows that day");
+  assert.equal(view.selectedKey, ics.dateKey(new Date()));
+});
+
+test("the calendar registers the week timetable command on the one merged view", async () => {
+  const { plugin } = await pluginWith(TODAY_EVENT());
+  const command = plugin.commands.find((entry) => entry.id === "open-calendar-week");
+  assert.ok(command, "the week timetable has a palette command");
+  assert.equal(command.name, "Calendar: open the week timetable");
+  assert.equal(typeof plugin.openMergedCalendar, "function", "the command routes through the merged calendar");
+});

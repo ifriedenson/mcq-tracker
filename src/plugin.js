@@ -227,8 +227,8 @@ const { allowedWriteRoots, assertAllowedWritePath, assertProtectedUnchanged } = 
 const agentWriteGuard = require("./agent-write-guard");
 const agentEditReview = require("./agent-edit-review");
 const { CalculationPreviewModal } = require("./calculation-preview-modal");
-const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
-const { applyTermWeeks, cleanSubjectTitle, eventKey, examMatchesCourse, examReviewCap, findRegisteredCourse, isExamEvent, mergeCalendarSettings, nextClassStatus, normalizeFolder, subjectKey, visibleEvents } = require("./calendar-model");
+const { CalendarImportModal, CalendarView, SemesterRolloverModal, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
+const { applyTermWeeks, cleanSubjectTitle, eventKey, examMatchesCourse, examReviewCap, findRegisteredCourse, isExamEvent, mergeCalendarSettings, nextClassStatus, normalizeFolder, normalizeTermDate, rolloverCourses, subjectKey, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan, normalizeStudyPlanDays } = require("./study-plan");
 const { buildDashboard, courseMatches } = require("./analytics");
 const { bandQuestions, buildMastery, buildMasteryTrend, buildProgress, masteryScopes, masteryWindowDays, scopeQuestions } = require("./progress");
@@ -665,6 +665,8 @@ class QuestionTrackerPlugin extends Plugin {
       },
     });
     this.addCommand({ id: "open-calendar", name: "Open calendar", callback: () => this.activateCalendar() });
+    this.addCommand({ id: "open-calendar-week", name: "Calendar: open the week timetable", callback: () => this.openMergedCalendar({ mode: "week" }) });
+    this.addCommand({ id: "semester-rollover", name: "Courses: start the next semester", callback: () => this.openSemesterRollover() });
     this.addCommand({ id: "open-review-calendar", name: "Open review calendar", callback: () => this.activateReviewCalendar() });
     this.addCommand({ id: "open-review-sidebar", name: "Open review sidebar", callback: () => this.activateReviewSidebar() });
     this.addCommand({ id: "review-next-note", name: "Next review note", callback: () => this.openAdjacentReviewNote("next") });
@@ -9742,7 +9744,7 @@ ${body}
     }
     const view = await this.activateSidebarView(VIEW_TYPE_CALENDAR);
     if (view) {
-      if (opts.mode === "day" || opts.mode === "month" || opts.mode === "upcoming") view.mode = opts.mode;
+      if (["day", "month", "upcoming", "week"].includes(opts.mode)) view.mode = opts.mode;
       if (opts.today) {
         const now = new Date();
         view.cursor = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -10072,6 +10074,37 @@ ${body}
   async activateCalendar() {
     if (this.moduleOff("calendar")) return null;
     return this.activateSidebarView(VIEW_TYPE_CALENDAR);
+  }
+
+  openSemesterRollover() {
+    if (this.moduleOff("calendar")) return;
+    new SemesterRolloverModal(this.app, this).open();
+  }
+
+  /**
+   * Start the next term: stamp the semester label on courses that never had
+   * one and point the term window at the new dates. Notes, lecture history and
+   * imported events are left exactly where they are; old classes simply fall
+   * outside the new term window, so the calendar starts the term empty.
+   */
+  async rolloverSemester(input) {
+    const opts = input && typeof input === "object" ? input : {};
+    const label = str(opts.label).trim().slice(0, 60);
+    const start = normalizeTermDate(opts.start);
+    if (!start) {
+      new Notice("Pick the first day of the new semester.");
+      return null;
+    }
+    const end = normalizeTermDate(opts.end);
+    const rolled = rolloverCourses(this.settings.calendar && this.settings.calendar.courses, label);
+    this.settings.calendar = Object.assign({}, this.settings.calendar, {
+      courses: rolled.courses,
+      semesterStart: start,
+      semesterEnd: end && end >= start ? end : "",
+    });
+    await this.save();
+    this.refreshCalendarViews();
+    return { stamped: rolled.stamped, skipped: rolled.skipped, label, start, end: end && end >= start ? end : "" };
   }
 
   openCalendarImport() {
@@ -14607,7 +14640,7 @@ ${body}
    * they still hold what the delete left behind, so a second delete or an edit
    * made in the meantime is never silently overwritten.
    */
-  async deleteWithUndo({ label, remove, onChange, capture, restore } = {}) {
+  async deleteWithUndo({ label, remove, onChange, capture, restore, text } = {}) {
     const taken = typeof capture === "function";
     const settle = async (value) => JSON.parse(JSON.stringify(value && typeof value.then === "function" ? await value : value));
     // A synchronous capture never awaits, so the delete itself still starts in
@@ -14619,7 +14652,8 @@ ${body}
     const after = taken ? await settle(capture()) : JSON.parse(JSON.stringify(this.settings || {}));
     const changed = taken ? [0] : Object.keys(before).filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]));
     const name = str(label).trim();
-    const notice = new Notice(`Deleted ${name ? `\u201c${name}\u201d` : "it"}.`, 8000);
+    const wording = str(text).trim() || `Deleted ${name ? `\u201c${name}\u201d` : "it"}.`;
+    const notice = new Notice(wording, 8000);
     const undo = notice.noticeEl.createEl("button", { text: "Undo", cls: "qt-notice-undo" });
     undo.addEventListener("click", async () => {
       undo.disabled = true;
@@ -14665,6 +14699,27 @@ ${body}
     if (!task) return null;
     await this.deleteWithUndo({ label: task.title, remove: () => this.removeStudyTask(id), onChange });
     return task;
+  }
+
+  /**
+   * An agenda edit that keeps the way back: completing, reopening, restarring
+   * or changing a repeat is one click, and its notice offers Undo for the same
+   * eight seconds every delete does. Undo restores the whole task store only
+   * while nothing else has touched it, so a successor a repeat scheduled is
+   * removed again and a later edit is never overwritten.
+   */
+  async updateStudyTaskWithUndo(id, patch, onChange, text) {
+    const current = this.settings.studyTasks;
+    const task = current && Array.isArray(current.tasks) ? current.tasks.find((entry) => entry.id === id) : null;
+    if (!task) return null;
+    const name = str(task.title).trim();
+    await this.deleteWithUndo({
+      label: name,
+      text: str(text).trim() || `Updated \u201c${name}\u201d.`,
+      remove: () => this.updateStudyTask(id, patch),
+      onChange,
+    });
+    return this.studyWorkspaceSettings().studyTasks.tasks.find((entry) => entry.id === id) || null;
   }
 
   /**

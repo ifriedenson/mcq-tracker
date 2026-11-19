@@ -2,7 +2,7 @@
 
 > Derived from [plan.md](plan.md) at commit `2ce2979` on November 8, 2026. This is a focused, read-only view, not the source of truth. It contains the shipped surface summary and every completed checkbox row from the plan.
 >
-> **112 completed checkbox rows** (98 top-level, 14 nested; 108 under the phased roadmap and 4 historical implementation records). The current plan also has **3 partial owner-gated rows** and **0 unchecked rows**; those are in [plan-to-implement.md](plan-to-implement.md). Narrative design notes, rejected ideas and external research scans remain in [plan.md](plan.md).
+> **112 completed checkbox rows** (98 top-level, 14 nested; 108 under the phased roadmap and 4 historical implementation records). The current plan has **0 partial rows and 0 unchecked rows**: the three former owner passes closed on November 13, 2026 (evidence in plan.md §B), and the 13 rows still blocked by a provider, credential, device or owner decision are gated in §3.9.6. The captured idea sets are in [plan-to-implement.md](plan-to-implement.md). Narrative design notes, rejected ideas and external research scans remain in [plan.md](plan.md).
 >
 > A few checked rows record closed decisions (for example, the declined pronunciation row), not shipped features; they remain here because they are checked in the source plan. The shipped-surface table is copied verbatim from plan §A, so its test count is the count recorded there rather than the current status block.
 
@@ -32,7 +32,7 @@ Every checked `[x]` row from the phased roadmap, in phase order. The three `[~]`
 
 ### Phase 0: Foundations and safety
 
-> Three owner-gated rows are omitted here; see [plan-to-implement.md](plan-to-implement.md#open-owner-passes).
+> No owner-gated row is open. The three former passes closed on November 13, 2026 with their evidence in plan.md §B; the rows still needing a provider, device or owner decision are in §3.9.6.
 
 - [x] Module system: every module off by default, lazy-loaded, with first-run presets (§4.5)
 - [x] Shared AI service layer: BYOK + OpenCode, capability flags, queue, cost caps (§4.6) — shipped in 1.79.0; the grade-later queue is the offline/retry path

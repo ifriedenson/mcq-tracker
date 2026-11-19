@@ -296,8 +296,13 @@ class TaskListView extends ItemView {
       },
     });
     star.addEventListener("click", async () => {
-      await this.plugin.updateStudyTask(task.id, { priority: isHighPriority(task) ? "" : "high" });
-      this.render();
+      const high = isHighPriority(task);
+      await this.plugin.updateStudyTaskWithUndo(
+        task.id,
+        { priority: high ? "" : "high" },
+        () => this.render(),
+        high ? `Normal priority for \u201c${task.title}\u201d.` : `High priority for \u201c${task.title}\u201d.`
+      );
     });
     const repeatLabel = task.repeat === "daily" ? "🔁 daily" : task.repeat === "weekday" ? "🔁 weekdays" : task.repeat === "weekly" ? "🔁 weekly" : "🔁 off";
     const repeat = actions.createEl("button", {
@@ -307,8 +312,8 @@ class TaskListView extends ItemView {
     });
     repeat.addEventListener("click", async () => {
       const next = !task.repeat ? "daily" : task.repeat === "daily" ? "weekday" : task.repeat === "weekday" ? "weekly" : "";
-      await this.plugin.updateStudyTask(task.id, { repeat: next });
-      this.render();
+      const name = next === "weekday" ? "weekdays" : next || "off";
+      await this.plugin.updateStudyTaskWithUndo(task.id, { repeat: next }, () => this.render(), `Repeat for \u201c${task.title}\u201d set to ${name}.`);
     });
     actions
       .createEl("button", { text: "×", cls: "qt-task-list-remove", attr: { "aria-label": `Delete ${task.title}`, title: "Delete task" } })
@@ -320,8 +325,10 @@ class TaskListView extends ItemView {
   }
 
   async toggle(task) {
-    await this.plugin.updateStudyTask(task.id, { done: !task.done });
-    this.render();
+    // Completing or reopening is one click, so it leaves the same eight-second
+    // Undo every other task action does; a repeat's successor goes back too.
+    const text = task.done ? `Reopened \u201c${task.title}\u201d.` : `Completed \u201c${task.title}\u201d.`;
+    await this.plugin.updateStudyTaskWithUndo(task.id, { done: !task.done }, () => this.render(), text);
   }
 }
 

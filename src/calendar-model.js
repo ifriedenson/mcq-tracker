@@ -150,6 +150,22 @@ function normalizeCourseRegistry(value) {
   return out;
 }
 
+/**
+ * The semester transition, and nothing else: stamp `semester` on every course
+ * that has none, leave labelled courses alone, and never touch a note. The
+ * registry already stores the field, so this only fills it in.
+ */
+function rolloverCourses(value, label) {
+  const stamp = str(label).trim().slice(0, 60);
+  let stamped = 0;
+  const courses = normalizeCourseRegistry(value).map((course) => {
+    if (!stamp || course.semester) return course;
+    stamped++;
+    return { ...course, semester: stamp };
+  });
+  return { courses, stamped, skipped: courses.length - stamped };
+}
+
 function registeredCourseKeys(course) {
   return [course && course.name, course && course.code, cleanSubjectTitle(course && course.name), cleanSubjectTitle(course && course.code)]
     .map(subjectKey)
@@ -891,6 +907,7 @@ module.exports = {
   subjectKey,
   normalizeFolder,
   normalizeCourseRegistry,
+  rolloverCourses,
   findRegisteredCourse,
   registeredCourseFolder,
   registeredCourseColor,

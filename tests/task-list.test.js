@@ -217,3 +217,48 @@ test("the Study Workspace task queue deletes through the same Undo notice", asyn
   assert.deepEqual(restored.tags, ["chem"]);
   assert.equal(restored.due, task.due);
 });
+
+test("completing a task offers an Undo that reopens it and removes a repeat's successor", async () => {
+  const { plugin, dom, view } = await setup();
+  const task = await plugin.addStudyTask({ title: "Daily drill", repeat: "daily", due: day(-1) });
+  view.render();
+  const box = byLabel(dom, "Complete Daily drill");
+  assert.ok(box, "the row has a completion checkbox");
+  await box.handlers.find((h) => h.ev === "change").fn({});
+  assert.equal(plugin.settings.studyTasks.tasks.find((row) => row.id === task.id).done, true);
+  assert.equal(plugin.settings.studyTasks.tasks.length, 2, "a daily task schedules its successor");
+
+  const label = "Completed \u201cDaily drill\u201d.";
+  assert.ok(obsidian.notices.includes(label), obsidian.notices.join(" | "));
+  const notice = obsidian.noticeObjects.find((entry) => entry.message === label);
+  const undo = notice.noticeEl.children.find((el) => el.cls === "qt-notice-undo");
+  assert.ok(undo, "the notice carries an Undo control");
+  await undo.handlers.find((h) => h.ev === "click").fn({});
+  assert.equal(plugin.settings.studyTasks.tasks.find((row) => row.id === task.id).done, false, "Undo reopens the task");
+  assert.equal(plugin.settings.studyTasks.tasks.length, 1, "and takes the successor with it");
+  assert.equal(undo.disabled, true, "the same control cannot restore twice");
+});
+
+test("starring and repeating a task each leave an Undo that puts the field back", async () => {
+  const { plugin, dom, view } = await setup();
+  const task = await plugin.addStudyTask({ title: "Review cells" });
+  view.render();
+  const star = byLabel(dom, "Mark Review cells high priority");
+  assert.ok(star, "the row offers the star");
+  await star.handlers.find((h) => h.ev === "click").fn({});
+  assert.equal(plugin.settings.studyTasks.tasks.find((row) => row.id === task.id).priority, "high");
+  const starNotice = obsidian.noticeObjects.find((entry) => entry.message === "High priority for \u201cReview cells\u201d.");
+  assert.ok(starNotice, obsidian.notices.join(" | "));
+  await starNotice.noticeEl.children.find((el) => el.cls === "qt-notice-undo").handlers.find((h) => h.ev === "click").fn({});
+  assert.equal(plugin.settings.studyTasks.tasks.find((row) => row.id === task.id).priority, "");
+
+  view.render();
+  const repeat = byLabel(dom, "Repeat for Review cells: off");
+  assert.ok(repeat, "the row offers the repeat cycle");
+  await repeat.handlers.find((h) => h.ev === "click").fn({});
+  assert.equal(plugin.settings.studyTasks.tasks.find((row) => row.id === task.id).repeat, "daily");
+  const repeatNotice = obsidian.noticeObjects.find((entry) => entry.message === "Repeat for \u201cReview cells\u201d set to daily.");
+  assert.ok(repeatNotice, obsidian.notices.join(" | "));
+  await repeatNotice.noticeEl.children.find((el) => el.cls === "qt-notice-undo").handlers.find((h) => h.ev === "click").fn({});
+  assert.equal(plugin.settings.studyTasks.tasks.find((row) => row.id === task.id).repeat, "");
+});
