@@ -799,7 +799,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-frq-grader", name: "AP: open free-response practice and grader", callback: () => this.openFrqGrader() });
     this.addCommand({ id: "new-frq-note", name: "AP: create a free-response note", callback: () => this.openNewFrqNote() });
     this.addCommand({ id: "import-frq-pdf", name: "AP: import free-response questions from a PDF", callback: () => this.openFrqPdfImport() });
-    this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary flashcard", callback: () => this.openNewCard() });
+    this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary card", callback: () => this.openNewCard() });
     this.addCommand({ id: "source-recall", name: "Create a source-anchored recall from selection", callback: () => this.openSourceRecall() });
     this.addCommand({ id: "generate-cards", name: "Generate flashcards from this note or selection", callback: () => this.openCardGenerator() });
     this.addCommand({
@@ -2867,8 +2867,13 @@ class QuestionTrackerPlugin extends Plugin {
     }
     const folders = [...new Set(run.files.flatMap((f) => f.folders || []))].sort((a, b) => b.split("/").length - a.split("/").length);
     for (const folder of folders) {
+      // Real Obsidian refuses a non-recursive remove of any directory (EISDIR
+      // even when empty), so re-check emptiness and remove only a folder still
+      // holding nothing. Anything left stays visible instead of vanishing.
       try {
-        if (adapter && typeof adapter.rmdir === "function") await adapter.rmdir(folder, false);
+        if (!adapter || typeof adapter.rmdir !== "function" || typeof adapter.list !== "function") continue;
+        const listing = await adapter.list(folder).catch(() => null);
+        if (listing && !((listing.files || []).length) && !((listing.folders || []).length)) await adapter.rmdir(folder, true);
       } catch (e) {
         /* not empty, or already gone */
       }
@@ -3006,7 +3011,14 @@ class QuestionTrackerPlugin extends Plugin {
       if (!/\.(md|pdf|png|jpe?g|webp|svg)$/i.test(path)) continue;
       await trashOne(path);
     }
-    try { await adapter.rmdir(target, false); } catch (e) { /* keep leftovers visible */ }
+    // Real Obsidian refuses a non-recursive remove of any directory (EISDIR
+    // even when empty), so re-check emptiness here and remove only a folder
+    // still holding nothing, mirroring cleanupEmptyImportFolders. Anything
+    // left stays visible instead of vanishing.
+    try {
+      const again = await adapter.list(target).catch(() => null);
+      if (again && !((again.files || []).length) && !((again.folders || []).length)) await adapter.rmdir(target, true);
+    } catch (e) { /* keep leftovers visible */ }
     this.refreshViews();
     return removed;
   }
@@ -3722,7 +3734,7 @@ class QuestionTrackerPlugin extends Plugin {
     return this.settings.mcqEnabled !== false;
   }
 
-  /** Flashcards and vocabulary are opt-in. */
+  /** Flashcards and vocabulary are on by default; turn off under Settings, Global, Modules. */
   cardsEnabled() {
     return !!(this.settings.cards && this.settings.cards.enabled);
   }

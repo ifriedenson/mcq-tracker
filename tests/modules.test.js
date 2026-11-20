@@ -103,7 +103,7 @@ test("modules: an already-open practice tab says the module is off", async () =>
   assert.ok(!dom.texts().some((t) => /No questions yet/.test(t)), "the first-run screen stays out of the way");
 });
 
-test("modules: Cards is opt-in, and switching it off closes its tab", async () => {
+test("modules: Cards is on by default, and switching it off closes its tab", async () => {
   const { app, plugin } = await setup();
   const detached = [];
   app.workspace.detachLeavesOfType = (type) => detached.push(type);

@@ -316,7 +316,7 @@ test("plugin: course tags can be backfilled from deck and calendar folder mappin
   assert.equal(card.fm.course, "CHEM 101");
 });
 
-test("plugin: the Cards module is opt-in and its entry points point at settings", async () => {
+test("plugin: the Cards module is off-switchable and its entry points point at settings", async () => {
   const app = makeApp(NOTES);
   const plugin = new QT(app);
   await plugin.onload();

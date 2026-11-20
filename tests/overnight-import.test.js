@@ -415,6 +415,8 @@ test("overnight import: a file that writes no notes leaves no empty folder behin
   const state = await setup();
   const { plugin, app } = state;
   const modal = new T.importModal.PdfImportModal(app, plugin, {});
+  await app.vault.createFolder("Questions");
+  await app.vault.createFolder("Questions/Unit 1");
   await app.vault.create("Questions/Unit 1/EXIST-Q01.md", "keep me");
   modal.target = "Questions/empty";
   modal.beginArtifacts();

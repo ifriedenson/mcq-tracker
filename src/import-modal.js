@@ -1131,8 +1131,12 @@ class PdfImportModal extends QtModal {
     if (typeof adapter.rmdir === "function") {
       const folders = [...this.sessionFolders].sort((a, b) => b.split("/").length - a.split("/").length);
       for (const path of folders) {
+        // Real Obsidian refuses a non-recursive remove of any directory (EISDIR
+        // even when empty): remove only a folder a fresh listing still shows
+        // holding nothing, so a pre-existing note keeps its folder.
         try {
-          await adapter.rmdir(path, false);
+          const listing = typeof adapter.list === "function" ? await adapter.list(path).catch(() => null) : null;
+          if (listing && !((listing.files || []).length) && !((listing.folders || []).length)) await adapter.rmdir(path, true);
         } catch (e) {
           /* not empty, or already gone */
         }
@@ -1195,8 +1199,12 @@ class PdfImportModal extends QtModal {
     if (typeof adapter.rmdir === "function") {
       const folders = [...tracked.folders].sort((a, b) => b.split("/").length - a.split("/").length);
       for (const path of folders) {
+        // Real Obsidian refuses a non-recursive remove of any directory (EISDIR
+        // even when empty): remove only a folder a fresh listing still shows
+        // holding nothing, so a pre-existing note keeps its folder.
         try {
-          await adapter.rmdir(path, false);
+          const listing = typeof adapter.list === "function" ? await adapter.list(path).catch(() => null) : null;
+          if (listing && !((listing.files || []).length) && !((listing.folders || []).length)) await adapter.rmdir(path, true);
         } catch (e) {
           /* not empty, or already gone: a pre-existing note keeps its folder */
         }
