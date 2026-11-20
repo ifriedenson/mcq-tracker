@@ -3,7 +3,7 @@ const { QtModal } = require("./a11y");
 const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const { Menu, Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
-const { releaseCommandPaletteShortcut } = require("./hotkey-cleanup");
+const { releaseCommandPaletteShortcut, releaseCoreShortcuts } = require("./hotkey-cleanup");
 const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_REVIEW_SIDEBAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_FOCUS_DAY, VIEW_TYPE_TASK_LIST, VIEW_TYPE_WEB_BROWSER, VIEW_TYPE_RECENT_FILES, VIEW_TYPE_AGENT, VIEW_TYPE_IMPORT_WINDOW,
   VIEW_TYPE_HUB_TODAY,
   VIEW_TYPE_HUB_PLAN,
@@ -717,10 +717,18 @@ class QuestionTrackerPlugin extends Plugin {
       callback: () => this.openNextClassNote(),
     });
     this.addCommand({ id: "calendar-export", name: "Calendar: export the visible schedule to .ics", callback: () => this.exportCalendarIcs() });
-    this.addCommand({ id: "open-cards", name: "Open cards", callback: () => this.activateCards() });
-    const cardsCommandId = `${(this.manifest && this.manifest.id) || "mcq-tracker"}:open-cards`;
-    if (releaseCommandPaletteShortcut(this.app, cardsCommandId)) {
-      new Notice("Ctrl/Cmd+P now opens only Obsidian's command palette. Open cards is still in the palette.", 7000);
+    this.addCommand({ id: "open-cards", name: "Open flashcards", callback: () => this.activateCards() });
+    const pluginPrefix = `${(this.manifest && this.manifest.id) || "mcq-tracker"}:`;
+    const paletteGuardIds = ["open-cards", "open-practice-view", "open-today", "open-calendar", "open-assignments", "open-reference", "open-study-tools", "open-study-workspace", "open-task-list", "open-plan-hub", "quick-add", "import-pdf"];
+    let freedPalette = false;
+    for (const guardId of paletteGuardIds) {
+      try {
+        if (releaseCoreShortcuts(this.app, pluginPrefix + guardId)) freedPalette = true;
+        else if (releaseCommandPaletteShortcut(this.app, pluginPrefix + guardId)) freedPalette = true;
+      } catch (e) { /* keep the palette usable even if one id throws */ }
+    }
+    if (freedPalette) {
+      new Notice("Ctrl/Cmd+P now opens only Obsidian's command palette. Open flashcards is still in the palette.", 7000);
     }
     this.addCommand({ id: "ankiweb-find-deck", name: "Cards: find a deck on AnkiWeb", callback: () => this.openAnkiWebSearch() });
     this.addCommand({ id: "open-assignments", name: "Open assignments and grades", callback: () => this.activateAssignments() });
@@ -2956,6 +2964,53 @@ class QuestionTrackerPlugin extends Plugin {
     return removed;
   }
 
+  /** Move one card note to trash. Vault writes stay in this file so the security inventory holds. */
+  async deleteCardNote(file) {
+    const target = file && file.path ? file : this.app.vault.getAbstractFileByPath(String(file || ""));
+    if (!target) throw new Error("No card was given.");
+    if (this.app.fileManager && typeof this.app.fileManager.trashFile === "function") await this.app.fileManager.trashFile(target);
+    else await this.app.vault.trash(target, true);
+    this.refreshViews();
+  }
+
+  /** Delete one finished import folder: the source PDF copy, pictures and question notes, in one confirm. */
+  async deleteImportFolder(folder) {
+    const vault = this.app.vault;
+    const target = String(folder || "").trim().replace(/^\/+|\/+$/g, "");
+    if (!target) throw new Error("No import folder was given.");
+    const root = target.split("/")[0] || "Questions";
+    if (target === root) throw new Error(`Refusing to delete the whole ${root} folder. Delete single import subfolders instead.`);
+    const adapter = vault.adapter;
+    const collect = async (dir, out) => {
+      let listing = null;
+      try { listing = await adapter.list(dir); } catch (e) { return; }
+      for (const f of (listing && listing.files) || []) out.push(f && f.startsWith ? f : dir + "/" + f);
+      for (const sub of (listing && listing.folders) || []) {
+        const child = String(sub).startsWith(dir + "/") ? String(sub) : dir + "/" + sub;
+        await collect(child, out);
+      }
+    };
+    const paths = [];
+    await collect(target, paths);
+    let removed = 0;
+    const trashOne = async (path) => {
+      const file = vault.getAbstractFileByPath(path);
+      if (!file) return;
+      if (vault.trash && typeof vault.trash === "function") await vault.trash(file, true);
+      else if (this.app.fileManager && typeof this.app.fileManager.trashFile === "function") await this.app.fileManager.trashFile(file);
+      else throw new Error("This vault cannot trash files right now.");
+      removed++;
+    };
+    // Trash notes, PDFs and pictures first so a failure leaves the folder behind, not a half-empty one.
+    for (const path of paths) {
+      if (!/\.(md|pdf|png|jpe?g|webp|svg)$/i.test(path)) continue;
+      await trashOne(path);
+    }
+    try { await adapter.rmdir(target, false); } catch (e) { /* keep leftovers visible */ }
+    this.refreshViews();
+    return removed;
+  }
+
   openFlaggedAnswers() {
     new FlaggedAnswersModal(this.app, this).open();
   }
@@ -4329,7 +4384,7 @@ class QuestionTrackerPlugin extends Plugin {
     return [
       { id: "today", icon: "sun", title: "Open today", onClick: () => this.activateToday(), enabled: () => this.mcqEnabled() },
       { id: "mcq", icon: "graduation-cap", title: "Open practice view", onClick: () => this.activateView(), enabled: () => this.mcqEnabled() },
-      { id: "cards", icon: "layers", title: "Open cards", onClick: () => this.activateCards(), enabled: () => this.cardsEnabled() },
+      { id: "cards", icon: "layers", title: "Open flashcards", onClick: () => this.activateCards(), enabled: () => this.cardsEnabled() },
       { id: "calendar", icon: "calendar-days", title: "Open calendar", onClick: () => this.activateCalendar(), enabled: () => this.calendarEnabled() },
       { id: "reference", icon: "book-open", title: "Open Reference", onClick: () => this.activateReference(), enabled: () => this.referenceEnabled() },
       { id: "assignments", icon: "clipboard-list", title: "Open assignments and grades", onClick: () => this.activateAssignments(), enabled: () => this.assignmentsEnabled() },
@@ -4353,7 +4408,7 @@ class QuestionTrackerPlugin extends Plugin {
     return [
       { id: "today", icon: "sun", title: "Open today", onClick: () => this.activateToday(), enabled: () => hubOn("today") },
       { id: "mcq", icon: "graduation-cap", title: "Open practice view", onClick: () => this.activateView(), enabled: () => this.mcqEnabled() },
-      { id: "cards", icon: "layers", title: "Open cards", onClick: () => this.activateCards(), enabled: () => this.cardsEnabled() },
+      { id: "cards", icon: "layers", title: "Open flashcards", onClick: () => this.activateCards(), enabled: () => this.cardsEnabled() },
       { id: "plan", icon: "calendar-days", title: "Open Plan", onClick: () => this.activatePlanHub(), enabled: () => hubOn("plan") },
       { id: "reference", icon: "book-open", title: "Open Reference", onClick: () => this.activateReference(), enabled: () => this.referenceEnabled() },
       { id: "assignments", icon: "clipboard-list", title: "Open assignments and grades", onClick: () => this.activateAssignments(), enabled: () => this.assignmentsEnabled() },
@@ -5501,7 +5556,7 @@ class QuestionTrackerPlugin extends Plugin {
 
   openDocumentCards(options, onDone) {
     if (this.moduleOff("cards")) {
-      new Notice("Turn on Cards under Settings, Global, Modules to extract flashcards.");
+      new Notice("Turn on Flashcards under Settings, Global, Modules to extract flashcards.");
       return;
     }
     new DocumentCardsModal(this.app, this, options || {}, (result) => {
@@ -6626,7 +6681,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (!row) throw new Error("Answer at least one question first so the plugin can find a weak spot.");
     const kind = opts.kind === "cards" ? "cards" : "questions";
     if (kind === "questions" && this.moduleOff("mcq")) throw new Error("Turn on MCQ Tracker to create practice questions.");
-    if (kind === "cards" && this.moduleOff("cards")) throw new Error("Turn on Cards to create flashcards.");
+    if (kind === "cards" && this.moduleOff("cards")) throw new Error("Turn on Flashcards to create flashcards.");
     const count = Math.max(1, Math.min(20, Math.round(Number(opts.count) || (kind === "cards" ? 8 : 5))));
     const prompt = buildWeakSpotPrompt({ skill: row.value, course: opts.course, kind, count });
     const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "generation", maxTokens: kind === "questions" ? 3500 : 2500 });
@@ -7478,7 +7533,7 @@ class QuestionTrackerPlugin extends Plugin {
     }
     const kind = opts.kind === "questions" ? "questions" : "cards";
     if (kind === "questions" && this.moduleOff("mcq")) throw new Error("Turn on MCQ Tracker to create practice questions.");
-    if (kind === "cards" && this.moduleOff("cards")) throw new Error("Turn on Cards to create flashcards.");
+    if (kind === "cards" && this.moduleOff("cards")) throw new Error("Turn on Flashcards to create flashcards.");
     const count = Math.min(30, Math.max(1, Math.round(Number(opts.count) || (kind === "questions" ? 5 : 8))));
     const course = str(opts.course).trim() || info.course || courseForFolder(this.settings, info.path) || "";
     const difficulty = ["easy", "medium", "hard"].includes(str(opts.difficulty).toLowerCase()) ? str(opts.difficulty).toLowerCase() : "mixed";
@@ -8840,7 +8895,7 @@ class QuestionTrackerPlugin extends Plugin {
   /** Draft cards from the open note or its selection. This method writes nothing. */
   async generateCardsFromNote(options) {
     if (!this.settings.ai.enabled) throw new Error("Turn on AI features under Settings, Global, Modules first.");
-    if (this.moduleOff("cards")) throw new Error("Turn on Cards to create flashcards.");
+    if (this.moduleOff("cards")) throw new Error("Turn on Flashcards to create flashcards.");
     const requested = options || {};
     const config = normalizeCardGenerator({ ...normalizeCardGenerator(this.settings.cardGenerator), ...requested });
     const context = requested.context && requested.context.path ? requested.context : await readActiveNoteContext(this.app);
@@ -8882,7 +8937,7 @@ class QuestionTrackerPlugin extends Plugin {
 
   /** Append already-previewed cards to the open note. This is intentionally untracked. */
   async insertGeneratedCards(generated, options) {
-    if (this.moduleOff("cards")) throw new Error("Turn on Cards to work with flashcards.");
+    if (this.moduleOff("cards")) throw new Error("Turn on Flashcards to work with flashcards.");
     const g = generated || {};
     const items = Array.isArray(g.items) ? g.items : [];
     if (!items.length) throw new Error("There are no cards to insert.");
@@ -8914,7 +8969,7 @@ class QuestionTrackerPlugin extends Plugin {
    * importer. The source batch and card import keys make a rerun idempotent.
    */
   async writeSpacedQuiz(generated, options) {
-    if (this.moduleOff("cards")) throw new Error("Turn on Cards to save a Spaced Repetition quiz.");
+    if (this.moduleOff("cards")) throw new Error("Turn on Flashcards to save a Spaced Repetition quiz.");
     const g = generated || {};
     const items = Array.isArray(g.items) ? g.items : [];
     if (!items.length) throw new Error("There are no usable cards to save as a Spaced Repetition quiz.");
@@ -8992,7 +9047,7 @@ class QuestionTrackerPlugin extends Plugin {
       return null;
     }
     if (this.moduleOff("cards")) {
-      new Notice("Turn on Cards under Settings, Global, Modules to generate flashcards.");
+      new Notice("Turn on Flashcards under Settings, Global, Modules to generate flashcards.");
       return null;
     }
     const modal = new (require("./card-generator-modal").CardGeneratorModal)(this.app, this, onDone || (() => this.refreshViews()), options);
@@ -9011,7 +9066,7 @@ class QuestionTrackerPlugin extends Plugin {
       return null;
     }
     if (this.moduleOff("cards")) {
-      new Notice("Turn on Cards under Settings, Global, Modules to use Auto Anki.");
+      new Notice("Turn on Flashcards under Settings, Global, Modules to use Auto Anki.");
       return null;
     }
     const modal = new AutoAnkiModal(this.app, this);
@@ -9026,7 +9081,7 @@ class QuestionTrackerPlugin extends Plugin {
    */
   async runAutoAnki(options) {
     if (!this.settings.ai.enabled) throw new Error("Turn on AI features under Settings, Global, Modules first.");
-    if (this.moduleOff("cards")) throw new Error("Turn on Cards to create flashcards.");
+    if (this.moduleOff("cards")) throw new Error("Turn on Flashcards to create flashcards.");
     const anki = normalizeAnkiConnect(this.settings.cards.ankiConnect);
     if (!anki.enabled) throw new Error("Turn on AnkiConnect sync under Settings, Cards, Sync first.");
     const opts = options || {};
@@ -9048,7 +9103,7 @@ class QuestionTrackerPlugin extends Plugin {
    */
   async runText2Anki(options) {
     if (!this.settings.ai.enabled) throw new Error("Turn on AI features under Settings, Global, Modules first.");
-    if (this.moduleOff("cards")) throw new Error("Turn on Cards to create flashcards.");
+    if (this.moduleOff("cards")) throw new Error("Turn on Flashcards to create flashcards.");
     const anki = normalizeAnkiConnect(this.settings.cards.ankiConnect);
     if (!anki.enabled) throw new Error("Turn on AnkiConnect sync under Settings, Cards, Sync first.");
     const opts = options || {};
@@ -10009,7 +10064,7 @@ ${body}
     const beforePaths = new Set(this.app.vault.getMarkdownFiles().map((file) => file.path));
     if (!items.length) return { created: 0, paths: [], errors: ["There are no items to write."] };
     if (g.kind === "questions" && this.moduleOff("mcq")) throw new Error("Turn on MCQ Tracker to create practice questions.");
-    if (g.kind !== "questions" && this.moduleOff("cards")) throw new Error("Turn on Cards to create flashcards.");
+    if (g.kind !== "questions" && this.moduleOff("cards")) throw new Error("Turn on Flashcards to create flashcards.");
 
     if (g.kind !== "questions") {
       const deck = str(opts.deck).trim() || this.settings.cards.defaultDeck || "Lecture";
@@ -11246,7 +11301,7 @@ ${body}
 
   /** Check the server and database before the user relies on sync. */
   async testCouchDbConnection() {
-    if (this.moduleOff("cards")) return { ok: false, error: "Turn on Cards first." };
+    if (this.moduleOff("cards")) return { ok: false, error: "Turn on Flashcards first." };
     try {
       await this.couchDbClient().ensureDatabase();
       new Notice("CouchDB connection works and the database is ready.");
@@ -11265,7 +11320,7 @@ ${body}
    * unioned, and note text is never uploaded or overwritten.
    */
   async syncCardsCouchDb() {
-    if (this.moduleOff("cards")) return { pulled: 0, pushed: 0, error: "Turn on Cards first." };
+    if (this.moduleOff("cards")) return { pulled: 0, pushed: 0, error: "Turn on Flashcards first." };
     let config = normalizeCouchDb(this.settings.cards.couchdb);
     if (!config.enabled) {
       new Notice("Turn on CouchDB sync in Settings → Cards → Sync first.");
@@ -14552,7 +14607,7 @@ ${body}
   /** Write every card note into one versioned JSON file in the vault. */
   async exportCardArchive() {
     if (!this.cardArchiveEnabled()) throw new Error("Card archive is off. Turn it on in Settings, Global, Modules.");
-    if (!this.cardsEnabled()) throw new Error("Turn on Cards before exporting a card archive.");
+    if (!this.cardsEnabled()) throw new Error("Turn on Flashcards before exporting a card archive.");
     const entries = [];
     for (const card of this.getCards()) {
       const path = str(card.file && card.file.path);

@@ -45,9 +45,9 @@ test("settings: Global sits beside MCQ Tracker, Cards, Calendar and Reference an
 test("modules: MCQ Tracker is on by default, Calendar and AI are opt-in", async () => {
   const { plugin } = await setup();
   assert.equal(plugin.mcqEnabled(), true);
-  assert.equal(plugin.calendarEnabled(), false);
-  assert.equal(plugin.cardsEnabled(), false, "Cards is opt-in");
-  assert.equal(plugin.referenceEnabled(), false, "Reference is opt-in");
+  assert.equal(plugin.calendarEnabled(), true, "Calendar is on by default");
+  assert.equal(plugin.cardsEnabled(), true, "Cards is on by default");
+  assert.equal(plugin.referenceEnabled(), true, "Reference is on by default");
   assert.equal(plugin.assignmentsEnabled(), true, "Assignments are part of the default setup");
   assert.equal(plugin.settings.ai.enabled, false);
   assert.equal(plugin.settings.showRibbonIcons, true);
@@ -107,6 +107,7 @@ test("modules: Cards is opt-in, and switching it off closes its tab", async () =
   const { app, plugin } = await setup();
   const detached = [];
   app.workspace.detachLeavesOfType = (type) => detached.push(type);
+  plugin.settings.cards.enabled = false;
   assert.equal(plugin.cardsEnabled(), false);
   await plugin.onCardsToggled();
   assert.deepEqual(detached, ["question-tracker-cards"]);
@@ -124,6 +125,7 @@ test("modules: turning a module off closes its tabs, and on brings them back", a
   const detached = [];
   app.workspace.detachLeavesOfType = (type) => detached.push(type);
 
+  plugin.settings.calendar.enabled = false;
   await plugin.onCalendarToggled();
   assert.deepEqual(detached, ["question-tracker-calendar"], "an off calendar closes its own tab only");
 

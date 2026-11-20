@@ -31,7 +31,7 @@ const VIEW_TYPE_TABLE_CONTROLS = "question-tracker-table-controls";
 const VIEW_TYPE_IMPORT_WINDOW = "question-tracker-import-window";
 
 const FILTER_FIELDS = [
-  ["folder", "Folder"], // not a property: comes from where the note is saved, and includes sub folders
+  ["folder", "Question folder"], // not a property: comes from where the note is saved, and includes sub folders
   ["course", "Course"],
   ["test", "Test"],
   ["section", "Section"],
@@ -249,7 +249,7 @@ const DEFAULT_SETTINGS = {
   text2anki: { count: 5, deck: "", customPrompt: "" }, // Text2Anki: one-shot selection to Anki through the same card store
   quizGenerator: { sourceMode: "notes", folders: [], count: 5, language: "English", types: ["mcq"], brief: "", pdfPaths: [] }, // last AI question-generator choices
   cards: {
-    enabled: false, // cards and vocabulary are opt-in; nothing else changes when this is off
+    enabled: true, // cards and vocabulary are on by default; turn off under Settings, Global, Modules
     newCardFolder: "Cards", // where new cards go when their deck has no folder
     defaultDeck: "General",
     reviewLimit: 20,

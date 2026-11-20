@@ -65,7 +65,7 @@ test("mother cram: know removes a card, do not know sends it to the back, and em
   assert.deepEqual(cram.motherCramTurn([], true), { card: null, queue: [], known: true });
 });
 
-test("cards view: Mother cram loops with only Know and Do not know and writes no scheduling", async () => {
+test("cards view: Cram loops with only Know and Do not know and writes no scheduling", async () => {
   const { app, plugin } = await setup();
   const before = app.files.map((file) => ({ ...file.fm }));
   const dom = makeDom();
@@ -74,8 +74,8 @@ test("cards view: Mother cram loops with only Know and Do not know and writes no
   view.contentEl = dom.root;
   view.render();
 
-  assert.ok(dom.texts().includes("Mother cram"));
-  await dom.click("Mother cram");
+  assert.ok(dom.texts().includes("Cram"));
+  await dom.click("Cram");
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.equal(view.state, "review");
@@ -83,7 +83,7 @@ test("cards view: Mother cram loops with only Know and Do not know and writes no
   assert.equal(view.cram, false);
   assert.equal(view.queue.length, 2);
   assert.ok(dom.texts().includes("Known 0 / 2"));
-  assert.ok(dom.texts().includes("Mother cram · Know / Do not know"));
+  assert.ok(dom.texts().includes("Cram · Know / Do not know"));
 
   const first = view.current.file.path;
   await dom.click("Show answer");
@@ -107,7 +107,7 @@ test("cards view: Mother cram loops with only Know and Do not know and writes no
   await dom.click("Show answer");
   await dom.click("Know");
   assert.equal(view.state, "summary");
-  assert.ok(dom.texts().includes("Mother cram complete"));
+  assert.ok(dom.texts().includes("Cram complete"));
   assert.ok(dom.texts().includes("Known 2 · Do not know 1"));
   assert.deepEqual(app.files.map((file) => ({ ...file.fm })), before, "frontmatter is untouched");
   assert.equal(app.modified, undefined, "no note was written");

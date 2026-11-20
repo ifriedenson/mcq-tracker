@@ -750,7 +750,7 @@ class PracticeView extends ItemView {
     });
     det.createDiv({
       cls: "qt-hint",
-      text: "Tap several values to allow any of them. Different fields must all match. Add another set to combine separate groups.",
+      text: "Tap several values to allow any of them. Different fields must all match. Question folder is where the note is saved (not a tag); the other filters read the note's properties.",
     });
     sets.forEach((set, idx) => {
       if (idx > 0) det.createDiv({ cls: "qt-or", text: "OR" });

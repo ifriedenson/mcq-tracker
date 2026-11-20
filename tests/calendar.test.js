@@ -474,6 +474,7 @@ const TODAY_EVENT = () =>
 
 test("plugin: the calendar module is off by default and its embeds register safely", async () => {
   const { plugin } = await pluginWith(TODAY_EVENT());
+  plugin.settings.calendar.enabled = false;
   assert.equal(plugin.calendarEnabled(), false);
   assert.ok(plugin.views["question-tracker-calendar"], "the view is registered even while off");
   assert.deepEqual(Object.keys(plugin.codeBlocks).sort(), ["biology","biosequence","cbt-exam","chem","circuit","cornell-note","deadlines","desmos-graph","exam","grill","mcq-dashboard","mcq-quiz","mcq-schedule","mindmap","playable-quiz","quiz","quiz-definition","quiz-maker","quizcharts","quizjs","quizjson","quizport","quiztoday","reading-plan","sat-math","sfc-cards","simple-flashcards","smiles","study-map","tag-timer","tally","text-timer","uni-calendar","uni-schedule","vault-search"]);
@@ -546,6 +547,7 @@ test("plugin: creating a class note uses the template and remembers the subject 
 
 test("view: shows the module hint while off and a month grid once a schedule exists", async () => {
   const { app, plugin } = await pluginWith(TODAY_EVENT());
+  plugin.settings.calendar.enabled = false;
   const dom = makeDom();
   const view = new T.CalendarView({ app }, plugin);
   view.app = app;

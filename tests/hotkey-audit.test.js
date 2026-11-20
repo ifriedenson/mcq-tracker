@@ -21,7 +21,7 @@ function makeAuditApp(options = {}) {
   };
 }
 
-const own = { id: "mcq-tracker:open-cards", name: "Open cards" };
+const own = { id: "mcq-tracker:open-cards", name: "Open flashcards" };
 const palette = {
   id: "command-palette:open",
   name: "Open command palette",
@@ -110,7 +110,7 @@ test("hotkey audit: the modal renders the collision with both command names", ()
   modal.open();
   assert.ok(dom.find("Hotkey audit").length);
   assert.ok(dom.find("Ctrl+P").length);
-  assert.ok(dom.find("Open cards").length);
+  assert.ok(dom.find("Open flashcards").length);
   assert.ok(dom.find("Open command palette (command-palette:open)").length);
   assert.ok(dom.find("Close").length);
 });

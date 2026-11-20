@@ -37,11 +37,11 @@ const CATEGORIES = [
   },
   {
     id: "memory",
-    label: "Cards & memory",
+    label: "Flashcards & memory",
     icon: "layers",
     description: "Flashcards, recall schedules and the pace of spaced review.",
     pages: [
-      { id: "cards", label: "Cards and vocabulary", module: "cards", icon: "layers" },
+      { id: "cards", label: "Flashcards and vocabulary", module: "cards", icon: "layers" },
       toolPage("recall-scheduler"),
       toolPage("retention"),
       toolPage("scheduler-fit"),

@@ -395,7 +395,7 @@ class CardView extends ItemView {
 
   renderModuleOff(root) {
     const card = root.createDiv({ cls: "qt-onboard-card" });
-    card.createEl("h3", { text: "Cards are off" });
+    card.createEl("h3", { text: "Flashcards are off" });
     card.createDiv({
       cls: "qt-onboard-text",
       text: "Flashcards and vocabulary are a separate module. Your notes are untouched; turn it on under Settings, Global, Modules.",
@@ -416,18 +416,22 @@ class CardView extends ItemView {
     const pendingByPath = pendingGradeCounts(pending);
 
     const head = root.createDiv({ cls: "qt-screen-head" });
-    head.createEl("h2", { text: "Cards" });
-    head.createDiv({ cls: "qt-screen-subtitle", text: "Build decks, clear what is due, and keep every card tied to its source note." });
+    head.createEl("h2", { text: "Flashcards" });
+    head.createDiv({ cls: "qt-screen-subtitle", text: "Build decks, clear what is due, and keep every flashcard tied to its source note." });
 
     if (!all.length) {
       const empty = root.createDiv({ cls: "qt-onboard-card" });
-      empty.createEl("h3", { text: "No cards yet" });
+      empty.createEl("h3", { text: "No flashcards yet" });
       empty.createDiv({
         cls: "qt-onboard-text",
-        text: "Create a flashcard or a vocabulary note. Each card is a Markdown note with its own deck, course tag and review history.",
+        text: "Create a flashcard or a vocabulary note, or import a deck you already have. Each flashcard is a Markdown note with its own deck, course tag and review history.",
       });
-      empty.createEl("button", { text: "Create the first card", cls: "mod-cta qt-primary" }).addEventListener("click", () =>
+      const emptyActions = empty.createDiv({ cls: "qt-row" });
+      emptyActions.createEl("button", { text: "Create the first flashcard", cls: "mod-cta qt-primary" }).addEventListener("click", () =>
         this.openCardModal()
+      );
+      emptyActions.createEl("button", { text: "Import flashcards instead" }).addEventListener("click", () =>
+        p.openCardImport({ deck: this.deck, course: this.course }, () => this.render())
       );
       return;
     }
@@ -435,25 +439,25 @@ class CardView extends ItemView {
     const dueHere = shown.filter((c) => !Number(c.fm.attempts) || isDue(c.fm, today, now)).length;
     const hero = root.createDiv({ cls: "qt-cards-hero" });
     const heroCopy = hero.createDiv({ cls: "qt-cards-hero-copy" });
-    heroCopy.createDiv({ cls: "qt-cards-hero-kicker", text: dueHere ? "Review queue" : shown.length ? "Card library" : "Filtered view" });
+    heroCopy.createDiv({ cls: "qt-cards-hero-kicker", text: dueHere ? "Review queue" : shown.length ? "Flashcard library" : "Filtered view" });
     heroCopy.createDiv({
       cls: "qt-cards-hero-title",
       text: dueHere
-        ? `${dueHere} card${dueHere === 1 ? "" : "s"} ready to review`
+                  ? `${dueHere} flashcard${dueHere === 1 ? "" : "s"} ready to review`
         : shown.length
-          ? `${shown.length} card${shown.length === 1 ? "" : "s"} in this view`
-          : "No cards match this view",
+          ? `${shown.length} flashcard${shown.length === 1 ? "" : "s"} in this view`
+          : "No flashcards match this view",
     });
     heroCopy.createDiv({
       cls: "qt-cards-hero-meta",
       text: dueHere
-        ? "Clear the due queue first, then work through any new cards."
+        ? "Clear the due queue first, then work through any new flashcards."
         : shown.length
           ? "Everything in this view is scheduled ahead. Start a review to browse the deck."
-          : "Clear a deck or course filter, or add a card to this deck.",
+          : "Clear a deck or course filter, or add a flashcard to this deck.",
     });
     const start = hero.createEl("button", {
-      text: dueHere ? `Start review (${dueHere})` : "Review all cards",
+      text: dueHere ? `Start review (${dueHere})` : "Review all flashcards",
       cls: "mod-cta qt-primary qt-cards-start",
     });
     start.disabled = !shown.length;
@@ -461,7 +465,7 @@ class CardView extends ItemView {
     const cramStart = hero.createEl("button", { text: "Cram session", cls: "qt-cards-cram-start" });
     cramStart.disabled = !shown.length;
     cramStart.addEventListener("click", () => this.startReview("all", undefined, true));
-    const motherStart = hero.createEl("button", { text: "Mother cram", cls: "qt-cards-mother-start" });
+    const motherStart = hero.createEl("button", { text: "Cram", cls: "qt-cards-mother-start" });
     motherStart.disabled = !shown.length;
     motherStart.addEventListener("click", () => this.startReview("all", undefined, false, true));
     root.createDiv({
@@ -470,11 +474,11 @@ class CardView extends ItemView {
     });
     root.createDiv({
       cls: "qt-hint qt-cards-mother-hint",
-      text: "Mother cram loops every card until you know it, with only Know and Do not know. It never changes due dates.",
+      text: "Cram loops every flashcard until you know it, with only Know and Do not know. It never changes due dates.",
     });
 
     const tools = root.createDiv({ cls: "qt-row qt-cards-tools qt-toolbar" });
-    const add = tools.createEl("button", { text: "New card", cls: "mod-cta" });
+    const add = tools.createEl("button", { text: "New flashcard", cls: "mod-cta" });
     add.addEventListener("click", () => this.openCardModal());
     const occlusion = tools.createEl("button", { text: "Image occlusion" });
     occlusion.addEventListener("click", () =>
@@ -491,12 +495,12 @@ class CardView extends ItemView {
     const sync = tools.createEl("button", { text: "Tag courses from folders" });
     sync.addEventListener("click", async () => {
       const n = await p.tagCardsByCourse();
-      new Notice(n ? `Tagged ${n} card${n === 1 ? "" : "s"} with a course.` : "Every card already has a course tag.");
+      new Notice(n ? `Tagged ${n} flashcard${n === 1 ? "" : "s"} with a course.` : "Every flashcard already has a course tag.");
       this.render();
     });
 
     const summary = root.createDiv({ cls: "qt-cards-stats qt-summary-strip" });
-    summary.createSpan({ text: `${stats.total} card${stats.total === 1 ? "" : "s"}` });
+    summary.createSpan({ text: `${stats.total} flashcard${stats.total === 1 ? "" : "s"}` });
     summary.createSpan({ text: `${stats.due} due` });
     summary.createSpan({ text: `${stats.fresh} new` });
     if (pending.length) {
@@ -512,7 +516,7 @@ class CardView extends ItemView {
 
     root.createEl("h3", { cls: "qt-cards-heading", text: "In this view" });
     if (!shown.length) {
-      root.createDiv({ cls: "qt-hint", text: "No cards match this deck and course. Pick another deck or clear the course filter." });
+      root.createDiv({ cls: "qt-hint", text: "No flashcards match this deck and course. Pick another deck or clear the course filter." });
       this.renderCardRetention(root, shown, today);
       this.renderGraderAccuracy(root, shown, today);
       return;
@@ -542,6 +546,15 @@ class CardView extends ItemView {
       action.addEventListener("click", () =>
         queued ? this.reviewCard(card) : this.app.workspace.getLeaf("tab").openFile(card.file)
       );
+      const del = row.createEl("button", { text: "Delete", cls: "qt-link", attr: { title: `Delete ${card.file.path} and move it to trash. You can restore it from Obsidian's trash or sync history.`, "aria-label": `Delete flashcard ${str(card.fm.card_title || card.file.basename)}` } });
+      del.addEventListener("click", async () => {
+        const ok = typeof confirm === "function" ? confirm(`Delete this flashcard?\n\n${card.file.path}\n\nThe note is moved to trash. Review history on other flashcards is kept.`) : true;
+        if (!ok) return;
+        try {
+          await this.plugin.deleteCardNote(card.file);
+        } catch (e) { new Notice("Could not delete that flashcard.", 6000); return; }
+        this.render();
+      });
     }
     if (shown.length > preview.length) {
       root.createDiv({ cls: "qt-hint", text: `Showing ${preview.length} of ${shown.length}. Start a review for the rest.` });
@@ -1109,7 +1122,7 @@ class CardView extends ItemView {
       cls: "qt-cards-progress",
       text: this.mother ? `Known ${this.motherTotal - this.queue.length} / ${this.motherTotal}` : `${this.index + 1} / ${this.queue.length}`,
     });
-    if (this.mother) top.createDiv({ cls: "qt-cards-mother-mode", text: "Mother cram · Know / Do not know" });
+    if (this.mother) top.createDiv({ cls: "qt-cards-mother-mode", text: "Cram · Know / Do not know" });
     else if (this.cram) top.createDiv({ cls: "qt-cards-cram-mode", text: "Cram · 3m / 5m / 10m / 1d" });
     if (!this.current) {
       root.createDiv({ cls: "qt-hint", text: "Loading card…" });
@@ -1190,7 +1203,7 @@ class CardView extends ItemView {
       show.addEventListener("click", () => this.reveal());
       root.createDiv({
         cls: "qt-hint",
-        text: this.mother ? "Mother cram: flip the card, then choose Know or Do not know. Space or Enter flips." : "Space or Enter also flips the card.",
+        text: this.mother ? "Cram: flip the card, then choose Know or Do not know. Space or Enter flips." : "Space or Enter also flips the card.",
       });
       return;
     }
@@ -1322,7 +1335,7 @@ class CardView extends ItemView {
   renderSummary(root) {
     const s = this.session;
     const box = root.createDiv({ cls: "qt-onboard-card" });
-    box.createEl("h3", { text: this.mother ? "Mother cram complete" : this.cram ? "Cram session complete" : "Review complete" });
+    box.createEl("h3", { text: this.mother ? "Cram complete" : this.cram ? "Cram session complete" : "Review complete" });
     box.createDiv({
       cls: "qt-onboard-text",
       text: this.mother
@@ -1336,7 +1349,7 @@ class CardView extends ItemView {
         ? `Known ${s.correct} · Do not know ${s.motherUnknown}`
         : `Again ${s.grades.again} · Hard ${s.grades.hard} · Good ${s.grades.good} · Easy ${s.grades.easy}`,
     });
-    const again = box.createEl("button", { text: this.mother ? "Mother cram again" : this.cram ? "Cram again" : "Review again", cls: "mod-cta qt-primary" });
+    const again = box.createEl("button", { text: this.mother ? "Cram again" : this.cram ? "Cram again" : "Review again", cls: "mod-cta qt-primary" });
     again.addEventListener("click", () => this.startReview("all", undefined, this.cram, this.mother));
     const back = box.createEl("button", { text: "Back to decks" });
     back.addEventListener("click", () => {

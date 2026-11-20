@@ -120,7 +120,7 @@ class WelcomeModal extends QtModal {
 
   renderAi(card) {
     const section = card.createDiv({ cls: "qt-welcome-ai" });
-    section.createEl("h3", { text: "AI study agent" });
+    section.createEl("h3", { text: "AI setup (optional, only for PDF import)" });
     const status = section.createDiv({ cls: "qt-welcome-ai-status" });
     status.setAttr("aria-live", "polite");
 
@@ -143,21 +143,21 @@ class WelcomeModal extends QtModal {
 
     section.createEl("p", {
       cls: "qt-welcome-hint",
-      text: "OpenCode is the recommended desktop setup. Install it here; the installer downloads the supported 1.x build from GitHub, checks its SHA-256, and keeps it outside your vault. The import wizard finishes the provider connection.",
+      text: "Step 1: press the button below and wait until it says Installed (about a minute). Step 2 happens later: the import window will ask you to press Test, then Continue to import. Do not close this window until it says Installed.",
     });
     const actions = section.createDiv({ cls: "qt-welcome-actions" });
-    const install = actions.createEl("button", { text: "Install OpenCode", cls: "mod-cta" });
+    const install = actions.createEl("button", { text: "Install OpenCode", cls: "mod-cta qt-primary" });
     install.addEventListener("click", async () => {
       install.disabled = true;
-      install.setText("Installing...");
-      status.setText("Preparing the OpenCode download...");
+      install.setText("Installing... (wait, do not close)");
+      status.setText("Step 1 running: downloading OpenCode...");
       try {
-        const result = await this.plugin.installOpenCodeFromWelcome((message) => status.setText(message));
+        const result = await this.plugin.installOpenCodeFromWelcome((message) => status.setText(`Step 1 running: ${message}`));
         const version = result && result.version ? ` v${result.version}` : "";
         status.setText(
           result && result.already
-            ? "OpenCode is already installed. Add a provider key in Settings, MCQ Tracker, AI to chat."
-            : `OpenCode${version} installed. Add a provider key in Settings, MCQ Tracker, AI to chat.`
+            ? "Step 1 done: OpenCode is already installed. Step 2: open Import, then press Test OpenCode and Continue to import there (do not install again)."
+            : `Step 1 done: OpenCode${version} installed. Step 2: open Import, then press Test OpenCode and Continue to import there (do not install again).`
         );
         install.setText("Installed");
       } catch (e) {

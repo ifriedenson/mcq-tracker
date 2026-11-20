@@ -774,7 +774,7 @@ function renderReview(containerEl, plugin, redisplay) {
   new Setting(containerEl).setName("Flashcard generator").setHeading();
   containerEl.createEl("p", {
     cls: "setting-item-description",
-    text: "Generate cards from the open note or its selection with an optional custom instruction. The command always opens these choices so you can change them for one run; the last choices are remembered here. Tracked card notes are the default; inserting a formatted block into the note is optional and is not scheduled.",
+    text: "Generate flashcards from the open note or its selection with an optional custom instruction. The command always opens these choices so you can change them for one run; the last choices are remembered here. Tracked flashcard notes are the default; inserting a formatted block into the note is optional and is not scheduled.",
   });
   const cg = normalizeCardGenerator(plugin.settings.cardGenerator);
   const patchGenerator = async (values) => {
@@ -895,7 +895,7 @@ function renderReview(containerEl, plugin, redisplay) {
 function renderAbout(containerEl, plugin) {
   const version = (plugin.manifest && plugin.manifest.version) || "";
   const card = containerEl.createDiv({ cls: "qt-settings-card" });
-  card.createEl("h3", { text: "Cards and vocabulary" });
+  card.createEl("h3", { text: "Flashcards and vocabulary" });
   card.createEl("p", {
     cls: "setting-item-description",
     text: "One Markdown note per card. Deck and course are ordinary properties, so cards stay readable, searchable and portable.",
@@ -920,7 +920,7 @@ to speak`,
     .setName("Version")
     .setDesc(version ? `Cards in MCQ Tracker ${version}.` : "MCQ Tracker")
     .addButton((b) => b.setButtonText("Open Cards").onClick(() => plugin.activateCards()))
-    .addButton((b) => b.setButtonText("Create a card").onClick(() => plugin.openNewCard()));
+    .addButton((b) => b.setButtonText("Create a flashcard").onClick(() => plugin.openNewCard()));
 }
 
 module.exports = {

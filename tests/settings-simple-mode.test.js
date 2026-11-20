@@ -50,9 +50,9 @@ test("new installs start with Simple settings and only the essential pages", asy
   const nodes = current(dom);
   const categories = byClass(nodes, "qt-settings-category");
 
-  assert.deepEqual(categories.map(textOf), ["Practice", "Courses & planning", "Study agent", "App & documents"]);
+  assert.deepEqual(categories.map(textOf), ["Practice", "Flashcards & memory", "Courses & planning", "Study agent", "App & documents"]);
   assert.ok(!categories.some((entry) => textOf(entry) === "Notes & tools"), "the 20-tool notes category is hidden");
-  assert.ok(!categories.some((entry) => textOf(entry) === "Cards & memory"), "cards settings appear only when cards are on");
+  assert.ok(categories.some((entry) => textOf(entry) === "Flashcards & memory"), "flashcards settings show because Flashcards is on by default");
   assert.equal(tab.activePage, "global");
   assert.equal(byClass(nodes, "qt-settings-layout")[0].classes.has("is-simple"), true);
   assert.equal(byClass(nodes, "qt-settings-grid")[0].classes.has("is-single-page"), true, "a one-page category uses the full width");
@@ -91,14 +91,14 @@ test("Show all settings reveals every page, persists, and a hidden page falls ba
   await tab.setSimpleSettings(true);
   assert.equal(tab.activePage, "global", "a hidden current page falls back to the main module page");
   assert.equal(plugin.settings.simpleSettings, true);
-  assert.equal(byClass(current(dom), "qt-settings-category").length, 4);
+  assert.equal(byClass(current(dom), "qt-settings-category").length, 5);
 });
 
 test("an enabled optional module keeps its settings page in Simple mode", async () => {
   const plugin = await boot({ simpleSettings: true, cards: { enabled: true } });
   const { dom } = openTab(plugin);
   const categories = byClass(current(dom), "qt-settings-category").map(textOf);
-  assert.ok(categories.includes("Cards & memory"), "Cards settings stay reachable when Cards is on");
+  assert.ok(categories.includes("Flashcards & memory"), "Flashcards settings stay reachable when Flashcards is on");
   assert.ok(CATS.settingsPageVisible(plugin, "cards"));
   assert.ok(!CATS.settingsPageVisible(plugin, "study-nudge"));
 });

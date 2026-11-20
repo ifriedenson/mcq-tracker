@@ -1424,7 +1424,7 @@ class StudyWorkspaceView extends ItemView {
     const actions = controls.createDiv({ cls: "qt-row qt-study-actions" });
     actions.createEl("button", { text: "Scan cards", cls: "mod-cta" }).addEventListener("click", () => {
       if (!this.plugin.cardsEnabled || !this.plugin.cardsEnabled()) {
-        this.saveMessage("Turn on Cards to forecast card retention.");
+                 this.saveMessage("Turn on Flashcards to forecast flashcard retention.");
         this.render();
         return;
       }

@@ -87,6 +87,10 @@ class ImportCompleteModal extends QtModal {
       const practice = row.createEl("button", { text: "Practice these questions", cls: "mod-cta qt-grow" });
       practice.addEventListener("click", () => this.practice(practice, folder, made));
     }
+    if (folder && !undo && made > 0) {
+      const del = row.createEl("button", { text: "Delete this import (PDF + questions)", cls: "qt-grow", attr: { title: "Delete the source PDF copy, pictures and question notes saved under this import folder." } });
+      del.addEventListener("click", () => this.deleteImport(del, folder));
+    }
     row.createEl("button", { text: "Close", cls: "qt-grow" }).addEventListener("click", () => this.close());
   }
 
@@ -111,6 +115,27 @@ class ImportCompleteModal extends QtModal {
     } finally {
       this.busy = false;
       if (button) button.disabled = false;
+    }
+  }
+
+  async deleteImport(button, folder) {
+    if (this.busy) return;
+    if (!this.plugin || typeof this.plugin.deleteImportFolder !== "function") {
+      new Notice("Delete is not available right now.", 7000);
+      return;
+    }
+    const ok = typeof confirm === "function" ? confirm(`Delete this import?\n\n${folder}\n\nThis moves the source PDF copy, pictures and question notes to trash. This cannot be undone here (restore from Obsidian trash).`) : true;
+    if (!ok) return;
+    this.busy = true;
+    if (button) { button.disabled = true; button.setText("Deleting..."); }
+    try {
+      const n = await this.plugin.deleteImportFolder(folder);
+      new Notice(n ? `Deleted ${n} file${n === 1 ? "" : "s"} under ${folder}.` : `Deleted ${folder}.`, 8000);
+      this.close();
+    } catch (e) {
+      this.busy = false;
+      if (button) { button.disabled = false; button.setText("Delete this import (PDF + questions)"); }
+      new Notice(`Could not delete: ${e && e.message ? e.message : e}`, 8000);
     }
   }
 

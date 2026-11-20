@@ -22,7 +22,7 @@ test("welcome: presets cover the seven starting points and describe their module
     assert.ok(preset.description.length > 20);
     for (const key of ["mcq", "cards", "calendar", "assignments", "ai", "reference"]) assert.equal(typeof preset.modules[key], "boolean");
   }
-  assert.match(welcome.moduleSummary(byId.university.modules), /MCQ Tracker, Cards, Calendar, Assignments/);
+  assert.match(welcome.moduleSummary(byId.university.modules), /MCQ Tracker, Flashcards, Calendar, Assignments/);
   assert.equal(welcome.moduleSummary(byId.off.modules), "All modules off");
   assert.deepEqual(welcome.WELCOME_PRESETS.filter((preset) => preset.adaptive === true).map((preset) => preset.id), ["ap", "sat", "university", "stem"]);
   assert.deepEqual(welcome.WELCOME_PRESETS.filter((preset) => preset.adaptiveFrequency === true).map((preset) => preset.id), ["ap", "university", "language", "flashcards"]);
@@ -246,10 +246,10 @@ function openWelcomeModal(plugin) {
 
 test("welcome: the quick start has three steps and a real example", () => {
   assert.equal(welcome.WELCOME_SETUP_STEPS.length, 3);
-  assert.equal(welcome.WELCOME_EXAMPLE.answer, "B");
+  assert.equal(welcome.WELCOME_EXAMPLE.answer, "A");
   assert.equal(welcome.WELCOME_EXAMPLE.choices.length, 4);
-  assert.match(welcome.WELCOME_EXAMPLE.question, /carbon dioxide/i);
-  assert.match(welcome.WELCOME_EXAMPLE.explanation, /photosynthesis/i);
+  assert.match(welcome.WELCOME_EXAMPLE.question, /welcome guide/i);
+  assert.match(welcome.WELCOME_EXAMPLE.explanation, /command palette/i);
 });
 
 test("welcome: the example is written as an ordinary question note with a unique path", async () => {
@@ -261,8 +261,8 @@ test("welcome: the example is written as an ordinary question note with a unique
   assert.match(text, /question_id: Getting started example/);
   assert.match(text, /## Question/);
   assert.match(text, /## Answer Choices/);
-  assert.match(text, /- B\. It falls because photosynthesis uses carbon dioxide\./);
-  assert.match(text, /Correct Answer: B/);
+  assert.match(text, /- A\. Press Ctrl\/Cmd\+P, type Open welcome guide/);
+  assert.match(text, /Correct Answer: A/);
   const second = await plugin.createWelcomeExample();
   assert.equal(second, "Questions/Getting started example 2.md");
 });

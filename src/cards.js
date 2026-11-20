@@ -112,7 +112,7 @@ function normalizeDecks(list) {
 function mergeCardSettings(saved, defaults) {
   const base = Object.assign(
     {
-      enabled: false,
+      enabled: true,
       newCardFolder: "Cards",
       defaultDeck: "General",
       reviewLimit: 20,
@@ -134,7 +134,7 @@ function mergeCardSettings(saved, defaults) {
   );
   const src = saved && typeof saved === "object" ? saved : {};
   const out = Object.assign({}, base, src);
-  out.enabled = src.enabled === true;
+  out.enabled = src.enabled !== false;
   out.newCardFolder = normalizeFolder(src.newCardFolder === undefined ? base.newCardFolder : src.newCardFolder);
   out.defaultDeck = str(src.defaultDeck === undefined ? base.defaultDeck : src.defaultDeck).trim();
   out.reviewLimit = Math.min(100, Math.max(1, Math.round(Number(src.reviewLimit) || base.reviewLimit || 20)));

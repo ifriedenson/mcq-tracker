@@ -320,6 +320,7 @@ test("plugin: the Cards module is opt-in and its entry points point at settings"
   const app = makeApp(NOTES);
   const plugin = new QT(app);
   await plugin.onload();
+  plugin.settings.cards.enabled = false;
   assert.equal(plugin.cardsEnabled(), false);
   assert.equal(await plugin.activateCards(), null);
   assert.ok(obsidian.notices.some((n) => /Cards module is off/.test(n)));
@@ -333,7 +334,7 @@ test("cards view: starts a review, flips, rates, and finishes", async () => {
   view.app = app;
   view.contentEl = dom.root;
   view.render();
-  assert.ok(dom.texts().includes("Cards"));
+  assert.ok(dom.texts().includes("Flashcards"));
   assert.ok(dom.texts().some((t) => /Start review/.test(t)));
 
   await dom.click(/Start review/);

@@ -6,11 +6,11 @@ const WELCOME_NOTE_PATH = "MCQ Tracker Start here.md";
 
 const WELCOME_MODULE_INFO = [
   { id: "mcq", label: "MCQ Tracker", description: "Practice questions from your notes, weak spots, timed tests and file import." },
-  { id: "cards", label: "Cards", description: "Flashcards, vocabulary, cloze and image-occlusion cards with spaced review." },
-  { id: "calendar", label: "Calendar", description: "Classes and exams from an .ics schedule, countdowns and class notes." },
+  { id: "cards", label: "Flashcards", description: "Flashcards, vocabulary, cloze and image-occlusion flashcards with spaced review. On by default." },
+  { id: "calendar", label: "Calendar", description: "Classes and exams from an .ics schedule, countdowns and class notes. On by default." },
   { id: "assignments", label: "Assignments", description: "A local gradebook and task list: weighted course grades, final-score planning and a credit-weighted GPA." },
-  { id: "ai", label: "AI features", description: "Optional tutor chat, AI grading and document import. Importing a PDF or document into questions needs AI; practice, cards and review do not. Nothing is sent until you turn it on and add a key." },
-  { id: "reference", label: "Reference", description: "A local formula sheet, constants, unit converter, graph plotter, periodic table, AP resources and an unofficial AP score estimator." },
+  { id: "ai", label: "AI features", description: "Optional tutor chat, AI grading and document import. Importing a PDF or document into questions needs AI; practice, flashcards and review do not. Nothing is sent until you turn it on and add a key." },
+  { id: "reference", label: "Reference", description: "A local formula sheet, constants, unit converter, graph plotter, periodic table, AP resources and an unofficial AP score estimator. On by default." },
 ];
 
 const WELCOME_PRESETS = [
@@ -40,21 +40,21 @@ const WELCOME_PRESETS = [
   {
     id: "language",
     label: "Language learning",
-    description: "Questions and vocabulary cards. Calendar, AI and Reference stay off.",
+    description: "Questions and vocabulary flashcards. Calendar, AI and Reference stay off.",
     adaptiveFrequency: true,
     modules: { mcq: true, cards: true, calendar: false, assignments: false, ai: false, reference: false },
   },
   {
     id: "stem",
     label: "STEM problem sets",
-    description: "Questions and the local Reference panel, with adaptive session sizing on. Cards, calendar and AI stay off.",
+    description: "Questions and the local Reference panel, with adaptive session sizing on. Flashcards, calendar and AI stay off.",
     adaptive: true,
     modules: { mcq: true, cards: false, calendar: false, assignments: true, ai: false, reference: true },
   },
   {
     id: "flashcards",
     label: "Just flashcards",
-    description: "Cards only. Questions, calendar, AI and Reference stay off.",
+    description: "Flashcards only. Questions, calendar, AI and Reference stay off.",
     adaptiveFrequency: true,
     modules: { mcq: false, cards: true, calendar: false, assignments: false, ai: false, reference: false },
   },
@@ -73,27 +73,27 @@ const WELCOME_SETUP_STEPS = [
 ];
 
 const WELCOME_EXAMPLE = {
-  question: "A plant cell is sealed in a clear container with a carbon dioxide sensor and left in bright light. What happens to the carbon dioxide level?",
+  question: "You just installed MCQ Tracker. Where do you open the clickable welcome guide from Obsidian?",
   choices: [
-    "It rises because the cell respires.",
-    "It falls because photosynthesis uses carbon dioxide.",
-    "It stays the same because the cell only respires.",
-    "It rises, then stops changing because photosynthesis stops.",
+    "Press Ctrl/Cmd+P, type Open welcome guide, and press Enter.",
+    "Delete the Obsidian vault.",
+    "Turn off every module.",
+    "Email the plugin your password.",
   ],
-  answer: "B",
-  explanation: "Photosynthesis uses carbon dioxide faster than respiration releases it, so the level falls. In darkness, respiration would make it rise.",
+  answer: "A",
+  explanation: "Press Ctrl/Cmd+P (the command palette), type Open welcome guide, and press Enter. Try the example question there: it writes one ordinary note under Questions/ and opens Practice.",
   course: "Getting started",
-  skill: "Photosynthesis",
+  skill: "Plugin setup",
   difficulty: "easy",
 };
 
 const WELCOME_STEPS = [
   { id: "import", title: "Get questions in", body: "Import a PDF, PowerPoint, Word file or other document, or make a question note.", button: "Import questions", action: "import" },
   { id: "practice", title: "Practice", body: "Open the practice view, choose filters, or start a short Quick Practice session.", button: "Open practice", action: "practice" },
-  { id: "today", title: "Review what is due", body: "Today shows due questions, cards and the next class in one place.", button: "Open Today", action: "today" },
-  { id: "card", title: "Add cards (optional)", body: "Create a flashcard, vocabulary item or cloze card in a deck you choose.", button: "Create a card", action: "card" },
+  { id: "today", title: "Review what is due", body: "Today shows due questions, flashcards and the next class in one place.", button: "Open Today", action: "today" },
+  { id: "card", title: "Add flashcards (optional)", body: "Create a flashcard, vocabulary item or cloze flashcard in a deck you choose.", button: "Create a flashcard", action: "card" },
   { id: "calendar", title: "Add your schedule (optional)", body: "Import an .ics file or calendar link, then open the month or day view.", button: "Open calendar", action: "calendar" },
-  { id: "settings", title: "Find settings later", body: "Settings has Global, MCQ Tracker, Cards, Calendar, Assignments and Reference groups, each with its own tabs.", button: "Open settings", action: "settings" },
+  { id: "settings", title: "Find settings later", body: "Settings has Global, MCQ Tracker, Flashcards, Calendar, Assignments and Reference groups, each with its own tabs.", button: "Open settings", action: "settings" },
 ];
 
 function welcomeNoteMarkdown() {

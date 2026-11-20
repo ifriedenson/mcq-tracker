@@ -179,7 +179,7 @@ test("text2anki: empty sources and disabled AI, Cards or AnkiConnect gates stop 
   await assert.rejects(() => gates.plugin.runText2Anki(), /Turn on AI features/);
   gates.plugin.settings.ai.enabled = true;
   gates.plugin.settings.cards.enabled = false;
-  await assert.rejects(() => gates.plugin.runText2Anki(), /Turn on Cards/);
+  await assert.rejects(() => gates.plugin.runText2Anki(), /Turn on Flashcards/);
   gates.plugin.settings.cards.enabled = true;
   gates.plugin.settings.cards.ankiConnect.enabled = false;
   await assert.rejects(() => gates.plugin.runText2Anki(), /Turn on AnkiConnect/);

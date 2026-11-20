@@ -82,7 +82,7 @@ function renderModules(containerEl, plugin, redisplay, openModule) {
   const simple = simpleSettingsEnabled(plugin);
   const mainModules = [
     { label: "MCQ Tracker", enabled: plugin.mcqEnabled() },
-    { label: "Cards and vocabulary", enabled: plugin.cardsEnabled() },
+    { label: "Flashcards and vocabulary", enabled: plugin.cardsEnabled() },
     { label: "Calendar", enabled: plugin.calendarEnabled() },
     { label: "Assignments", enabled: plugin.assignmentsEnabled() },
   ];
@@ -123,8 +123,8 @@ function renderModules(containerEl, plugin, redisplay, openModule) {
     );
 
   new Setting(containerEl)
-    .setName("Cards and vocabulary")
-    .setDesc("Flashcards, vocabulary and spaced review. Off by default.")
+    .setName("Flashcards and vocabulary")
+    .setDesc("Flashcards, vocabulary and spaced review. On by default.")
     .addToggle((t) =>
       t.setValue(plugin.cardsEnabled()).onChange(async (v) => {
         plugin.settings.cards.enabled = v;
@@ -136,7 +136,7 @@ function renderModules(containerEl, plugin, redisplay, openModule) {
 
   new Setting(containerEl)
     .setName("Calendar")
-    .setDesc("Class and exam schedules, with study time from free periods. Off by default.")
+    .setDesc("Class and exam schedules, with study time from free periods. On by default.")
     .addToggle((t) =>
       t.setValue(plugin.calendarEnabled()).onChange(async (v) => {
         plugin.settings.calendar.enabled = v;
@@ -161,7 +161,7 @@ function renderModules(containerEl, plugin, redisplay, openModule) {
   if (!simple) {
     new Setting(containerEl)
       .setName("Reference")
-      .setDesc("Formula sheet, constants and unit converter. Off by default.")
+      .setDesc("Formula sheet, constants and unit converter. On by default.")
       .addToggle((t) =>
         t.setValue(plugin.referenceEnabled()).onChange(async (v) => {
           plugin.settings.reference.enabled = v;

@@ -87,7 +87,7 @@ function buildCardBlock(cards, options) {
   const o = options || {};
   const pairs = (Array.isArray(cards) ? cards : []).map((card) => formatCardPair(card, o)).filter(Boolean);
   if (!pairs.length) return "";
-  const lines = ["> [!note] AI-generated flashcards"];
+      const lines = ["> [!note] AI-generated flashcards"];
   pairs.forEach((pair, index) => {
     if (index) lines.push(">");
     for (const line of pair.split("\n")) lines.push(`> ${line}`);

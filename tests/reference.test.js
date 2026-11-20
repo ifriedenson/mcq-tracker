@@ -41,6 +41,7 @@ test("reference: formulas and constants are searchable by name, subject and text
 
 test("reference: settings are off by default, and the view command follows the module", async () => {
   const { plugin } = await setup();
+  plugin.settings.reference.enabled = false;
   assert.equal(plugin.referenceEnabled(), false);
   assert.ok(plugin.commands.some((c) => c.id === "open-reference"));
   assert.equal(await plugin.activateReference(), null);
@@ -84,6 +85,7 @@ test("reference: switching it off closes only the reference tab", async () => {
 
 test("reference: the view shows formulas, the converter and the off state", async () => {
   const { app, plugin } = await setup();
+  plugin.settings.reference.enabled = false;
   const dom = makeDom();
   const view = new T.ReferenceView({ app }, plugin);
   view.app = app;

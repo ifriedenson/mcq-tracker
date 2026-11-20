@@ -73,7 +73,7 @@ const BREAK_ICON_IDS = BREAK_ICON_OPTIONS.map(([id]) => id);
 const BREAK_STYLES = ["pill", "line", "card", "text"];
 
 const DEFAULT_CALENDAR_SETTINGS = {
-  enabled: false, // calendar module is off by default
+  enabled: true, // calendar module is on by default; turn off under Settings, Global, Modules
   sources: [], // { id, name, type: "file"|"url", path, url, content, hidden, lastSync }
   noteFolder: "",
   eventNoteFolder: "", // read-only Full Calendar event notes; empty turns interop off

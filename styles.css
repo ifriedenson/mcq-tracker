@@ -3428,8 +3428,40 @@ body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tra
   height: 100%;
   width: 0;
   border-radius: inherit;
-  background: var(--interactive-accent);
-  transition: var(--qt-transition-transform);
+  background: linear-gradient(90deg, var(--interactive-accent), var(--interactive-accent-hover, var(--interactive-accent)));
+  background-size: 40px 100%;
+  animation: qt-import-shimmer 1.2s linear infinite;
+  transition: width 0.4s ease;
+}
+@keyframes qt-import-shimmer {
+  from { background-position: -40px 0; }
+  to { background-position: 40px 0; }
+}
+.qt-import-bar-wrap {
+  height: 10px;
+  margin: 10px 0 4px;
+  overflow: hidden;
+  border-radius: var(--qt-radius-pill);
+  background: var(--background-modifier-border);
+}
+.qt-import-bar-fill {
+  height: 100%;
+  width: 6%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--interactive-accent), var(--interactive-accent-hover, var(--interactive-accent)));
+  background-size: 40px 100%;
+  animation: qt-import-shimmer 1.2s linear infinite;
+  transition: width 0.4s ease;
+}
+.qt-import-advanced {
+  margin-top: 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--qt-radius-md, 8px);
+  padding: 6px 10px;
+}
+.qt-import-advanced > summary {
+  cursor: pointer;
+  font-weight: 600;
 }
 
 .qt-import-complete-modal {

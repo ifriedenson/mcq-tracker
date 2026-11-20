@@ -8,8 +8,6 @@
 **No AI needed:** run **Quick add questions from pasted text** and paste questions you already have; it works offline.
 **Tell me what confused you:** [2-minute form](https://tally.so/r/PRDe1d) — I read every answer.
 
-Not affiliated with or endorsed by the College Board. AP and Bluebook are trademarks of their owners. MCQ Tracker ships no AP questions, rubrics or question banks.
-
 MCQ Tracker is the question-first study plugin for Obsidian. Turn notes and PDFs into exam-style practice across seven question formats, review notes and cards with spaced repetition, sit timed tests, and keep every attempt on the note it came from. It is free, local-first, and works on desktop and mobile. No MCQ Tracker account is required; AI is optional and uses your own provider key or the OpenCode desktop agent.
 
 <img src="docs/images/hero-practice.png" alt="MCQ Tracker Practice view showing a multiple-choice question, four answer choices, confidence buttons, a timer and Submit." width="900">
@@ -31,12 +29,12 @@ Both paths end at the same place: your first practice question. **Settings** and
 
 - **Practise exam-style questions.** Multiple-choice, student-produced response, fill-in, matching, true/false, select-all and free-response (FRQ) questions. Filter by course, skill, difficulty, folder or a saved preset, or build a timed test.
 - **Check every answer.** See your pick, the correct answer, the explanation, your confidence and the next review date. Add a reason for a miss and write a note on the result.
-- **Review on a schedule.** By default a correct answer returns after 1, 3, 7, 21 and 60 days; a miss returns tomorrow. Cards and whole notes can use the same default ladder, or FSRS/SM-2. The optional Cards module adds flashcards, vocabulary and cloze cards.
+- **Review on a schedule.** By default a correct answer returns after 1, 3, 7, 21 and 60 days; a miss returns tomorrow. Flashcards and whole notes can use the same default ladder, or FSRS/SM-2. The Flashcards module (on by default) adds flashcards, vocabulary and cloze flashcards.
 - **Plan and measure.** Calendar (optional) holds classes and exams; Assignments (on by default) holds deadlines and grades. Insights shows attempts, accuracy, due counts and weak spots from your local notes.
 - **Import your own material.** Document import turns PDF, PowerPoint, Word/OpenDocument, HTML, RTF, Markdown, CSV or text into question notes, but **it requires AI features plus either a provider key or the OpenCode desktop agent. There is no offline converter.** Ready-made card imports are separate and work locally.
 - **Ask for help when you want it.** The optional Study agent is a note-grounded tutor with tutor roles, local cited vault search, PDF context and review-before-write file changes.
 
-| Cards and vocabulary | Insights |
+| Flashcards and vocabulary | Insights |
 | --- | --- |
 | <a href="docs/images/cards-review.png"><img src="docs/images/cards-review.png" alt="Cards view with two flashcards ready to review, deck filters and a Start review button." width="400"></a> | <a href="docs/images/insights-overview.png"><img src="docs/images/insights-overview.png" alt="Insights Overview with attempts, accuracy, due counts, course health and study activity." width="400"></a> |
 
@@ -49,12 +47,12 @@ Most of MCQ Tracker works with AI turned off. One everyday workflow does not: **
 | Works with AI off | Needs AI turned on and a provider or the OpenCode agent |
 | --- | --- |
 | Writing question notes by hand, the example question, practice, timed tests, review and **Today** | Turning a PDF, PowerPoint, Word/OpenDocument, HTML, RTF, Markdown, CSV or text file into question notes |
-| Making cards by hand, card review, cram, `.apkg` import/export and AnkiConnect | Tutor chat and the Study agent; AI grading of free response and the optional AI second opinion on typed answers |
-| Calendar, classes, exams, assignments, grades and GPA | Generating questions, quizzes or cards from a document, photo or handwritten page |
+| Making flashcards by hand, flashcard review, cram, `.apkg` import/export and AnkiConnect | Tutor chat and the Study agent; AI grading of free response and the optional AI second opinion on typed answers |
+| Calendar, classes, exams, assignments, grades and GPA | Generating questions, quizzes or flashcards from a document, photo or handwritten page |
 | Reference tools, AP resources and the unofficial AP score calculator | Summarising a course note, and turning PDF pages into a LaTeX note |
-| Ready-made card imports: Quizlet, Kahoot, Moodle XML, QTI, GIFT, CSV, Markdown, `.apkg`, CrowdAnki JSON, Mochi Markdown and Anki text | AI-assisted import with the OpenCode agent |
+| Ready-made flashcard imports: Quizlet, Kahoot, Moodle XML, QTI, GIFT, CSV, Markdown, `.apkg`, CrowdAnki JSON, Mochi Markdown and Anki text | AI-assisted import with the OpenCode agent |
 
-**If you do not have AI:** run **Quick add questions from pasted text** and paste questions you already have; it works offline. You can also import ready-made flashcards, write question notes by hand, and use practice, review, cards, the calendar and the reference tools normally.
+**If you do not have AI:** run **Quick add questions from pasted text** and paste questions you already have; it works offline. You can also import ready-made flashcards, write question notes by hand, and use practice, review, flashcards, the calendar and the reference tools normally.
 
 ## For Obsidian users
 
@@ -93,7 +91,7 @@ Use **Check for updates** on the Community plugins page. If you installed manual
 - **Questions are ordinary notes.** Any note with a `question_id` property can be a question. There is no database and no proprietary format.
 - **Your results live in your notes.** Attempts, dates, flags and review dates are written to the question note's properties, so you can query them with Bases or Dataview.
 - **The plugin's `data.json`** stores settings, presets, the running timer, local events, chat history and other plugin state. Your other notes stay ordinary Markdown.
-- **Main modules have clear defaults.** MCQ Tracker and Assignments are on by default. Cards and vocabulary, Calendar and AI features are opt-in; turn them on under **Settings → App & documents → Modules and global options → Modules**.
+- **Main modules have clear defaults.** MCQ Tracker, Assignments, Flashcards and vocabulary, Calendar and Reference are on by default; only AI features stay opt-in. Turn modules on or off under **Settings → App & documents → Modules and global options → Modules**.
 - **Optional integrations stay optional.** AI, AnkiConnect, CouchDB sync and calendar feeds do nothing until you turn them on and configure them.
 
 ### Question note format
@@ -200,13 +198,13 @@ The five frames are also saved full size in [`docs/images/quick-add-run/`](docs/
 - **Import a document.** This turns a PDF, PowerPoint, Word/OpenDocument, HTML, RTF, Markdown, CSV or text file into question notes, but **it needs AI features plus either a provider key or the OpenCode desktop agent, and there is no offline converter.** The file's text is sent to that provider, which may charge for long files.
 - **Import ready-made cards.** This route is local and separate from document import: Quizlet, Kahoot, Moodle XML, QTI, GIFT, CSV, Markdown, `.apkg`, CrowdAnki JSON, Mochi Markdown and Anki text.
 - **Write your own.** Each question is a short note. The [sample vault](samples/README.md) has working examples to copy.
-- **No AI?** Run **Quick add questions from pasted text**, import ready-made cards, or use the example question. Practice, review, cards, the calendar and the reference tools all keep working.
+- **No AI?** Run **Quick add questions from pasted text**, import ready-made flashcards, or use the example question. Practice, review, flashcards, the calendar and the reference tools all keep working.
 
 ### Beyond multiple choice (optional)
 
 These are off until you switch them on under **Settings → App & documents → Modules and global options → Modules**, except Assignments, which is already on:
 
-- **Cards and vocabulary** adds flashcards, vocabulary, cloze and other card types, using the default ladder or FSRS/SM-2.
+- **Flashcards and vocabulary** (on) adds flashcards, vocabulary, cloze and other flashcard types, using the default ladder or FSRS/SM-2.
 - **Calendar** adds your classes and exams, and plans study around them.
 - **Assignments** keeps deadlines and grades.
 - **AI features** adds the tutor, grading and AI-assisted import. It needs your own provider key or the OpenCode desktop agent, so skip it unless you want it.
@@ -230,19 +228,25 @@ Everything is stored as normal files in your vault folder on your own device. Th
 
 ## Settings
 
-Settings are grouped by category, with a page list beside the selected category. The most useful starting switches are under **Settings → App & documents → Modules and global options → Modules**. MCQ Tracker and Assignments are on by default; Cards and vocabulary, Calendar and AI features are opt-in.
+Settings are grouped by category, with a page list beside the selected category. The most useful starting switches are under **Settings → App & documents → Modules and global options → Modules**. MCQ Tracker, Assignments, Flashcards and vocabulary, Calendar and Reference are all on by default; only AI features stay opt-in.
+
+### Finding features: Today and the left sidebar
+
+You do not need the left sidebar to study. The fastest routes are the command palette (`Ctrl/Cmd+P`): **Open practice view**, **Open Today**, **Open flashcards**, **Open calendar**, **Open assignments and grades**.
+
+If you use the ribbon (the vertical icon strip on the far left): **Today** is the calendar-check icon near the top (→). Practice is the target icon, Flashcards is the layered-cards icon, Calendar is the calendar icon. If the top bar disappears during practice on mobile, that is Distraction-free practice; answer or press Esc and it comes back. Turn it off under Settings → MCQ Tracker → Practice if you dislike it.
 
 | Setting | What it does | Default |
 | --- | --- | --- |
 | MCQ Tracker | Turns practice, tests, filters and import on or off. Notes stay. | On |
-| Cards and vocabulary | Adds flashcards, vocabulary and card review. | Off |
-| Calendar | Adds classes, exams and exam-aware study planning. | Off |
+| Flashcards and vocabulary | Adds flashcards, vocabulary and flashcard review. | On |
+| Calendar | Adds classes, exams and exam-aware study planning. | On |
 | Assignments | Adds the gradebook and task list. | On |
 | AI features | Adds tutor, grading and AI-assisted import. Needs your key or the OpenCode desktop agent. | Off |
 | Review intervals (days) | Days before a correct answer returns. Misses return tomorrow. | 1, 3, 7, 21, 60 |
 | Explanation after answering | When to show the answer explanation. | Only after a miss |
 
-<img src="docs/images/settings-modules.png" alt="MCQ Tracker settings showing the Modules page with MCQ Tracker and Assignments on, and Cards and Calendar off." width="820">
+<img src="docs/images/settings-modules.png" alt="MCQ Tracker settings showing the Modules page with the main modules on." width="820">
 
 <details>
 <summary>Advanced settings and modules</summary>
@@ -257,7 +261,7 @@ Other settings pages include **Whole-note review**, **Spaced Everything**, **Dai
 
 - **I cannot find MCQ Tracker in Browse.** Check that Restricted mode is off, Obsidian is up to date, and the search is `MCQ Tracker`. If it still does not appear, use the manual install above.
 - **Practice says there are no questions.** Each question note needs a `question_id` property, a `## Question` heading and an `answer` property. Check **Question folder** in the plugin's Practice settings and clear any folder filter.
-- **Cards are missing.** Cards and vocabulary is off by default. Turn it on under **Settings → App & documents → Modules and global options → Modules**.
+- **Flashcards are missing.** Turn on Flashcards and vocabulary under **Settings → App & documents → Modules and global options → Modules** (it is on for new installs).
 - **AI or OpenCode does not work.** AI features are off by default. Turn them on under **Settings → App & documents → Modules and global options → Modules**, then add a provider key under **Settings → Study agent → AI and the assistant**. OpenCode is desktop-only; on mobile, use a Direct API provider key.
 - **A result did not save.** Keep Obsidian open, press `Ctrl/Cmd+P`, and run **Retry saving offline practice results**. Check that the vault folder is writable.
 
@@ -313,25 +317,25 @@ The review schedule is shared by questions, cards and whole notes. Nothing is lo
 - **Whole-note review** opens the note in place and docks a grading bar underneath it. Every grade shows the interval it would schedule before you press it. A failed note returns later in the same session; a note that keeps failing stops at a lapse checkpoint and asks whether to reset, rest, remove or carry on.
 - **The review sidebar** lists what is due and upcoming, groups by day, shows an estimate and lets you sort, filter, grade, postpone or remove without leaving the note. It can also show the Pomodoro clock.
 - **The review calendar** shows the due load by day and the next seven days of work.
-- **FSRS and SM-2** are both available for whole notes and cards. The interval ladder remains the default for questions; cards and whole notes can use the default ladder or FSRS/SM-2.
+- **FSRS and SM-2** are both available for whole notes and flashcards. The interval ladder remains the default for questions; flashcards and whole notes can use the default ladder or FSRS/SM-2.
 - **Durable recall** is opt-in: a correct recall counts as durable only after it happens on two different days.
 
-### Cards, decks and Anki
+### Flashcards, decks and Anki
 
-The optional Cards module adds flashcards without changing the question workflow.
+The Flashcards module (on by default) adds flashcards without changing the question workflow.
 
-- **Card shapes:** flip, reversed pair, multiple choice, cloze, typed answer and image occlusion.
+- **Flashcard shapes:** flip, reversed pair, multiple choice, cloze, typed answer and image occlusion.
 - **Decks and vocabulary:** deck folders, course tags, a vocabulary tab and an offline WordNet import.
 - **Anki files:** import `.apkg`, export `.apkg`, and keep decks in step with a running Anki desktop through the AnkiConnect add-on.
-- **AnkiWeb finder:** **Cards: find a deck on AnkiWeb** opens AnkiWeb's shared-deck search in your browser. Download the `.apkg` there and use **Cards: import existing decks**. The plugin does not ask for or store an AnkiWeb password.
-- **Card review:** cram, a practice-only Mother cram loop, grading accuracy, a grade-later queue and a card archive.
+- **AnkiWeb finder:** **Flashcards: find a deck on AnkiWeb** opens AnkiWeb's shared-deck search in your browser. Download the `.apkg` there and use **Flashcards: import existing decks**. The plugin does not ask for or store an AnkiWeb password.
+- **Flashcard review:** cram, a practice-only Cram loop (Know / Do not know), grading accuracy, a grade-later queue and a flashcard archive. Each flashcard row has Open and Delete.
 
 ### Study agent and study tools
 
 AI is off by default and only uses the provider you configure. The Study agent is a normal Obsidian chat with local note grounding and a review window around file writes.
 
 - **Tutor roles:** Private tutor, Socratic tutor, Objective coach and Language partner, plus `/guide`, `/quiz`, `/confuse`, `/gap`, `/predict`, `/feynman` and `/mock`.
-- **Objective coach:** charts a note into learning objectives and teaches one at a time through explain → recall → apply. It tracks understanding, recall and transfer separately, treats recall as durable only after two different days, and can finish with a report you save as study notes and cards. The session lives in a saved conversation; there is no separate objective rail.
+- **Objective coach:** charts a note into learning objectives and teaches one at a time through explain → recall → apply. It tracks understanding, recall and transfer separately, treats recall as durable only after two different days, and can finish with a report you save as study notes and flashcards. The session lives in a saved conversation; there is no separate objective rail.
 - **Grounded help:** local cited vault search, note attachment, PDF page ranges and opt-in memory. The agent is told to cite a real `[[note]]` or `[[note#L12]]` and to say when the vault does not contain the answer.
 - **Study workspace:** twenty-one independent modules and twenty-one local workflows, including Feynman, Recall, Time blocks, Reading library and Quiz index. It also includes study maps, mind maps, Cornell notes, study flow, the subject manager, task lists, citations and read-aloud.
 - **Writes stay reviewed:** the agent proposes a file change, you approve it, and the existing diff/undo guard applies it.
@@ -351,7 +355,7 @@ Bring material in as notes, not as a locked database.
 
 #### Importing several files at once
 
-**Import questions from a file** accepts several PDFs, PowerPoint or Word files in one picker and runs them one after another. Each file keeps its own review, gets its own subfolder under the destination folder, and a failed file does not stop the rest. On desktop the import is a real Obsidian window, so it stays open and keeps working when you return to the main vault. The window shows the queue and **Undo everything**, **Finish this file, then stop**, and **Discard this file**.
+**Import questions from a file** accepts several PDFs, PowerPoint or Word files in one picker and runs them one after another. Each file keeps its own review, gets its own subfolder under the destination folder, and a failed file does not stop the rest. On desktop the import is a real Obsidian window, so it stays open and keeps working when you return to the main vault. The window shows the queue, a shimmering progress bar with time left, and a collapsed **Advanced import controls** section (Undo everything, Discard this file, and — only when importing several files — Finish this file, then stop). When it finishes, **Delete this import (PDF + questions)** removes the source PDF copy, pictures and question notes in one confirm.
 
 <img src="docs/images/import-window.png" alt="The separate Import questions window with two queued PDFs and the three stop actions." width="360">
 
@@ -378,19 +382,19 @@ Document import needs a model, but not a paid one or a cloud one: a 7B model on 
 
 Measured on an 8-core CPU with no GPU: about 4–11 tokens per second depending on what else the machine is doing. With the model already loaded, a three-page exam with three questions reached the review screen in under a minute; the first request after starting Ollama took about 3½ minutes, because the 4.7 GB model has to be read into memory before it can answer. One local request is allowed up to 15 minutes, so a slow machine is not mistaken for a dead one. A 3B model is too small for this prompt (it merged two questions into one and lost the rest), and a 14B model answers at about 2 tokens per second here, over ten minutes for the same pages. Ollama's own variables still apply — `OLLAMA_MODELS` keeps the models on another disk, `OLLAMA_HOST` moves the port — and the base URL must name the address Ollama is actually listening on.
 
-**Local imports.** Ready-made cards can be imported without AI from Quizlet, Kahoot, Moodle XML, QTI, GIFT, `.apkg`, CrowdAnki JSON, Mochi Markdown and Anki text, plus CSV and Markdown. Export a study bundle, a card archive, `.apkg`, ICS, CSV, Markdown or JSON where the format supports it.
+**Local imports.** Ready-made flashcards can be imported without AI from Quizlet, Kahoot, Moodle XML, QTI, GIFT, `.apkg`, CrowdAnki JSON, Mochi Markdown and Anki text, plus CSV and Markdown. Export a study bundle, a flashcard archive, `.apkg`, ICS, CSV, Markdown or JSON where the format supports it.
 
 ### Commands
 
-Open the command palette with `Ctrl/Cmd+P` and search **MCQ Tracker**, **Cards**, **Review**, **Study agent** or **Calendar**. The palette has more than 200 commands, including:
+Open the command palette with `Ctrl/Cmd+P` and search **MCQ Tracker**, **Flashcards**, **Review**, **Study agent** or **Calendar**. The palette has more than 200 commands, including:
 
 - **Onboarding:** `Open Start here note`, `Open welcome guide`, `Show what's new`.
 - **Practice:** `Open practice view`, `Quick Practice`, `Start a timed test`, `Practice this note only`, `Show weak spots`, `Find or generate quiz questions`.
 - **Review:** `Open review sidebar`, `Next review note`, `Previous review note`, `Review current note`, `Add current note to review schedule`, `Open review calendar`, `Open study statistics`.
-- **Cards:** `Open cards`, `Cards: import existing decks`, `Cards: export to Quizlet, Anki package, Anki text, Mochi, LearnKit, Kahoot, Blooket or Gimkit`, `Cards: find a deck on AnkiWeb`, `Cards: export a portable archive`, `Cards: import a portable archive`.
+- **Flashcards:** `Open flashcards`, `Flashcards: import existing decks`, `Flashcards: export to Quizlet, Anki package, Anki text, Mochi, LearnKit, Kahoot, Blooket or Gimkit`, `Flashcards: find a deck on AnkiWeb`, `Flashcards: export a portable archive`, `Flashcards: import a portable archive`.
 - **Study agent:** `Study agent: open the sidebar`, `Study agent: Quick Chat`, `Study agent: plan a multi-step task`, `Study agent: attach a PDF`, `Study agent: export a conversation as Markdown`.
 - **Calendar:** `Open calendar`, `Open local events`, `Local events: create an event`, `Calendar: add an .ics schedule`, `Calendar: export the visible schedule to .ics`.
-- **Data:** `Export a study bundle (backup of questions and cards)`, `Import a study bundle (restore questions and cards)`.
+- **Data:** `Export a study bundle (backup of questions and flashcards)`, `Import a study bundle (restore questions and flashcards)`.
 
 ### How it compares with Spaceforge
 
@@ -445,6 +449,10 @@ The Study agent at a 296 px sidebar width. A physical-phone screenshot is not in
 - **AnkiConnect** talks only to the local Anki desktop address you configure. **AnkiWeb** opens in your browser; the plugin does not store an AnkiWeb password.
 - **CouchDB sync** is optional and only uses the server you configure. **Calendar feeds** are read only when you add them.
 - **No web lookup:** the Study agent uses local vault search and cites the notes it actually read. It does not browse the web.
+
+## Trademarks
+
+Not affiliated with or endorsed by the College Board. AP and Bluebook are trademarks of their owners. MCQ Tracker ships no AP questions, rubrics or question banks.
 
 ## License and links
 

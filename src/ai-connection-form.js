@@ -314,9 +314,16 @@ function renderAiConnectionForm(container, options) {
         text:
           "The installer downloads the supported OpenCode 1.x build from GitHub, checks its SHA-256, and keeps it outside your vault. It only runs while Obsidian is open.",
       });
+      body.createDiv({
+        cls: "qt-hint",
+        text: "Step 1: press Install OpenCode once and wait until it finishes. Do not press it twice and do not close this window.",
+      });
       const install = body.createEl("button", { text: "Install OpenCode", cls: "mod-cta qt-primary" });
       install.disabled = busy;
       install.addEventListener("click", async () => {
+        if (install.disabled) return;
+        install.disabled = true;
+        install.setText("Installing... (wait, do not close)");
         await installOpenCode();
       });
     } else {

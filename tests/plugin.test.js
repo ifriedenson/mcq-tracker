@@ -18,7 +18,7 @@ async function start(notes = NOTES) {
   return { app, plugin };
 }
 
-test("the plugin clears Ctrl+P from Open cards without touching the command palette", async () => {
+test("the plugin clears Ctrl+P from Open flashcards without touching the command palette", async () => {
   const app = makeApp(NOTES);
   const bindings = {
     "mcq-tracker:open-cards": [
@@ -35,7 +35,7 @@ test("the plugin clears Ctrl+P from Open cards without touching the command pale
   };
   const plugin = new QT(app, { id: "mcq-tracker" });
   await plugin.onload();
-  assert.deepEqual(bindings["mcq-tracker:open-cards"], [{ modifiers: ["Mod"], key: "O" }]);
+  assert.deepEqual(bindings["mcq-tracker:open-cards"], []);
   assert.deepEqual(bindings["command-palette:open"], [{ modifiers: ["Mod"], key: "P" }]);
 });
 

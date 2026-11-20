@@ -210,7 +210,7 @@ class DocumentCardsModal extends QtModal {
   async importCards() {
     if (!this.preview || !this.preview.cards.length) return;
     if (this.plugin.moduleOff("cards")) {
-      this.status.setText("Turn on Cards first.");
+      this.status.setText("Turn on Flashcards first.");
       return;
     }
     try {

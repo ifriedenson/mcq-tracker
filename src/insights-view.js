@@ -648,7 +648,7 @@ class InsightsView extends ItemView {
     const row = box.createDiv({ cls: "qt-row qt-small-row" });
     if (next.due) row.createEl("button", { text: `Review ${next.due} due`, cls: "mod-cta" }).addEventListener("click", () => p.practiceWith({}, "due"));
     if (next.fresh) row.createEl("button", { text: `Practice ${next.fresh} new` }).addEventListener("click", () => p.practiceWith({}, "unseen"));
-    if (cards.length) row.createEl("button", { text: next.dueCards ? "Review cards" : "Open cards" }).addEventListener("click", () => p.activateCards());
+    if (cards.length) row.createEl("button", { text: next.dueCards ? "Review flashcards" : "Open flashcards" }).addEventListener("click", () => p.activateCards());
 
     root.createDiv({ cls: "qt-hint qt-dash-privacy", text: "Everything on this page is calculated locally from your notes; nothing is uploaded." });
   }

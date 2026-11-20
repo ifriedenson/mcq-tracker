@@ -527,7 +527,7 @@ class TodayView extends ItemView {
       grade.addEventListener("click", () => this.gradePending(grade));
     }
     const row = card.createDiv({ cls: "qt-row" });
-    row.createEl("button", { text: due ? "Review cards" : "Open cards", cls: "mod-cta qt-primary" }).addEventListener("click", () => p.activateCards());
+    row.createEl("button", { text: due ? "Review flashcards" : "Open flashcards", cls: "mod-cta qt-primary" }).addEventListener("click", () => p.activateCards());
     if (due) row.createEl("button", { text: "New card" }).addEventListener("click", () => p.openNewCard());
   }
 

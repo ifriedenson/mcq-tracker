@@ -120,7 +120,7 @@ test("global settings: the study tools are an index, not duplicate toggles", asy
   ]) {
     assert.ok(!obsidian.settingNames.includes(removed), `${removed} is not on Global`);
   }
-  for (const core of ["MCQ Tracker", "Cards and vocabulary", "Calendar", "Assignments", "Reference"]) {
+  for (const core of ["MCQ Tracker", "Flashcards and vocabulary", "Calendar", "Assignments", "Reference"]) {
     assert.ok(obsidian.settingNames.includes(core), `${core} stays on Global`);
   }
   assert.ok(!obsidian.settingNames.includes("AI features"), "AI has one home on its own page, not a duplicate Global switch");

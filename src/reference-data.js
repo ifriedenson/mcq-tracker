@@ -10,7 +10,7 @@
  */
 
 const DEFAULT_REFERENCE_SETTINGS = {
-  enabled: false, // optional module; nothing is added to the workspace until this is on
+  enabled: true, // on by default; turn off under Settings, Global, Modules
   hideDuringTests: true, // a timed test should not have a reference panel beside it
   hideCalculatorDuringTests: true, // even when the panel is allowed, a no-calculator section hides the calculator
   calculator: true, // the local calculator tab is available when Reference is on
@@ -868,7 +868,7 @@ function mergeReferenceSettings(saved) {
   const src = saved && typeof saved === "object" ? saved : {};
   const subject = String(src.defaultSubject || "all");
   return {
-    enabled: src.enabled === true,
+    enabled: src.enabled !== false,
     hideDuringTests: src.hideDuringTests !== false,
     hideCalculatorDuringTests: src.hideCalculatorDuringTests !== false,
     calculator: src.calculator !== false,

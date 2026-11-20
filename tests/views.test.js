@@ -560,7 +560,7 @@ test("practice view: filters show counts, and the folder filter can switch to a 
   v.state = "idle";
   v.render();
   const texts = dom.texts();
-  assert.ok(texts.includes("Folder"));
+  assert.ok(texts.includes("Question folder"));
   assert.ok(texts.includes("Questions/sat") || texts.includes("sat")); // relative or full path
   assert.ok(texts.includes("Search")); // switch to the search box
   assert.ok(texts.includes("Timed test"));

@@ -430,6 +430,13 @@ class PdfImportModal extends QtModal {
   status(msg) {
     this.lastStatus = msg;
     if (this.statusEl) this.statusEl.setText(msg);
+    if (this.barFill && this.barFill.style) {
+      const total = (this.batchJobs && this.batchJobs.length) || (this.files && this.files.length) || 1;
+      const frac = this.batchMode ? this.batchIndex / Math.max(1, total) : 0.15;
+      const pct = Math.round(Math.max(0.06, Math.min(0.98, frac)) * 100);
+      this.barFill.style.width = pct + "%";
+      this.barFill.setAttribute && this.barFill.setAttribute("data-pct", pct + "%");
+    }
     if (this.batchMode && this.progress) this.progress.update(this.progressLabel || "Importing...", msg, this.batchIndex / Math.max(1, this.batchJobs.length));
   }
 
@@ -1536,7 +1543,13 @@ class PdfImportModal extends QtModal {
       attr: { title: "Choose another PDF, PowerPoint or Word file. It joins the queue behind the current file." },
     });
     addMore.addEventListener("click", () => this.chooseMoreFiles(addMore));
-    const stopActions = el.createDiv({ cls: "qt-row qt-small-row" });
+    this.barWrap = el.createDiv({ cls: "qt-import-bar-wrap" });
+    this.barFill = this.barWrap.createDiv({ cls: "qt-import-bar-fill" });
+    this.barWrap.setAttr("aria-hidden", "true");
+    const stopDetails = el.createEl("details", { cls: "qt-import-advanced" });
+    stopDetails.createEl("summary", { text: "Advanced import controls (Undo, stop options)" });
+    stopDetails.createDiv({ cls: "qt-hint", text: "Only open this if the import is stuck or you picked the wrong files. Most imports finish without touching these." });
+    const stopActions = stopDetails.createDiv({ cls: "qt-row qt-small-row" });
     this.stopBtns = [];
     const addStop = (text, mode, title) => {
       const button = stopActions.createEl("button", { text, cls: "qt-modal-btn", attr: { title } });
@@ -1544,9 +1557,10 @@ class PdfImportModal extends QtModal {
       this.stopBtns.push(button);
       return button;
     };
-    addStop("Undo everything", "undo", "Delete every note, source copy and picture this import has made, then stop now.");
-    addStop("Finish this file, then stop", "finish", "Keep working on the current PDF, save it when it finishes, then stop before the next PDF.");
-    this.stopBtn = addStop("Discard this file", "discard", "Stop now. Keep PDFs that already finished, but delete the current one.");
+    addStop("Undo everything", "undo", "Advanced: delete every note, source copy and picture this import has made, then stop now.");
+    const isMulti = (this.batchJobs && this.batchJobs.length > 1) || (this.files && this.files.length > 1) || this.batchMode;
+    if (isMulti) addStop("Finish this file, then stop", "finish", "Only shown when importing several files: finish and save the current file, then stop before the next file.");
+    this.stopBtn = addStop("Discard this file", "discard", "Advanced: stop now. Keep files that already finished, but delete the current one.");
     this.stop = false;
     this.sid = "";
     this.beginCancellableRun();
