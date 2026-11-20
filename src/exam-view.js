@@ -889,7 +889,13 @@ class TestView extends ItemView {
       const deck = str(this.result && this.result.course) || "Test misses";
       const made = await this.plugin.createCardsFromMissed(missed, { deck });
       new Notice(made ? `Made ${made} flashcard${made === 1 ? "" : "s"} in ${deck}.` : "No missed question could become a flashcard.", 8000);
-      if (button) button.setText(made ? `Made ${made} flashcard${made === 1 ? "" : "s"}` : "Nothing to make");
+      if (button) {
+        if (made) button.setText(`Made ${made} flashcard${made === 1 ? "" : "s"}`);
+        else {
+          button.disabled = false;
+          button.setText("Make flashcards from misses");
+        }
+      }
     } catch (e) {
       if (button) {
         button.disabled = false;

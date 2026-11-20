@@ -122,6 +122,34 @@ test("follow-ups: missed test questions become flashcards with the source stampe
   assert.match(created[0].text, /import_source: "Questions\/Q01\.md"/);
 });
 
+test("follow-ups: a miss whose stem lives in the parsed sections still becomes a flashcard", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  const made = await plugin.createCardsFromMissed(
+    [
+      {
+        file: { path: "Questions/Q03.md" },
+        fm: { course: "Math" },
+        sections: {
+          question: "Section stem?\n\n- A. wrong one\n- B. the right one\n- C. another\n- D. last",
+        },
+        key: "B",
+        mode: "mcq",
+        correct: false,
+        answered: true,
+      },
+    ],
+    { deck: "Test misses" }
+  );
+  assert.equal(made, 1, "the stem comes from sections, not only from frontmatter");
+  const created = app.files.find((file) => /Test misses/.test(file.path));
+  assert.match(created.text, /import_source: "Questions\/Q03\.md"/);
+  assert.match(created.text, /Section stem\?/);
+  assert.doesNotMatch(created.text, /- A\. wrong one/, "the choices are not part of the card front");
+  assert.match(created.text, /the right one/, "the back carries the correct choice");
+});
+
 /* ---------------------------------------------------------------- #10 settings */
 
 test("follow-ups: reset to recommended turns modules back on without touching notes", async () => {

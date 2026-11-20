@@ -3053,15 +3053,38 @@ class QuestionTrackerPlugin extends Plugin {
     let made = 0;
     for (const item of rows) {
       const fm = (item && item.fm) || {};
-      const front = str(fm.question || fm.prompt || (item && item.note && item.note.title) || "").trim();
-      const back = str(fm.explanation || fm.answer || "").trim();
+      const sections = (item && item.sections) || {};
+      const body = (item && item.body) || {};
+      // A question note keeps its stem in the parsed sections, a card keeps it in body.front:
+      // frontmatter only holds it when the note was written that way.
+      const raw = str(
+        fm.question || fm.prompt || sections.question || body.front || (item && item.note && item.note.title) || ""
+      ).trim();
+      // A stem section often carries its choice list inline; a flashcard front should not.
+      const choiceLine = /^\s*(?:[-*+]\s*)?\**\(?([A-H])\)?[.):]\**\s+(.+)$/;
+      const inlineChoices = [];
+      const stemLines = [];
+      for (const line of raw.split("\n")) {
+        const match = line.match(choiceLine);
+        if (match) inlineChoices.push({ letter: match[1].toUpperCase(), text: match[2].trim() });
+        else stemLines.push(line);
+      }
+      const choices = Array.isArray(sections.choices) && sections.choices.length ? sections.choices : inlineChoices;
+      const front = stemLines.join("\n").trim() || raw;
+      const key = str((item && item.key) || fm.answer).trim().toUpperCase();
+      const choiceText = key
+        ? str((choices.find((choice) => str(choice.letter).toUpperCase() === key) || {}).text).trim()
+        : "";
+      const back = str(
+        fm.explanation || sections.explanation || choiceText || key || body.back || ""
+      ).trim();
       if (!front) continue;
       const created = await this.createCard({
         front,
         back: back || "Review this question and write the answer in your own words.",
         deck: str(opts.deck || fm.course || fm.deck || "Test misses").trim() || "Test misses",
         course: str(fm.course || opts.course || "").trim(),
-        title: str(fm.skill || front).slice(0, 60),
+        title: str(fm.skill || front.split("\n")[0]).slice(0, 60),
         importSource: str(item && item.file && item.file.path),
       });
       if (created) made++;
@@ -3085,7 +3108,6 @@ class QuestionTrackerPlugin extends Plugin {
   async relinkImportSource(source, newPath) {
     const target = String(newPath || "").trim().replace(/^\/+|\/+$/g, "");
     if (!target || !this.app.vault.getAbstractFileByPath(target)) throw new Error("Pick a file that is in the vault.");
-    if (!target || !this.app.vault.getAbstractFileByPath(target)) throw new Error("Choose a file that is in the vault.");
     const items = [...this.getQuestions(), ...(this.getCards ? this.getCards() : [])];
     let changed = 0;
     for (const item of items) {
