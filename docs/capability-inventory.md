@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 468 groups, 3255 exports. **Commands:** 249. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 468 groups, 3255 exports. **Commands:** 251. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -26,7 +26,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `CalendarView` | 0 | `tests/calendar-network.test.js`, `tests/calendar.test.js`, `tests/hub-views.test.js`, `tests/term-calendar.test.js` |
 | `CardExtractModal` | 0 | `tests/feature-surfaces.test.js` |
 | `CardModal` | 0 | `tests/source-recall.test.js` |
-| `CardView` | 0 | `tests/card-cram.test.js`, `tests/card-learning.test.js`, `tests/card-mother-cram.test.js`, `tests/card-reveal.test.js`, `tests/card-speech.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/interval-preview.test.js`, `tests/mobile-module-layout.test.js`, `tests/source-recall.test.js`, `tests/study-status.test.js`, `tests/undo-everywhere.test.js` |
+| `CardView` | 0 | `tests/card-cram.test.js`, `tests/card-learning.test.js`, `tests/card-mother-cram.test.js`, `tests/card-reveal.test.js`, `tests/card-speech.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/followups.test.js`, `tests/interval-preview.test.js`, `tests/mobile-module-layout.test.js`, `tests/source-recall.test.js`, `tests/study-status.test.js`, `tests/undo-everywhere.test.js` |
 | `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/chat-branches.test.js`, `tests/chat-panel-copilot.test.js`, `tests/chat-panel-mentions.test.js`, `tests/diagnostics-gauge.test.js`, `tests/memory-export.test.js`, `tests/note-context.test.js`, `tests/quick-ask.test.js`, `tests/security-hardening.test.js`, `tests/skills-pricing.test.js`, `tests/think-first.test.js` |
 | `CourseOverviewModal` | 0 | `tests/core-values.test.js` |
 | `DEFAULT_SETTINGS` | 118 | `tests/grading.test.js` |
@@ -43,7 +43,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `FrqPdfPickerModal` | 0 | `tests/frq-import.test.js` |
 | `GLOBAL_TABS` | 3 | `tests/modules.test.js` |
 | `HotkeyAuditModal` | 0 | `tests/hotkey-audit.test.js` |
-| `ImportCompleteModal` | 0 | `tests/opencode-status.test.js` |
+| `ImportCompleteModal` | 0 | `tests/followups.test.js`, `tests/opencode-status.test.js` |
 | `InsightsView` | 0 | `tests/knowledge-record-scenario.test.js`, `tests/knowledge-view.test.js`, `tests/study-plan.test.js`, `tests/views.test.js` |
 | `LOCAL_REQUEST_TIMEOUT_MS` | 0 | `tests/api-client.test.js` |
 | `LocalEventModal` | 0 | `tests/feature-surfaces.test.js` |
@@ -498,8 +498,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `export-results-csv` | Export practice results to CSV | `exportResultsCsv` | `tests/results-export.test.js` |
 | `export-practice-sheet` | Export an answer-free practice sheet | `exportPracticeSheet` | `tests/practice-sheet.test.js` |
 | `export-review-sheet` | Export an error-log review sheet | `exportReviewSheet` | `tests/practice-sheet.test.js`, `tests/views.test.js` |
-| `import-pdf` | Import questions from a file (PDF, PowerPoint, Word) | `openPdfImport` | `tests/ai-beginner-wizard.test.js`, `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/import-batch-window.test.js`, `tests/import-preflight.test.js`, `tests/import-real-pdf.test.js`, `tests/modules.test.js`, `tests/overnight-import.test.js`, `tests/plugin.test.js` |
-| `import-overnight` | Import files overnight… | `openPdfImport` | `tests/ai-beginner-wizard.test.js`, `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/import-batch-window.test.js`, `tests/import-preflight.test.js`, `tests/import-real-pdf.test.js`, `tests/modules.test.js`, `tests/overnight-import.test.js` |
+| `import-pdf` | Import questions from a file (PDF, PowerPoint, Word) | `openPdfImport` | `tests/ai-beginner-wizard.test.js`, `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/followups.test.js`, `tests/import-batch-window.test.js`, `tests/import-preflight.test.js`, `tests/import-real-pdf.test.js`, `tests/modules.test.js`, `tests/overnight-import.test.js`, `tests/plugin.test.js`, `tests/today.test.js` |
+| `import-overnight` | Import files overnight… | `openPdfImport` | `tests/ai-beginner-wizard.test.js`, `tests/ai-import-help.test.js`, `tests/empty-state.test.js`, `tests/followups.test.js`, `tests/import-batch-window.test.js`, `tests/import-preflight.test.js`, `tests/import-real-pdf.test.js`, `tests/modules.test.js`, `tests/overnight-import.test.js`, `tests/today.test.js` |
 | `stop-overnight-import` | Stop the overnight import | `stopOvernightImport` | `tests/overnight-import.test.js` |
 | `resume-overnight-import` | Resume the overnight import | `resumeOvernightImport` | `tests/overnight-import.test.js` |
 | `undo-overnight-import` | Undo the last overnight import | `undoOvernightImport` | `tests/overnight-import.test.js` |
@@ -510,8 +510,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `import-service-clipboard` | Import notes from a pasted export | `importServiceClipboard` | `tests/error-message-paths.test.js`, `tests/service-import.test.js` |
 | `quick-add` | Quick add questions from pasted text | `openQuickAdd` | `tests/a11y-labels.test.js`, `tests/ai-import-help.test.js`, `tests/hotkey-audit.test.js`, `tests/import-preflight.test.js`, `tests/note-quiz-clipboard.test.js`, `tests/plugin.test.js`, `tests/quick-add.test.js`, `tests/quiz-generator.test.js`, `tests/starter-pack.test.js`, `tests/task-agenda.test.js`, `tests/task-priority-quickadd.test.js` |
 | `import-quiz-clipboard` | Import a generated quiz from the clipboard | `openQuizClipboardImport` | `tests/note-quiz-clipboard.test.js` |
-| `export-study-bundle` | Export a study bundle (backup of questions and cards) | `exportStudyBundle` | `tests/study-bundle-import.test.js`, `tests/study-bundle.test.js` |
-| `import-study-bundle` | Import a study bundle (restore questions and cards) | `importStudyBundle` | `tests/study-bundle-import.test.js` |
+| `export-study-bundle` | Export a study bundle (backup of questions and flashcards) | `exportStudyBundle` | `tests/study-bundle-import.test.js`, `tests/study-bundle.test.js` |
+| `import-study-bundle` | Import a study bundle (restore questions and flashcards) | `importStudyBundle` | `tests/study-bundle-import.test.js` |
 | `ai-undo-last-write` | AI: undo the last generated notes | `undoLastAiWriteCommand` | `tests/command-effects.test.js` |
 | `backup-settings-now` | Back up plugin settings now | `backupSettingsNow` | `tests/settings-backup.test.js` |
 | `restore-settings-backup` | Restore plugin settings from a backup | `restoreSettingsBackupCommand` | `tests/settings-backup.test.js` |
@@ -544,7 +544,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `quick-practice` | Quick Practice | `activateQuickPractice` | `tests/today.test.js`, `tests/uncited-groups.test.js` |
 | `daily-quiz` | Daily quiz | `startDailyQuiz` | `tests/daily-quiz.test.js` |
 | `dismiss-reminder` | Dismiss today's study reminder | `dismissTodayReminder` | `tests/command-effects.test.js` |
-| `study-skin` | Open study cards | `openStudySkin` | `tests/command-effects.test.js` |
+| `study-skin` | Open study flashcards | `openStudySkin` | `tests/command-effects.test.js` |
 | `retry-pending-attempts` | Retry saving offline practice results | `flushPendingAttempts` | `tests/offline.test.js` |
 | `open-calendar` | Open calendar | `activateCalendar` | `tests/calendar.test.js`, `tests/plugin.test.js` |
 | `open-calendar-week` | Calendar: open the week timetable | `openMergedCalendar` | `tests/calendar.test.js` |
@@ -571,8 +571,10 @@ the table and fails if a group, export count, command or citing test drifts.
 | `calendar-add-schedule` | Calendar: add an .ics schedule | `openCalendarImport` | `tests/command-effects.test.js` |
 | `calendar-note-next-class` | Calendar: create or open the note for the next class | `openNextClassNote` | `tests/command-effects.test.js` |
 | `calendar-export` | Calendar: export the visible schedule to .ics | `exportCalendarIcs` | `tests/calendar.test.js`, `tests/term-calendar.test.js`, `tests/week-image.test.js` |
-| `open-cards` | Open cards | `activateCards` | `tests/cards.test.js`, `tests/hotkey-audit.test.js`, `tests/hotkey-cleanup.test.js`, `tests/plugin.test.js` |
-| `ankiweb-find-deck` | Cards: find a deck on AnkiWeb | `openAnkiWebSearch` | `tests/plugin.test.js` |
+| `open-cards` | Open flashcards | `activateCards` | `tests/cards.test.js`, `tests/followups.test.js`, `tests/hotkey-audit.test.js`, `tests/hotkey-cleanup.test.js`, `tests/plugin.test.js`, `tests/today.test.js` |
+| `check-import-health` | Check import folder health (missing source files) | `checkImportHealth` | `tests/followups.test.js` |
+| `review-card-quality` | Review flashcard quality | `activateCards` | `tests/cards.test.js`, `tests/followups.test.js`, `tests/today.test.js` |
+| `ankiweb-find-deck` | Flashcards: find a deck on AnkiWeb | `openAnkiWebSearch` | `tests/plugin.test.js` |
 | `open-assignments` | Open assignments and grades | `activateAssignments` | `tests/core-values.test.js`, `tests/plugin.test.js`, `tests/today.test.js` |
 | `open-study-tools` | Open Study Tools | `activateStudyTools` | `tests/plugin.test.js` |
 | `new-cornell-note` | Cornell notes: create a note | `activateStudyTools` | `tests/plugin.test.js` |
@@ -647,19 +649,19 @@ the table and fails if a group, export count, command or citing test drifts.
 | `generate-spaced-quiz` | Spaced quiz: generate from this note | `moduleOff` | `tests/frq-review.test.js`, `tests/spaced-quiz.test.js`, `tests/views.test.js` |
 | `auto-anki-send` | Auto Anki: send this note or selection | `moduleOff` | `tests/auto-anki.test.js`, `tests/frq-review.test.js`, `tests/views.test.js` |
 | `text2anki-send` | Text2Anki: send the selection to Anki | `runText2AnkiCommand` | `tests/text2anki-openai.test.js` |
-| `new-image-occlusion` | Cards: create image occlusion cards | `openImageOcclusion` | `tests/command-effects.test.js` |
+| `new-image-occlusion` | Flashcards: create image occlusion flashcards | `openImageOcclusion` | `tests/command-effects.test.js` |
 | `practice-note` | Practice this note only | `practiceNote` | `tests/cards-extract.test.js`, `tests/plugin.test.js` |
-| `cards-extract-note` | Cards: extract cards from this note | `moduleOff` | `tests/frq-review.test.js`, `tests/plugin.test.js`, `tests/views.test.js` |
+| `cards-extract-note` | Flashcards: extract flashcards from this note | `moduleOff` | `tests/frq-review.test.js`, `tests/plugin.test.js`, `tests/views.test.js` |
 | `lecture-practice` | Generate practice from this lecture | `openTranscriptPractice` | `tests/command-effects.test.js` |
 | `generate-from-note` | AI: generate practice from this note | `openTranscriptPractice` | `tests/adaptive-parity.test.js` |
 | `weak-spot-generate` | AI: generate practice from a weak spot | `openWeakSpotGenerate` | `tests/command-effects.test.js` |
 | `verify-answer-ai` | AI: verify the answer for this note | `verifyAnswerWithAi` | `tests/answer-verification.test.js` |
 | `verify-calculation-note` | Verify this answer by calculation | `verifyAnswerByCalculation` | `tests/computed-verification.test.js` |
 | `verify-calculation-all` | Verify numeric answers by calculation | `verifyAllByCalculation` | `tests/command-effects.test.js` |
-| `tag-card-courses` | Cards: tag cards with their folder's course | `tagCardsByCourse` | `tests/cards.test.js`, `tests/plugin.test.js` |
-| `cards-grade-pending` | Cards: grade pending typed answers | `flushPendingCardGrades` | `tests/cards.test.js`, `tests/today.test.js` |
-| `import-cards` | Cards: import existing decks | `openCardImport` | `tests/plugin.test.js` |
-| `cards-import-document` | Cards: extract cards from a PDF or Markdown file | `openDocumentCards` | `tests/command-effects.test.js` |
+| `tag-card-courses` | Flashcards: tag flashcards with their folder's course | `tagCardsByCourse` | `tests/cards.test.js`, `tests/plugin.test.js` |
+| `cards-grade-pending` | Flashcards: grade pending typed answers | `flushPendingCardGrades` | `tests/cards.test.js`, `tests/today.test.js` |
+| `import-cards` | Flashcards: import existing decks | `openCardImport` | `tests/plugin.test.js` |
+| `cards-import-document` | Flashcards: extract flashcards from a PDF or Markdown file | `openDocumentCards` | `tests/command-effects.test.js` |
 | `open-study-agent` | Study agent: open the sidebar | `activateAgent` | `tests/agent-view.test.js`, `tests/chat-branches.test.js`, `tests/chat-pdf.test.js`, `tests/chat-plan.test.js`, `tests/pdf-annotator-sidebar.test.js`, `tests/quick-chat-bookmarks.test.js` |
 | `ai-quick-ask` | AI: Quick Ask about the selection or note | `openQuickAsk` | `tests/quick-ask.test.js` |
 | `study-agent-quick-chat` | Study agent: Quick Chat | `openQuickChat` | `tests/quick-chat-bookmarks.test.js` |
@@ -673,22 +675,22 @@ the table and fails if a group, export count, command or citing test drifts.
 | `study-agent-plan` | Study agent: plan a multi-step task | `promptStudyPlan` | `tests/chat-plan.test.js` |
 | `study-agent-attach-pdf` | Study agent: attach a PDF | `attachPdfToStudyAgent` | `tests/chat-pdf.test.js` |
 | `study-agent-diagnostics` | Study agent: save diagnostics bundle | `saveDiagnosticsBundle` | `tests/diagnostics-gauge.test.js` |
-| `cards-rescan-plain` | Cards: rescan plain Markdown folder | `moduleOff` | `tests/frq-review.test.js`, `tests/plain-cards.test.js`, `tests/views.test.js` |
-| `export-cards` | Cards: export to Quizlet, Anki package, Anki text, Mochi, LearnKit, Kahoot, Blooket or Gimkit | `openCardExport` | `tests/command-effects.test.js` |
-| `push-cards-anki` | Cards: push to Anki (AnkiConnect) | `openAnkiConnectPush` | `tests/command-effects.test.js` |
-| `push-vault-anki` | Cards: push the whole vault to Anki (AnkiConnect) | `openAnkiConnectPush` | `tests/anki-connect.test.js`, `tests/command-effects.test.js` |
-| `sync-cards-anki` | Cards: sync with Anki (AnkiConnect) | `openAnkiConnectPush` | `tests/command-effects.test.js` |
-| `test-couchdb` | Cards: test CouchDB connection | `testCouchDbConnection` | `tests/secret-keys.test.js` |
-| `sync-cards-couchdb` | Cards: sync review state with CouchDB | `syncCardsCouchDb` | `tests/couchdb-sync.test.js` |
+| `cards-rescan-plain` | Flashcards: rescan plain Markdown folder | `moduleOff` | `tests/frq-review.test.js`, `tests/plain-cards.test.js`, `tests/views.test.js` |
+| `export-cards` | Flashcards: export to Quizlet, Anki package, Anki text, Mochi, LearnKit, Kahoot, Blooket or Gimkit | `openCardExport` | `tests/command-effects.test.js` |
+| `push-cards-anki` | Flashcards: push to Anki (AnkiConnect) | `openAnkiConnectPush` | `tests/command-effects.test.js` |
+| `push-vault-anki` | Flashcards: push the whole vault to Anki (AnkiConnect) | `openAnkiConnectPush` | `tests/anki-connect.test.js`, `tests/command-effects.test.js` |
+| `sync-cards-anki` | Flashcards: sync with Anki (AnkiConnect) | `openAnkiConnectPush` | `tests/command-effects.test.js` |
+| `test-couchdb` | Flashcards: test CouchDB connection | `testCouchDbConnection` | `tests/secret-keys.test.js` |
+| `sync-cards-couchdb` | Flashcards: sync review state with CouchDB | `syncCardsCouchDb` | `tests/couchdb-sync.test.js` |
 | `open-due-queue` | Open today's due queue | `openDueQueue` | `tests/command-effects.test.js` |
 | `review-notes` | Review notes (whole-note queue) | `openNoteReview` | `tests/note-review.test.js`, `tests/quiz-block.test.js`, `tests/review-sidebar.test.js` |
 | `spaced-everything-review` | Spaced Everything: review due notes | `moduleOff` | `tests/frq-review.test.js`, `tests/spaced-everything.test.js`, `tests/views.test.js` |
 | `spaced-everything-log` | Spaced Everything: log review outcome for this note | `moduleOff` | `tests/frq-review.test.js`, `tests/spaced-everything.test.js`, `tests/views.test.js` |
 | `spaced-everything-capture` | Spaced Everything: capture thought | `moduleOff` | `tests/frq-review.test.js`, `tests/spaced-everything.test.js`, `tests/views.test.js` |
 | `simple-note-quiz` | Simple note quiz: start on this note | `moduleOff` | `tests/frq-review.test.js`, `tests/simple-note-quiz.test.js`, `tests/views.test.js` |
-| `generate-quiz` | Find or generate quiz questions | `openQuizGenerator` | `tests/quiz-generator-cost.test.js`, `tests/quiz-generator.test.js` |
-| `cards-export-archive` | Cards: export a portable archive | `exportCardArchive` | `tests/card-archive.test.js` |
-| `cards-import-archive` | Cards: import a portable archive | `openCardArchiveImport` | `tests/command-effects.test.js` |
+| `generate-quiz` | Find or generate quiz questions | `openQuizGenerator` | `tests/quiz-generator-cost.test.js`, `tests/quiz-generator.test.js`, `tests/today.test.js` |
+| `cards-export-archive` | Flashcards: export a portable archive | `exportCardArchive` | `tests/card-archive.test.js` |
+| `cards-import-archive` | Flashcards: import a portable archive | `openCardArchiveImport` | `tests/command-effects.test.js` |
 | `study-nudge-show` | Show today's study nudge | `maybeShowStudyNudge` | `tests/study-nudge.test.js` |
 | `course-note-from-template` | Course notes: create a note from a template | `openCourseNoteBuilder` | `tests/command-effects.test.js` |
 | `mixed-review` | Start mixed review | `openMixedReview` | `tests/mixed-review.test.js`, `tests/notice-sweep.test.js` |

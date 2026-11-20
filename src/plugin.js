@@ -194,6 +194,7 @@ const { normalizeTallySettings } = require("./tally");
 const { normalizeTextTimerSettings } = require("./text-timer");
 const { renderTextTimerBlock } = require("./text-timer-view");
 const { sleep, hashString, localDate, ensureFolder, errorDetail, str, normalizePath } = require("./util");
+const { auditImportHealth, healthSummary, sourceOf: sourcePathOfNote } = require("./import-health");
 const diagnostics = require("./diagnostics");
 const chatSkills = require("./chat-skills");
 const chatPricing = require("./chat-pricing");
@@ -718,6 +719,8 @@ class QuestionTrackerPlugin extends Plugin {
     });
     this.addCommand({ id: "calendar-export", name: "Calendar: export the visible schedule to .ics", callback: () => this.exportCalendarIcs() });
     this.addCommand({ id: "open-cards", name: "Open flashcards", callback: () => this.activateCards() });
+    this.addCommand({ id: "check-import-health", name: "Check import folder health (missing source files)", callback: () => this.checkImportHealth() });
+    this.addCommand({ id: "review-card-quality", name: "Review flashcard quality", callback: () => this.activateCards({ triage: true }) });
     const pluginPrefix = `${(this.manifest && this.manifest.id) || "mcq-tracker"}:`;
     const paletteGuardIds = ["open-cards", "open-practice-view", "open-today", "open-calendar", "open-assignments", "open-reference", "open-study-tools", "open-study-workspace", "open-task-list", "open-plan-hub", "quick-add", "import-pdf"];
     let freedPalette = false;
@@ -2978,6 +2981,149 @@ class QuestionTrackerPlugin extends Plugin {
     this.refreshViews();
   }
 
+  /** Bulk delete with a real way back: capture the text, trash it, recreate on Undo. */
+  async deleteCardsWithUndo(cards, onChange) {
+    const list = (Array.isArray(cards) ? cards : []).filter((card) => card && card.file && card.file.path);
+    if (!list.length) return 0;
+    const saved = [];
+    for (const card of list) {
+      let text = "";
+      try { text = await this.app.vault.read(card.file); } catch (e) { text = ""; }
+      saved.push({ path: card.file.path, text });
+    }
+    let removed = 0;
+    for (const card of list) {
+      try {
+        await this.deleteCardNote(card.file);
+        removed++;
+      } catch (e) { /* keep the rest going */ }
+    }
+    const label = removed === 1 ? `Deleted 1 flashcard` : `Deleted ${removed} flashcards`;
+    const notice = new Notice(`${label}.`, 30000);
+    const doc = typeof document !== "undefined" && document ? document : null;
+    if (!doc || !notice || !notice.messageEl) return removed;
+    const undoBtn = doc.createElement("button");
+    undoBtn.className = "qt-notice-undo";
+    undoBtn.textContent = "Undo";
+    const restore = async () => {
+      notice.hide();
+      let back = 0;
+      for (const row of saved) {
+        if (!row.text) continue;
+        if (this.app.vault.getAbstractFileByPath(row.path)) continue;
+        try {
+          await ensureFolder(this.app, row.path.split("/").slice(0, -1).join("/"));
+          await this.app.vault.create(row.path, row.text);
+          back++;
+        } catch (e) { /* a conflicting path is left alone */ }
+      }
+      this._cardIndex = null;
+      new Notice(back ? `Restored ${back} flashcard${back === 1 ? "" : "s"}.` : "Those flashcards are already back.", 7000);
+      if (typeof onChange === "function") onChange();
+    };
+    undoBtn.addEventListener("click", () => { undoBtn.disabled = true; restore(); });
+    notice.messageEl.appendChild(undoBtn);
+    return removed;
+  }
+
+  /** Bulk course tag: one frontmatter write per card, no other field touched. */
+  async setCardsCourse(cards, course) {
+    const list = Array.isArray(cards) ? cards : [];
+    const value = str(course).trim();
+    let changed = 0;
+    for (const card of list) {
+      if (!card || !card.file) continue;
+      const current = str(card.fm && card.fm.course).trim();
+      if (current === value) continue;
+      await this.app.fileManager.processFrontMatter(card.file, (fm) => {
+        if (value) fm.course = value;
+        else delete fm.course;
+      });
+      changed++;
+    }
+    this._cardIndex = null;
+    this.refreshViews();
+    return changed;
+  }
+
+  /** One card per missed question, so a test result turns into tomorrow's deck. */
+  async createCardsFromMissed(items, options) {
+    const rows = Array.isArray(items) ? items : [];
+    const opts = options || {};
+    let made = 0;
+    for (const item of rows) {
+      const fm = (item && item.fm) || {};
+      const front = str(fm.question || fm.prompt || (item && item.note && item.note.title) || "").trim();
+      const back = str(fm.explanation || fm.answer || "").trim();
+      if (!front) continue;
+      const created = await this.createCard({
+        front,
+        back: back || "Review this question and write the answer in your own words.",
+        deck: str(opts.deck || fm.course || fm.deck || "Test misses").trim() || "Test misses",
+        course: str(fm.course || opts.course || "").trim(),
+        title: str(fm.skill || front).slice(0, 60),
+        importSource: str(item && item.file && item.file.path),
+      });
+      if (created) made++;
+    }
+    return made;
+  }
+
+  /** Import health: which stamped source files are gone, and repairing the link. */
+  async checkImportHealth() {
+    const items = [...this.getQuestions(), ...(this.getCards ? this.getCards() : [])];
+    const exists = (path) => !!this.app.vault.getAbstractFileByPath(path);
+    const report = auditImportHealth(items, exists);
+    new Notice(healthSummary(report), 10000);
+    if (!report.missing.length) return report;
+    const modal = new (require("./import-health-modal").ImportHealthModal)(this.app, this, report);
+    modal.open();
+    return report;
+  }
+
+  /** Point every note that stamped `source` at a new vault path. */
+  async relinkImportSource(source, newPath) {
+    const target = String(newPath || "").trim().replace(/^\/+|\/+$/g, "");
+    if (!target || !this.app.vault.getAbstractFileByPath(target)) throw new Error("Pick a file that is in the vault.");
+    if (!target || !this.app.vault.getAbstractFileByPath(target)) throw new Error("Choose a file that is in the vault.");
+    const items = [...this.getQuestions(), ...(this.getCards ? this.getCards() : [])];
+    let changed = 0;
+    for (const item of items) {
+      const current = sourcePathOfNote(item && item.fm);
+      if (!item || !item.file || current !== source || current === target) continue;
+      await this.app.fileManager.processFrontMatter(item.file, (fm) => {
+        if (fm.source_pdf) fm.source_pdf = target;
+        else if (fm.source_document) fm.source_document = target;
+        else if (fm.source_note) fm.source_note = target;
+        else if (fm.source_file) fm.source_file = target;
+        changed++;
+      });
+    }
+    this._cardIndex = null;
+    new Notice(changed ? `Re-linked ${changed} note${changed === 1 ? "" : "s"} to ${target}.` : "No note needed re-linking.", 8000);
+    return changed;
+  }
+
+  /** Settings → one press back to the recommended setup (everything on, FSRS-safe defaults). */
+  async resetRecommendedSettings() {
+    const d = DEFAULT_SETTINGS;
+    this.settings.modules = { ...(d.modules || {}) };
+    this.settings.mcqEnabled = true;
+    this.settings.scheduler = "ladder";
+    this.settings.fsrsRetention = 0.9;
+    this.settings.examReady = true;
+    this.settings.hints = true;
+    this.settings.explanationDefault = true;
+    if (this.settings.cards) this.settings.cards.enabled = true;
+    if (this.settings.studyTasks) this.settings.studyTasks.enabled = true;
+    if (this.settings.calendar) this.settings.calendar.enabled = true;
+    if (this.settings.assignments) this.settings.assignments.enabled = true;
+    await this.save();
+    this.refreshViews();
+    new Notice("Restored the recommended setup. Your notes and review history were not changed.", 8000);
+    return true;
+  }
+
   /** Delete one finished import folder: the source PDF copy, pictures and question notes, in one confirm. */
   async deleteImportFolder(folder) {
     const vault = this.app.vault;
@@ -4831,8 +4977,9 @@ class QuestionTrackerPlugin extends Plugin {
     }
   }
 
-  async activateCards() {
+  async activateCards(options) {
     if (this.moduleOff("cards")) return null;
+    const opts = options || {};
     const ws = this.app.workspace;
     let leaf = ws.getLeavesOfType(VIEW_TYPE_CARDS)[0];
     if (!leaf) {
@@ -4841,6 +4988,10 @@ class QuestionTrackerPlugin extends Plugin {
     }
     if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
     await ws.revealLeaf(leaf);
+    if (leaf.view && opts.triage) {
+      leaf.view.triageOnly = true;
+      leaf.view.state = "browse";
+    }
     if (leaf.view && leaf.view.render) leaf.view.render();
     return leaf.view;
   }

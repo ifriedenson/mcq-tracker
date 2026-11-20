@@ -878,6 +878,29 @@ class TestView extends ItemView {
 
   /* ---- review */
 
+  async makeFlashcards(button, missed) {
+    if (this.busy) return;
+    this.busy = true;
+    if (button) {
+      button.disabled = true;
+      button.setText("Making flashcards...");
+    }
+    try {
+      const deck = str(this.result && this.result.course) || "Test misses";
+      const made = await this.plugin.createCardsFromMissed(missed, { deck });
+      new Notice(made ? `Made ${made} flashcard${made === 1 ? "" : "s"} in ${deck}.` : "No missed question could become a flashcard.", 8000);
+      if (button) button.setText(made ? `Made ${made} flashcard${made === 1 ? "" : "s"}` : "Nothing to make");
+    } catch (e) {
+      if (button) {
+        button.disabled = false;
+        button.setText("Make flashcards from misses");
+      }
+      new Notice(`Could not make flashcards: ${e && e.message ? e.message : e}`, 8000);
+    } finally {
+      this.busy = false;
+    }
+  }
+
   renderReview(root) {
     const p = this.plugin;
     const r = this.result;
@@ -954,6 +977,15 @@ class TestView extends ItemView {
     });
     const back = acts.createEl("button", { text: "Back to practice", cls: "qt-grow" });
     back.addEventListener("click", () => p.activateView());
+    // Close the loop: a miss becomes tomorrow's flashcard in one press.
+    const missed = this.items.filter((it) => it.mode !== "frq" && it.answered && !it.correct);
+    if (missed.length && typeof p.createCardsFromMissed === "function") {
+      const cards = acts.createEl("button", {
+        text: `Make ${missed.length} flashcard${missed.length === 1 ? "" : "s"} from misses`,
+        cls: "qt-grow",
+      });
+      cards.addEventListener("click", () => this.makeFlashcards(cards, missed));
+    }
 
     const fl = root.createDiv({ cls: "qt-chips" });
     const filters = [["all", "All"], ["missed", "Missed"], ["flagged", "Marked"], ["blank", "Blank"]];

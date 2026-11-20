@@ -710,6 +710,7 @@ class PdfImportModal extends QtModal {
     if (!list.length || this.closed || this.finishedBatch) return 0;
     this.files = list;
     this.file = list[0];
+    this.batchPicked = new Set(list);
     this.vaultDoc = "";
     this.preflight = null;
     this.preflights = [];
@@ -1418,7 +1419,17 @@ class PdfImportModal extends QtModal {
   }
 
   recordBatchResult(result, folder) {
-    this.batchResults.push({ name: this.file ? this.file.name : "File", folder, made: Number(result.made) || 0, skipped: Array.isArray(result.skipped) ? result.skipped.slice(0, 20) : [], error: "" });
+    // Keep the picked file so the summary can offer "Retry skipped" with the same input.
+    const kept = this.batchPicked && this.batchPicked.has(this.file) ? this.file : null;
+    this.batchResults.push({
+      name: this.file ? this.file.name : "File",
+      folder,
+      made: Number(result.made) || 0,
+      skipped: Array.isArray(result.skipped) ? result.skipped.slice(0, 20) : [],
+      error: "",
+      file: kept || null,
+      vaultPath: this.vaultSource || "",
+    });
     this.batchNotes += Number(result.made) || 0;
   }
 

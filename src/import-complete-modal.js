@@ -33,14 +33,26 @@ class ImportCompleteModal extends QtModal {
       text: undo ? "Import undone" : stopped ? "Import stopped" : failed ? "Import finished with problems" : "Import complete",
     });
     const failureText = failed ? ` ${failed} file${failed === 1 ? "" : "s"} failed.` : "";
+    // A silent skip erodes trust: say how many files produced nothing and why.
+    const skippedRows = results.filter((row) => !row.error && Number(row.made) > 0 ? false : !row.error && (Array.isArray(row.skipped) && row.skipped.length));
+    const noQuestions = results.filter((row) => !row.error && !Number(row.made) && !(Array.isArray(row.skipped) && row.skipped.length)).length;
+    const skipText = skippedRows.length || noQuestions
+      ? ` ${skippedRows.length + noQuestions} file${skippedRows.length + noQuestions === 1 ? " produced" : "s produced"} no notes${failed ? "" : ""}.`
+      : "";
     root.createEl("p", {
       cls: "qt-import-complete-summary",
       text: undo
         ? `Undo removed ${removed} file${removed === 1 ? "" : "s"} from this import. No imported notes were kept.`
         : (made > 0
           ? `${made} question note${made === 1 ? "" : "s"} imported from ${filesWithNotes} file${filesWithNotes === 1 ? "" : "s"}.`
-          : "No question notes were imported.") + failureText,
+          : "No question notes were imported.") + skipText + failureText,
     });
+    if (skippedRows.length || noQuestions || failed) {
+      root.createEl("p", {
+        cls: "qt-hint",
+        text: "Each file below keeps its own reason. A scanned PDF without a text layer, a file with no numbered questions, and a refused provider request all look different here.",
+      });
+    }
     if (this.opts.stoppedAfterCurrent) {
       root.createEl("p", { cls: "qt-hint", text: "The current file finished. The remaining files were not started." });
     }
@@ -91,7 +103,28 @@ class ImportCompleteModal extends QtModal {
       const del = row.createEl("button", { text: "Delete this import (PDF + questions)", cls: "qt-grow", attr: { title: "Delete the source PDF copy, pictures and question notes saved under this import folder." } });
       del.addEventListener("click", () => this.deleteImport(del, folder));
     }
+    const retryable = results.filter((row) => !row.error ? !Number(row.made) : true);
+    if (retryable.length && !undo && typeof this.plugin.openPdfImport === "function") {
+      const retry = row.createEl("button", { text: `Retry skipped (${retryable.length})`, cls: "qt-grow" });
+      retry.addEventListener("click", () => this.retrySkipped(retry, retryable));
+    }
     row.createEl("button", { text: "Close", cls: "qt-grow" }).addEventListener("click", () => this.close());
+  }
+
+  /** Re-open the importer with the files that produced nothing, when the window still holds them. */
+  async retrySkipped(button, rows) {
+    if (this.busy) return;
+    const files = rows.map((row) => row.file).filter(Boolean);
+    const vaultPaths = rows.map((row) => row.vaultPath).filter(Boolean);
+    if (!files.length && !vaultPaths.length) {
+      new Notice("Those files are no longer held by this window. Pick them again in the import window.", 9000);
+      this.plugin.openPdfImport();
+      return;
+    }
+    this.busy = true;
+    if (button) { button.disabled = true; button.setText("Re-opening..."); }
+    this.close();
+    this.plugin.openPdfImport({ files, vaultPaths });
   }
 
   async checkOpenCode(button) {

@@ -8,6 +8,7 @@
  * note types. Images and audio stay in the vault; the caller warns about them.
  */
 const { hashString, str } = require("./util");
+const { ankiTiming } = require("./anki-schedule");
 const { buildSqlite } = require("./sqlite-write");
 const { zipStore } = require("./zip-write");
 
@@ -183,7 +184,9 @@ function buildApkg(records, options) {
   for (const [name, id] of deckIds) decks[String(id)] = deckJson(id, name, nowSec);
   const notes = [];
   const cards = [];
-  let due = 1;
+  // Anki counts due dates in whole days from collection creation, so carry each
+  // note's own schedule across instead of resetting every card to new.
+  const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   let noteIndex = 0;
   for (const record of list) {
     const fm = (record && record.fm) || {};
@@ -204,8 +207,12 @@ function buildApkg(records, options) {
     const fields = cloze ? [str(body.rawFront || rawFront), rawBack] : [sides.front, sides.back];
     notes.push([noteId, `mcq-${hashString([record.file && record.file.path, fields[0], fields[1], deck].join("|"))}-${noteIndex}`, mid, nowSec, 0, tags, fields.join("\u001f"), fields[0], 0, 0, ""]);
     const orders = reversed ? [0, 1] : [0];
+    const timing = ankiTiming(fm, todayKey);
     for (const ord of orders) {
-      cards.push([noteId + ord + 1, noteId, deckId, ord, nowSec, 0, 0, 0, due++, 0, 0, 0, 0, 0, 0, 0, 0, ""]);
+      cards.push([
+        noteId + ord + 1, noteId, deckId, ord, nowSec, 0, timing.queue ? 2 : 0, timing.queue,
+        timing.due + 1, timing.ivl, 0, timing.reps, timing.lapses, 0, 0, 0, 0, "",
+      ]);
     }
     noteIndex++;
   }

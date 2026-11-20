@@ -1782,6 +1782,34 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     picker.value = page.id;
     picker.addEventListener("change", () => this.openPage(picker.value));
 
+    // Search filters the rendered page in place; no setting is re-rendered or reset.
+    const searchRow = layout.createDiv({ cls: "qt-settings-search-row" });
+    const search = searchRow.createEl("input", {
+      type: "text",
+      cls: "qt-settings-search",
+      attr: { placeholder: "Search settings", "aria-label": "Search settings on this page" },
+    });
+    const reset = searchRow.createEl("button", { text: "Reset to recommended", cls: "qt-settings-reset" });
+    const empty = layout.createDiv({ cls: "qt-settings-search-empty qt-hint" });
+    const filterItems = () => {
+      const query = search.value.trim().toLowerCase();
+      let shown = 0;
+      for (const item of layout.querySelectorAll(".setting-item")) {
+        const hit = !query || (item.textContent || "").toLowerCase().includes(query);
+        if (typeof item.toggleClass === "function") item.toggleClass("is-search-hidden", !hit);
+        else item.style.display = hit ? "" : "none";
+        if (hit) shown += 1;
+      }
+      empty.setText(query && !shown ? "No setting on this page matches that search." : "");
+    };
+    search.addEventListener("input", filterItems);
+    reset.addEventListener("click", async () => {
+      const ok = typeof confirm === "function" ? confirm("Restore the recommended setup?\n\nThis turns modules back on and resets module, scheduler and practice defaults. Your notes, cards and review history are not changed.") : true;
+      if (!ok) return;
+      await this.plugin.resetRecommendedSettings();
+      this.display();
+    });
+
     const grid = layout.createDiv({ cls: `qt-settings-grid${category.pages.length === 1 ? " is-single-page" : ""}` });
     const list = grid.createDiv({ cls: "qt-settings-pages" });
     list.setAttr("role", "tablist");

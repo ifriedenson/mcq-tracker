@@ -16,6 +16,7 @@ const { splitSourceContext } = require("./source-recall");
 const { formatInterval, intervalPreviews } = require("./interval-preview");
 const { cramIntervalLabel, cramPreviews, motherCramStart, motherCramTurn } = require("./cram");
 const { buildRetention } = require("./analytics");
+const { triageCounts, triageIssues } = require("./card-triage");
 
 const REVIEW_KEYS = { "1": "again", "2": "hard", "3": "good", "4": "easy" };
 const GRADE_LABELS = { again: "Again", hard: "Hard", good: "Good", easy: "Easy" };
@@ -68,6 +69,11 @@ class CardView extends ItemView {
     this.state = "browse"; // browse | review | summary
     this.deck = "";
     this.course = "";
+    this.triageOnly = false; // the "Needs review" filter
+    this._triageRows = null; // filled asynchronously, because a card's text is read on demand
+    this._triageKey = "";
+    this.selected = new Set(); // card paths ticked for a bulk action
+    this.windowSize = 40; // how many rows of the library are drawn at once
     this.queue = [];
     this.index = 0;
     this.current = null;
@@ -410,7 +416,7 @@ class CardView extends ItemView {
     const today = localDate();
     const now = new Date();
     const all = p.getCards();
-    const stats = cardStats(all, today, now);
+    const stats = this.statsFor(all, today, now);
     const shown = p.filteredCards({ deck: this.deck, course: this.course });
     const pending = p.pendingCardGrades ? p.pendingCardGrades() : [];
     const pendingByPath = pendingGradeCounts(pending);
@@ -514,13 +520,40 @@ class CardView extends ItemView {
     this.renderDeckPicker(filters, all, today);
     this.renderCoursePicker(filters, all);
 
-    root.createEl("h3", { cls: "qt-cards-heading", text: "In this view" });
+    // Quality triage: the same deck, filtered to cards that are hard to trust.
+    // Cards arrive without their parsed body, so the rows are built from the text once.
+    const triage = Array.isArray(this._triageRows) ? this._triageRows : [];
+    this.ensureTriage(shown);
+    const triageCount = triage.length;
+    const triageBar = root.createDiv({ cls: "qt-cards-filter" });
+    triageBar.createSpan({ cls: "qt-cards-filter-label", text: "Quality" });
+    const triageChips = triageBar.createDiv({ cls: "qt-chips" });
+    const triageChip = triageChips.createEl("button", {
+      text: triageCount ? `Needs review ${triageCount}` : "Needs review 0",
+      cls: "qt-chip",
+    });
+    if (this.triageOnly) triageChip.addClass("is-selected");
+    triageChip.addEventListener("click", () => {
+      this.triageOnly = !this.triageOnly;
+      this.selected.clear();
+      this.render();
+    });
+    if (!triageCount) triageChips.createSpan({ cls: "qt-hint", text: "No duplicates, long fronts, echoed answers or single-cloze cards." });
+
+    root.createEl("h3", { cls: "qt-cards-heading", text: this.triageOnly ? "Needs review" : "In this view" });
+    if (this.triageOnly) {
+      this.renderTriageList(root, triage, shown);
+      this.renderCardRetention(root, shown, today);
+      this.renderGraderAccuracy(root, shown, today);
+      return;
+    }
     if (!shown.length) {
       root.createDiv({ cls: "qt-hint", text: "No flashcards match this deck and course. Pick another deck or clear the course filter." });
       this.renderCardRetention(root, shown, today);
       this.renderGraderAccuracy(root, shown, today);
       return;
     }
+    this.renderBulkBar(root, shown);
     const list = root.createDiv({ cls: "qt-cards-list" });
     const preview = shown
       .slice()
@@ -530,9 +563,20 @@ class CardView extends ItemView {
         if (at !== null && bt !== null && at !== bt) return at - bt;
         return str(a.fm.next_review).localeCompare(str(b.fm.next_review)) || a.file.path.localeCompare(b.file.path);
       })
-      .slice(0, 12);
+      .slice(0, this.windowSize);
     for (const card of preview) {
       const row = list.createDiv({ cls: "qt-cards-row" });
+      const tick = row.createEl("input", {
+        type: "checkbox",
+        cls: "qt-cards-select",
+        attr: { "aria-label": `Select ${str(card.fm.card_title || card.file.basename)}`, title: "Select for a bulk action" },
+      });
+      tick.checked = this.selected.has(card.file.path);
+      tick.addEventListener("change", () => {
+        if (tick.checked) this.selected.add(card.file.path);
+        else this.selected.delete(card.file.path);
+        this.render();
+      });
       const main = row.createDiv({ cls: "qt-cards-row-main" });
       main.createDiv({ cls: "qt-cards-row-title", text: str(card.fm.card_title || card.file.basename) });
       const kindLabel = String(card.fm && card.fm.card_type).toLowerCase() === "image-occlusion" ? CARD_TYPE_LABELS["image-occlusion"] : card.kind === "vocab" ? "Vocabulary" : "Flashcard";
@@ -557,11 +601,126 @@ class CardView extends ItemView {
       });
     }
     if (shown.length > preview.length) {
-      root.createDiv({ cls: "qt-hint", text: `Showing ${preview.length} of ${shown.length}. Start a review for the rest.` });
+      const more = root.createEl("button", { text: `Show ${Math.min(this.windowSize, shown.length - preview.length)} more (${preview.length} of ${shown.length})`, cls: "qt-cards-more" });
+      more.addEventListener("click", () => {
+        this.windowSize += 40;
+        this.render();
+      });
     }
 
     this.renderCardRetention(root, shown, today);
     this.renderGraderAccuracy(root, shown, today);
+  }
+
+  /** Read each card's text once, parse it, and flag the ones worth fixing. */
+  async ensureTriage(shown) {
+    const cards = Array.isArray(shown) ? shown : [];
+    const key = `${cards.length}|${cards.map((card) => card.file.path).join("|")}`;
+    if (key === this._triageKey) return;
+    this._triageKey = key;
+    const decorated = [];
+    for (const card of cards.slice(0, 800)) {
+      let text = "";
+      const read = this.app.vault.cachedRead || this.app.vault.read;
+      try { text = read ? await read.call(this.app.vault, card.file) : ""; } catch (e) { text = ""; }
+      if (!text) continue;
+      decorated.push({ ...card, body: parseCardBody(text, card.fm) });
+    }
+    const next = triageIssues(decorated);
+    const same = JSON.stringify(next) === JSON.stringify(this._triageRows || []);
+    this._triageRows = next;
+    if (!same && !this.closed) this.render();
+  }
+
+  /** One cardStats replay per index/today, so a re-render on every tick does not re-scan the deck. */
+  statsFor(all, today, now) {
+    const key = { index: this.plugin._cardIndex || null, length: all.length, today };
+    const cached = this._statsCache;
+    if (cached && cached.index === key.index && cached.length === key.length && cached.today === key.today) return cached.value;
+    const value = cardStats(all, today, now);
+    this._statsCache = { ...key, value };
+    return value;
+  }
+
+  /** Bulk actions on ticked rows: tag a course, or delete with a real Undo. */
+  renderBulkBar(root, shown) {
+    const bar = root.createDiv({ cls: "qt-row qt-small-row qt-cards-bulk" });
+    const count = this.selected.size;
+    bar.createSpan({ cls: "qt-hint", text: count ? `${count} selected` : "Tick flashcards for a bulk action." });
+    const all = bar.createEl("button", { text: "Select all in view", cls: "qt-link" });
+    all.addEventListener("click", () => {
+      this.selected = new Set(shown.map((card) => card.file.path));
+      this.render();
+    });
+    if (!count) return;
+    const clear = bar.createEl("button", { text: "Clear", cls: "qt-link" });
+    clear.addEventListener("click", () => {
+      this.selected.clear();
+      this.render();
+    });
+    const tag = bar.createEl("button", { text: "Set course..." });
+    tag.addEventListener("click", async () => {
+      const course = typeof prompt === "function" ? prompt("Course for the selected flashcards (leave blank to clear):", this.course || "") : null;
+      if (course === null) return;
+      const cards = shown.filter((card) => this.selected.has(card.file.path));
+      const n = await this.plugin.setCardsCourse(cards, course);
+      new Notice(n ? `Tagged ${n} flashcard${n === 1 ? "" : "s"}.` : "No flashcard needed a course change.", 7000);
+      this.selected.clear();
+      this.render();
+    });
+    const del = bar.createEl("button", { text: `Delete ${count} selected`, cls: "mod-warning" });
+    del.addEventListener("click", async () => {
+      const cards = shown.filter((card) => this.selected.has(card.file.path));
+      if (!cards.length) return;
+      const ok = typeof confirm === "function" ? confirm(`Delete ${cards.length} flashcard${cards.length === 1 ? "" : "s"}?\n\nThey are moved to trash and you can Undo right away.`) : true;
+      if (!ok) return;
+      del.disabled = true;
+      const n = await this.plugin.deleteCardsWithUndo(cards, () => this.render());
+      this.selected.clear();
+      new Notice(`Deleted ${n} flashcard${n === 1 ? "" : "s"}. Undo is in the notice.`, 6000);
+      this.render();
+    });
+  }
+
+  /** The "Needs review" list: what is wrong with each flagged card, and one-tap fix. */
+  renderTriageList(root, triage, shown) {
+    if (!triage.length) {
+      root.createDiv({ cls: "qt-hint", text: "Nothing to fix in this view. Clear the filter to browse every flashcard." });
+      return;
+    }
+    const counts = triageCounts(triage);
+    const bits = [];
+    if (counts.duplicate) bits.push(`${counts.duplicate} duplicate`);
+    if (counts["too-long"]) bits.push(`${counts["too-long"]} too long`);
+    if (counts["answer-in-question"]) bits.push(`${counts["answer-in-question"]} answer in front`);
+    if (counts["single-cloze"]) bits.push(`${counts["single-cloze"]} single cloze`);
+    root.createDiv({ cls: "qt-hint", text: `${triage.length} flashcard${triage.length === 1 ? "" : "s"} to review: ${bits.join(" · ")}.` });
+    const list = root.createDiv({ cls: "qt-cards-list qt-cards-triage" });
+    for (const row of triage) {
+      const card = shown.find((entry) => entry.file.path === row.path);
+      const item = list.createDiv({ cls: "qt-cards-row qt-cards-triage-row" });
+      const main = item.createDiv({ cls: "qt-cards-row-main" });
+      main.createDiv({ cls: "qt-cards-row-title", text: row.title });
+      main.createDiv({ cls: "qt-cards-row-meta", text: row.reasons.map((reason) => reason.label).join(" · ") });
+      if (!card) continue;
+      const fix = item.createEl("button", { text: "Fix", cls: "qt-link", attr: { "aria-label": `Edit ${row.title}` } });
+      fix.addEventListener("click", () => {
+        if (typeof this.openCardModal === "function") this.openCardModal(card);
+        else this.app.workspace.getLeaf("tab").openFile(card.file);
+      });
+      const del = item.createEl("button", { text: "Delete", cls: "qt-link", attr: { "aria-label": `Delete ${row.title}` } });
+      del.addEventListener("click", async () => {
+        const ok = typeof confirm === "function" ? confirm(`Delete this flashcard?\n\n${card.file.path}`) : true;
+        if (!ok) return;
+        try {
+          await this.plugin.deleteCardNote(card.file);
+        } catch (e) {
+          new Notice("Could not delete that flashcard.", 6000);
+          return;
+        }
+        this.render();
+      });
+    }
   }
 
   /** Repeat-review accuracy for the cards in the current deck/course filter. */

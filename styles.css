@@ -18449,3 +18449,88 @@ body {
   font-size: var(--qt-type-em-xs);
   margin-left: auto;
 }
+
+/* ---- Flashcard triage, bulk selection and settings search (#3, #5, #10) ---- */
+.qt-cards-select {
+  width: 18px;
+  height: 18px;
+  margin: 0 4px 0 0;
+  flex: 0 0 auto;
+}
+.qt-cards-triage-row {
+  grid-template-columns: 1fr auto;
+}
+.qt-cards-more {
+  margin: 8px 0;
+  min-height: 32px;
+}
+.qt-settings-search-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0 4px;
+}
+.qt-settings-search {
+  flex: 1 1 220px;
+  min-height: 32px;
+}
+.qt-settings-reset {
+  min-height: 32px;
+}
+.setting-item.is-search-hidden {
+  display: none;
+}
+.qt-settings-search-empty:empty {
+  display: none;
+}
+
+/* ---- Phones: flashcards, triage, bulk bar and Cram stay usable at 360px (#11) ---- */
+@media (max-width: 420px) {
+  .qt-cards-hero,
+  .qt-cards-tools,
+  .qt-cards-filters,
+  .qt-cards-bulk,
+  .qt-cards-triage-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+  .qt-cards-hero button,
+  .qt-cards-tools button,
+  .qt-cards-bulk button,
+  .qt-cards-more {
+    width: 100%;
+    min-height: 44px;
+  }
+  .qt-cards-row {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .qt-cards-row-main {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .qt-cards-row-title,
+  .qt-cards-row-meta {
+    overflow-wrap: anywhere;
+  }
+  .qt-cards-row button,
+  .qt-cards-row .qt-link {
+    min-height: 44px;
+  }
+  .qt-cards-select,
+  .qt-task-check-wrap input[type="checkbox"] {
+    width: 22px;
+    height: 22px;
+  }
+  .qt-settings-search-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .qt-settings-search,
+  .qt-settings-reset {
+    width: 100%;
+    min-height: 44px;
+  }
+}
