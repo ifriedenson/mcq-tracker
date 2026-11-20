@@ -211,7 +211,7 @@ function buildApkg(records, options) {
     for (const ord of orders) {
       cards.push([
         noteId + ord + 1, noteId, deckId, ord, nowSec, 0, timing.queue ? 2 : 0, timing.queue,
-        timing.due + 1, timing.ivl, 0, timing.reps, timing.lapses, 0, 0, 0, 0, "",
+        timing.due + 1, timing.ivl, timing.factor, timing.reps, timing.lapses, 0, 0, 0, 0, "",
       ]);
     }
     noteIndex++;

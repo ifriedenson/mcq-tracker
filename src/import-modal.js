@@ -388,6 +388,30 @@ class PdfImportModal extends QtModal {
     this.startBatch();
   }
 
+  /**
+   * A retry re-opens the importer while its window may still be open. Hand the
+   * files it kept to that window instead of dropping them on the floor.
+   */
+  async addFilesForRetry(files) {
+    const list = (Array.isArray(files) ? files : []).filter(Boolean);
+    if (!list.length) return false;
+    const known = new Set((this.files || []).map((f) => f && f.name));
+    for (const file of list) {
+      if (known.has(file.name)) continue;
+      known.add(file.name);
+      this.files.push(file);
+    }
+    this.preflight = null;
+    this.preflights = [];
+    this.batchStarted = false;
+    this.finishedBatch = false;
+    if (!this.closed) {
+      if (importAiState(this.plugin) !== "ready") this.showPreflight();
+      else this.showSetup();
+    }
+    return true;
+  }
+
   /** Rebuild the visible screen after its panel moves into a new popout window. */
   rebuildForWindow() {
     if (this.closed || this.finishedBatch) return false;

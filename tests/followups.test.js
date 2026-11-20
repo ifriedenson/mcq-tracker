@@ -65,12 +65,34 @@ test("follow-ups: bulk tag writes the course on every selected card and leaves t
 
 test("follow-ups: bulk delete trashes every selected card and reports the count", async () => {
   const { app, plugin } = await setup([CARD("a", "one", "1"), CARD("b", "two", "2")]);
-  const trashed = [];
-  app.fileManager = { trashFile: async (file) => trashed.push(file.path) };
   const cards = plugin.getCards();
   const removed = await plugin.deleteCardsWithUndo(cards, () => {});
   assert.equal(removed, 2);
-  assert.deepEqual(trashed.sort(), ["Cards/a.md", "Cards/b.md"]);
+  assert.deepEqual((app.trashed || []).slice().sort(), ["Cards/a.md", "Cards/b.md"]);
+  assert.equal(app.files.filter((file) => /^Cards\//.test(file.path)).length, 0, "both notes left the vault");
+});
+
+test("follow-ups: a system trash that removes nothing falls back to the vault trash", async () => {
+  const { app, plugin } = await setup([CARD("a", "one", "1"), CARD("b", "two", "2")]);
+  // Obsidian on plain Linux reports success for a "system" trash and leaves the file.
+  app.fileManager = { trashFile: async () => {} };
+  app.vault.trash = async (file) => {
+    const at = app.files.indexOf(file);
+    if (at >= 0) app.files.splice(at, 1);
+  };
+  const cards = plugin.getCards();
+  const removed = await plugin.deleteCardsWithUndo(cards, () => {});
+  assert.equal(removed, 2, "a delete that removed nothing must not be counted as removed");
+  assert.equal(app.files.filter((file) => /^Cards\//.test(file.path)).length, 0);
+});
+
+test("follow-ups: a delete that cannot remove the note reports failure instead of success", async () => {
+  const { app, plugin } = await setup([CARD("a", "one", "1")]);
+  app.fileManager = { trashFile: async () => {} };
+  app.vault.trash = async () => {};
+  const removed = await plugin.deleteCardsWithUndo(plugin.getCards(), () => {});
+  assert.equal(removed, 0, "the count must follow what actually left the vault");
+  assert.ok(app.files.find((file) => file.path === "Cards/a.md"), "the note is still there");
 });
 
 /* ---------------------------------------------------------------- #7 health */

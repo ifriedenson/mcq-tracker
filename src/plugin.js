@@ -2973,11 +2973,30 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   /** Move one card note to trash. Vault writes stay in this file so the security inventory holds. */
+  /**
+   * Trash a note and prove it left. A vault set to "system" trash reports
+   * success without removing anything when the desktop has no system trash
+   * (plain Linux, network drives), so fall back to the vault's own `.trash`.
+   */
+  async trashVaultFile(file) {
+    if (!file || !file.path) throw new Error("No file was given.");
+    const path = file.path;
+    const gone = () => !this.app.vault.getAbstractFileByPath(path);
+    if (this.app.fileManager && typeof this.app.fileManager.trashFile === "function") {
+      try { await this.app.fileManager.trashFile(file); } catch (e) { /* fall through to the local trash */ }
+      if (gone()) return true;
+    }
+    if (this.app.vault && typeof this.app.vault.trash === "function") {
+      try { await this.app.vault.trash(file, true); } catch (e) { /* report below */ }
+      if (gone()) return true;
+    }
+    throw new Error("That note could not be moved to trash. Check the vault's trash setting.");
+  }
+
   async deleteCardNote(file) {
     const target = file && file.path ? file : this.app.vault.getAbstractFileByPath(String(file || ""));
     if (!target) throw new Error("No card was given.");
-    if (this.app.fileManager && typeof this.app.fileManager.trashFile === "function") await this.app.fileManager.trashFile(target);
-    else await this.app.vault.trash(target, true);
+    await this.trashVaultFile(target);
     this.refreshViews();
   }
 
@@ -3260,7 +3279,7 @@ class QuestionTrackerPlugin extends Plugin {
   async dropFlaggedAnswer(path) {
     const file = this.app.vault.getAbstractFileByPath(str(path).trim());
     if (!(file instanceof TFile)) throw new Error("That note is not in the vault.");
-    await this.app.fileManager.trashFile(file);
+    await this.trashVaultFile(file);
     this.refreshViews();
     return file.path;
   }
@@ -3316,6 +3335,12 @@ class QuestionTrackerPlugin extends Plugin {
         // screen and stall with no window at all.
         const sameRun = sessionAlive && !!wantRunId && sessionRunId === wantRunId;
         if (open && open.length && !opts.unattended) {
+          // A retry arrives while the import window is still open: hand the files
+          // it kept to that window, otherwise they are silently dropped.
+          const retryFiles = Array.isArray(opts.files) ? opts.files.filter(Boolean) : [];
+          if (retryFiles.length && sessionAlive && typeof sessionModal.addFilesForRetry === "function") {
+            sessionModal.addFilesForRetry(retryFiles).catch(() => {});
+          }
           workspace.revealLeaf(open[0]);
           return;
         }
@@ -6975,7 +7000,7 @@ class QuestionTrackerPlugin extends Plugin {
   async trashAgentFile(path) {
     const file = this.app.vault.getAbstractFileByPath(path);
     if (!(file instanceof TFile)) return false;
-    await this.app.fileManager.trashFile(file);
+    await this.trashVaultFile(file);
     return true;
   }
 
@@ -13313,7 +13338,7 @@ ${body}
       for (const path of record.paths) {
         const file = this.app.vault.getAbstractFileByPath(path);
         if (!file) continue;
-        await this.app.fileManager.trashFile(file);
+        await this.trashVaultFile(file);
         removed.push(path);
       }
     }

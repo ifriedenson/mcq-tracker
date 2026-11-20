@@ -444,3 +444,21 @@ test("stop: a hanging Direct AI request ends promptly and leaves nothing behind"
   await sleep(0);
   assert.equal(state.files.size, 0, "the late reply writes nothing");
 });
+
+test("import retry: an import window that is still open accepts the files the summary kept", async () => {
+  const state = await setup([]);
+  plugin: {
+    const plugin = state.plugin;
+    obsidian.modals.length = 0;
+    plugin.openPdfImport();
+    const modal = obsidian.modals[0];
+    assert.ok(modal instanceof T.PdfImportModal);
+    attach(modal);
+    modal.onOpen();
+    const picked = (name) => ({ name, async arrayBuffer() { return Buffer.from("%PDF-1.4"); } });
+    const accepted = await modal.addFilesForRetry([picked("bad-import.pdf"), picked("bad-import.pdf")]);
+    assert.equal(accepted, true);
+    assert.deepEqual(modal.files.map((file) => file.name), ["bad-import.pdf"], "the file is added once, not duplicated");
+    assert.equal(modal.batchStarted, false, "a retry starts from the setup screen");
+  }
+});

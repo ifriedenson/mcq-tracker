@@ -25,14 +25,17 @@ function ankiTiming(fm, today) {
   const row = fm || {};
   const reps = Math.max(0, Number(row.attempts) || 0);
   const lapses = Math.max(0, Number(row.lapses) || 0);
+  // Anki rejects an ease factor under 1300; 2500 is its own starting ease, and the
+  // plugin stores no ease, so exporting 0 would leave every imported card invalid.
+  const factor = 2500;
   const dueDay = dayNumber(row.next_review);
   const todayDay = dayNumber(today);
-  if (!reps) return { due: 0, ivl: 0, reps: 0, lapses, queue: 0 };
+  if (!reps) return { due: 0, ivl: 0, reps: 0, lapses, queue: 0, factor };
   let due = 0;
   if (dueDay !== null && todayDay !== null) due = Math.max(0, dueDay - todayDay);
   const stored = Number(row.interval_days || row.interval || 0);
   const ivl = Math.max(1, Math.round(Number.isFinite(stored) && stored > 0 ? stored : due || 1));
-  return { due, ivl, reps, lapses, queue: 2 };
+  return { due, ivl, reps, lapses, queue: 2, factor };
 }
 
 module.exports = { ankiTiming };
