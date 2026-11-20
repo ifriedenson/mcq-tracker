@@ -696,6 +696,33 @@ test("import done screen: duplicates can be trashed, and problem notes are liste
   assert.equal(r.dupes.length, 1);
 });
 
+test("import done screen: a silent system trash still removes the repeat it reports", async () => {
+  const { app, plugin, dom } = await setup();
+  const modal = Object.create(T.PdfImportModal.prototype);
+  modal.app = app;
+  modal.plugin = plugin;
+  modal.contentEl = dom.root;
+  modal.close = () => {};
+  // A Linux vault set to system trash: trashFile resolves and removes nothing.
+  app.fileManager.trashFile = async () => {};
+  const r = {
+    made: 1,
+    ai: 0,
+    noAnswer: 0,
+    skipped: [],
+    images: 0,
+    ids: [],
+    issues: [],
+    dupes: [{ path: "Questions/other/Q3.md", id: "zzz", other: "Questions/sat/Q1.md" }],
+  };
+  modal.showAgentDone(r, "Questions/other");
+  await dom.click(/Move the 1 repeat to the trash/);
+  assert.equal(app.vault.getAbstractFileByPath("Questions/other/Q3.md"), null, "the note really left the vault");
+  assert.deepEqual(app.trashCalls, [{ path: "Questions/other/Q3.md", system: true }], "it fell back to the vault's own trash");
+  assert.equal(r.made, 0);
+  assert.deepEqual(r.dupes, []);
+});
+
 test("timed test: closing Obsidian mid-test saves it, and reopening picks it up", async () => {
   const { app, plugin, dom } = await setup();
   const v = makeView(T.TestView, plugin, app, dom);

@@ -2270,7 +2270,7 @@ class PdfImportModal extends QtModal {
           const f = this.app.vault.getAbstractFileByPath(d.path);
           if (!(f instanceof TFile)) continue;
           try {
-            await this.app.fileManager.trashFile(f);
+            await this.plugin.trashVaultFile(f);
             gone++;
           } catch (e) {
             /* leave it */

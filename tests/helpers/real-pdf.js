@@ -235,6 +235,17 @@ function makeTrackedApp(notes) {
     ops.push(["mkdir", p]);
   };
 
+  // The base trashFile only edits the base app's array; a trashed file has to
+  // leave the tracked store too, or getAbstractFileByPath keeps finding it and
+  // even the smallest cleanup looks like it failed.
+  app.fileManager.trashFile = async (file) => {
+    const p = clean(file && file.path);
+    files.delete(p);
+    const at = app.files.findIndex((entry) => entry && entry.path === p);
+    if (at >= 0) app.files.splice(at, 1);
+    app.trashed.push(p);
+  };
+
   // The base app keeps its own file array; point every reader at the tracked one.
   app.vault.getFiles = () => [...files.values()];
   app.vault.getMarkdownFiles = () => [...files.values()].filter((f) => /\.md$/i.test(f.path));

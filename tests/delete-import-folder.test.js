@@ -83,3 +83,21 @@ test("a folder holding a non-import file keeps its folder", async () => {
   assert.ok(state.app.vault.getAbstractFileByPath("Questions/Unit 2"), "the leftover keeps its folder");
   assert.ok(state.app.vault.getAbstractFileByPath("Questions/Unit 2/teacher-note.txt"));
 });
+
+test("a silent system trash does not leave import files behind", async () => {
+  const { state, plugin } = await setup();
+  await state.app.vault.createFolder("Questions");
+  await state.app.vault.createFolder("Questions/Unit 3");
+  await state.app.vault.create("Questions/Unit 3/UNIT3-Q01.md", "note");
+  await state.app.vault.createBinary("Questions/Unit 3/source.pdf", new Uint8Array([1]));
+  // Plain Linux with the vault set to system trash: this resolves, removes nothing.
+  state.app.fileManager.trashFile = async () => {};
+
+  const removed = await plugin.deleteImportFolder("Questions/Unit 3");
+
+  assert.equal(removed, 2);
+  assert.equal(state.app.vault.getAbstractFileByPath("Questions/Unit 3/UNIT3-Q01.md"), null);
+  assert.equal(state.app.vault.getAbstractFileByPath("Questions/Unit 3/source.pdf"), null);
+  assert.equal(state.app.vault.getAbstractFileByPath("Questions/Unit 3"), null, "the emptied folder still goes");
+  assert.deepEqual(state.app.trashed.sort(), ["Questions/Unit 3/UNIT3-Q01.md", "Questions/Unit 3/source.pdf"]);
+});

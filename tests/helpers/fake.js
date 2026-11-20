@@ -84,6 +84,15 @@ function makeApp(notes) {
         app.folders.push(p);
       },
       on: (name, cb) => ((handlers["vault:" + name] = cb), name),
+      // The vault's own trash: what Obsidian falls back to when the desktop has
+      // no system trash. The note leaves the vault either way.
+      trash: async (f, system) => {
+        app.trashed.push(f.path);
+        app.trashCalls = app.trashCalls || [];
+        app.trashCalls.push({ path: f.path, system: !!system });
+        const at = files.findIndex((entry) => entry === f || (entry && entry.path === f.path));
+        if (at >= 0) files.splice(at, 1);
+      },
       adapter: { exists: async () => false, list: async () => ({ files: [], folders: [] }) },
     },
     metadataCache: {

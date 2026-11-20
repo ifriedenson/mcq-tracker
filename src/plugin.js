@@ -3188,9 +3188,7 @@ class QuestionTrackerPlugin extends Plugin {
     const trashOne = async (path) => {
       const file = vault.getAbstractFileByPath(path);
       if (!file) return;
-      if (vault.trash && typeof vault.trash === "function") await vault.trash(file, true);
-      else if (this.app.fileManager && typeof this.app.fileManager.trashFile === "function") await this.app.fileManager.trashFile(file);
-      else throw new Error("This vault cannot trash files right now.");
+      await this.trashVaultFile(file);
       removed++;
     };
     // Trash notes, PDFs and pictures first so a failure leaves the folder behind, not a half-empty one.
