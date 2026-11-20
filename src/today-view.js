@@ -95,17 +95,19 @@ class TodayView extends ItemView {
     }
 
     const grid = root.createDiv({ cls: "qt-today-grid" });
-    if (!visible.length) {
+    if (!visible.length && !hidden) {
+      this.renderStarterChecklist(grid, p);
+    } else if (!visible.length) {
       const panel = grid.createDiv({ cls: "qt-today-panel qt-today-panel-full" });
       const card = panel.createDiv({ cls: "qt-today-card" });
-      card.createEl("h3", { text: hidden ? "All questions are hidden" : "No questions yet" });
+      card.createEl("h3", { text: "All questions are hidden" });
       card.createDiv({
         cls: "qt-today-meta",
-        text: hidden ? "Hidden items are not in the practice queue. Restore them whenever you want them back." : "Add notes with a question_id property, or import questions from a file.",
+        text: "Hidden items are not in the practice queue. Restore them whenever you want them back.",
       });
       card
-        .createEl("button", { text: hidden ? "Manage hidden items" : "Open practice view", cls: "mod-cta qt-primary" })
-        .addEventListener("click", () => (hidden ? p.openStudyStatusManager() : p.activateView()));
+        .createEl("button", { text: "Manage hidden items", cls: "mod-cta qt-primary" })
+        .addEventListener("click", () => p.openStudyStatusManager());
     }
 
     this.renderReminder(grid, today, due, fresh);
@@ -121,6 +123,53 @@ class TodayView extends ItemView {
     this.renderDueQueue(grid);
     this.renderCards(grid);
     this.renderNext(grid, now);
+  }
+
+  /** First-run checklist: one short loop (import, generate, review) instead of settings-toggling. */
+  renderStarterChecklist(root, p) {
+    const REVIEW_GOAL = 5;
+    const questions = p.getQuestions();
+    const cards = typeof p.getCards === "function" ? p.getCards() : [];
+    const reviewed = cards.filter((c) => Number(c && c.fm && c.fm.attempts) > 0).length;
+    const picked = questions.length > 0 || cards.length > 0;
+    const generated = questions.length > 0;
+    const reviewedDone = reviewed >= REVIEW_GOAL;
+
+    const panel = root.createDiv({ cls: "qt-today-panel qt-today-panel-full" });
+    const card = panel.createDiv({ cls: "qt-today-card" });
+    card.createEl("h3", { text: "Get started in 3 steps" });
+    card.createDiv({ cls: "qt-today-meta", text: "One short loop: import a file, generate questions, review flashcards." });
+
+    const steps = [
+      {
+        title: "Pick a PDF",
+        hint: "Choose a lecture PDF to study.",
+        done: picked,
+        button: "Import a file",
+        run: () => p.openPdfImport(),
+      },
+      {
+        title: "Generate questions",
+        hint: "Turn your material into quiz questions.",
+        done: generated,
+        button: "Generate questions",
+        run: () => p.openQuizGenerator(),
+      },
+      {
+        title: "Review 5 flashcards",
+        hint: reviewedDone ? `${reviewed} reviewed \u2014 nice work.` : `${Math.min(reviewed, REVIEW_GOAL)} of ${REVIEW_GOAL} reviewed`,
+        done: reviewedDone,
+        button: "Open flashcards",
+        run: () => p.activateCards(),
+      },
+    ];
+    steps.forEach((step, i) => {
+      const row = card.createDiv({ cls: "qt-row qt-small-row" });
+      const main = row.createDiv({ cls: "qt-today-task-main" });
+      main.createDiv({ cls: "qt-today-task-title", text: `${step.done ? "\u2713 " : ""}${i + 1}. ${step.title}` });
+      main.createDiv({ cls: "qt-today-meta", text: step.hint });
+      row.createEl("button", { text: step.button, cls: "mod-cta" }).addEventListener("click", () => step.run());
+    });
   }
 
   /** The 60-second tick updates live text instead of rebuilding every panel. */

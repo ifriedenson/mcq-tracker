@@ -364,3 +364,69 @@ test("today: a registry-only mastery subject keeps its picker and empty state", 
   assert.ok(dom.texts().some((text) => /No questions in Biology yet\./.test(text)));
   assert.ok(dom.all.some((el) => el.meta && el.meta.tag === "select" && el.handlers.some((h) => h.ev === "change")), "the picker stays after selecting an empty registry subject");
 });
+
+test("today: an empty vault shows the 3-step starter checklist with inline buttons", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  const calls = [];
+  plugin.openPdfImport = async () => calls.push("import");
+  plugin.openQuizGenerator = async () => calls.push("generate");
+  plugin.activateCards = async () => calls.push("cards");
+  const dom = makeDom();
+  const view = new T.TodayView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+
+  const texts = dom.texts();
+  assert.ok(texts.includes("Get started in 3 steps"));
+  assert.ok(texts.some((t) => /1\. Pick a PDF/.test(t)));
+  assert.ok(texts.some((t) => /2\. Generate questions/.test(t)));
+  assert.ok(texts.some((t) => /3\. Review 5 flashcards/.test(t)));
+  assert.ok(texts.includes("0 of 5 reviewed"));
+
+  await dom.click("Import a file");
+  await dom.click("Generate questions");
+  await dom.click("Open flashcards");
+  assert.deepEqual(calls, ["import", "generate", "cards"]);
+});
+
+test("today: the starter checklist disappears once questions exist", async () => {
+  const app = makeApp([{ path: "Questions/q1.md", fm: { answer: "B" } }]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  const dom = makeDom();
+  const view = new T.TodayView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+
+  assert.ok(!dom.texts().includes("Get started in 3 steps"));
+  assert.ok(dom.texts().includes("Start 5 minutes"));
+});
+
+test("today: the starter checklist ticks off finished steps and counts reviewed flashcards", async () => {
+  const app = makeApp([]);
+  for (let i = 0; i < 6; i++) {
+    app.files.push({
+      path: `Cards/Bio/c${i}.md`,
+      fm: { card_id: `c${i}`, item_type: "card", deck: "Bio", attempts: i < 2 ? 1 : 0, next_review: "2020-01-01" },
+      text: `## Front\nQ${i}\n\n## Back\nA${i}`,
+    });
+  }
+  const plugin = new QT(app);
+  await plugin.onload();
+  const dom = makeDom();
+  const view = new T.TodayView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+
+  const texts = dom.texts();
+  assert.ok(texts.includes("Get started in 3 steps"));
+  assert.ok(texts.some((t) => /✓ 1\. Pick a PDF/.test(t)));
+  assert.ok(!texts.some((t) => /✓ 2\. Generate questions/.test(t)));
+  assert.ok(texts.includes("2 of 5 reviewed"));
+  assert.ok(!texts.some((t) => /✓ 3\. Review 5 flashcards/.test(t)));
+});
