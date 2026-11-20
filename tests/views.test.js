@@ -721,6 +721,10 @@ test("import done screen: a silent system trash still removes the repeat it repo
   assert.deepEqual(app.trashCalls, [{ path: "Questions/other/Q3.md", system: true }], "it fell back to the vault's own trash");
   assert.equal(r.made, 0);
   assert.deepEqual(r.dupes, []);
+  const after = dom.texts();
+  assert.ok(after.some((x) => /Moved 1 repeat to the trash/.test(x)), "the screen reports the move it made");
+  assert.ok(!after.some((x) => /The copied source and any empty folders this attempt created were removed/.test(x)), "it no longer claims the import came up empty");
+  assert.ok(after.some((x) => /The notes they repeated were left alone/.test(x)));
 });
 
 test("timed test: closing Obsidian mid-test saves it, and reopening picks it up", async () => {

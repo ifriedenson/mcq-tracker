@@ -2205,9 +2205,17 @@ class PdfImportModal extends QtModal {
     }
     const el = this.contentEl;
     el.empty();
-    el.createEl("h3", { text: r.made ? `Created ${r.made} note${r.made === 1 ? "" : "s"}` : "No notes were created" });
+    el.createEl("h3", {
+      text: r.made
+        ? `Created ${r.made} note${r.made === 1 ? "" : "s"}`
+        : r.trashedRepeats
+          ? `Moved ${r.trashedRepeats} repeat${r.trashedRepeats === 1 ? "" : "s"} to the trash`
+          : "No notes were created",
+    });
     if (r.made) {
       el.createEl("p", { text: `Saved in ${folder}, together with a copy of the original file${r.images ? ` and ${r.images} picture${r.images === 1 ? "" : "s"} cut from it (in the images folder)` : ""}.` });
+    } else if (r.trashedRepeats) {
+      el.createEl("p", { cls: "qt-hint", text: "The notes they repeated were left alone, and the rest of this import was not touched." });
     } else {
       el.createEl("p", { cls: "qt-hint", text: "The copied source and any empty folders this attempt created were removed." });
     }
@@ -2278,6 +2286,7 @@ class PdfImportModal extends QtModal {
         }
         const goneSet = new Set(made.map((d) => d.path));
         r.made = Math.max(0, r.made - gone);
+        r.trashedRepeats = (r.trashedRepeats || 0) + gone;
         r.dupes = dupes.filter((d) => !goneSet.has(d.path));
         r.issues = (r.issues || []).filter((i) => !goneSet.has(i.path));
         new Notice(`Moved ${gone} note${gone === 1 ? "" : "s"} to the trash.`);
