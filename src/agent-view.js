@@ -287,7 +287,7 @@ class AgentView extends ItemView {
           prompt: "Summarize the most important ideas in my notes and cite the notes you use.",
         },
         {
-          label: "Make cards",
+          label: "Make flashcards",
           detail: "Turn the key ideas in your notes into flashcards for review.",
           prompt: "Turn the key ideas in my notes into flashcards. Propose them for my review.",
         },

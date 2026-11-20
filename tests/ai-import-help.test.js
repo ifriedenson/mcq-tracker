@@ -54,7 +54,7 @@ test("ai import help: the explanation keeps the AI split, the data caveat and th
 
   for (const needle of [
     "Turning a PDF, PowerPoint or Word file into question notes is the one everyday step that needs AI.",
-    "Practice, timed tests, review and Today, cards, the calendar, assignments, and the reference and AP tools all work without it.",
+    "Practice, timed tests, review and Today, flashcards, the calendar, assignments, and the reference and AP tools all work without it.",
     "Direct AI uses your own provider key.",
     "The file's text is sent to that provider",
     "OpenCode is the recommended desktop setup",

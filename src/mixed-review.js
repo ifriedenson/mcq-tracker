@@ -176,7 +176,7 @@ class MixedReviewModal extends QtModal {
     card.createEl("h3", { text: "Nothing due across modules" });
     card.createDiv({
       cls: "qt-onboard-text",
-      text: "Turn on both MCQ Tracker and Cards, and add or review some questions and cards. Due work from both modules will be woven into one session.",
+      text: "Turn on both MCQ Tracker and Flashcards, and add or review some questions and flashcards. Due work from both modules will be woven into one session.",
     });
     const row = card.createDiv({ cls: "qt-row" });
     row.createEl("button", { text: "Open due queue", cls: "mod-cta" }).addEventListener("click", () => {
@@ -256,7 +256,7 @@ class MixedReviewModal extends QtModal {
     const front = box.createDiv({ cls: "qt-cards-front" });
     this.md(body.front || "*This card has no front.*", front.createDiv({ cls: "qt-cards-term" }), this.current.row.path);
     if (body.cardType === "image-occlusion") {
-      box.createDiv({ cls: "qt-hint", text: "Open this card in Cards to see the diagram mask." });
+      box.createDiv({ cls: "qt-hint", text: "Open this card in Flashcards to see the diagram mask." });
     }
     if (!this.revealed) return;
     const answer = box.createDiv({ cls: "qt-cards-box qt-cards-answer qt-mixed-answer" });

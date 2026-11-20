@@ -23,7 +23,7 @@ const STARTER_STUDY_COMMANDS = [
     prompt: "Write three short questions about {}. Do not reveal the answers until I ask for them.",
   },
   {
-    name: "Make cards",
+    name: "Make flashcards",
     prompt: "Turn {} into five flashcards. For each, write Front and Back on its own line. Keep the wording concise.",
   },
   {

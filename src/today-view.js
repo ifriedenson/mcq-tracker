@@ -463,7 +463,7 @@ class TodayView extends ItemView {
     panel.createEl("h3", { cls: "qt-today-section", text: "Due across modules" });
     panel.createDiv({
       cls: "qt-today-count",
-      text: `${counts.questions} question${counts.questions === 1 ? "" : "s"} · ${cardCount} card${cardCount === 1 ? "" : "s"} due or new${queue.deferred ? ` · ${queue.deferred} held by the daily cap` : ""}`,
+      text: `${counts.questions} question${counts.questions === 1 ? "" : "s"} · ${cardCount} flashcard${cardCount === 1 ? "" : "s"} due or new${queue.deferred ? ` · ${queue.deferred} held by the daily cap` : ""}`,
     });
     const list = panel.createDiv({ cls: "qt-due-list" });
     for (const item of queue.items) {
@@ -490,12 +490,12 @@ class TodayView extends ItemView {
       (c) => isStudyable(c.fm, today) && (!Number(c.fm.attempts) || (!!c.fm.next_review && String(c.fm.next_review).slice(0, 10) <= today))
     ).length;
     const panel = root.createDiv({ cls: "qt-today-panel" });
-    panel.createEl("h3", { cls: "qt-today-section", text: "Cards" });
+    panel.createEl("h3", { cls: "qt-today-section", text: "Flashcards" });
     const card = panel.createDiv({ cls: "qt-today-card" });
     card.createDiv({ cls: "qt-today-kicker", text: due ? "Ready to review" : "All caught up" });
     card.createDiv({
       cls: "qt-today-title",
-      text: due ? `${due} card${due === 1 ? "" : "s"} due or new` : `${cards.length} card${cards.length === 1 ? "" : "s"} in your decks`,
+      text: due ? `${due} flashcard${due === 1 ? "" : "s"} due or new` : `${cards.length} flashcard${cards.length === 1 ? "" : "s"} in your decks`,
     });
     card.createDiv({ cls: "qt-today-meta", text: "Flashcards and vocabulary share the same review schedule as your questions." });
     if (pending.length) {
@@ -528,7 +528,7 @@ class TodayView extends ItemView {
     }
     const row = card.createDiv({ cls: "qt-row" });
     row.createEl("button", { text: due ? "Review flashcards" : "Open flashcards", cls: "mod-cta qt-primary" }).addEventListener("click", () => p.activateCards());
-    if (due) row.createEl("button", { text: "New card" }).addEventListener("click", () => p.openNewCard());
+    if (due) row.createEl("button", { text: "New flashcard" }).addEventListener("click", () => p.openNewCard());
   }
 
   async gradePending(button) {

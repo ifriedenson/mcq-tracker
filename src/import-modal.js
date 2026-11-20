@@ -2649,6 +2649,24 @@ class PdfImportModal extends QtModal {
       await this.plugin.practiceFolder(folder, made);
       this.close();
     });
+    const del = row.createEl("button", { text: "Delete this import", cls: "qt-grow" });
+    del.addEventListener("click", async () => {
+      const ok = typeof confirm === "function"
+        ? confirm(`Delete this import?\n\n${folder}\n\nThis moves the source file copy, pictures and question notes to trash. This cannot be undone here (restore from Obsidian trash).`)
+        : true;
+      if (!ok) return;
+      del.disabled = true;
+      del.setText("Deleting...");
+      try {
+        await this.plugin.deleteImportFolder(folder);
+      } catch (e) {
+        new Notice("Could not delete that import. " + (e && e.message ? e.message : e), 7000);
+        del.disabled = false;
+        del.setText("Delete this import");
+        return;
+      }
+      this.close();
+    });
   }
 }
 

@@ -596,10 +596,10 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "import-service-clipboard", name: "Import notes from a pasted export", callback: () => this.importServiceClipboard() });
     this.addCommand({ id: "quick-add", name: "Quick add questions from pasted text", callback: () => this.openQuickAdd() });
     this.addCommand({ id: "import-quiz-clipboard", name: "Import a generated quiz from the clipboard", callback: () => this.openQuizClipboardImport() });
-    this.addCommand({ id: "export-study-bundle", name: "Export a study bundle (backup of questions and cards)", callback: () => this.exportStudyBundle() });
+    this.addCommand({ id: "export-study-bundle", name: "Export a study bundle (backup of questions and flashcards)", callback: () => this.exportStudyBundle() });
     this.addCommand({
       id: "import-study-bundle",
-      name: "Import a study bundle (restore questions and cards)",
+      name: "Import a study bundle (restore questions and flashcards)",
       callback: async () => {
         try {
           await this.importStudyBundle("");
@@ -677,7 +677,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "quick-practice", name: "Quick Practice", callback: () => this.activateQuickPractice() });
     this.addCommand({ id: "daily-quiz", name: "Daily quiz", callback: () => this.startDailyQuiz() });
     this.addCommand({ id: "dismiss-reminder", name: "Dismiss today's study reminder", callback: () => this.dismissTodayReminder() });
-    this.addCommand({ id: "study-skin", name: "Open study cards", callback: () => this.openStudySkin() });
+    this.addCommand({ id: "study-skin", name: "Open study flashcards", callback: () => this.openStudySkin() });
     this.addCommand({
       id: "retry-pending-attempts",
       name: "Retry saving offline practice results",
@@ -730,7 +730,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (freedPalette) {
       new Notice("Ctrl/Cmd+P now opens only Obsidian's command palette. Open flashcards is still in the palette.", 7000);
     }
-    this.addCommand({ id: "ankiweb-find-deck", name: "Cards: find a deck on AnkiWeb", callback: () => this.openAnkiWebSearch() });
+    this.addCommand({ id: "ankiweb-find-deck", name: "Flashcards: find a deck on AnkiWeb", callback: () => this.openAnkiWebSearch() });
     this.addCommand({ id: "open-assignments", name: "Open assignments and grades", callback: () => this.activateAssignments() });
     this.addCommand({ id: "open-study-tools", name: "Open Study Tools", callback: () => this.activateStudyTools() });
     this.addCommand({ id: "new-cornell-note", name: "Cornell notes: create a note", callback: () => this.activateStudyTools("cornell") });
@@ -799,7 +799,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-frq-grader", name: "AP: open free-response practice and grader", callback: () => this.openFrqGrader() });
     this.addCommand({ id: "new-frq-note", name: "AP: create a free-response note", callback: () => this.openNewFrqNote() });
     this.addCommand({ id: "import-frq-pdf", name: "AP: import free-response questions from a PDF", callback: () => this.openFrqPdfImport() });
-    this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary card", callback: () => this.openNewCard() });
+    this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary flashcard", callback: () => this.openNewCard() });
     this.addCommand({ id: "source-recall", name: "Create a source-anchored recall from selection", callback: () => this.openSourceRecall() });
     this.addCommand({ id: "generate-cards", name: "Generate flashcards from this note or selection", callback: () => this.openCardGenerator() });
     this.addCommand({
@@ -825,7 +825,7 @@ class QuestionTrackerPlugin extends Plugin {
       },
     });
     this.addCommand({ id: "text2anki-send", name: "Text2Anki: send the selection to Anki", callback: () => this.runText2AnkiCommand() });
-    this.addCommand({ id: "new-image-occlusion", name: "Cards: create image occlusion cards", callback: () => this.openImageOcclusion() });
+    this.addCommand({ id: "new-image-occlusion", name: "Flashcards: create image occlusion flashcards", callback: () => this.openImageOcclusion() });
     this.addCommand({
       id: "practice-note",
       name: "Practice this note only",
@@ -839,7 +839,7 @@ class QuestionTrackerPlugin extends Plugin {
     });
     this.addCommand({
       id: "cards-extract-note",
-      name: "Cards: extract cards from this note",
+      name: "Flashcards: extract flashcards from this note",
       checkCallback: (checking) => {
         const file = this.app.workspace.getActiveFile();
         if (!file || !/\.md$/i.test(file.path) || this.moduleOff("cards")) return false;
@@ -924,10 +924,10 @@ class QuestionTrackerPlugin extends Plugin {
       name: "Verify numeric answers by calculation",
       callback: () => this.verifyAllByCalculation(),
     });
-    this.addCommand({ id: "tag-card-courses", name: "Cards: tag cards with their folder's course", callback: () => this.tagCardsByCourse() });
+    this.addCommand({ id: "tag-card-courses", name: "Flashcards: tag flashcards with their folder's course", callback: () => this.tagCardsByCourse() });
     this.addCommand({
       id: "cards-grade-pending",
-      name: "Cards: grade pending typed answers",
+      name: "Flashcards: grade pending typed answers",
       callback: async () => {
         const r = await this.flushPendingCardGrades();
         if (r.disabled) new Notice("Turn on AI features and the Cards AI fallback first.", 6000);
@@ -936,8 +936,8 @@ class QuestionTrackerPlugin extends Plugin {
         else new Notice("No typed answers are waiting for an AI grade.");
       },
     });
-    this.addCommand({ id: "import-cards", name: "Cards: import existing decks", callback: () => this.openCardImport() });
-    this.addCommand({ id: "cards-import-document", name: "Cards: extract cards from a PDF or Markdown file", callback: () => this.openDocumentCards() });
+    this.addCommand({ id: "import-cards", name: "Flashcards: import existing decks", callback: () => this.openCardImport() });
+    this.addCommand({ id: "cards-import-document", name: "Flashcards: extract flashcards from a PDF or Markdown file", callback: () => this.openDocumentCards() });
     this.addCommand({ id: "open-study-agent", name: "Study agent: open the sidebar", callback: () => this.activateAgent() });
     this.addCommand({ id: "ai-quick-ask", name: "AI: Quick Ask about the selection or note", callback: () => this.openQuickAsk() });
     this.addCommand({ id: "study-agent-quick-chat", name: "Study agent: Quick Chat", callback: () => this.openQuickChat() });
@@ -1025,19 +1025,19 @@ class QuestionTrackerPlugin extends Plugin {
     });
     this.addCommand({
       id: "cards-rescan-plain",
-      name: "Cards: rescan plain Markdown folder",
+      name: "Flashcards: rescan plain Markdown folder",
       callback: async () => {
         if (this.moduleOff("cards")) return;
         const count = await this.refreshPlainCards({ refresh: true });
         new Notice(count ? `Found ${count} plain Markdown card${count === 1 ? "" : "s"}.` : "No plain Markdown cards found in the configured folder.");
       },
     });
-    this.addCommand({ id: "export-cards", name: "Cards: export to Quizlet, Anki package, Anki text, Mochi, LearnKit, Kahoot, Blooket or Gimkit", callback: () => this.openCardExport() });
-    this.addCommand({ id: "push-cards-anki", name: "Cards: push to Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush() });
-    this.addCommand({ id: "push-vault-anki", name: "Cards: push the whole vault to Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush({ vaultWide: true }) });
-    this.addCommand({ id: "sync-cards-anki", name: "Cards: sync with Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush({ sync: true }) });
-    this.addCommand({ id: "test-couchdb", name: "Cards: test CouchDB connection", callback: () => this.testCouchDbConnection() });
-    this.addCommand({ id: "sync-cards-couchdb", name: "Cards: sync review state with CouchDB", callback: () => this.syncCardsCouchDb() });
+    this.addCommand({ id: "export-cards", name: "Flashcards: export to Quizlet, Anki package, Anki text, Mochi, LearnKit, Kahoot, Blooket or Gimkit", callback: () => this.openCardExport() });
+    this.addCommand({ id: "push-cards-anki", name: "Flashcards: push to Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush() });
+    this.addCommand({ id: "push-vault-anki", name: "Flashcards: push the whole vault to Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush({ vaultWide: true }) });
+    this.addCommand({ id: "sync-cards-anki", name: "Flashcards: sync with Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush({ sync: true }) });
+    this.addCommand({ id: "test-couchdb", name: "Flashcards: test CouchDB connection", callback: () => this.testCouchDbConnection() });
+    this.addCommand({ id: "sync-cards-couchdb", name: "Flashcards: sync review state with CouchDB", callback: () => this.syncCardsCouchDb() });
     this.addCommand({ id: "open-due-queue", name: "Open today's due queue", callback: () => this.openDueQueue() });
     this.addCommand({ id: "review-notes", name: "Review notes (whole-note queue)", callback: () => this.openNoteReview() });
     this.addCommand({
@@ -1077,8 +1077,8 @@ class QuestionTrackerPlugin extends Plugin {
       },
     });
     this.addCommand({ id: "generate-quiz", name: "Find or generate quiz questions", callback: () => this.openQuizGenerator() });
-    this.addCommand({ id: "cards-export-archive", name: "Cards: export a portable archive", callback: () => this.exportCardArchive().catch((e) => new Notice(`Could not export the archive: ${errorDetail(e)}. Check the destination folder is writable, then try again.`, 7000)) });
-    this.addCommand({ id: "cards-import-archive", name: "Cards: import a portable archive", callback: () => this.openCardArchiveImport() });
+    this.addCommand({ id: "cards-export-archive", name: "Flashcards: export a portable archive", callback: () => this.exportCardArchive().catch((e) => new Notice(`Could not export the archive: ${errorDetail(e)}. Check the destination folder is writable, then try again.`, 7000)) });
+    this.addCommand({ id: "cards-import-archive", name: "Flashcards: import a portable archive", callback: () => this.openCardArchiveImport() });
     this.addCommand({ id: "study-nudge-show", name: "Show today's study nudge", callback: () => this.maybeShowStudyNudge(new Date()) });
     this.addCommand({ id: "course-note-from-template", name: "Course notes: create a note from a template", callback: () => this.openCourseNoteBuilder() });
     this.addCommand({ id: "mixed-review", name: "Start mixed review", callback: () => this.openMixedReview() });
@@ -1231,7 +1231,7 @@ class QuestionTrackerPlugin extends Plugin {
         if (!isCardNote(fm) && !this.moduleOff("cards")) {
           menu.addItem((item) =>
             item
-              .setTitle("Extract cards from this note")
+              .setTitle("Extract flashcards from this note")
               .setIcon("layers")
               .onClick(() => this.openCardExtract(file.path))
           );
@@ -4498,7 +4498,7 @@ class QuestionTrackerPlugin extends Plugin {
       id === "calendar"
         ? "The calendar module is off. Turn it on in Settings, Global."
         : id === "cards"
-          ? "The Cards module is off. Turn it on in Settings, Global."
+          ? "The Flashcards module is off. Turn it on in Settings, Global."
           : id === "assignments"
             ? "The Assignments module is off. Turn it on in Settings, Global."
             : id === "reference"

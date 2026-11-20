@@ -599,7 +599,7 @@ function buildDailyTasks(input) {
       id: "review",
       kind: "review",
       title: `Review ${review} due item${review === 1 ? "" : "s"}`,
-      meta: "Questions and cards due today",
+      meta: "Questions and flashcards due today",
       minutes: 5,
     });
   }

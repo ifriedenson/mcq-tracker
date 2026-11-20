@@ -323,7 +323,7 @@ test("plugin: the Cards module is opt-in and its entry points point at settings"
   plugin.settings.cards.enabled = false;
   assert.equal(plugin.cardsEnabled(), false);
   assert.equal(await plugin.activateCards(), null);
-  assert.ok(obsidian.notices.some((n) => /Cards module is off/.test(n)));
+  assert.ok(obsidian.notices.some((n) => /Flashcards module is off/.test(n)));
 });
 
 test("cards view: starts a review, flips, rates, and finishes", async () => {

@@ -49,7 +49,7 @@ const { hasSecretStorage, readSecretValue, selectApiSecret, selectPasswordSecret
 const SETTINGS_MODULES = [
   { id: "global", label: "Global", icon: "settings" },
   { id: "mcq", label: "MCQ Tracker", icon: "list-checks" },
-  { id: "cards", label: "Cards", icon: "layers" },
+  { id: "cards", label: "Flashcards", icon: "layers" },
   { id: "calendar", label: "Calendar", icon: "graduation-cap" },
   ...STUDY_TOOL_SETTINGS_MODULES,
   { id: "note-review", label: "Note review", icon: "repeat" },

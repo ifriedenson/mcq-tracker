@@ -1416,7 +1416,7 @@ class StudyWorkspaceView extends ItemView {
 
   renderRetention(root) {
     const controls = root.createDiv({ cls: "qt-study-card" });
-    controls.createEl("h3", { text: "Card retention forecast" });
+    controls.createEl("h3", { text: "Flashcard retention forecast" });
     controls.createDiv({
       cls: "qt-hint",
       text: "Read-only: this scans the cards you already have and projects their next due dates. It never changes a card schedule or moves review data out of a note.",

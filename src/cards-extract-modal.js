@@ -18,7 +18,7 @@ class CardExtractModal extends QtModal {
     const { contentEl } = this;
     const p = this.plugin;
     contentEl.empty();
-    contentEl.createEl("h3", { text: "Extract cards from this note" });
+    contentEl.createEl("h3", { text: "Extract flashcards from this note" });
 
     let preview;
     try {

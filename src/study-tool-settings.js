@@ -996,7 +996,7 @@ const PAGES = {
         set: async (plugin, v) => update(plugin, "cardArchive", cardArchive.normalizeCardArchiveSettings, { folder: v }),
       },
     ],
-    note: "Run Cards: export a portable archive and Cards: import a portable archive from the command palette.",
+    note: "Run Flashcards: export a portable archive and Flashcards: import a portable archive from the command palette.",
   },
   "study-nudge": {
     title: "Study nudge",

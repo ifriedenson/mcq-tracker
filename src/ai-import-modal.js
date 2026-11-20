@@ -58,7 +58,7 @@ class AiImportHelpModal extends QtModal {
       cls: "qt-hint",
       text:
         "Turning a PDF, PowerPoint or Word file into question notes is the one everyday step that needs AI. " +
-        "Practice, timed tests, review and Today, cards, the calendar, assignments, and the reference and AP tools all work without it.",
+        "Practice, timed tests, review and Today, flashcards, the calendar, assignments, and the reference and AP tools all work without it.",
     });
     if (this.options.preflight) {
       const checked = this.options.preflight;

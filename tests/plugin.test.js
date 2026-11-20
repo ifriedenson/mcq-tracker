@@ -134,7 +134,7 @@ test("right-clicking a question note adds Practice this note only and Extract ca
   file.basename = "Q1";
   file.fm = { question_id: "Q1" };
   app.handlers["ws:file-menu"](menu, file);
-  assert.deepEqual(items.map((item) => item.title), ["Add to review schedule", "Practice this note only", "Extract cards from this note"]);
+  assert.deepEqual(items.map((item) => item.title), ["Add to review schedule", "Practice this note only", "Extract flashcards from this note"]);
   let practised = "";
   let extracted = "";
   plugin.practiceNote = async (path) => (practised = path);

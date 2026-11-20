@@ -128,10 +128,10 @@ class CardArchiveImportModal {
   draw() {
     const el = this.modal.contentEl;
     el.empty();
-    el.createEl("h3", { text: "Import a card archive" });
+    el.createEl("h3", { text: "Import a flashcard archive" });
     el.createDiv({
       cls: "qt-hint",
-      text: "Paste the JSON written by Cards: export a portable archive. Existing notes are skipped unless you choose overwrite. Nothing is deleted.",
+      text: "Paste the JSON written by Flashcards: export a portable archive. Existing notes are skipped unless you choose overwrite. Nothing is deleted.",
     });
     const box = el.createEl("textarea", { cls: "qt-input", attr: { "aria-label": "Card archive JSON" } });
     box.rows = 12;

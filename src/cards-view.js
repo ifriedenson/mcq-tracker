@@ -102,7 +102,7 @@ class CardView extends ItemView {
   }
 
   getDisplayText() {
-    return "Cards";
+    return "Flashcards";
   }
 
   getIcon() {
@@ -568,11 +568,11 @@ class CardView extends ItemView {
   renderCardRetention(root, cards, today) {
     const retention = buildRetention(cards, today, 8);
     const box = root.createDiv({ cls: "qt-card-retention" });
-    box.createEl("h3", { cls: "qt-cards-heading", text: "Card retention" });
+    box.createEl("h3", { cls: "qt-cards-heading", text: "Flashcard retention" });
     if (!retention.attempts) {
       box.createDiv({
         cls: "qt-hint",
-        text: "Card retention appears after a card's second review. The first review of each card is excluded.",
+        text: "Flashcard retention appears after a flashcard's second review. The first review of each flashcard is excluded.",
       });
       return;
     }

@@ -685,6 +685,11 @@ test("import done screen: duplicates can be trashed, and problem notes are liste
   assert.ok(t.some((x) => /Needs a look \(1 note\)/.test(x)));
   assert.ok(t.includes("No answer (1)"));
   assert.ok(t.includes("Practice all 2 notes in this folder"));
+  assert.ok(t.includes("Delete this import"), "the done screen offers one delete for the whole import");
+  let deleted = null;
+  plugin.deleteImportFolder = async (folder) => { deleted = folder; };
+  await dom.click("Delete this import");
+  assert.equal(deleted, "Questions/other");
   await dom.click(/Move the 1 repeat to the trash/);
   assert.deepEqual(app.trashed, ["Questions/other/Q3.md"]);
   assert.equal(r.made, 1);

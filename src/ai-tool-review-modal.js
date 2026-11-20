@@ -34,7 +34,7 @@ class AiToolReviewModal extends QtModal {
     el.createEl("h3", { text: "Review Direct AI actions" });
     el.createEl("p", {
       cls: "setting-item-description",
-      text: "The Direct AI cannot touch your files. These are allow-listed proposals: a new question, a new card or one safe body section. Nothing is written until you press Apply selected.",
+      text: "The Direct AI cannot touch your files. These are allow-listed proposals: a new question, a new flashcard or one safe body section. Nothing is written until you press Apply selected.",
     });
     for (const proposal of this.proposals) {
       const box = el.createDiv({ cls: "qt-agent-file" });

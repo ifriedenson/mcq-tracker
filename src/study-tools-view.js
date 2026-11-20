@@ -90,7 +90,7 @@ class StudyToolsView extends ItemView {
     const header = wrap.createDiv({ cls: "qt-study-header qt-screen-head" });
     const title = header.createDiv({ cls: "qt-study-heading" });
     title.createEl("h2", { text: "Study Tools" });
-    title.createDiv({ cls: "qt-hint", text: "Local study workflows that do not belong in Practice, Cards, Calendar or Assignments." });
+    title.createDiv({ cls: "qt-hint", text: "Local study workflows that do not belong in Practice, Flashcards, Calendar or Assignments." });
     const nav = wrap.createDiv({ cls: "qt-study-tabs" });
     for (const tab of tabs) {
       const button = nav.createEl("button", { cls: "qt-study-tab", text: tab.label });

@@ -38,7 +38,7 @@ const QUICK_ACTIONS = [
   },
   {
     id: "cards",
-    label: "Make cards",
+    label: "Make flashcards",
     prompt: "Turn the selected material into five concise flashcards. Write Front and Back for each card.",
   },
   {

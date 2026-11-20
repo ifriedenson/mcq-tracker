@@ -27,7 +27,7 @@ const AI_FEATURES = [
   },
   {
     id: "cardGrading",
-    label: "Grade typed card answers",
+    label: "Grade typed flashcard answers",
     sends: "The card front, stored answer, your typed answer and the strictness.",
   },
   {

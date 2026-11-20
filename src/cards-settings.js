@@ -30,7 +30,7 @@ function renderCardsSettings(containerEl, plugin, redisplay, activeTab, setTab) 
   if (!plugin.cardsEnabled()) {
     section.createEl("p", {
       cls: "setting-item-description",
-      text: "The Cards module is off. Turn it on under Global, Modules; these settings are kept while it is off.",
+      text: "The Flashcards module is off. Turn it on under Global, Modules; these settings are kept while it is off.",
     });
   }
   if (current === "review") return renderReview(section, plugin, redisplay);

@@ -196,7 +196,7 @@ test("today: shows one due list when questions and cards are both due", async ()
   view.render();
 
   assert.ok(dom.texts().includes("Due across modules"));
-  assert.ok(dom.texts().some((text) => /2 questions · 1 card due or new/.test(text)));
+  assert.ok(dom.texts().some((text) => /2 questions · 1 flashcard due or new/.test(text)));
   assert.ok(dom.texts().includes("cell"));
   assert.ok(dom.texts().includes("Open due queue"));
 });

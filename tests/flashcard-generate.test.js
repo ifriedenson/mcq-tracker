@@ -161,13 +161,13 @@ test("cards view: repeat-review retention is scoped and has an empty state", asy
   view.app = app;
   view.contentEl = dom.root;
   view.render();
-  assert.ok(dom.texts().includes("Card retention"));
+  assert.ok(dom.texts().includes("Flashcard retention"));
   assert.ok(dom.texts().some((text) => /50% over 2 repeat reviews/.test(text)));
 
   const empty = makeDom();
   view.contentEl = empty.root;
   view.deck = "Chemistry";
   view.render();
-  assert.ok(empty.texts().includes("Card retention"));
-  assert.ok(empty.texts().some((text) => /appears after a card's second review/.test(text)));
+  assert.ok(empty.texts().includes("Flashcard retention"));
+  assert.ok(empty.texts().some((text) => /appears after a flashcard's second review/.test(text)));
 });
