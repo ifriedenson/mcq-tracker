@@ -64,7 +64,7 @@ These are the actual join points, not a feature inventory.
 - Rename propagation: when a registry course is renamed, add the old name to `aliases`; do not rewrite stored lecture, grade or plan data.
 - Stop duplicating folder, color and credits where the resolved course already supplies them.
 
-**Accept.** A lecture, grade and assignment using three different labels appear under one course row when the registry maps them. Renaming the registry course drops no joined data. Old data with no registry behaves exactly as today. New `tests/course-identity.test.js`; extend `tests/study-workspace.test.js`.
+**Accept.** A lecture, grade and assignment using three different labels appear under one course row when the registry maps them. Renaming the registry course drops no joined data. Old data with no registry behaves exactly as today. Extend `tests/study-workspace.test.js` and `tests/core-values.test.js`.
 
 ### G2 (P0): Exams cannot be created in-app, and the exam model is thin
 
@@ -83,7 +83,7 @@ These are the actual join points, not a feature inventory.
 - Switch every reader to `listExams()`: `examCapFor`, `studyPlan()`, `course-health.js` `planForCourse`, Today, Topic planner defaults and `generateStudyTasks`.
 - Seed the Topic planner's topics from an exam's `topics` when present.
 
-**Accept.** With no ICS feed, a manual exam caps card/question intervals before that date, shows a countdown, and appears in the study plan and course health with one date everywhere. An ICS exam and a manual exam on the same course/date show once. ICS-only users see no change. Add `tests/exams.test.js`; extend `tests/exam-schedule.test.js` and `tests/study-plan.test.js`.
+**Accept.** With no ICS feed, a manual exam caps card/question intervals before that date, shows a countdown, and appears in the study plan and course health with one date everywhere. An ICS exam and a manual exam on the same course/date show once. ICS-only users see no change. Extend `tests/exam-schedule.test.js` and `tests/study-plan.test.js`.
 
 ### G3 (P1): Study plan covers one exam and ignores lectures, readings and topics
 

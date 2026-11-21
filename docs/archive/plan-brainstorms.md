@@ -1137,7 +1137,7 @@ Names are proposals; keep existing ones unchanged.
 - [x] Unified due queue model and Today/command list across cards, vocab and MCQs — interleaved mixed-review sessions shipped in 1.55.0
 - [x] Pending-grade visibility in Today and the Cards list, with per-card Review actions and a Grade now retry control (§5.17)
 - [~] **Deferred** Optional TTS/audio — provider choice, mobile support and an audio-only commute mode still need validation. Exam-aware scheduling caps have landed (§4.3); see §5.22.4.
-- [x] **AP exam tools research** — FRQ grader, AP score calculator, and AP resource hub (§5.20); [spec](docs/ap-frq-grader-spec.md) complete.
+- [x] **AP exam tools research** — FRQ grader, AP score calculator, and AP resource hub (§5.20); [spec](../ap-frq-grader-spec.md) complete.
 - [x] **AP score calculator** — four 2027 profiles, editable cutoffs and reverse planning in Reference (§5.20) — shipped in 1.56.0; saved practice-exam history, FRQ history and per-section trends shipped in 1.58.0/1.95.0/1.96.0
 
 ### Phase 3: Calendar and courses (priority)
@@ -1193,7 +1193,7 @@ Names are proposals; keep existing ones unchanged.
 - [x] Optional AI summary and key-terms section for course notes, marked with the model and preserved when the summary fails (§5.13) — shipped in 1.44.0; OCR and auto-classification remain
 - [x] CSV export of a per-note summary and full attempt history for outside analysis (§5.15) — shipped in 1.38.0
 - [x] Anki plain-text export with deck, note type and tag columns (§5.15) — shipped in 1.39.0
-- [x] Documented property schema and Dataview examples in [docs/property-schema.md](docs/property-schema.md) (§5.15) — shipped in 1.39.0
+- [x] Documented property schema and Dataview examples in [docs/property-schema.md](../property-schema.md) (§5.15) — shipped in 1.39.0
 - [x] Optional AnkiConnect push to a running Anki desktop, with duplicate reporting (§5.15) — shipped in 1.40.0
 - [x] Optional `.apkg` import and bidirectional AnkiConnect sync (§5.15) — shipped in 1.50.0 and 1.51.0
 - [~] **Open (optional)** Pronunciation feedback for language learners

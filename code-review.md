@@ -48,7 +48,7 @@ Each item gives: problem, evidence, what to build, acceptance criteria. Suggeste
 - Rename propagation: when a registry course is renamed, add the old name to `aliases` instead of rewriting stored data.
 - Stop duplicating folder/color/credits: Subject Manager and Assignments should read them from the resolved course when present.
 
-**Accept.** A lecture for `Calc`, a grade for `MATH 101`, and an assignment for `MATH 101 - Calculus` all appear under one course row when the registry maps them. Renaming the registry course does not drop any joined data. Old data with no registry behaves exactly as today. Tests added to `tests/study-workspace.test.js` and a new `tests/course-identity.test.js`.
+**Accept.** A lecture for `Calc`, a grade for `MATH 101`, and an assignment for `MATH 101 - Calculus` all appear under one course row when the registry maps them. Renaming the registry course does not drop any joined data. Old data with no registry behaves exactly as today. Tests added to `tests/study-workspace.test.js` and `tests/core-values.test.js`.
 
 ### G2 (P0): Exams cannot be created in the app, and the exam model is thin
 
@@ -67,7 +67,7 @@ Each item gives: problem, evidence, what to build, acceptance criteria. Suggeste
 - Switch **all** readers to `listExams()`: `examCapFor`, `studyPlan()`, `course-health.js` `planForCourse`, Today, Topic planner defaults, `generateStudyTasks`.
 - Seed the Topic planner's topic list from an exam's `topics` when present.
 
-**Accept.** With no ICS feed, adding a manual exam caps card/question review intervals before that date (same behaviour as `examReviewCap` today), shows a countdown, and appears in the study plan and course health with the same date everywhere. An ICS exam and a manual exam on the same course and date show once. Existing ICS-only users see no change. Tests in `tests/exam-schedule.test.js`, `tests/study-plan.test.js`, `tests/course-health` coverage, plus new `tests/exams.test.js`.
+**Accept.** With no ICS feed, adding a manual exam caps card/question review intervals before that date (same behaviour as `examReviewCap` today), shows a countdown, and appears in the study plan and course health with the same date everywhere. An ICS exam and a manual exam on the same course and date show once. Existing ICS-only users see no change. Tests in `tests/exam-schedule.test.js`, `tests/study-plan.test.js` and `tests/study-workspace-health.test.js` coverage.
 
 ### G3 (P1): Study plan covers one exam and ignores lectures, readings and topics
 

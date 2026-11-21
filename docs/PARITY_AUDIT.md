@@ -14,7 +14,7 @@ Status meanings: **Done** = the behaviour exists and is reachable; **Partial** =
 | 1 | FSRS scheduling | **Done** | `src/fsrs.js`, vendored `src/fsrs-lib.js`, interval previews and per-deck retention. |
 | 2 | SM-2 scheduling | **Done** | `src/sm2.js`; selectable for whole notes and decks. |
 | 3 | Docked whole-note review bar | **Done** | `src/note-review-dock.js`; grade buttons preview the exact next interval, keyboard grading, skip, postpone, undo, requeue. |
-| 4 | Lapse checkpoints and leech handling | **Done** | `src/note-review-dock.js` checkpoint actions; question/card leech flags in `src/study-stats.js` and `src/leech.js`. |
+| 4 | Lapse checkpoints and leech handling | **Done** | `src/note-review-dock.js` checkpoint actions; question/card leech flags in `src/study-stats.js`. |
 | 5 | Review sidebar with estimates and time target | **Done** | `src/review-sidebar.js`, `src/review-sidebar-model.js`; sort, filter, extra time, Review, postpone, remove, Pomodoro. |
 | 6 | Review calendar with estimated completion | **Done** | `src/review-calendar.js`; month grid, selected day, next-7-day workload. |
 | 7 | Add note or folder from the file explorer | **Done** | `file-menu` handlers in `src/plugin.js`; note and folder commands. |

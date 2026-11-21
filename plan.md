@@ -25,7 +25,6 @@ Re-run both before quoting these numbers.
 | §A | What is shipped, by area, with the source that implements it |
 | §B | The three audit passes, all closed on Nov 13, 2026; four decided rows closed on Nov 6, 2026 |
 | §C | What was decided against — do not re-propose without an owner decision |
-| §§0–13 | Product spec, confirmed decisions and the licence record |
 
 Release-by-release history is **not** kept here. `docs/release-notes/` has one
 file per version, `AGENTS.md` has the current-state summary, and the plan
@@ -247,7 +246,7 @@ Legend: **MIT ✅** = MIT stated on the page or repo seen. **Verify ⚠️** = n
 | **Tasks** | Task syntax, due/scheduled/recurrence, query blocks; 3.4M downloads | MIT ✅ | [community](https://community.obsidian.md/plugins/obsidian-tasks-plugin) · [GitHub](https://github.com/obsidian-tasks-group/obsidian-tasks) |
 | **Task Center** | Built on Tasks syntax: drag tasks between dates, review estimate vs actual | MIT ✅ | [community](https://community.obsidian.md/plugins/task-center) |
 | **Hold Course** | Course, lecture, assignment, exam tracking; Today sidebar; global assignments view; grade chips | MIT, verified | [community](https://community.obsidian.md/plugins/hold-course) · [GitHub](https://github.com/LiveAQuietLife/obsidian-hold-course) |
-| **Course Command Center** | [GitHub](https://github.com/flippinhutt/CourseCommandCenter) · [Directory](https://community.obsidian.md/plugins/course-command-center) | MIT | **Local parts shipped Oct 31, 2026):** **Course health** checks missing grades, low attendance, overdue course tasks and a close exam, and **Course note templates** create lecture, unit, review, assignment and syllabus notes from editable local templates with course/title/date placeholders. Canvas LMS sync and OAuth remain gated. | Done locally (Canvas gated) |
+| **Course Command Center** | Course, assignment and exam tracking with health checks and course-note templates. **Local parts shipped Oct 31, 2026:** **Course health** checks missing grades, low attendance, overdue course tasks and a close exam, and **Course note templates** create lecture, unit, review, assignment and syllabus notes from editable local templates with course/title/date placeholders. Canvas LMS sync and OAuth remain gated. | MIT | [GitHub](https://github.com/flippinhutt/CourseCommandCenter) · [Directory](https://community.obsidian.md/plugins/course-command-center) |
 | **Subject Manager** | Subjects, projects, assignments, exams, grades | MIT, verified | [community](https://community.obsidian.md/plugins/subject-manager) |
 | **Verso** (same author as Hold Course) | Reading schedules and pace | MIT, verified | [author page](https://community.obsidian.md/users/liveaquietlife) |
 
@@ -611,8 +610,8 @@ distribution and exam-content policy are resolved by §11 O8.
 
 **Method.** Opened all six `dralkh` repositories and read each root `LICENSE` from `raw.githubusercontent.com` on Nov 1, 2026. All six are MIT; no code was copied. This section records what is new relative to §3.9.3 and §13.2, and classifies each repository instead of adding another module by default.
 
-| Repository | Licence evidence | Kind | Features not in MCQ Tracker | Verdict |
-|---|---|---|---|---|
+| Repository | Licence evidence | Kind and features not in MCQ Tracker | Verdict |
+|---|---|---|---|
 | **Spaceforge** (`dralkh/spaceforge`) | MIT, `LICENSE` read Nov 1, 2026; bundles `ts-fsrs` and `fzstd`, both MIT | Spaced-repetition and AI study suite: docked review bar, statistics, review calendar, objective tutor, cited web lookup, central data file | **R1–R4 implemented locally**; the objective tutor is gated by §11 decision 4, web lookup by §11 decision 5, and schedules stay note-backed by decision 10 |
 | **MDC** (`dralkh/mdc`) | MIT, `LICENSE` read Nov 1, 2026 | Document → Markdown CLI with an Obsidian plugin: vision image-to-text, table of contents, attachment extraction, batch conversion | **R5, conditional:** `.ppsx`/`.pptx`/`.pptm`/`.docx`/`.docm`/`.odt`/`.odp` text import ships; AI vision and legacy binary `.ppt`/`.doc` stay gated on a provider and fixtures (§3.9.6) |
 | **SeerAI** (`dralkh/seerai`) | MIT, `LICENSE` read Nov 1, 2026 | Zotero research assistant: federated search, RAG, PRISMA review, citations, OCR | Adjacent research workflow, outside the question-first exam scope; record only, no parity work |
