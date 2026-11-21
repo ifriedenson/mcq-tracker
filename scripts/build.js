@@ -19,12 +19,18 @@ const ENTRY = "main";
 
 const jsFiles = (dir) => fs.readdirSync(dir).filter((f) => f.endsWith(".js"));
 
+// Sources check out as CRLF on Windows and LF everywhere else. The bundle
+// embeds them verbatim, so it must not depend on that: otherwise the
+// committed main.js matches only the platform it was built on, and the
+// up-to-date-build test (and release CI with it) fails on the other one.
+const readLf = (file) => fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n");
+
 /**
  * The project MIT text and the third-party notices, wrapped in one comment.
  * Obsidian installs only main.js, so the notice has to travel inside it.
  */
 function bundledNotices() {
-  const read = (name) => fs.readFileSync(path.join(root, name), "utf8").trim();
+  const read = (name) => readLf(path.join(root, name)).trim();
   const body = ["MCQ Tracker license", "", read("LICENSE"), "", "Third-party notices", "", read("NOTICES.md")]
     .join("\n")
     .replace(/\*\//g, "*\\/")
@@ -66,7 +72,7 @@ function __require(name) {
   for (const id of ids) {
     const file = files.get(id);
     const vendored = id.startsWith("vendor/");
-    let code = minify(fs.readFileSync(file, "utf8"));
+    let code = minify(readLf(file));
     if (!vendored) {
       const mangled = mangleModule(code);
       if (mangled.bailed) console.warn(`build: ${id} ships minified-only (${mangled.bailed})`);

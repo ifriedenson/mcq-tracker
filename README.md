@@ -398,7 +398,7 @@ Open the command palette with `Ctrl/Cmd+P` and search **MCQ Tracker**, **Flashca
 
 ### How it compares with Spaceforge
 
-Spaceforge is a strong spaced-repetition and study suite. This comparison is based on its public README (reference `dralkh/spaceforge` at `1.2.92`) and on this 1.307.30 build. The point is to show the trade-offs, not to claim that one plugin wins every row.
+Spaceforge is a strong spaced-repetition and study suite. This comparison is based on its public README (reference `dralkh/spaceforge` at `1.2.92`) and on this 1.307.31 build. The point is to show the trade-offs, not to claim that one plugin wins every row.
 
 | Capability | MCQ Tracker | Spaceforge | The practical difference |
 | --- | --- | --- | --- |

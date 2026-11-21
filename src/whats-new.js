@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.31",
+    date: "November 20, 2026",
+    title: "Task list fits a 300px sidebar",
+    summary:
+      "The task list now lays itself out for a narrow sidebar pane instead of a wide window, and the suite passes on Windows checkouts without weakening a single assertion.",
+    highlights: [
+      {
+        title: "A pane-sized layout",
+        body: "Container queries track the sidebar itself: the header wraps into rows, Add sits beside the title, and row actions drop to their own right-aligned row under 340px.",
+      },
+      {
+        title: "Nothing clipped at 300px",
+        body: "Tags move inline into the row meta, the hint is shortened and clamped to two lines, and the dark overdue row keeps a single red edge like the light theme.",
+      },
+      {
+        title: "Green on Windows too",
+        body: "Carriage returns, line-ending splits, the vendor hash and the POSIX-only spawn and symlink probes are fixed or skipped where Windows cannot run them.",
+      },
+      {
+        title: "Nothing else moved",
+        body: "No setting key, note format, command, review schedule or network default changed in this patch.",
+      },
+    ],
+  },
+  {
     version: "1.307.30",
     date: "November 19, 2026",
     title: "PDF++ naming fully removed",
