@@ -89,13 +89,21 @@ test("apkg: decompression bounds reject oversized archives, entries and counts",
   assert.throws(() => apkg.readZipEntries(fixture, { maxTotalBytes: 10 }), /too much data/);
 });
 
-test("archive extraction: normal trees pass and symlinks are rejected", () => {
+test("archive extraction: normal trees pass and symlinks are rejected", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "mcq-extract-"));
   try {
     fs.mkdirSync(path.join(root, "nested"));
     fs.writeFileSync(path.join(root, "nested", "file.txt"), "ok");
     assert.doesNotThrow(() => T.assertExtractedTree(root));
-    fs.symlinkSync(fs.existsSync("/etc/passwd") ? "/etc/passwd" : path.join(root, "nested", "file.txt"), path.join(root, "escape"));
+    try {
+      fs.symlinkSync(fs.existsSync("/etc/passwd") ? "/etc/passwd" : path.join(root, "nested", "file.txt"), path.join(root, "escape"));
+    } catch (error) {
+      if (error && (error.code === "EPERM" || error.code === "EACCES")) {
+        t.skip("creating symlinks needs elevated privilege on this Windows host");
+        return;
+      }
+      throw error;
+    }
     assert.throws(() => T.assertExtractedTree(root), /symbolic link/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

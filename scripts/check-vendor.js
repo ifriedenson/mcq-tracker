@@ -32,6 +32,8 @@ function verify() {
     problems.push("vendor/pdf-lib.js is missing; the PDF editor cannot load");
     return { ok: false, problems, bytes: 0, sha256: "" };
   }
+  // .gitattributes keeps this file as LF (binary), so the bytes on disk are the
+  // bytes the npm tarball ships; no line-ending normalization here.
   const data = fs.readFileSync(FILE);
   if (data.length !== EXPECTED.bytes) {
     problems.push(`vendor/pdf-lib.js is ${data.length} bytes, expected ${EXPECTED.bytes} (${EXPECTED.package} ${EXPECTED.version} ${EXPECTED.file})`);

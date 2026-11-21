@@ -4,3 +4,4 @@
 # text diff, and GitHub counts the build output as the repository's main
 # language. `npm run check` still proves it matches src/.
 main.js binary -diff linguist-generated
+vendor/pdf-lib.js binary -diff

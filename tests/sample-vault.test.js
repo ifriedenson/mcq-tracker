@@ -21,7 +21,7 @@ test("the sample vault keeps five original question notes with the normal schema
   ]);
   for (const name of questions) {
     const text = fs.readFileSync(path.join(questionsDir, name), "utf8");
-    assert.match(text, /^---\n[\s\S]*?question_id: SAMPLE-/);
+    assert.match(text, /^---\r?\n[\s\S]*?question_id: SAMPLE-/);
     assert.match(text, /## Question/);
     assert.match(text, /## Answer Choices/);
     assert.match(text, /## Answer/);

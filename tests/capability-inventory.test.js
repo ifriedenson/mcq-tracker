@@ -18,7 +18,8 @@ const { makeApp } = require("./helpers/fake");
 
 const { T, Plugin: QT } = load();
 const ROOT = path.join(__dirname, "..");
-const doc = fs.readFileSync(path.join(ROOT, "docs", "capability-inventory.md"), "utf8");
+// Normalized once so Windows checkouts (CRLF on disk) parse like the LF bytes git stores.
+const doc = fs.readFileSync(path.join(ROOT, "docs", "capability-inventory.md"), "utf8").replace(/\r\n/g, "\n");
 const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
 const testFiles = fs.readdirSync(path.join(ROOT, "tests")).filter((f) => f.endsWith(".test.js")).sort();
 const testText = Object.fromEntries(testFiles.map((f) => [f, fs.readFileSync(path.join(ROOT, "tests", f), "utf8")]));

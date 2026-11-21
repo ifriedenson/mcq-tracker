@@ -142,7 +142,12 @@ function measure() {
   });
 
   const eager = [...new Set(loaded)].sort();
-  const bytes = eager.reduce((sum, id) => sum + fs.statSync(files.get(id)).size, 0);
+  // Byte size is normalized to LF so a Windows checkout (CRLF on disk) reports
+  // the same cost as the LF bytes git stores and CI measures.
+  const bytes = eager.reduce(
+    (sum, id) => sum + Buffer.byteLength(fs.readFileSync(files.get(id), "utf8").replace(/\r\n/g, "\n")),
+    0
+  );
   return { eager, modules: eager.length, bytes, total: files.size };
 }
 

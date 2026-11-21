@@ -16,6 +16,9 @@ const { load, obsidian } = require("./helpers/load");
 const { T, Plugin } = load();
 const { zipStore } = T.zipWrite;
 const EXE_NAME = process.platform === "win32" ? "opencode.exe" : "opencode";
+// The stand-in executable is a POSIX shell script, so these five spawn tests can
+// only run off Windows; node:test reports { skip } as skipped, not failed.
+const POSIX_ONLY = process.platform === "win32" ? "the stand-in executable is a POSIX shell script and cannot spawn on Windows" : false;
 
 function standIn(version) {
   return `#!/usr/bin/env node
@@ -162,7 +165,7 @@ function normalize(value) {
   return String(value).replace(/\\/g, "/");
 }
 
-test("a persisted install-folder path starts the real executable and restarts", async (t) => {
+test("a persisted install-folder path starts the real executable and restarts", { skip: POSIX_ONLY }, async (t) => {
   const { installRoot, mgr } = lifecycle(t);
   const folder = path.join(installRoot, "v1.19.5-opencode-windows-x64");
   const exe = path.join(folder, EXE_NAME);
@@ -192,7 +195,7 @@ test("a persisted install-folder path starts the real executable and restarts", 
   mgr.stop();
 });
 
-test("ensure() restarts a server whose process survived but which stopped answering", async (t) => {
+test("ensure() restarts a server whose process survived but which stopped answering", { skip: POSIX_ONLY }, async (t) => {
   const { installRoot, mgr } = lifecycle(t);
   const folder = path.join(installRoot, "v1.19.5-opencode-windows-x64");
   writeExecutable(folder, "1.19.5");
@@ -217,7 +220,7 @@ test("ensure() restarts a server whose process survived but which stopped answer
   mgr.stop();
 });
 
-test("ensure() does not start a server after the user stopped it while it was checking", async (t) => {
+test("ensure() does not start a server after the user stopped it while it was checking", { skip: POSIX_ONLY }, async (t) => {
   const { installRoot, mgr } = lifecycle(t);
   const folder = path.join(installRoot, "v1.19.5-opencode-windows-x64");
   writeExecutable(folder, "1.19.5");
@@ -269,7 +272,7 @@ test("a server that is already answering is checked without a setup notice", asy
   assert.deepEqual(lines, ["done"]);
 });
 
-test("a managed folder missing the executable repairs through a real download and starts", async (t) => {
+test("a managed folder missing the executable repairs through a real download and starts", { skip: POSIX_ONLY }, async (t) => {
   const { installRoot, mgr, plugin } = lifecycle(t);
   const empty = path.join(installRoot, "v1.19.5-opencode-windows-x64");
   fs.mkdirSync(empty, { recursive: true });
@@ -299,7 +302,7 @@ test("a managed folder missing the executable repairs through a real download an
   mgr.stop();
 });
 
-test("a locked old version folder does not fail a new install or its start", async (t) => {
+test("a locked old version folder does not fail a new install or its start", { skip: POSIX_ONLY }, async (t) => {
   const { installRoot, mgr } = lifecycle(t);
   const zip = makeZip("1.19.5");
   const port = await serveZip(t, zip);

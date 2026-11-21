@@ -14,7 +14,8 @@ const { makeApp } = require("./helpers/fake");
 
 const { T, Plugin: QT } = load();
 const ROOT = path.join(__dirname, "..");
-const doc = fs.readFileSync(path.join(ROOT, "docs", "installed-plugin-parity.md"), "utf8");
+// Normalized once so Windows checkouts (CRLF on disk) parse like the LF bytes git stores.
+const doc = fs.readFileSync(path.join(ROOT, "docs", "installed-plugin-parity.md"), "utf8").replace(/\r\n/g, "\n");
 const HEADING = "## Advanced Tables: upstream audit (pinned)";
 const SHA = "1a222399690f1d014d4bc95bf9ccf162ee5d7c75";
 const start = doc.indexOf(HEADING);

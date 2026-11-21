@@ -13,7 +13,8 @@ const editor = require("../src/pdf-editor");
 const history = require("../src/pdf-editor-history");
 
 const root = path.join(__dirname, "..");
-const record = fs.readFileSync(path.join(root, "docs", "pdf-editor-mission.md"), "utf8");
+// Normalized once so Windows checkouts (CRLF on disk) match like the LF bytes git stores.
+const record = fs.readFileSync(path.join(root, "docs", "pdf-editor-mission.md"), "utf8").replace(/\r\n/g, "\n");
 
 test("every editor capability the record records is exported by the engine", () => {
   const named = [
