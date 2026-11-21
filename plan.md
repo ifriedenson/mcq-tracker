@@ -1901,9 +1901,9 @@ Use short step cards, each with a working button:
 
 ---
 
-### 5.22 October 28 idea backlog — captured Oct 28, 2026; shipped items marked
+### 5.22 October 28 idea backlog — captured Oct 28, 2026; shipped items in the status table
 
-**Why this section exists.** On October 28, 2026 the owner supplied a second research dump: a student conversation about skipping known questions and a Quizlet-style study mode, a long list of flashcard and question sources, MIT-licensed plugins worth auditing, reference-tool ideas, and a standalone-mobile cost sketch. This section captures only ideas that are **not already specified elsewhere**. Everything here is **captured, not approved**: assign it to a phase only after the owner ranks it. The AP pilot gate (§5.20) still governs AP-specific work.
+**Why this section exists.** On October 28, 2026 the owner supplied a second research dump: a student conversation about skipping known questions and a Quizlet-style study mode, a long list of flashcard and question sources, MIT-licensed plugins worth auditing, reference-tool ideas, and a standalone-mobile cost sketch. This section captures only ideas that are **not already specified elsewhere**. Everything here that is still unshipped is **captured, not approved**: assign it to a phase only after the owner ranks it. The AP pilot gate (§5.20) still governs AP-specific work.
 
 **Already covered — do not duplicate**
 
@@ -1920,36 +1920,24 @@ Use short step cards, each with a working button:
 | Study time, focus timer and daily goals | §5.10 |
 | Standalone mobile decision, packaging and monetization | §10c |
 
-#### 5.22.1 Known, Exclude, suspend and bury — **Implemented in 1.14.0; suspend/bury in 1.93.0; per-course snooze in 1.94.0**
+**Shipped items — status table.** Ten of the fourteen subsections captured on October 28 are shipped, so their bodies are now one row each. Behaviour detail and test names live in §A, `docs/release-notes/` and the release summaries in `AGENTS.md`.
 
-**Source:** a direct student request: a button to skip or exclude a question from future use because the learner already knows it, as Quizlet allows. Do this before the larger poll items because it is small, visible and requested.
+| Idea (original subsection) | Shipped | Where it lives |
+|---|---|---|
+| **Known, Exclude, suspend and bury** (§5.22.1) | 1.14.0; suspend/bury 1.93.0; per-course snooze 1.94.0 | Practice and card review, a searchable course-filtered manager with Restore, the readable `study_status`/`known_until` properties, and `COURSE=days` overrides; a skip is never recorded as a wrong answer |
+| **Quizlet-style MCQ study skin** (§5.22.2) | 1.15.0; Learn/Test/Match 1.105.0 | An opt-in practice skin over the same question notes, queue, scheduler and analytics — flip cards and choice cards, no second note format or deck |
+| **Smaller study-flow ideas** (§5.22.4) | 1.17.0–1.55.0; PDF editor and forms 1.218.0 | Rule-based card extraction, per-note opt-in, practice-this-note, daily quiz and streak, exam question ranges, tutor roles, image occlusion, PDF sidecar annotations with pen/text/highlight and the page/form editor. Provider TTS, audio-only commute and pronunciation feedback are declined (§11 E5) |
+| **Questions at capture time** (§5.22.8) | answered | Every October 28 question is answered in §11 or shipped above; none is an open implementation request |
+| **Historical suggested order** (§5.22.9) | historical | Kept only as the order this backlog was worked in; the remaining provider and mobile items are gated in §3.9.6 and §10c |
+| **Quick add questions** (§5.22.10) | 1.128.0 | `src/quick-add.js` (pure parser) and `src/quick-add-modal.js` (preview); one paste becomes ordinary question notes with no AI or import properties |
+| **Study bundle export and import** (§5.22.11) | 1.129.0; settings backup 1.307.28; PDF++ removal 1.307.29 | `src/study-bundle*.js` — a stored ZIP of question and card notes with `manifest.json`, never overwriting a differing note; `data.json` itself is covered by the versioned setting backups beside the plugin's data folder |
+| **Kairos-style time-block planning** (§5.22.12) | 1.210.1; interaction parity 1.265.0–1.267.0; calendar layer 1.210.8 | `src/time-blocks.js` and `src/calendar-planner.js`: Day/Week/Grid/Timeline, routines, backlog, projects, two-way `## Schedule` sync, and read-only calendar context |
+| **Class Timetable 2.0 ideas 1-4** (§5.22.13) | week timetable and semester rollover 1.307.24; class-held dots and week-image export 1.307.25 | `src/calendar-week.js`, `src/class-dots.js`, `src/week-image.js`; no new schedule store, property or setting key |
+| **Doable agenda ideas 1-4** (§5.22.14) | task-edit Undo 1.307.24; agenda rail, quick-add preview and inline chips 1.307.25 | `studyTasks.agenda`, `previewTaskEntry()` in `src/task-dates.js`, `src/task-chips.js`; reading-view chips only, since Live Preview has no CodeMirror overlay |
 
-**Shipped in 1.14.0:** Known and Exclude on practice and card review, a configurable snooze, exact Undo, readable status properties, and a searchable/course-filtered manager with Restore. **Shipped in 1.93.0:** Suspend hides an item until restored, Bury hides it until tomorrow, both appear in practice, card review and the same manager, and Undo restores the exact previous state. None of these actions records an attempt or alters history. **Shipped in 1.94.0:** `COURSE=days` entries override the global Known snooze, with case-insensitive course matching and a safe global fallback.
+**Not revived.** The Class Timetable paste-a-timetable parser stays out (`.ics` import covers portal exports) and no third "today" view is proposed. Doable's boards, Gantt, time tracking, calendar sync and bundled `rrule` stay out, and a query block, if one is ever wanted, would support only the documented everyday subset and list unsupported clauses instead of silently changing results.
 
-- **Known (timed snooze)** and **Exclude (permanent)** are two separate actions, not one button with hidden behaviour.
-- **Known** hides the item for a configurable number of days (`known_days`, default 14, optionally per course). When the snooze ends the item returns as **due** by default, not as new; make that a setting.
-- **Exclude** removes the item from practice, Quick Practice, timed tests, the due queue and generated plans. Provide an **Excluded** list with search, course filter, restore and an undo toast.
-- **A skip is not a wrong answer.** Record a distinct `skipped` or `known` event, never `incorrect`. It must not reset the streak or count against accuracy unless the user explicitly enables that.
-- **Suspend** (hidden until restored) and **bury** (hidden until tomorrow) shipped in 1.93.0 using Anki semantics: suspend is indefinite, while bury ends at the next day boundary.
-- **Readable properties:** `study_status: active|known|excluded|suspended|buried`, `known_until`, `excluded_on`, `excluded_reason`, `suspended_on`, `buried_until`. Keep history append-only and Dataview-friendly.
-- **Surfaces:** practice, review, card history, Today and an excluded-items manager. A skip action should be one tap; disable it during timed tests if exam realism is preferred.
-- **Resolved decisions:** Known returns as due, does not count as an attempt, Exclude is allowed in timed tests, and per-course snooze defaults are configurable.
-
-**Acceptance criteria:** excluding an item removes it from every queue and restores it from the Excluded list; a Known item disappears for exactly the configured period and returns in the chosen state; a skip never increments incorrect attempts or breaks a streak by default; the action is undoable and writes a readable property; excluded notes stay in the vault.
-
-#### 5.22.2 Quizlet-style MCQ study skin — **Implemented in 1.15.0**
-
-**Source:** the same student request: use MCQ notes in a flashcard format, similar to a Quizlet set, while keeping Bluebook-style practice primary.
-
-**Shipped in 1.15.0:** Both readings are available as an opt-in skin under Settings, MCQ Tracker, Practice: flip cards with Still learning/Known, and choice cards with the selected letter recorded. No new note syntax or parallel queue. Since 1.105.0 the skin also has **Learn** (a missed card returns later in the session), **Test** (no feedback until a scored list at the end) and **Match** (pair prompts with answers; one review per correct pair, wrong taps record nothing).
-
-- **Same notes, two skins.** This is a view over existing MCQ notes, not a second note format or duplicate deck. One note can be practised as an exam question or a flashcard.
-- **Confirm the reading first:** **(A) flip card** — stem and stimulus on the front, correct answer and explanation on the back, learner marks known/still learning; **(B) card with choices** — tap a choice, then flip to reveal the answer and explanation.
-- **Modes to consider:** flashcards with known/still learning, Learn (adaptive order), Test (scored set), Match (term/definition pairing). Verify Quizlet's current UI before copying vocabulary or layout.
-- **Reuse the existing queue, filters, scheduler and analytics.** A session writes the same attempt/history properties as normal practice so one scheduler still owns everything.
-- **Off by default**, clearly labelled as an extra study mode, not a replacement for exam-style practice. No new note syntax: pure flashcards remain the Cards module.
-
-**Acceptance criteria:** the same MCQ note can be reviewed in exam mode and Quizlet mode without duplication; answers write normal attempt/history properties and feed the same due queue; the mode is off by default and does not change the existing practice screen; flip-card and choice-card flows are both tested before release.
+**Still open in this backlog.** One Doable item stays captured: rescheduling or cancelling a Tasks-compatible line from inside a Markdown note, which the plugin does not write. The open items in §5.22.3, §5.22.5 and §5.22.7 are unchanged by this collapse. Numbered references to §5.22.1, §5.22.2, §5.22.4 and §5.22.8–§5.22.14 in older notes now point at the rows above.
 
 #### 5.22.3 Import breadth and import quality — **M–L, split by format**
 
@@ -1971,32 +1959,6 @@ The existing importers cover Quizlet, Kahoot, Blooket, Gimkit, Anki and Spaced R
 **Rules:** prefer files users export themselves; do not scrape Quizlet, Kahoot, Blooket, Gimkit, Canvas or AnkiWeb, and review each service's terms before any unofficial API. Normalize every importer into the existing note format and scheduler; no parallel card database. Dedupe by official ID, normalized text and page/image hash; re-import offers **skip**, **update** or **create copy**. Stage the import, show the report, then commit in one batch; never half-write. Write `import_source`, `import_format`, `imported_on`, `import_batch` and `import_source_url`. Tell users they are responsible for imported content and that no copyrighted question banks are bundled. Keep one small, legally usable fixture per format in CI.
 
 **Acceptance criteria:** a generic CSV with a header imports by mapped columns and reports skipped rows; a same-length, same-prefix file edit is detected before re-import; re-importing the same deck does not duplicate by default; every imported item carries source properties and enters the normal due queue; a failed row or media file is reported without blocking the batch.
-
-#### 5.22.4 Smaller study-flow ideas — shipped (1.17.0–1.55.0)
-
-**Status: shipped.** Rule-based extraction, per-note opt-in and Practice-this-note-only
-(1.17.0); daily quiz and streak (1.18.0); image occlusion (1.19.0); tutor roles
-and slash commands (1.20.0); GIFT (1.21.0), Moodle XML/QTI (1.22.0), Mochi and
-CrowdAnki (1.23.0), import preview and duplicate handling (1.24.0); interleaved
-mixed review (1.55.0); PDF sidecar annotations (1.27.0) with the pen and
-highlighter overlay (1.52.0) and text boxes (1.53.0); the PDF page and form
-editor (1.218.0). **Closed by owner decision:** provider TTS, audio-only
-commute mode and pronunciation feedback are declined (§11 decisions 2 and E5);
-device-voice Read aloud remains.
-
-The bullets below are the original idea record; every locally implementable one
-has shipped.
-
-- **Rule-based card extraction (no AI).** Build Q/A pairs from headings, "X means…" sentences, colon and bullet definitions, two-column tables, highlights and existing cloze marks. AI can improve or expand the result, but the rule-based path must work with AI off. *(Source: FlashCard plugin.)*
-- **Per-note auto-card opt in/out.** A `flashcards: true|false` property so a lecture note is never scraped into cards by surprise. Pair it with a preview before writing.
-- **Practice this note only.** Scope a session to one note or one heading, useful after a lecture and for debugging a question. Reuse the existing filter machinery; do not add a second queue.
-- **Daily quiz plus streak.** Generate a small daily MCQ set from chosen folders, with a streak separate from study-time streaks. *(Source: VaultQuiz.)* Keep it opt-in and local; no notification spam.
-- **Exam question range.** Run questions 1–20 (or any range) from a larger set for Bluebook-style section practice. *(Source: CBT Exam Simulator.)* Add it to timed-test blueprints (§5.6).
-- **Tutor role presets.** Private Tutor, Socratic Tutor and Language Partner roles, plus `/guide`, `/quiz`, `/confuse`, `/gap`, `/predict`, `/feynman` and `/mock` commands. This extends §5.18; it is not a second assistant.
-- **Image occlusion cards.** One card per mask on a diagram, useful for anatomy, biology and maps. Add it to the card types in §5.7. LearnKit, Osteon, Flashcard Studio and Decks are references; verify their licenses, and note that LearnKit's Anki import currently skips occlusion cards.
-- **Audio-only commute mode.** Read due cards, questions and explanations aloud in a hands-free queue, with sentence highlighting and optional caching. TTS is gated by §11 decision 2; this is the UX to evaluate if it returns. Provider (API) voices are the realistic route on Android because a plugin cannot rely on a system speech engine there. *(Sources: Voice Aloud, Murmur, Voice Notes, Apple TTS.)*
-- **Ask-before-build UI gate.** For an ambiguous UI request, collect a screenshot, sketch or reference before changing the UI; ask and get answers first. This applies especially to the Quizlet-style skin (§5.22.2) and the reference panel (§5.22.5).
-- **PDF editor.** Decide between integrating an existing MIT PDF plugin and building a small annotator. The useful scope is pen/highlighter, text boxes, form filling, highlights with notes, and a sidecar `annotations.md` keyed by a file hash. Desktop-first; mobile editing is limited. Pen/highlighter, text boxes and highlights with notes shipped in 1.52.0–1.54.0; form filling and a fuller PDF editor remain. This is desktop-first and must not delay scanning (§5.13.1). *(Candidates: Pdftion, Freedraw PDF, PDF Writer, Handwritten Notes, PDF Editor, PDF Ink, Local PDF Annotator.)*
 
 #### 5.22.5 Reference panel — **M; optional module**
 
@@ -2058,133 +2020,6 @@ One optional **Reference** module (off by default) for tools students expect bes
 - **Pick a measurable trigger.** For example, repeated requests from users who do not use Obsidian, or a retention/download threshold. Do not start on enthusiasm alone.
 - **Costs to re-check:** Apple Developer Program about $99/year; Google Play about $25 one-time; Expo EAS builds iOS from Windows but its free allowance changes; store commission is generally 15% for small developers and 30% above the threshold, with digital goods usually requiring in-app purchase; external payment links are in legal flux. A web/PWA test avoids store fees and review cycles.
 - **License fit.** The MIT core can be reused. Everything excluded in §5.22.6 stays excluded, including GPL code and the non-commercial Desmos key. Check every mobile dependency's license in CI.
-
-#### 5.22.8 Questions at capture time (historical)
-
-These October 28 questions are retained for history. Current answers are in §11 and in the shipped features above; none is an open implementation request.
-
-1. **Known vs exclude — shipped.** Known snoozes an item for a course-specific or global period; Exclude keeps it in the vault but removes it from practice queues until restored. Both are note-level study controls, not scheduler writes.
-2. **Quizlet-style MCQs — shipped.** The choice study skin reuses existing question notes and the existing queue; no separate card store is added.
-3. **PDF editor — shipped in 1.218.0 after the owner reversed E4.** Page operations, content editing (typed text, vault images, page numbers, cropping, watermarks, document properties), splitting every N pages, AcroForm filling and authoring (new text fields, checkboxes, dropdowns and radio groups) and annotation flattening use the vendored MIT pdf-lib 1.17.1, with every mutation one undo step in a bounded, byte-level history (`src/pdf-editor-history.js`) that returns the opened file byte-for-byte; every save is a new copy and clears the history. XFA forms and rewording existing page text remain out of scope and are refused rather than approximated.
-4. **Analytics — shipped.** The Insights view and the opt-in attempt log cover all-progress review without a separate service.
-5. **Import formats — shipped.** GIFT, Moodle XML, QTI, Mochi Markdown, CrowdAnki, zipped Canvas/Blackboard QTI and LearnKit import paths are implemented; unsupported variants are reported instead of silently skipped.
-6. **Desmos — resolved.** No Desmos key is bundled; the local graphing and reference tools are the supported route.
-7. **Reference panel — shipped.** Graphing, periodic-table, formula-sheet and unit-conversion reference surfaces are available and stay out of timed tests by default.
-8. **Mobile — owner policy O11.** No standalone app starts until a measurable demand or retention trigger is agreed; a PWA test is the cheaper first step.
-9. **Licensing — O12 / O13.** The recommended default is owner sign-off on copied files and `NOTICES.md`, but O12 is not recorded yet. No similarity scan runs while the plugin is free, and a recorded scan is required before commercial distribution.
-
-#### 5.22.9 Historical suggested order (not an open request)
-
-Kept for reference; most entries are shipped and the remaining provider or mobile items are gated in §3.9.6.
-
-1. **Known and Exclude** — small, direct student request, improves every queue.
-2. **Generic CSV/TSV import plus import report and dedupe** — highest reach for the least format-specific work.
-3. **Quizlet-style MCQ skin** — reuses existing notes and the existing queue.
-4. **Rule-based card extraction, per-note opt-in, practice-this-note-only** — creation and control without AI.
-5. **Daily quiz/streak, exam question range, tutor role presets** — small study-flow wins.
-6. **Image occlusion and audio-only commute mode** — card depth once TTS/provider support is validated.
-7. **Reference panel** — useful but optional; keep it out of timed tests by default.
-8. **PDF editor** — integrate first; build only if integration is inadequate.
-9. **Import polish** — GIFT, Moodle XML, QTI, Mochi Markdown and CrowdAnki are implemented, with preview/report/update-copy and per-row/.apkg media reporting in 1.92.0. Canvas/Blackboard variants remain.
-10. **Standalone mobile prep** — keep the core portable now; start the app only when the trigger is met.
-
-#### 5.22.10 Quick add questions (lighter multi-question authoring) — **Shipped in 1.128.0**
-
-**Source:** §13.9. The owner ranked this item on Oct 30, 2026. One note per question is the right storage model but a slow way to enter a set, while Omniscient and Note Quiz Engine let a learner write several questions in one place.
-
-**What shipped:** a **Quick add questions** command opens a paste box. Each block becomes one ordinary question note, and nothing is written until the preview is confirmed.
-
-```text
-Q: Which gas do plants take in during photosynthesis?
-A. Oxygen
-B. Carbon dioxide
-Answer: B
-Why: Photosynthesis consumes carbon dioxide.
-Course: Biology
-Skill: photosynthesis
-Difficulty: easy
-```
-
-- **One grammar, no new note format.** `Q:` starts a block; `A.`–`H.` lines are choices; `Answer:`, `Key:` or `Correct:` takes a letter, a choice's own text or a set such as `A, C`; `Why:`/`Explanation:` is the rationale; `Stimulus:`, `Course:`, `Skill:`, `Difficulty:`, `Unit:` and `Test:` are optional. A block with no choices is written as an SPR note. Wrapped question or explanation lines continue the field above them, and `---` separates blocks.
-- **Preview first.** The dialog live-parses the paste and shows how many questions are ready, every block that needs attention with its reason, and a compact list of the items it will write. The Create button is disabled until at least one block is valid.
-- **Ordinary notes.** Each write produces the same properties and headings as a hand-written note (`question_id`, `question_type`, `choices`, `answer`, optional course/skill/unit/difficulty/test, `## Stimulus`, `## Question`, `## Answer Choices`, `## Answer`, `## My Notes`). There is no AI property, no import property and no pre-filled tracking state, so the item enters the normal queue, filters, scheduler and analytics.
-- **Titles and collisions.** The title comes from the question text (60 characters, unsafe filename characters removed). A repeated title gets ` 2`, ` 3` and so on, and `question_id` matches the file name, exactly like AI-drafted questions.
-- **Small surface.** `src/quick-add.js` is a pure parser and note builder; `src/quick-add-modal.js` is the preview dialog; `plugin.createQuickAddQuestions` does the writing. No dependency, no network request and no vault-wide scan. The command is hidden and writing is refused when the MCQ Tracker module is off.
-
-**Acceptance:** a two-block paste writes exactly two notes in the chosen folder with the right type, choices and key; a block with one choice, a key outside the choices or no key is reported and not written while the valid blocks still are; `Answer: B`, `Answer: b`, `Answer: Carbon dioxide` and `Answer: A, C` resolve correctly; an SPR block writes no choices section; a repeated title is numbered instead of overwritten; every written note parses through `parseNote` and carries no AI or import properties.
-
-#### 5.22.11 Study bundle export and import (portable backup) — **Shipped in 1.129.0**
-
-**Source:** §5.22.7 and the mobile-prep checklist. A ZIP of Markdown questions, cards and their history gives users a restore path that does not depend on Obsidian Sync or a proprietary store.
-
-**What shipped:** **Export a study bundle** writes one stored ZIP at the vault root (`mcq-study-bundle-YYYY-MM-DD.zip`, numbered on collision) containing:
-
-- `questions/<original vault path>.md` and `cards/<original vault path>.md`, copied byte-for-byte so `history`, `next_review`, `srs`, review counters, source links and display properties survive.
-- `manifest.json` with the schema number, plugin version, export date, counts and the original-path mapping.
-- `README.md` explaining what the bundle is and how to restore it.
-
-Unsafe path segments are cleaned, `..` hops are dropped, and repeated names get a numbered suffix. Only notes in the configured question folder are included; cards are included when the Cards module is on. Images, audio and PDFs stay in the vault and are not bundled. Nothing is uploaded, no dependency is added, and the archive uses the existing stored-ZIP writer.
-
-**Acceptance:** a vault with two questions and one card writes a ZIP whose entries are `README.md`, `manifest.json`, both question notes and the card note; note text matches the vault exactly; a bundle excludes questions outside the question folder and cards when the module is off; a collision or `..` path cannot escape its folder; an empty vault writes nothing.
-
-**Import shipped in the same change:** **Import a study bundle** reads the newest `mcq-study-bundle-*.zip` at the vault root, validates `manifest.json` (schema 1, plugin id, complete note list) and never partially writes on a corrupt manifest. Restore policy:
-
-- Missing note → create at its original vault path, or under the configured question/card folder when the original path is unavailable.
-- Existing note with identical text → reported as already there; not duplicated.
-- Existing note with different text → reported as a conflict; never overwritten.
-- Absolute paths, `..` hops and unsafe characters → rejected, never redirected outside the vault.
-- Cards → skipped while the Cards module is off.
-- Manifest-level failures → the whole import stops before any write.
-
-**Shipped in 1.307.28:** versioned settings backups cover what the bundle does not — `data.json` itself. **Back up plugin settings now** writes a timestamped copy beside `data.json` (the plugin's own data folder, never the vault), keeps the newest ten and prunes the rest; **Restore plugin settings from a backup** backs up the current settings first, reloads through the normal settings load so every normalization runs again, refuses a corrupt file before writing anything, and offers a newest-first picker when several backups exist. Pinned by `tests/settings-backup.js`. The same release lazy-loads the service-export importers, freeing one eager module and about 20 KB of the startup budget. **Shipped in 1.307.29:** the embedded PDF++ subsystem is removed (bundle, stylesheet, host, settings page, ribbon and lifecycle wiring, plus its tests and notices entry), closing the Sync-cap item: `main.js` is about 4.3 MB against the 5 MB limit with the 356-of-380 startup budget still holding. Pinned by the updated settings-navigation, hub-views, consolidation and inventory tests.
-
-**Import acceptance:** export→import gives byte-identical notes at the same paths; a different existing note is left untouched and counted as a conflict; identical notes are not duplicated; a corrupt or schema-mismatched manifest writes nothing; a traversal path writes nothing; cards stay out while the module is off; the command is registered and reports imported, identical, conflict, invalid and cards-skipped counts.
-
-#### 5.22.12 Kairos-style time-block planning — shipped 1.210.1; interaction parity in 1.265.0–1.267.0
-
-**Source:** [Kairos](https://github.com/caasion/kairos) (0BSD), a time-blocked daily-planning Obsidian plugin. Its Day/Week timeline, Grid, Backlog, Routines, Projects/domains and Timeline views are the design reference; no Kairos source, styles or copy text was copied, so no notice or dependency is added.
-
-**Status:** implemented Nov 3, 2026 as the opt-in **Time blocks** module in Study Workspace and released in **1.210.1**. It is off by default. The local model lives in `src/time-blocks.js`; plugin CRUD, routines, backlog scheduling and the readable Markdown export are wired through `src/plugin.js`. Settings, the tab, all seven views and responsive styles are included. Existing `studyTasks` are reused in the Backlog, and completing a linked block task completes its study task. Projects and domains are optional lenses; timeline minutes are derived from blocks rather than kept as a second total. Routines only add missing blocks for a date, so applying one twice does not duplicate it.
-
-**Status (Nov 5, 2026, released 1.265.0):** the owner ranked the remaining Kairos gap, so the former owner gate is closed. 1.265.0 adds Kairos's documented document model and behaviours to the existing module: a `## Schedule` parser and writer with task statuses, associations, notes and the `Unscheduled` block; Backlog.md and Routines.md parsing/writing; weekday, weekend, day-list and monthly routine rules with per-line overrides and routine tasks; regeneration of a day's routines; carry-over of open/half-done tasks with associations materialised on move; imports for Routines.md and Backlog.md; and two-way sync of one day's Schedule section. It remains original dependency-free JavaScript, with no Kairos source, styles or copy. 1.267.0 closes the interaction gap: a pointer Day rail creates, moves and resizes blocks with mouse or touch; task boxes cycle and can be cancelled by right-click or long-press; Week accepts block and task drops; Timeline shows a 14-day intensity strip; projects record lifecycle history and intensity in Markdown files; `time-blocks-tour` opens a guided walkthrough; Routines.md and Backlog.md write back; and `time-blocks-import-kairos` copies Kairos's `data.json` settings. The remaining differences are cosmetic view options (fit-days width, grid row lines/shading, follow-grid and highlight-across-views) and a tour that guides rather than detecting each gesture. The Kairos row in the §3 source map carries the same status; this section is the single record for the item. Cross-references use the section number because the line anchor this item was captured with has moved.
-
-**Calendar compatibility:** when the existing Calendar module is on, Day and Week read `plugin.calendarEvents()` and show classes and events as read-only context. A block that shares an event's time is marked as an overlap; the configuration card reports event count, booked minutes and overlapping blocks. Week columns group the same `dateKey` events under each day. The **Show calendar events** switch (default on) hides this context. Nothing is written, moved or copied into the planner, no calendar note is required, and Time blocks still works with Calendar off. The planner uses its own week-start setting, so changing the calendar's week start does not silently reshape saved plans.
-
-**Calendar integration (Nov 3, 2026, released 1.210.8):** the calendar's day section now renders the Kairos layer itself when Time blocks is on. `src/calendar-planner.js` is pure: `dayPlan` merges the day's read-only classes with the local blocks, computes the free slots inside an 08:00–22:00 planning window (30-minute minimum), flags blocks that sit over a class and returns a summary; `slotDraft` and `afterClassDraft` build block drafts and `planSummaryLine` writes the one-line summary. `plugin.calendarPlannerDay(date, events)`, `planBlockFromCalendarSlot` and `planBlockAfterClass` add blocks through the existing `addTimeBlock`, so nothing new is stored and no second timetable exists. The UI lists planned blocks with **Remove**, free-slot chips that plan a study block titled after the next class, per-class chips that plan a 45-minute review block, and **Open Time blocks**. Calendar events, notes and .ics feeds stay read-only; a block is never written back to the calendar. Covered by `tests/calendar-planner.test.js`; notes are in `docs/release-notes/1.210.8.md`.
-
-**Two-way daily-note sync (1.265.0):** `plugin.syncTimeBlockDailyNote(date)` reads the day's `## Schedule` section, replaces that day's blocks from it (creating missing projects/domains), and writes the section back while leaving every line outside it untouched. `parseScheduleMarkdown`, `timeBlocksFromSchedule`, `scheduleMarkdown` and `replaceScheduleSection` in `src/time-blocks.js` are pure; the plugin method is the only vault read/write. The older one-way `writeTimeBlockDay` export into `<Day-note folder>/YYYY-MM-DD.md` is unchanged.
-
-**Acceptance evidence:** `tests/time-blocks.test.js` covers default-off normalization, time validation, summaries, routines, backlog reuse, project/timeline totals, Markdown export, persistence, read-only calendar context and overlap marking, and every empty state. `tests/study-workspace.test.js` covers the module key and the all-modules-off gate. Verification: **1,524 tests pass / 0 fail**, `npm run check` clean across **257 source files**, `main.js` current across **257 bundled modules**, `git diff --check` clean. Release notes are in `docs/release-notes/1.210.1.md`.
-
-#### 5.22.13 Class Timetable 2.0 UI ideas — captured Nov 8, 2026
-
-**Source:** [Class Timetable](https://github.com/elliott-json-park/obsidian-class-timetable), README's 2.0 feature set; MIT verified from the repository `LICENSE`. **Captured, not approved:** no source, styles, copy or dependency is adopted, and this subsection adds no checklist row, phase assignment or release commitment.
-
-**Already covered — do not rebuild:** the existing calendar has term start/end, week numbers, reading weeks, odd/even parity (resolved in §11 item 16), course identity/registry, `.ics` import and filtered export, per-class note templates, exams/countdowns, Today/Upcoming, attendance and lecture history, and the 1.210.1–1.267.0 Time blocks planner. A second class store or a calendar-event-first rewrite is not warranted.
-
-**Ideas worth considering, cheapest first:**
-
-1. **Week timetable for the existing Calendar** — **Shipped in 1.307.24.** A real-clock Mon–Sun grid over the same merged rows (`src/calendar-week.js`), with overlapping rows split into lanes, an hour axis of 07:00-22:00 that widens only for a block outside it, an all-day strip for untimed rows and the now-line in today's column. It lives in the calendar view, which already opens in the right sidebar (1.307.15), so the week stays visible beside a note; `Calendar: open the week timetable` and `openMergedCalendar({ mode: "week" })` reach it. No new schedule storage, property or setting key. Pinned by `tests/calendar-week.test.js` and a `CalendarView` pass in `tests/calendar.test.js`.
-2. **Class-held dots on the course hub** — **Shipped in 1.307.25.** One dot per scheduled meeting this term (`src/class-dots.js`, `plugin.classDotsData()` over the calendar cache, class-note index, lecture log and absences): filled when that day's lecture note exists, a ring when attendance was checked without a note, empty when the class did not meet. Clicking an empty dot creates the note from the existing course template. No new property. Pinned by `tests/class-dots.test.js`.
-3. **Semester rollover** — **Shipped in 1.307.24.** `Courses: start the next semester` opens a three-field dialog: `rolloverCourses` (`src/calendar-model.js`) stamps the label on courses that have none and leaves labelled courses alone, `plugin.rolloverSemester` moves `semesterStart`/`semesterEnd` (start required and validated, an end before it dropped) and reports the stamped/skipped counts. Notes, lecture history and imported events are not moved or deleted; old classes fall outside the new term window, so the next term starts empty. Pinned by `tests/semester-rollover.test.js`.
-4. **Week image export** — **Shipped in 1.307.25.** The week header gains an export control and `Calendar: export the current week as a PNG image` saves `week-timetable-<startKey>.png` next to the `.ics` export. `src/week-image.js` builds the SVG from the same `plugin.buildWeekLayout()` rows the week card draws; the plugin rasterizes with a canvas at 2x, which needs the app window (headless export reports `no-window`). No scheduling data changes. Pinned by `tests/week-image.test.js`.
-
-**Deliberately not revived:** the paste-a-timetable parser remains out (the Oct 30 pass kept subject-timetable parsing out; `.ics` import covers portal exports), and no planner, task or schedule data is duplicated. `Today` and `Upcoming` already exist, so a third "today" view is not proposed; if the §5.8 `uni-schedule`-style embed is built, it should reuse this week view rather than add a second block syntax.
-
-#### 5.22.14 Doable agenda ideas — captured Nov 8, 2026
-
-**Source:** [Doable](https://github.com/elliott-json-park/obsidian-doable) (community listing: [community.obsidian.md/plugins/doable](https://community.obsidian.md/plugins/doable)), README at v1.0.2; MIT verified from `LICENSE`. The README also notes a bundled BSD-3-Clause `rrule`, so any recurrence parity must use the existing local scheduler/date code, not that bundle. **Captured, not approved:** no source, styles, copy or dependency is adopted, and this subsection adds no checklist row, phase or release commitment.
-
-**Already covered or specified — do not rebuild:** Tasks-compatible `📅`/`⏳`/`🛫` syntax and recurrence (§5.9), assignments and study tasks, Today/due queue, the vault task index, Time blocks backlog/statuses, daily notes and the existing task-edit paths. Doable is deliberately a list, not a project manager; boards, Gantt, time tracking and calendar sync are out.
-
-**Ideas worth considering, cheapest first:**
-
-1. **Agenda rail over the existing task index** — **Shipped in 1.307.25.** The task list gains a List|Agenda toggle (persisted as `studyTasks.agenda`, List default) grouping open work into overdue, today, one section per upcoming day, later and no-date (each capped at 20 with a total) plus done-today; empty sections are skipped and rows reuse the existing paths. Finishing stamps `doneAt` (reopening clears it). No new store. Pinned by `tests/task-agenda.test.js`.
-2. **Plain-language quick add with a preview** — **Shipped in 1.307.25.** The add row shows a live `Adds "…" · due … · repeats …` line via `previewTaskEntry()` (`src/task-dates.js`) using the same spoken-date/repeat extraction the Add path uses, with picked dates winning. Dependency-free; no AI or network. Pinned by `tests/task-agenda.test.js`.
-3. **Inline task chips** — **Shipped for Reading in 1.307.25.** A postprocessor gated on the tasks module shows trailing `📅`/`⏰`/`⏳`/`🛫`/`🔁`/`⏫` tokens as small chips (`src/task-chips.js`); the date chip opens a picker and priority steps, each rewriting only that token in the source line. The vault task index stays read-only. Live Preview has no CodeMirror overlay (untestable here, bundle risk), recorded as a limit. Pinned by `tests/task-chips.test.js`.
-4. **Transient Undo on agenda edits** — **Shipped for the plugin's own tasks in 1.307.24.** `plugin.updateStudyTaskWithUndo` routes complete, reopen, star and repeat through the same `deleteWithUndo` notice as every delete: `Completed “X”.` and its siblings carry the eight-second Undo, restore the whole task store (removing a repeat's newly scheduled successor), refuse when the tasks changed underneath and disable themselves after use. No history and no extra property. Pinned by `tests/task-list.test.js`. A reschedule or cancel of a Tasks-compatible line inside a Markdown note is still not written by the plugin, so that half of the idea remains captured.
-
-**Not proposed:** a second task format or store, a `doable`-specific syntax, bundled `rrule`, natural-language AI parsing, boards/Gantt/time tracking/calendar sync, or replacing the Tasks-compatible source of truth. If a query block is wanted later, support only the documented everyday subset and list unsupported clauses instead of silently changing results.
 
 ### 5.23 Adaptive Practice parity audit — **S–M** (Oct 29, 2026)
 
