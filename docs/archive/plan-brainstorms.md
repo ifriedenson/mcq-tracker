@@ -3,6 +3,8 @@
 > Moved verbatim out of `plan.md` on October 29, 2026 (1.106.0) to remove duplicate
 > copies. This is historical input only. `plan.md` is authoritative where they differ.
 > The superseded copy's §10c and open questions 10–11 were promoted into `plan.md` first.
+> Section numbers below predate the collapse of `plan.md`'s October 28 backlog into a
+> status table; the old subsections 5.22.1–5.22.14 now live in the rows of `plan.md` `§5.22`.
 
 ---
 

@@ -54,7 +54,7 @@ Order matters. The forum thread and Discord message are permanent and indexed, s
 
 ### 6. Creator outreach — `grow.md` §4.8
 
-- Target two kinds separately: Obsidian productivity channels, and exam-prep channels. They want different pitches; §4.8 has both.
+- Target two kinds separately: Obsidian productivity channels, and exam-prep channels. They want different pitches; `grow.md` §4.8 has both.
 - **Attach or link the demo vault.** `samples/sample-vault` already exists with a README and openable question notes. Zip it, or send the repo link plus the sample vault path. This is the whole offer — nobody wants to author test questions on camera.
 - Send individually. Reference a specific video so it is obviously not a template.
 

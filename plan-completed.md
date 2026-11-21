@@ -53,8 +53,8 @@ Every checked `[x]` row from the phased roadmap, in phase order. The three `[~]`
 ### Phase 2: Flashcards and vocab (priority)
 
 - [x] Card and vocab item types, deck organization, course tagging (§5.7) — shipped in 1.12.0
-- [x] Image occlusion cards, one card per mask (§5.7, §5.22.4) — shipped in 1.19.0
-- [x] Tutor role presets and slash commands (§5.18, §5.22.4) — shipped in 1.20.0
+- [x] Image occlusion cards, one card per mask (§5.7, §5.22) — shipped in 1.19.0
+- [x] Tutor role presets and slash commands (§5.18, §5.22) — shipped in 1.20.0
 - [x] Moodle GIFT import (§5.22.3) — shipped in 1.21.0
 - [x] Moodle XML and QTI import (§5.22.3) — shipped in 1.22.0
 - [x] Mochi Markdown and CrowdAnki JSON import (§5.22.3) — shipped in 1.23.0
@@ -142,9 +142,9 @@ Every checked `[x]` row from the phased roadmap, in phase order. The three `[~]`
 ### Phase 7: Ingestion, interop, polish
 
 - [x] Provenance links on imported questions and extracted cards, with a source action on a miss (§5.13, §5.14) — shipped in 1.36.0
-- [x] Visual pen/highlighter overlay for rendered PDF pages, with normalized strokes in the annotation sidecar (§5.13, §5.22.4) — shipped in 1.52.0
-- [x] Visual text boxes on rendered PDF pages, with placement, editing, erasing and sidecar persistence (§5.13, §5.22.4) — shipped in 1.53.0
-- [x] Visual highlight regions on rendered PDF pages, with an optional note, editing, erasing and sidecar persistence (§5.13, §5.22.4) — shipped in 1.54.0
+- [x] Visual pen/highlighter overlay for rendered PDF pages, with normalized strokes in the annotation sidecar (§5.13, §5.22) — shipped in 1.52.0
+- [x] Visual text boxes on rendered PDF pages, with placement, editing, erasing and sidecar persistence (§5.13, §5.22) — shipped in 1.53.0
+- [x] Visual highlight regions on rendered PDF pages, with an optional note, editing, erasing and sidecar persistence (§5.13, §5.22) — shipped in 1.54.0
 - [x] Transcript-to-practice flow: detect transcript notes, draft cards or questions with a preview, and keep the source note link (§5.13, §5.14) — shipped in 1.37.0
 - [x] Local course-notes import for PDF, slide, Word and text sources, with page/slide headings, source links and optional PDF figure copying (§5.13) — shipped in 1.43.0
 - [x] Optional AI summary and key-terms section for course notes, marked with the model and preserved when the summary fails (§5.13) — shipped in 1.44.0; local auto-classification shipped in 1.47.0; §11 E3 closed the bundled-engine question, so the BYOK vision path is the shipped route and no bundled engine is scope
@@ -174,7 +174,7 @@ These are checked implementation records outside the phased roadmap. They are ke
 ### 13.9 What this changes in the backlog
 
 - [x] **Native select-all, true/false, fill-in and matching practice.** True/false and select-all practice shipped in 1.110.0 with automatic set grading, selectable buttons, attempt history, timed-test support and result marking. Fill-in (`question_type: fill_in`, normalized text with `|` and `accepted_answers` variants) and matching (`question_type: matching`, `Left :: Right` pairs under `## Pairs`, shuffled row pickers, whole-set and per-row grading in practice and timed tests) shipped in 1.112.0. Import already understands `@sata`, `@tf` and QuizPort choice sets (1.108.0).
-- [x] **Lighter multi-question authoring.** Shipped in 1.128.0 as **Quick add questions** (§5.22.10): pasted blocks are previewed and written as one ordinary question note each, with a plain-text fallback for SPR items.
+- [x] **Lighter multi-question authoring.** Shipped in 1.128.0 as **Quick add questions** (§5.22): pasted blocks are previewed and written as one ordinary question note each, with a plain-text fallback for SPR items.
 - [x] **Timed-test option shuffling and a pass-score threshold.** Shipped in 1.117.0. The test setup screen has **Shuffle answer choices** and a pass percentage, both saved in defaults and blueprints. A shuffled order is stored with the session, so the review and a reopened test show the same order while saved answer letters still match the note. The pass mark is reported on objective questions.
 - [x] **Leech handling** for repeatedly failed items, shipped in 1.111.0 as an opt-in threshold with a flag or suspend action, `leech_lapses`/`leech_since` properties and automatic clearing on a correct answer. Distinct from the manual Suspend/Bury controls.
 

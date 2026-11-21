@@ -68,5 +68,5 @@ or date, an annotation with no quote, and a quiz scan of an empty folder.
 
 - No real-Obsidian visual pass: these are DOM-stub tests, so layout and styling remain a manual
   check on desktop and phone.
-- The §5.22.12 subject colours and event tags stay behind their owner gate; nothing here
+- The §5.22 subject colours and event tags stay behind their owner gate; nothing here
   touches them.

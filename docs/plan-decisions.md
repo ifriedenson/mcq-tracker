@@ -136,8 +136,8 @@ Shipped scope:
 
 | Plan row | Decision |
 |---|---|
-| Optional TTS/audio commute (§5.22.4) | Device speech only; provider TTS and commute playback declined |
-| Pronunciation feedback (§5.22.4) | Declined; no audio capture or scoring |
+| Optional TTS/audio commute (§5.22) | Device speech only; provider TTS and commute playback declined |
+| Pronunciation feedback (§5.22) | Declined; no audio capture or scoring |
 | AP FRQ accuracy claim (§5.20) | No accuracy claim; grader stays an aid |
 | Pilot go/no-go thresholds (§7 Phase 2b) | No numeric bar; shipped is not validated |
 
