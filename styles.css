@@ -162,12 +162,14 @@ body.theme-dark .qt-task-list-actions button {
   color: var(--text-normal);
 }
 
-body.theme-dark .qt-task-pill.is-overdue,
+/* The row keeps the light theme's left accent: `border-color` here boxed the
+   whole overdue row in red in dark only, while light showed one red edge. */
 body.theme-dark .qt-task-list-row.is-overdue {
-  border-color: var(--color-red);
+  border-left-color: var(--color-red);
 }
 
 body.theme-dark .qt-task-pill.is-overdue {
+  border-color: var(--color-red);
   color: color-mix(in srgb, var(--color-red) 58%, var(--text-normal));
 }
 
@@ -11976,29 +11978,40 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 
 /* Sidebar task list: a pane-sized board over the local Tasks rows. */
 .qt-task-list {
+  container-type: inline-size;
   padding: 12px 10px 20px;
 }
 
-.qt-task-list-head {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  margin-bottom: 10px;
-}
-
+.qt-task-list-head,
 .qt-task-list-titlebar {
   align-items: center;
   display: flex;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+}
+
+.qt-task-list-head {
+  margin-bottom: 8px;
+}
+
+.qt-task-list-titlebar {
   flex: 1 1 auto;
-  gap: 8px;
   min-width: 0;
 }
 
 .qt-task-list-head h2 {
-  font-size: var(--qt-type-em-lg);
+  font-size: 1em;
   letter-spacing: 0.01em;
   margin: 0;
+}
+
+.qt-task-list-sub {
+  align-items: baseline;
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  min-width: 0;
 }
 
 .qt-task-list-badge {
@@ -12012,8 +12025,10 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 }
 
 .qt-task-list-open {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   font-size: var(--qt-type-em-xs);
+  min-width: 0;
+  padding: 0;
 }
 
 .qt-task-list-count,
@@ -12025,7 +12040,11 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 }
 
 .qt-task-list-count {
-  flex-basis: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .qt-task-list-add {
@@ -12033,9 +12052,15 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--qt-radius-sm);
   display: grid;
+  gap: 4px;
+  margin-bottom: 8px;
+  padding: 6px;
+}
+
+.qt-task-list-top {
+  display: grid;
   gap: 6px;
-  margin-bottom: 10px;
-  padding: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 /* The native date control focuses its inner segments, which draw no ring of
@@ -12058,9 +12083,19 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 }
 
 .qt-task-list-add-row {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) auto;
+}
+
+.qt-task-list-add-row .qt-task-list-date {
+  flex: 0 1 128px;
+  min-width: 0;
+}
+
+.qt-task-list-add-row .qt-task-list-new-tags {
+  flex: 1 1 90px;
+  min-width: 0;
 }
 
 .qt-task-list-add-priority {
@@ -12073,23 +12108,27 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 }
 
 .qt-task-list-add-button {
-  grid-column: 1 / -1;
-  min-height: 36px;
   min-width: 52px;
+  padding: 0 12px;
+  white-space: nowrap;
 }
 
-@media (max-width: 520px) {
-  .qt-task-list-add-row {
-    grid-template-columns: minmax(0, 1fr);
-  }
+/* Scoped on purpose: the global `.qt-wrap button` tap target outranks a
+   lone class, so the list's 32px floor needs two class names to apply. */
+.qt-task-list .qt-task-list-layout-tab,
+.qt-task-list .qt-task-chip,
+.qt-task-list .qt-task-tag-edit,
+.qt-task-list .qt-task-list-add-priority,
+.qt-task-list .qt-task-list-add-button {
+  min-height: 32px;
 }
 
 .qt-task-list-filters {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  margin-bottom: 8px;
+  gap: 3px;
+  margin-bottom: 6px;
 }
 
 .qt-task-chip {
@@ -12101,7 +12140,7 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   cursor: pointer;
   font-size: var(--qt-type-em-xs);
   line-height: 1;
-  padding: 3px 8px;
+  padding: 2px 7px;
 }
 
 .qt-task-chip:hover {
@@ -12121,7 +12160,7 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 .qt-task-list-rows {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .qt-task-list-row {
@@ -12131,9 +12170,35 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   border-left: 3px solid var(--background-modifier-border);
   border-radius: var(--qt-radius-sm);
   display: grid;
-  gap: 8px;
+  gap: 6px;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  padding: 7px 8px 7px 9px;
+  padding: 5px 6px 5px 7px;
+}
+
+/* In a narrow pane the action column starves the title; container queries
+   track the pane itself, where a viewport media query would see the wide
+   main window and never fire. Actions drop to their own right-aligned row
+   so the title keeps full width. Older shells without container support
+   keep the three-column row: no worse than before. */
+@container (max-width: 340px) {
+  .qt-task-list-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .qt-task-list-actions {
+    grid-column: 2;
+    justify-content: flex-end;
+    margin: -4px -4px -3px 0;
+  }
+}
+
+/* Two links never fit beside the count under ~240px; the count takes its
+   own line so Workspace and Mirror share the next one (shrinking with
+   wrapped text if they must) instead of poking past the pane. */
+@container (max-width: 240px) {
+  .qt-task-list-count {
+    flex: 1 1 100%;
+  }
 }
 
 .qt-task-list-row:hover {
@@ -12154,7 +12219,7 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 .qt-task-list-actions {
   align-items: center;
   display: flex;
-  gap: 2px;
+  gap: 0;
   margin: -3px -4px -3px 0;
 }
 
@@ -12183,8 +12248,11 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   color: var(--color-yellow);
 }
 
+/* "🔁 weekdays" is wider than the 32px floor and must not shrink into two
+   clipped lines when the actions row is tight. */
 .qt-task-list-repeat {
   font-size: var(--qt-type-2xs);
+  white-space: nowrap;
 }
 
 .qt-task-list-remove {
@@ -12218,7 +12286,7 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 .qt-task-list-main {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
 }
 
@@ -12267,13 +12335,6 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   text-transform: uppercase;
 }
 
-.qt-task-tags {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 3px;
-}
-
 .qt-task-tag-edit {
   background: none;
   border: 1px dashed var(--background-modifier-border);
@@ -12283,7 +12344,9 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   cursor: pointer;
   font-size: var(--qt-type-em-xs);
   line-height: 1;
+  min-width: 32px;
   padding: 2px 7px;
+  text-align: center;
 }
 
 .qt-task-tag-edit:hover {
@@ -18411,7 +18474,7 @@ body {
 .qt-task-list-layout {
   display: flex;
   gap: 2px;
-  margin-top: 6px;
+  margin: 0 0 0 auto;
 }
 .qt-task-list-layout-tab {
   border: 1px solid transparent;
@@ -18430,12 +18493,25 @@ body {
 .qt-task-list-preview {
   font-size: var(--qt-type-xs);
   color: var(--text-muted);
-  margin-top: 4px;
+  margin-top: 2px;
   min-height: 1em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The hint names the parser's grammar, so it keeps its words: two lines fit
+   the whole sentence in a 300px sidebar, where one ellipsized line cut it to
+   "e.g. tomo..." and taught nothing. */
+.qt-task-list-hint {
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  display: -webkit-box;
+  overflow: hidden;
 }
 .qt-task-list-agenda-title {
   font-size: var(--qt-type-sm);
-  margin: 12px 0 4px;
+  margin: 8px 0 2px;
 }
 
 /* Agent edit history modal rows reuse the review styles. */

@@ -77,33 +77,15 @@ class TaskListView extends ItemView {
     const summary = taskSummary(tasks, today);
 
     const head = root.createDiv({ cls: "qt-task-list-head" });
-    const bar = head.createDiv({ cls: "qt-task-list-titlebar" });
-    bar.createEl("h2", { text: "Tasks" });
-    bar.createSpan({
+    const titlebar = head.createDiv({ cls: "qt-task-list-titlebar" });
+    titlebar.createEl("h2", { text: "Tasks" });
+    titlebar.createSpan({
       cls: "qt-task-list-badge",
       text: `${summary.open}/${summary.total}`,
       attr: { "aria-label": `${summary.open} open of ${summary.total} tasks` },
     });
-    head
-      .createEl("button", { text: "Workspace", cls: "qt-link qt-task-list-open" })
-      .addEventListener("click", () => this.plugin.activateStudyWorkspace("tasks"));
-    head
-      .createEl("button", { text: "Mirror to note", cls: "qt-link qt-task-list-open", attr: { title: "Copy the tasks into a note for search and other plugins" } })
-      .addEventListener("click", async () => {
-        try {
-          const result = await this.plugin.syncStudyTasksToNote();
-          new Notice(`Mirrored ${result.open} open task${result.open === 1 ? "" : "s"} to ${result.path}.`);
-        } catch (error) {
-          new Notice("Could not mirror the tasks.");
-        }
-        this.render();
-      });
-    head.createDiv({
-      cls: "qt-task-list-count",
-      text: `${summary.open} open · ${summary.overdue} overdue · ${summary.dueToday} due today`,
-    });
     const agenda = this.plugin.settings.studyTasks.agenda === true;
-    const layout = head.createDiv({ cls: "qt-task-list-layout", attr: { role: "group", "aria-label": "Task list layout" } });
+    const layout = titlebar.createDiv({ cls: "qt-task-list-layout", attr: { role: "group", "aria-label": "Task list layout" } });
     for (const [id, label] of [["list", "List"], ["agenda", "Agenda"]]) {
       const active = (id === "agenda") === agenda;
       const tab = layout.createEl("button", {
@@ -118,8 +100,29 @@ class TaskListView extends ItemView {
       });
     }
 
+    const sub = head.createDiv({ cls: "qt-task-list-sub" });
+    sub.createDiv({
+      cls: "qt-task-list-count",
+      text: `${summary.open} open · ${summary.overdue} overdue · ${summary.dueToday} due today`,
+    });
+    sub
+      .createEl("button", { text: "Workspace", cls: "qt-link qt-task-list-open" })
+      .addEventListener("click", () => this.plugin.activateStudyWorkspace("tasks"));
+    sub
+      .createEl("button", { text: "Mirror to note", cls: "qt-link qt-task-list-open", attr: { title: "Copy the tasks into a note for search and other plugins" } })
+      .addEventListener("click", async () => {
+        try {
+          const result = await this.plugin.syncStudyTasksToNote();
+          new Notice(`Mirrored ${result.open} open task${result.open === 1 ? "" : "s"} to ${result.path}.`);
+        } catch (error) {
+          new Notice("Could not mirror the tasks.");
+        }
+        this.render();
+      });
+
     const form = root.createDiv({ cls: "qt-task-list-add" });
-    const title = form.createEl("input", {
+    const top = form.createDiv({ cls: "qt-task-list-top" });
+    const title = top.createEl("input", {
       type: "text",
       cls: "qt-input qt-task-list-new",
       attr: { placeholder: "What needs doing?", "aria-label": "New task" },
@@ -164,7 +167,7 @@ class TaskListView extends ItemView {
       this.focusNewAfterRender = true;
       this.render();
     };
-    addRow.createEl("button", { text: "Add", cls: "mod-cta qt-task-list-add-button" }).addEventListener("click", add);
+    top.createEl("button", { text: "Add", cls: "mod-cta qt-task-list-add-button" }).addEventListener("click", add);
     for (const field of [title, tags]) {
       field.addEventListener("keydown", (event) => {
         if (!event || event.key !== "Enter") return;
@@ -190,7 +193,7 @@ class TaskListView extends ItemView {
     };
     for (const field of [title, due, tags]) field.addEventListener("input", updatePreview);
     updatePreview();
-    root.createDiv({ cls: "qt-task-list-hint", text: "Tip: name a day (tomorrow, Tuesday), a time (at 3pm, in 2 hours) or a repeat (every Monday, daily) to schedule it. Star the urgent ones, or ★ High before adding." });
+    root.createDiv({ cls: "qt-task-list-hint", text: "Name a day, time or repeat in the title — e.g. tomorrow, at 3pm, every Monday." });
     if (this.focusNewAfterRender) {
       this.focusNewAfterRender = false;
       if (typeof title.focus === "function") title.focus();
@@ -281,9 +284,8 @@ class TaskListView extends ItemView {
     if (task.source === "exam") meta.createSpan({ cls: "qt-task-pill qt-task-source", text: "exam plan" });
 
     const tags = this.tagsOf(task);
-    const tagRow = main.createDiv({ cls: "qt-task-tags" });
     for (const tag of tags) {
-      const chip = tagRow.createEl("button", { cls: "qt-task-chip qt-task-row-chip", text: `#${tag}` });
+      const chip = meta.createEl("button", { cls: "qt-task-chip qt-task-row-chip", text: `#${tag}` });
       if (tag === this.tagFilter) chip.addClass("is-active");
       chip.setAttr("title", `Show tasks tagged #${tag}`);
       chip.addEventListener("click", () => {
@@ -291,7 +293,7 @@ class TaskListView extends ItemView {
         this.render();
       });
     }
-    const edit = tagRow.createEl("button", { cls: "qt-task-tag-edit", text: tags.length ? "+" : "+ tag" });
+    const edit = meta.createEl("button", { cls: "qt-task-tag-edit", text: tags.length ? "+" : "+ tag" });
     edit.setAttr("aria-label", `Edit tags for ${task.title}`);
     edit.setAttr("title", "Edit tags");
     edit.addEventListener("click", () => {
@@ -300,7 +302,7 @@ class TaskListView extends ItemView {
     });
 
     if (this.tagEditor === task.id) {
-      const input = tagRow.createEl("input", {
+      const input = meta.createEl("input", {
         type: "text",
         cls: "qt-input qt-task-tag-input",
         attr: { "aria-label": `Tags for ${task.title}`, placeholder: "#math, exam" },

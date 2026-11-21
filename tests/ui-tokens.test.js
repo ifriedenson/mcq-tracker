@@ -84,16 +84,32 @@ test("the task row keeps its actions in one aligned column with a real hit targe
   assert.match(css, /\.qt-task-list-actions \{[\s\S]*display: flex/);
   assert.match(css, /\.qt-task-list-actions button \{[\s\S]*min-height: 32px[\s\S]*min-width: 32px/);
   assert.match(css, /\.qt-task-check-wrap \{[\s\S]*height: 32px[\s\S]*width: 32px/);
-  assert.match(css, /\.qt-task-list-add-button \{[\s\S]*grid-column: 1 \/ -1/);
+  assert.match(css, /\.qt-task-list-top \{[\s\S]*grid-template-columns: minmax\(0, 1fr\) auto/);
+  assert.match(css, /\.qt-task-list-add-button \{[\s\S]*min-height: 32px/);
   assert.match(css, /\.qt-task-list-date:focus,\s*\n\.qt-task-list-date:focus-visible,\s*\n\.qt-task-list-date:focus-within \{[\s\S]*outline: var\(--qt-focus-outline\)/);
   assert.match(css, /\.qt-task-list-date::-webkit-datetime-edit:focus[\s\S]*outline: none/);
   assert.match(css, /\.qt-notice-undo \{[\s\S]*min-height: 24px/);
   assert.match(css, /\.qt-notice-undo:hover \{[\s\S]*background: var\(--background-modifier-hover\)/);
   assert.match(css, /\.qt-notice-undo:focus-visible \{[\s\S]*outline: var\(--qt-focus-outline\)/);
   assert.match(css, /@media \(pointer: coarse\) \{[\s\S]*\.qt-notice-undo \{[\s\S]*min-height: var\(--qt-touch-target\)/);
-  assert.match(css, /@media \(max-width: 520px\)[\s\S]*\.qt-task-list-add-row \{[\s\S]*grid-template-columns: minmax\(0, 1fr\)/);
+  // The add row wraps by itself instead of through a viewport query: in a
+  // sidebar the pane is narrow while the window is wide, so a max-width
+  // media query never fires there.
+  assert.match(css, /\.qt-task-list-add-row \{[^}]*display: flex[^}]*flex-wrap: wrap/);
+  assert.match(css, /@container \(max-width: 340px\) \{\s*\.qt-task-list-row \{[^}]*grid-template-columns: auto minmax\(0, 1fr\)/);
+  // Two class names on purpose: `.qt-wrap button` (class + element)
+  // outranks a lone class, so the 32px floor needs the scoped selector.
+  assert.match(css, /\.qt-task-list \.qt-task-list-add-button \{[^}]*min-height: 32px/);
   assert.doesNotMatch(css, /\.qt-task-list-row\.is-done \{\s*opacity:/);
   assert.match(css, /\.qt-task-list-row\.is-done \.qt-task-list-title \{[\s\S]*color: var\(--text-normal\)/);
+  // Measured in a 300px sidebar: a single ellipsized line cut the hint to
+  // "e.g. tomo...", so it clamps at two lines and keeps its whole sentence.
+  assert.match(css, /\.qt-task-list-hint \{[\s\S]*?-webkit-line-clamp: 2/);
+  assert.doesNotMatch(css, /\.qt-task-list-hint \{[^}]*white-space: nowrap/);
+  // Dark overrode the row with `border-color`, boxing every overdue row in red
+  // where light shows only the left accent.
+  assert.match(css, /body\.theme-dark \.qt-task-list-row\.is-overdue \{[^}]*border-left-color: var\(--color-red\)/);
+  assert.doesNotMatch(css, /body\.theme-dark \.qt-task-list-row\.is-overdue \{[^}]*[^-]border-color:/);
 });
 
 test("narrow exam surfaces wrap instead of bursting out of the pane", () => {

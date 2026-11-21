@@ -117,10 +117,10 @@ test("study agent keeps the empty state bounded and the persona visible at sideb
   assert.match(css, /\.qt-agent-suggestion-card:not\(\.is-active\) > \* \{[^}]*visibility:\s*hidden/s, "back-card labels must not paint through the active card");
   assert.match(empty, /width:\s*calc\(100% - 32px\)/);
 
-  const narrow = css.slice(
-    css.indexOf("@container (max-width: 420px)"),
-    css.indexOf("@container (max-width: 340px)")
-  );
+  // The task list owns an earlier 340px block, so end the slice at the
+  // 340px block after the 420px one.
+  const controls420 = css.indexOf("@container (max-width: 420px)");
+  const narrow = css.slice(controls420, css.indexOf("@container (max-width: 340px)", controls420));
   assert.ok(narrow.includes(".qt-agent-role"), "the 420 px controls block still names the persona");
   assert.doesNotMatch(narrow, /\.qt-agent-role\s*\{\s*display:\s*none/s);
   assert.match(narrow, /\.qt-agent-role\s*\{[^}]*max-width/s);
