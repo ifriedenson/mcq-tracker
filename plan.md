@@ -18,43 +18,6 @@ surfaces, so unfinished ideas are not disguised as checked work.
 bundle up to date); `main.js` generated from 384 modules at 4,342,848 bytes.
 Re-run both before quoting these numbers.
 
-**Maintainability pass (Nov 10, 2026):** the duplicate `onTableEditorToggled` is merged into one method that updates the ribbon and repaints open reading views; question and card reads use path indexes with path/type-scoped invalidation; the PDF editor/reader stack loads only when a PDF is opened; the four document importers share `src/document-source.js`; and `npm run check` now rejects duplicate class members and export keys and enforces an eager module-load budget that keeps the PDF editor stack and the vendored PDF engines lazy. Measured in a real Obsidian 1.15.0 desktop under Xvfb, three launches per build: module evaluation fell from a median **63 ms** (57/63/64 ms) to **41 ms** (38/41/48 ms), while `onload` stayed at 16 ms versus 20 ms medians and parse was about 1 ms in both; launch-to-plugin-complete was about 0.9-1.0 s for both and is dominated by Obsidian's own boot, not the plugin. The module-registry/plugin split was assessed and deliberately deferred to a separate maintainability project: all 361 modules are reachable, the bundle remains dependency-free, and a split needs boundary ownership, a migration path and an external test harness first.
-
-**Shipped in 1.282.0 (Nov 7, 2026):** Quick Ask, saved study
-commands, per-chat and per-command model overrides with visible fallback,
-local `/compact`, `@` note/folder mentions, a context/token/model footer, a
-searchable, pinned, archived conversation library, concurrent chat tabs, a
-cancelable queued-message strip, **Quick Chat**, **message bookmarks with chat links**, **per-message rewind and fork**, **vault skills**, **local chat projects**, **opt-in local memory**, **per-conversation Markdown export**, **local per-send and per-conversation cost estimates**, a **compact context gauge** and a **local diagnostics bundle** ship in the source and bundle. Quick Ask sends only the selection or
-whole note explicitly chosen, offers seven study actions, and writes only on
-**Insert** or **Replace**. Saved `/commands` expand `{selection}`, `{note}` and
-`{path}` only when the chat already allows that context. Tabs keep independent
-history, model, footer and queue state in the existing chat storage; queued
-follow-ups drain exactly once after the active reply, Stop or error. Quick Chat
-opens from the command palette (or a user-assigned hotkey) and submits through
-the active panel, so model resolution, mentions, context, budget, streaming and
-Stop/error handling are shared rather than duplicated. Every message can be
-bookmarked and linked; the link restores its conversation and focuses that
-message, and a deleted target is reported plainly. The clean-room Copilot
-inventory is §5.18.1; no AGPL code, prompt or stylesheet was used.
-
-**Also in 1.282.0:** the Study agent adds
-**plan-then-act** and **general PDF attachments**. A plan is model output from
-the existing abortable chat request, parsed defensively in `src/chat-plan.js`;
-every step is shown before it runs, **Approve**/**Skip** controls are per step,
-and **Run approved** sends one step at a time through the normal chat path, so
-any write still goes through the existing review window. A declined write,
-failure, Stop or reload stops later steps honestly, and plan state persists with
-the conversation in `settings.ai.studyChatPlan`. PDF attachments in
-`src/chat-pdf.js` and `src/chat-pdf-modal.js` let the **PDF** button or
-**Study agent: attach a PDF** pick up to three vault PDFs and a page range
-(default 1-20, at most 40 pages each). Text is read locally through the existing
-`readPdfPages`, labelled as untrusted material, cited as
-`[[path#page=N]]`, and counted in the same 12,000-token budget; a missing,
-image-only or unreadable PDF refuses the send. Paths and page ranges persist
-with the chat, and no extracted text is written to `data.json`. No new
-dependency, provider, network call or write path is added. Focused tests:
-`tests/chat-plan.test.js` and `tests/chat-pdf.test.js`.
-
 **How to read this file.**
 
 | Part | What it holds |
@@ -69,7 +32,7 @@ file per version, `AGENTS.md` has the current-state summary, and the plan
 decision sheet lives in `docs/plan-decisions.md`. Duplicating that log in this
 file is what made it unreadable; it now points instead.
 
-## Handoff snapshot (updated Nov 13, 2026 at v1.301.25)
+## Handoff snapshot (updated Nov 20, 2026 at v1.307.31)
 
 - **1.287.0:** the Study agent exposes a **Chats** drawer control, the saved-conversation library no longer occupies the transcript, errors render as an alert card with **Retry**, and Settings → AI groups the assistant into Copilot-style cards (Study agent, Commands and skills, Session pacing and checks, Context and privacy, Knowledge record, AI backend, Models and request limits). Light and dark evidence is in `docs/render/study-agent-ui/`.
 
@@ -106,66 +69,11 @@ file is what made it unreadable; it now points instead.
   checklist lives in `docs/mobile-layout.md`. Provider, Anki and CouchDB rows
   remain gated in §11.
 
-## Current focus (Nov 19, 2026)
+## Current focus (Nov 20, 2026 at v1.307.31)
 
 **1.307.25 finish-scope audit.** The repository was re-read against this file, row by row, to close everything still partially implemented or unimplemented that is buildable locally. That pass ships in 1.307.25: both adapted (◐) Copilot rows — a persisted per-message agent-edit journal with its own review-and-undo command, and in-editor hunk navigation from the proposal card and review dialog with a stepping command — plus Class Timetable ideas 2 (class-held dots) and 4 (week image export) and Doable ideas 1-3 (agenda rail with done-day stamping, quick-add preview, inline task chips in reading view). Semester rollover needed no follow-through code: the dots respect the term window the rollover moves, so the next term starts empty there too. Only the 13 gated rows in §3.9.6 stay open, each named there with its reason, and two stated limits ship documented, not hidden: Live Preview has no CodeMirror chip overlay (untestable here, bundle risk), and the PNG raster path needs the app window (SVG content is unit-pinned).
 
-No tracked core implementation row is open. The 1.301.0 release imports
-multiple files as one sequential batch, moves the importer into a desktop
-popout that survives focusing the main window, keeps queued progress in the
-main notice area, and offers Practice on the imported folder at completion;
-the same release carries the UI design-token and accessibility pass. It changes
-no note format, setting key, data path or network default. The 1.300.0 release
-makes the AI-only document import check its file locally first, adds four
-sources to question generation, cleans up a stopped import and hardens OpenCode
-readiness. The 1.299.5
-quality pass closed the accessibility sweep at the dialog boundary: every modal
-and picker class names its window from the visible heading it already renders,
-with written purpose names for heading-less pickers and readers, and the custom
-practice overlays stay named. A static audit plus runtime tests pin that
-behaviour. 1.282.0 adds
-**plan-then-act** and **general PDF attachments** to the Study agent. A plan is
-model output from the existing chat request; every step is approved or skipped
-before **Run approved** sends it through the same send and write-review paths,
-and a stop, decline, error or reload is reported instead of being called
-complete. **PDF** or **Study agent: attach a PDF** reads up to three vault PDFs
-locally, sends a labelled untrusted block with page citations, and refuses a
-missing, image-only or unreadable file; no OCR, upload or new dependency is
-added. The same release adds
-**Quick Chat**, **message bookmarks with chat links**, **Quick Ask** and **saved study commands**: selection or whole-note context,
-seven actions, follow-ups, copy/insert/replace, and `/name` prompts with
-context that obeys the chat's existing switches. It also adds explicit
-`@` note/folder mentions with bounded, switch-respecting injection, a
-context/token footer that warns on overrun, and a conversation library with
-search, pins, archive and restore persisted in `settings.ai`. **Quick Chat**
-opens from a command or hotkey and submits through the active panel, and
-**bookmarks** reopen the exact chat and message from an
-`obsidian://mcq-tracker-chat` link. The Copilot inventory's Next
-rows are explicit follow-ups, not unchecked rows. 1.281.0 adds **Mother cram**, a practice-only
-Cards loop with exactly two choices after the flip: **Do not know** sends the
-card to the back, **Know** removes it, and the session ends when every card is
-known. It writes no attempt, grade, history or due date, and leaves the normal
-scheduler and the four-rating **Cram session** unchanged. Card answers can be
-typed or dictated: the Cards answer box has a **Dictate** button, the transcript
-stays editable before **Check answer**, and the existing deterministic and AI
-paths grade it against the stored answer. PDF→FRQ import remains available as the
-command **AP: import free-response questions from a PDF**; it is text-layer only
-and refuses an image-only PDF rather than running OCR. All three former audit
-passes are closed: math/chemistry and the screenshots were checked in a real
-Obsidian 1.15.1 window, and the mobile layout was audited in code with 18 passing
-tests; no physical-device result is claimed. The Study agent's header gear now
-opens the AI settings page directly instead of whatever plugin page was last
-open.
-TTS/audio, pronunciation, the FRQ accuracy claim and pilot thresholds are
-closed decisions; see [docs/plan-decisions.md](docs/plan-decisions.md).
-
-**Question sourcing (Nov 9, 2026):** **Find or generate quiz questions** can
-use the learner's notes, a plain-language brief, pasted source text, or up to
-three vault PDFs. Prompt mode writes original questions from the model's
-general knowledge and explicitly does not browse the web; PDF and pasted
-text are sent only after **Send request**, PDFs with no readable text are skipped
-and reported, and the existing preview, blind answer check and ordinary-note write
-path still apply.
+**No tracked core row is open.** 1.307.26–1.307.31 were live-drive fixes plus release-record, naming and bundle-size work; their record is in `docs/release-notes/` and `AGENTS.md`. What remains is the 13 rows in [§3.9.6](#396-gate-table-rows-that-need-an-owner-input), each needing a provider, credential, device or owner decision — the owner-facing form with options and a recommended default is [docs/plan-decisions.md](docs/plan-decisions.md).
 
 ## A. What is shipped
 
