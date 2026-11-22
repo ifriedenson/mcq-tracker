@@ -36,66 +36,73 @@ function slug(text) {
     .replace(/\s/g, "-");
 }
 
-const anchorCache = new Map();
-function anchorsOf(file) {
-  if (!anchorCache.has(file)) {
-    const seen = new Map();
-    const anchors = new Set();
-    for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
-      const match = HEADING.exec(line);
-      if (!match) continue;
-      const base = slug(match[1]);
-      const count = seen.get(base) || 0;
-      seen.set(base, count + 1);
-      anchors.add(count ? base + "-" + count : base);
+function main() {
+  const anchorCache = new Map();
+  function anchorsOf(file) {
+    if (!anchorCache.has(file)) {
+      const seen = new Map();
+      const anchors = new Set();
+      for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
+        const match = HEADING.exec(line);
+        if (!match) continue;
+        const base = slug(match[1]);
+        const count = seen.get(base) || 0;
+        seen.set(base, count + 1);
+        anchors.add(count ? base + "-" + count : base);
+      }
+      anchorCache.set(file, anchors);
     }
-    anchorCache.set(file, anchors);
+    return anchorCache.get(file);
   }
-  return anchorCache.get(file);
-}
 
-const failures = [];
-let links = 0;
-let anchors = 0;
+  const failures = [];
+  let links = 0;
+  let anchors = 0;
 
-for (const file of markdownFiles(ROOT).sort()) {
-  const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
-  lines.forEach((line, index) => {
-    for (const match of line.matchAll(LINK)) {
-      const target = match[1];
-      if (EXTERNAL.test(target)) continue;
-      const [rawPath, fragment] = target.split("#");
-      const where = relativePath(ROOT, file) + ":" + (index + 1);
-      let destination = file;
-      if (rawPath) {
-        links += 1;
-        let decoded = rawPath;
-        try {
-          decoded = decodeURIComponent(rawPath);
-        } catch (error) {
-          /* a literal % that is not an escape: use it as written */
+  for (const file of markdownFiles(ROOT).sort()) {
+    const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
+    lines.forEach((line, index) => {
+      for (const match of line.matchAll(LINK)) {
+        const target = match[1];
+        if (EXTERNAL.test(target)) continue;
+        const [rawPath, fragment] = target.split("#");
+        const where = relativePath(ROOT, file) + ":" + (index + 1);
+        let destination = file;
+        if (rawPath) {
+          links += 1;
+          let decoded = rawPath;
+          try {
+            decoded = decodeURIComponent(rawPath);
+          } catch (error) {
+            /* a literal % that is not an escape: use it as written */
+          }
+          destination = path.resolve(path.dirname(file), decoded);
+          if (!fs.existsSync(destination)) {
+            failures.push(where + "  " + target + "  — no such file or directory");
+            continue;
+          }
         }
-        destination = path.resolve(path.dirname(file), decoded);
-        if (!fs.existsSync(destination)) {
-          failures.push(where + "  " + target + "  — no such file or directory");
-          continue;
+        if (!fragment || !destination.endsWith(".md")) continue;
+        anchors += 1;
+        if (!anchorsOf(destination).has(slug(fragment))) {
+          failures.push(where + "  " + target + "  — no heading anchors to #" +
+            fragment + " in " + relativePath(ROOT, destination));
         }
       }
-      if (!fragment || !destination.endsWith(".md")) continue;
-      anchors += 1;
-      if (!anchorsOf(destination).has(slug(fragment))) {
-        failures.push(where + "  " + target + "  — no heading anchors to #" +
-          fragment + " in " + relativePath(ROOT, destination));
-      }
-    }
-  });
+    });
+  }
+
+  if (failures.length) {
+    console.error("check-doc-links: " + failures.length + " link(s) point at nothing\n");
+    for (const failure of failures) console.error("  " + failure);
+    console.error("\nRepair the path, or drop the link and name the document in plain text.");
+    return 1;
+  }
+
+  console.log("check-doc-links: " + links + " file links and " + anchors + " anchors resolve.");
+  return 0;
 }
 
-if (failures.length) {
-  console.error("check-doc-links: " + failures.length + " link(s) point at nothing\n");
-  for (const failure of failures) console.error("  " + failure);
-  console.error("\nRepair the path, or drop the link and name the document in plain text.");
-  process.exit(1);
-}
+module.exports = { slug, LINK, EXTERNAL, HEADING };
 
-console.log("check-doc-links: " + links + " file links and " + anchors + " anchors resolve.");
+if (require.main === module) process.exit(main());

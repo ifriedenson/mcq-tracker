@@ -122,6 +122,14 @@ Full decision record: [docs/plan-decisions.md](docs/plan-decisions.md).
 - The MIT audit sections (§3.9.1–§3.9.10) are kept for licence evidence and
   decision history; §3.9.6 is the only table of open work.
 
+### Doc-check follow-ups, done (Nov 2026)
+
+Ranked by value; every item is implemented and held by `npm run check` or the suite.
+
+1. **Test the checkers** (`tests/doc-checks.test.js`) — the five doc checks gate every release, but nothing checked them; a regression in one fails silent. Pins slug/anchor parsing, table cell splits, the cited-path pattern, both allowlists in both directions, and the release-log parsers.
+2. **One shared walker** (`scripts/lib/doc-files.js`) — the checks each carried their own directory walk; one helper owns it now, so the next check starts correct.
+3. **This list, recorded here** — so the next cleanup knows what was already decided. Deliberately not checks: orphan-page and duplicate-heading guards, probed and rejected — the release notes are version-addressed rather than link-navigated, and repeated headings ("What changed", "Why") are legitimate, GitHub suffixes them.
+
 ## 0. Confirmed decisions (owner, Oct 27, 2026)
 
 | Topic | Decision | Consequence for the plan |

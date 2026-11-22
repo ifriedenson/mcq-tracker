@@ -28,44 +28,51 @@ function cellsOf(line) {
   return parts;
 }
 
-const failures = [];
-let tables = 0;
+function main() {
+  const failures = [];
+  let tables = 0;
 
-for (const file of markdownFiles(ROOT).sort()) {
-  const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
-  for (let index = 0; index < lines.length - 1; index += 1) {
-    const header = cellsOf(lines[index]);
-    const delimiter = cellsOf(lines[index + 1]);
-    if (!header || !delimiter) continue;
-    if (!delimiter.every((cell) => DELIMITER_CELL.test(cell))) continue;
-    // A table: header row, delimiter row, then the body rows.
-    tables += 1;
-    if (delimiter.length !== header.length) {
-      failures.push(relativePath(ROOT, file) + ":" + (index + 2) +
-        "  delimiter has " + delimiter.length +
-        " cells but the header has " + header.length);
-    }
-    let row = index + 2;
-    while (row < lines.length) {
-      const body = cellsOf(lines[row]);
-      if (!body) break;
-      if (body.length !== header.length) {
-        failures.push(relativePath(ROOT, file) + ":" + (row + 1) +
-          "  row has " + body.length +
-          " cells but the table has " + header.length);
+  for (const file of markdownFiles(ROOT).sort()) {
+    const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
+    for (let index = 0; index < lines.length - 1; index += 1) {
+      const header = cellsOf(lines[index]);
+      const delimiter = cellsOf(lines[index + 1]);
+      if (!header || !delimiter) continue;
+      if (!delimiter.every((cell) => DELIMITER_CELL.test(cell))) continue;
+      // A table: header row, delimiter row, then the body rows.
+      tables += 1;
+      if (delimiter.length !== header.length) {
+        failures.push(relativePath(ROOT, file) + ":" + (index + 2) +
+          "  delimiter has " + delimiter.length +
+          " cells but the header has " + header.length);
       }
-      row += 1;
+      let row = index + 2;
+      while (row < lines.length) {
+        const body = cellsOf(lines[row]);
+        if (!body) break;
+        if (body.length !== header.length) {
+          failures.push(relativePath(ROOT, file) + ":" + (row + 1) +
+            "  row has " + body.length +
+            " cells but the table has " + header.length);
+        }
+        row += 1;
+      }
+      index = row;
     }
-    index = row;
   }
+
+  if (failures.length) {
+    console.error("check-markdown-tables: " + failures.length + " bad row(s) in " + tables + " tables\n");
+    for (const failure of failures.slice(0, 30)) console.error("  " + failure);
+    if (failures.length > 30) console.error("  …and " + (failures.length - 30) + " more");
+    console.error("\nSplit the note out of the row, or escape a literal pipe as \\|.");
+    return 1;
+  }
+
+  console.log("check-markdown-tables: " + tables + " tables have matching row widths.");
+  return 0;
 }
 
-if (failures.length) {
-  console.error("check-markdown-tables: " + failures.length + " bad row(s) in " + tables + " tables\n");
-  for (const failure of failures.slice(0, 30)) console.error("  " + failure);
-  if (failures.length > 30) console.error("  …and " + (failures.length - 30) + " more");
-  console.error("\nSplit the note out of the row, or escape a literal pipe as \\|.");
-  process.exit(1);
-}
+module.exports = { cellsOf, DELIMITER_CELL };
 
-console.log("check-markdown-tables: " + tables + " tables have matching row widths.");
+if (require.main === module) process.exit(main());

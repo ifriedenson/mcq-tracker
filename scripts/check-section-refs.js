@@ -22,9 +22,8 @@
  */
 const fs = require("fs");
 const path = require("path");
+const { ROOT, markdownFiles, relativePath } = require("./lib/doc-files");
 
-const ROOT = path.join(__dirname, "..");
-const SKIP_DIRS = ["node_modules", ".git"];
 const HEADING = /^#{1,4}\s+(\d+[a-z]?(?:\.\d+)*)[.\s]/;
 const BOLD_LEAD = /^\*\*(\d+[a-z]?(?:\.\d+)*)[.\s]/;
 const LETTER_HEADING = /^#{1,4}\s+([A-C])[.\s]/;
@@ -50,91 +49,84 @@ function sectionsOf(text) {
   return found;
 }
 
-function markdownFiles(dir = ROOT, files = []) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isDirectory()) {
-      if (SKIP_DIRS.includes(entry.name) || entry.name.startsWith(".")) continue;
-      markdownFiles(path.join(dir, entry.name), files);
-    } else if (entry.name.endsWith(".md") && !entry.name.startsWith(".")) {
-      files.push(path.join(dir, entry.name));
+function main() {
+  const cache = new Map();
+
+  function sectionsOfFile(file) {
+    if (!cache.has(file)) {
+      cache.set(file, fs.existsSync(file) ? sectionsOf(fs.readFileSync(file, "utf8")) : new Set());
     }
+    return cache.get(file);
   }
-  return files;
-}
 
-const relative = (file) => path.relative(ROOT, file).split(path.sep).join("/");
-const cache = new Map();
+  const planSections = sectionsOfFile(path.join(ROOT, "plan.md"));
+  const files = markdownFiles(ROOT).sort();
 
-function sectionsOfFile(file) {
-  if (!cache.has(file)) {
-    cache.set(file, fs.existsSync(file) ? sectionsOf(fs.readFileSync(file, "utf8")) : new Set());
-  }
-  return cache.get(file);
-}
-
-const planSections = sectionsOfFile(path.join(ROOT, "plan.md"));
-const files = markdownFiles().sort();
-
-function namedDocument(line, refIndex, fromFile) {
-  MARKDOWN_NAME.lastIndex = 0;
-  const names = [];
-  let match;
-  while ((match = MARKDOWN_NAME.exec(line)) && match.index < refIndex) names.push(match[1]);
-  for (const name of names.reverse()) {
-    for (const candidate of [path.join(path.dirname(fromFile), name), path.join(ROOT, name), path.join(ROOT, "docs", name)]) {
-      if (fs.existsSync(candidate) && candidate.endsWith(".md")) return candidate;
+  function namedDocument(line, refIndex, fromFile) {
+    const names = [];
+    for (const match of line.matchAll(MARKDOWN_NAME)) {
+      if (match.index >= refIndex) break;
+      names.push(match[1]);
     }
-    for (const candidate of files) {
-      if (path.basename(candidate) === path.basename(name)) return candidate;
+    for (const name of names.reverse()) {
+      for (const candidate of [path.join(path.dirname(fromFile), name), path.join(ROOT, name), path.join(ROOT, "docs", name)]) {
+        if (fs.existsSync(candidate) && candidate.endsWith(".md")) return candidate;
+      }
+      for (const candidate of files) {
+        if (path.basename(candidate) === path.basename(name)) return candidate;
+      }
     }
+    return null;
   }
-  return null;
-}
 
-const failures = [];
-let checked = 0;
+  const failures = [];
+  let checked = 0;
 
-for (const file of files) {
-  const name = relative(file);
-  const exempt = EXEMPT[name];
-  const own = new Set([...planSections, ...sectionsOfFile(file)]);
-  const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
+  for (const file of files) {
+    const name = relativePath(ROOT, file);
+    const exempt = EXEMPT[name];
+    const own = new Set([...planSections, ...sectionsOfFile(file)]);
+    const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
 
-  lines.forEach((line, index) => {
-    REFERENCE.lastIndex = 0;
-    let match;
-    while ((match = REFERENCE.exec(line))) {
-      checked += 1;
-      const section = match[1];
-      if (own.has(section)) continue;
-      const other = namedDocument(line, match.index, file);
-      if (other && sectionsOfFile(other).has(section)) continue;
-      if (exempt) continue;
-      failures.push({
-        where: name + ":" + (index + 1),
-        section,
-        target: other ? relative(other) : "plan.md",
-        line: line.trim(),
-      });
+    lines.forEach((line, index) => {
+      for (const match of line.matchAll(REFERENCE)) {
+        checked += 1;
+        const section = match[1];
+        if (own.has(section)) continue;
+        const other = namedDocument(line, match.index, file);
+        if (other && sectionsOfFile(other).has(section)) continue;
+        if (exempt) continue;
+        failures.push({
+          where: name + ":" + (index + 1),
+          section,
+          target: other ? relativePath(ROOT, other) : "plan.md",
+          line: line.trim(),
+        });
+      }
+    });
+  }
+
+  const fileList = files.filter((file) => !EXEMPT[relativePath(ROOT, file)]);
+
+  if (failures.length) {
+    console.error("check-section-refs: " + failures.length + " § reference(s) point at nothing\n");
+    for (const failure of failures) {
+      console.error("  " + failure.where + "  §" + failure.section + " is not a section of " + failure.target);
+      console.error("      " + (failure.line.length > 110 ? failure.line.slice(0, 107) + "..." : failure.line));
     }
-  });
-}
-
-const fileList = files.filter((file) => !EXEMPT[relative(file)]);
-
-if (failures.length) {
-  console.error("check-section-refs: " + failures.length + " § reference(s) point at nothing\n");
-  for (const failure of failures) {
-    console.error("  " + failure.where + "  §" + failure.section + " is not a section of " + failure.target);
-    console.error("      " + (failure.line.length > 110 ? failure.line.slice(0, 107) + "..." : failure.line));
+    console.error("\nPoint the reference at a section that exists, or restore the heading it names.");
+    return 1;
   }
-  console.error("\nPoint the reference at a section that exists, or restore the heading it names.");
-  process.exit(1);
+
+  const exemptNote = Object.keys(EXEMPT).length
+    ? " (" + Object.keys(EXEMPT).length + " historical file(s) exempt)"
+    : "";
+  console.log(
+    "check-section-refs: " + checked + " references resolve across " + fileList.length + " files" + exemptNote + "."
+  );
+  return 0;
 }
 
-const exemptNote = Object.keys(EXEMPT).length
-  ? " (" + Object.keys(EXEMPT).length + " historical file(s) exempt)"
-  : "";
-console.log(
-  "check-section-refs: " + checked + " references resolve across " + fileList.length + " files" + exemptNote + "."
-);
+module.exports = { sectionsOf, EXEMPT };
+
+if (require.main === module) process.exit(main());

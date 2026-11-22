@@ -20,6 +20,7 @@
 const fs = require("fs");
 const path = require("path");
 const { ROOT, markdownFiles, relativePath } = require("./lib/doc-files");
+
 // Only the extensions this repository owns: third-party plugins have their own
 // src/ trees (TypeScript, Svelte, Python), so those cites are left alone.
 const CITED_PATH = /`((?:src|tests|scripts|vendor|tools|docs)\/[A-Za-z0-9_.][\w./-]*\.(?:js|mjs|cjs|json|md|css|yml|yaml))`/g;
@@ -37,34 +38,41 @@ const REMOVED = new Map([
   ["vendor/jsxgraph-core.js", "removed in 1.209.1; named by the 1.209.0/1.209.1 notes"],
 ]);
 
-const failures = [];
-let cited = 0;
-let historical = 0;
+function main() {
+  const failures = [];
+  let cited = 0;
+  let historical = 0;
 
-for (const file of markdownFiles(ROOT).sort()) {
-  const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
-  lines.forEach((line, index) => {
-    for (const match of line.matchAll(CITED_PATH)) {
-      const citedPath = match[1];
-      cited += 1;
-      if (fs.existsSync(path.join(ROOT, citedPath))) continue;
-      if (REMOVED.has(citedPath)) {
-        historical += 1;
-        continue;
+  for (const file of markdownFiles(ROOT).sort()) {
+    const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
+    lines.forEach((line, index) => {
+      for (const match of line.matchAll(CITED_PATH)) {
+        const citedPath = match[1];
+        cited += 1;
+        if (fs.existsSync(path.join(ROOT, citedPath))) continue;
+        if (REMOVED.has(citedPath)) {
+          historical += 1;
+          continue;
+        }
+        failures.push(relativePath(ROOT, file) + ":" + (index + 1) +
+          "  `" + citedPath + "` is not in the tree");
       }
-      failures.push(relativePath(ROOT, file) + ":" + (index + 1) +
-        "  `" + citedPath + "` is not in the tree");
-    }
-  });
+    });
+  }
+
+  if (failures.length) {
+    console.error("check-doc-paths: " + failures.length + " cited path(s) are missing\n");
+    for (const failure of failures.slice(0, 30)) console.error("  " + failure);
+    if (failures.length > 30) console.error("  …and " + (failures.length - 30) + " more");
+    console.error("\nPoint the sentence at the file that holds the code now, or — only if the");
+    console.error("citation is a record of something removed — add it to REMOVED with the reason.");
+    return 1;
+  }
+
+  console.log("check-doc-paths: " + cited + " cited paths resolve (" + historical + " historical).");
+  return 0;
 }
 
-if (failures.length) {
-  console.error("check-doc-paths: " + failures.length + " cited path(s) are missing\n");
-  for (const failure of failures.slice(0, 30)) console.error("  " + failure);
-  if (failures.length > 30) console.error("  …and " + (failures.length - 30) + " more");
-  console.error("\nPoint the sentence at the file that holds the code now, or — only if the");
-  console.error("citation is a record of something removed — add it to REMOVED with the reason.");
-  process.exit(1);
-}
+module.exports = { CITED_PATH, REMOVED };
 
-console.log("check-doc-paths: " + cited + " cited paths resolve (" + historical + " historical).");
+if (require.main === module) process.exit(main());
