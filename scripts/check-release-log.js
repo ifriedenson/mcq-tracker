@@ -27,12 +27,7 @@ function newestNote() {
   const versions = fs.readdirSync(dir)
     .filter((name) => /^\d+\.\d+\.\d+\.md$/.test(name))
     .map((name) => name.slice(0, -3));
-  const rank = (v) => v.split(".").map(Number);
-  return versions.sort((a, b) => {
-    const [x, y] = [rank(a), rank(b)];
-    for (let i = 0; i < 3; i += 1) if (x[i] !== y[i]) return x[i] - y[i];
-    return 0;
-  }).pop();
+  return versions.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).pop();
 }
 
 const MONTHS = {

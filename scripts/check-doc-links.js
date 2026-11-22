@@ -17,24 +17,11 @@
  */
 const fs = require("fs");
 const path = require("path");
+const { ROOT, markdownFiles, relativePath } = require("./lib/doc-files");
 
-const ROOT = path.join(__dirname, "..");
-const SKIP_DIRS = ["node_modules", ".git"];
 const EXTERNAL = /^([a-z][a-z0-9+.-]*:|\/\/)/i;
 const LINK = /!?\[[^\]]*\]\(([^()\s]+(?:\([^()\s]*\)[^()\s]*)*)\)/g;
 const HEADING = /^#{1,6}\s+(.+?)\s*#*$/;
-
-function markdownFiles(dir = ROOT, files = []) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isDirectory()) {
-      if (SKIP_DIRS.includes(entry.name) || entry.name.startsWith(".")) continue;
-      markdownFiles(path.join(dir, entry.name), files);
-    } else if (entry.name.endsWith(".md") && !entry.name.startsWith(".")) {
-      files.push(path.join(dir, entry.name));
-    }
-  }
-  return files;
-}
 
 // GitHub's heading anchors: lowercase, punctuation dropped, spaces to hyphens,
 // and a "-1", "-2" suffix for repeated headings.
@@ -67,21 +54,18 @@ function anchorsOf(file) {
   return anchorCache.get(file);
 }
 
-const relative = (file) => path.relative(ROOT, file).split(path.sep).join("/");
 const failures = [];
 let links = 0;
 let anchors = 0;
 
-for (const file of markdownFiles().sort()) {
+for (const file of markdownFiles(ROOT).sort()) {
   const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
   lines.forEach((line, index) => {
-    LINK.lastIndex = 0;
-    let match;
-    while ((match = LINK.exec(line))) {
+    for (const match of line.matchAll(LINK)) {
       const target = match[1];
-      if (!target || EXTERNAL.test(target)) continue;
+      if (EXTERNAL.test(target)) continue;
       const [rawPath, fragment] = target.split("#");
-      const where = relative(file) + ":" + (index + 1);
+      const where = relativePath(ROOT, file) + ":" + (index + 1);
       let destination = file;
       if (rawPath) {
         links += 1;
@@ -93,16 +77,15 @@ for (const file of markdownFiles().sort()) {
         }
         destination = path.resolve(path.dirname(file), decoded);
         if (!fs.existsSync(destination)) {
-          failures.push({ where, target, reason: "no such file or directory" });
+          failures.push(where + "  " + target + "  — no such file or directory");
           continue;
         }
       }
-      if (!fragment) continue;
+      if (!fragment || !destination.endsWith(".md")) continue;
       anchors += 1;
-      if (!destination.endsWith(".md") || !fs.existsSync(destination)) continue;
-      const expected = slug(fragment);
-      if (!anchorsOf(destination).has(expected)) {
-        failures.push({ where, target, reason: "no heading anchors to #" + fragment + " in " + relative(destination) });
+      if (!anchorsOf(destination).has(slug(fragment))) {
+        failures.push(where + "  " + target + "  — no heading anchors to #" +
+          fragment + " in " + relativePath(ROOT, destination));
       }
     }
   });
@@ -110,9 +93,7 @@ for (const file of markdownFiles().sort()) {
 
 if (failures.length) {
   console.error("check-doc-links: " + failures.length + " link(s) point at nothing\n");
-  for (const failure of failures) {
-    console.error("  " + failure.where + "  " + failure.target + "  — " + failure.reason);
-  }
+  for (const failure of failures) console.error("  " + failure);
   console.error("\nRepair the path, or drop the link and name the document in plain text.");
   process.exit(1);
 }

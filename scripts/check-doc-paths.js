@@ -19,9 +19,7 @@
  */
 const fs = require("fs");
 const path = require("path");
-
-const ROOT = path.join(__dirname, "..");
-const SKIP_DIRS = ["node_modules", ".git"];
+const { ROOT, markdownFiles, relativePath } = require("./lib/doc-files");
 // Only the extensions this repository owns: third-party plugins have their own
 // src/ trees (TypeScript, Svelte, Python), so those cites are left alone.
 const CITED_PATH = /`((?:src|tests|scripts|vendor|tools|docs)\/[A-Za-z0-9_.][\w./-]*\.(?:js|mjs|cjs|json|md|css|yml|yaml))`/g;
@@ -39,39 +37,23 @@ const REMOVED = new Map([
   ["vendor/jsxgraph-core.js", "removed in 1.209.1; named by the 1.209.0/1.209.1 notes"],
 ]);
 
-function markdownFiles(dir = ROOT, files = []) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isDirectory()) {
-      if (SKIP_DIRS.includes(entry.name) || entry.name.startsWith(".")) continue;
-      markdownFiles(path.join(dir, entry.name), files);
-    } else if (entry.name.endsWith(".md") && !entry.name.startsWith(".")) {
-      files.push(path.join(dir, entry.name));
-    }
-  }
-  return files;
-}
-
-const relative = (file) => path.relative(ROOT, file).split(path.sep).join("/");
 const failures = [];
 let cited = 0;
 let historical = 0;
 
-for (const file of markdownFiles().sort()) {
+for (const file of markdownFiles(ROOT).sort()) {
   const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
   lines.forEach((line, index) => {
-    CITED_PATH.lastIndex = 0;
-    let match;
-    while ((match = CITED_PATH.exec(line))) {
+    for (const match of line.matchAll(CITED_PATH)) {
       const citedPath = match[1];
-      if (citedPath.includes("*")) continue; // a pattern, not a file
       cited += 1;
       if (fs.existsSync(path.join(ROOT, citedPath))) continue;
-      const reason = REMOVED.get(citedPath);
-      if (reason) {
+      if (REMOVED.has(citedPath)) {
         historical += 1;
         continue;
       }
-      failures.push(relative(file) + ":" + (index + 1) + "  `" + citedPath + "` is not in the tree");
+      failures.push(relativePath(ROOT, file) + ":" + (index + 1) +
+        "  `" + citedPath + "` is not in the tree");
     }
   });
 }
