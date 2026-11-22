@@ -132,6 +132,11 @@ Ranked by value; every item is implemented and held by `npm run check` or the su
 4. **Exempt stays needed** — an `EXEMPT` entry that no longer carries a § reference fails, so the allowlist cannot outlive its reason.
 5. **Compress shipped history, keep the headings** (§5/§3/§11, Nov 2026 pass) — long "Shipped/Implemented" paragraphs collapse to one line plus the release-note pointer; §5.18.1 status cells keep two sentences; §11 resolved items keep the verdict and drop the re-specification. Headings and tables are untouched so every § reference still resolves.
 6. **This list, recorded here** — so the next cleanup knows what was already decided. Deliberately not checks: orphan-page and duplicate-heading guards, probed and rejected — the release notes are version-addressed rather than link-navigated, and repeated headings ("What changed", "Why") are legitimate, GitHub suffixes them.
+7. **§11 gates resolve to real rows** — the gate table is the only map from blocked rows to owner decisions; a test now resolves every `§11 decision N`, `§11 item N` and `D`/`O`/`E` pointer against the rows that exist, so a retargeted number fails loudly instead of dangling.
+8. **Release notes self-name their version** — only the newest note is checked today; a test now asserts every `docs/release-notes/` file names its own version in its first lines, so a copy-paste header lies nowhere.
+9. **Gate-table rows always carry a gate** — a test asserts every §3.9.6 row names its §11 pointer, so a newly added blocked row cannot slip in unowned.
+10. **Gate ids stay unique** — the `D`/`O`/`E` headers are asserted unique, so a duplicated id cannot silently merge two decisions.
+11. **Check scripts state their failure mode** — every `scripts/check-*.js` header names what breaks without it (a `Proactive:` line where no incident existed), pinned by a test, so the lore survives rewrites.
 
 ## 0. Confirmed decisions (owner, Oct 27, 2026)
 

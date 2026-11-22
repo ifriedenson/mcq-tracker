@@ -123,6 +123,81 @@ test("every EXEMPT file still needs its exemption", () => {
   }
 });
 
+test("every release note names its own version up top", () => {
+  const dir = path.join(ROOT, "docs", "release-notes");
+  let notes = 0;
+  for (const file of fs.readdirSync(dir)) {
+    if (!/^\d+\.\d+\.\d+\.md$/.test(file)) continue;
+    notes += 1;
+    const head = fs.readFileSync(path.join(dir, file), "utf8").split("\n").slice(0, 3).join("\n");
+    assert.ok(head.includes(file.slice(0, -3)), file + " does not name its own version in its first lines");
+  }
+  assert.ok(notes > 200, "expected the full notes history, found only " + notes);
+});
+
+test("every §11 gate points at a row that exists", () => {
+  const text = fs.readFileSync(path.join(ROOT, "plan.md"), "utf8");
+  const slice = (start, end) => {
+    const from = text.indexOf(start);
+    const to = text.indexOf(end, from);
+    return text.slice(from, to < 0 ? text.length : to);
+  };
+  const owners = new Set(
+    [...slice("### Owner decisions applied", "### Other product").matchAll(/^\| (\d+) \|/gm)]
+      .map((match) => match[1])
+  );
+  const items = new Set(
+    [...slice("### Mission open questions", "### Decision queue").matchAll(/^(\d+)\. /gm)]
+      .map((match) => match[1])
+  );
+  const eleven = slice("## 11. Decisions", "## 12. Link index");
+  const ids = new Set([...eleven.matchAll(/\*\*([DOE]\d+)\*\*/g)].map((match) => match[1]));
+  const failures = [];
+  for (const match of text.matchAll(/§11 (?:decision (\d+)|item (\d+)|([DOE]\d+(?:[–-][A-Z]*(\d+))?))/g)) {
+    if (match[1] && !owners.has(match[1])) failures.push("§11 decision " + match[1] + " names no owner-decision row");
+    if (match[2] && !items.has(match[2])) failures.push("§11 item " + match[2] + " names no mission item");
+    if (match[3]) {
+      const ends = [match[3].match(/^[DOE]\d+/)[0]];
+      if (match[4]) ends.push(match[3][0] + match[4]);
+      for (const id of ends) {
+        if (!ids.has(id)) failures.push("§11 " + match[3] + " names no gate row (" + id + " missing)");
+      }
+    }
+  }
+  assert.deepEqual(failures, []);
+});
+
+test("§11 gate ids are unique headers", () => {
+  const text = fs.readFileSync(path.join(ROOT, "plan.md"), "utf8");
+  const eleven = text.slice(text.indexOf("## 11. Decisions"), text.indexOf("## 12. Link index"));
+  const seen = new Map();
+  for (const match of eleven.matchAll(/\*\*([DOE]\d+)\*\*/g)) {
+    seen.set(match[1], (seen.get(match[1]) || 0) + 1);
+  }
+  assert.deepEqual([...seen].filter(([, count]) => count > 1), []);
+  assert.ok(seen.size >= 30, "expected the full D/O/E gate set, found " + seen.size);
+});
+
+test("every §3.9.6 gate-table row carries a §11 gate", () => {
+  const text = fs.readFileSync(path.join(ROOT, "plan.md"), "utf8");
+  const table = text.slice(text.indexOf("### 3.9.6 Gate table"), text.indexOf("### 3.9.7"));
+  const rows = table.split("\n")
+    .filter((line) => line.startsWith("| ") && !line.startsWith("| Blocked") && !/^\|[\s\-: |]+\|$/.test(line));
+  assert.ok(rows.length > 10, "expected the full gate table, found " + rows.length + " rows");
+  for (const row of rows) {
+    assert.ok(row.includes("§11"), "gate row with no §11 owner pointer: " + row.slice(0, 80));
+  }
+});
+
+test("every check script states its failure mode up top", () => {
+  for (const file of fs.readdirSync(path.join(ROOT, "scripts"))) {
+    if (!file.startsWith("check-") || !file.endsWith(".js")) continue;
+    const head = fs.readFileSync(path.join(ROOT, "scripts", file), "utf8").split("\n").slice(0, 12).join("\n");
+    assert.ok(/fail|instead|silent|wrong|stale|rot|proactive|1\.\d+/i.test(head),
+      file + " states no failure mode in its header; say what breaks without it");
+  }
+});
+
 test("newestOf compares numerically, not lexically", () => {
   assert.equal(newestOf(["1.307.9", "1.307.31", "1.307.10"]), "1.307.31");
 });

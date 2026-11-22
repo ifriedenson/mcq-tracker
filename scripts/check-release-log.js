@@ -6,6 +6,9 @@
  * CHANGELOG.md, and the newest file in docs/release-notes/ — all three
  * must name the packaged version, on the same date.
  *
+ * A typo in any of the three ships a release whose records disagree; without
+ * this check nothing fails, because nothing else reads the two hand-typed logs.
+ *
  * A release here is four edits — the version bump, the note, the AGENTS
  * line, the CHANGELOG entry — and three of them are prose typed by a
  * person. check-release-notes.js already ties the note files to the tags;
