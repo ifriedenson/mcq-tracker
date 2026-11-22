@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status: v1.307.31 (Nov 20, 2026).** One MIT, dependency-free Obsidian plugin
+**Status: v1.307.31 (Nov 22, 2026).** One MIT, dependency-free Obsidian plugin
 (`mcq-tracker`) covering exam practice, cards and vocabulary, courses and
 calendars, study planning, document ingestion, reference/STEM tools and an
 optional BYOK/OpenCode AI layer.
@@ -13,9 +13,9 @@ surfaces, so unfinished ideas are not disguised as checked work.
 §3.9.6 is the gate table, §3.10 is the licence allow-list, and
 [docs/plan-decisions.md](docs/plan-decisions.md) is the owner decision sheet.
 
-**Verified at this commit:** `node --test` → 3,138 tests pass, 0 fail;
+**Verified at this commit:** `node --test` → 3,172 tests pass, 0 fail;
 `npm run check` clean (no dynamic code across 383 source files, vendor guard,
-bundle up to date); `main.js` generated from 384 modules at 4,342,848 bytes.
+bundle up to date); `main.js` generated from 384 modules at 4,347,750 bytes.
 Re-run both before quoting these numbers.
 
 **How to read this file.**
@@ -2550,7 +2550,7 @@ The mission asked for every remaining plan item to be implemented. These cannot 
 
 **Sweep result (Nov 1, 2026).** Historical: 122 checked, 10 partial/blocked, 0 unchecked; the partials were the manual, OCR/audio and AP-calibration rows gated in §3.9.6. Superseded by the Nov 20, 2026 sweep below.
 
-**Sweep result (Nov 20, 2026).** `plan.md` has **112 checked `[x]` roadmap rows, 0 `[~]` partial/blocked rows and 0 unchecked `[ ]` rows**. A further ~112 checked rows were release-log bullets at the top of the file; they now live in `docs/release-notes/` and `AGENTS.md` rather than being duplicated here. Four owner-decision rows closed on Nov 6, 2026 (TTS/audio, pronunciation, FRQ accuracy, pilot thresholds). The final three audit rows closed on Nov 13, 2026: math/chemistry and screenshots were checked in a real Obsidian 1.15.1 window, and mobile was audited at code level with 18 passing tests and no physical-device claim. No implementation row is open: PDF→FRQ import shipped in §5.20.5. A Nov 7, 2026 pass corrected the stale diagnostics entry to ✅, shipped plan proposals/plan-then-act and general PDF attachments, recorded inline diff as ◐ and verified PDF passage Q&A in `src/reading-companion.js`; Miyo remains ⛔ because it needs an embedding model and index, and no ○ row remains.
+**Sweep result (Nov 22, 2026).** `plan.md` has **112 checked `[x]` roadmap rows, 0 `[~]` partial/blocked rows and 0 unchecked `[ ]` rows**. A further ~112 checked rows were release-log bullets at the top of the file; they now live in `docs/release-notes/` and `AGENTS.md` rather than being duplicated here. Four owner-decision rows closed on Nov 6, 2026 (TTS/audio, pronunciation, FRQ accuracy, pilot thresholds). The final three audit rows closed on Nov 13, 2026: math/chemistry and screenshots were checked in a real Obsidian 1.15.1 window, and mobile was audited at code level with 18 passing tests and no physical-device claim. No implementation row is open: PDF→FRQ import shipped in §5.20.5. A Nov 7, 2026 pass corrected the stale diagnostics entry to ✅, shipped plan proposals/plan-then-act and general PDF attachments, recorded inline diff as ◐ and verified PDF passage Q&A in `src/reading-companion.js`; Miyo remains ⛔ because it needs an embedding model and index, and no ○ row remains.
 
 **The approved local implementation batch is complete.** The local study modules and the Quizzable slice shipped. The remaining provider/credential/fixture/security rows are explicitly gated by the §11 decisions above or by owner manual checks; no wave approval is pending.
 

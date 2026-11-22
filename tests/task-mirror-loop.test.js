@@ -140,19 +140,17 @@ test("mirror: refreshing rewrites the note without duplicate lines or data chang
   assert.deepEqual(JSON.parse(JSON.stringify(plugin.settings.studyTasks)), before, "data.json untouched");
 });
 
-test("mirror: the projection is one-way, so a hand edit is overwritten and never read back", async () => {
+test("mirror: task-line ticks are read back, due-item ticks are still overwritten", async () => {
   const { app, plugin } = await loopPlugin();
   await plugin.addStudyTask({ title: "Review Biochem", due: "2026-11-20" });
   await plugin.syncStudyTasksToNote();
   const file = app.vault.getAbstractFileByPath("Plans/study-loop.md");
   file.text = file.text.replace("- [ ] Review Biochem", "- [x] Review Biochem").replace("- [ ] [[", "- [x] [[");
-  const before = JSON.parse(JSON.stringify(plugin.settings.studyTasks));
   await plugin.syncStudyTasksToNote();
   const text = noteText(app, "Plans/study-loop.md");
-  assert.ok(text.includes("- [ ] Review Biochem"), "the mirror's own state is restored");
-  assert.ok(!text.includes("- [x] Review Biochem"), "the hand edit did not become data");
+  assert.ok(text.includes("- [x] Review Biochem"), "ticking a task line completes the task");
+  assert.ok(plugin.settings.studyTasks.tasks.some((task) => task.title === "Review Biochem" && task.done), "data followed the tick");
   assert.ok(!text.includes("- [x] [["), "ticking a linked due item changed nothing");
-  assert.deepEqual(JSON.parse(JSON.stringify(plugin.settings.studyTasks)), before, "data.json untouched");
 });
 
 test("mirror: completing a task rewrites the note, and a recorded review drops the due item", async () => {

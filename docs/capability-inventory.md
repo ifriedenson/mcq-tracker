@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 468 groups, 3255 exports. **Commands:** 251. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 468 groups, 3257 exports. **Commands:** 252. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -447,7 +447,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `taskChipDateModal` | 1 | `tests/task-chips.test.js` |
 | `taskChips` | 8 | `tests/task-chips.test.js` |
 | `taskDates` | 11 | `tests/study-tasks-plus.test.js`, `tests/task-agenda.test.js`, `tests/task-dates.test.js`, `tests/task-recurrence.test.js`, `tests/task-times.test.js` |
-| `taskMirror` | 6 | `tests/study-tasks-plus.test.js`, `tests/task-recurrence.test.js`, `tests/task-times.test.js` |
+| `taskMirror` | 8 | `tests/study-tasks-plus.test.js`, `tests/task-recurrence.test.js`, `tests/task-times.test.js` |
 | `taskTags` | 5 | `tests/task-tags.test.js` |
 | `testSections` | 6 | `tests/test-sections.test.js` |
 | `text2anki` | 7 | `tests/text2anki-openai.test.js` |
@@ -617,6 +617,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `canvas-query-apply` | Canvas: fit the active board's query groups around their matches | `applyCanvasQueryGroups` | `tests/canvas-query-groups.test.js` |
 | `open-task-list` | Open the task list | `activateTaskList` | `tests/plugin.test.js`, `tests/task-list.test.js` |
 | `mirror-study-tasks` | Tasks: mirror study tasks to a note | `mirrorStudyTasksCommand` | `tests/study-tasks-plus.test.js` |
+| `apply-mirror-edits` | Tasks: apply the mirror note's reschedules and cancellations | `applyMirrorNoteEditsCommand` | `tests/task-mirror-edits.test.js` |
 | `open-focus-day` | Open Focus day | `activateFocusDay` | `tests/focus-day.test.js`, `tests/hub-views.test.js` |
 | `open-plan-hub` | Open Plan calendar | `activatePlanHub` | `tests/hub-views.test.js`, `tests/plugin.test.js` |
 | `open-reading-library` | Reading library: open the bookshelf | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/time-blocks-kairos.test.js` |

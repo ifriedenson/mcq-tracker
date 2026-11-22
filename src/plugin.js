@@ -776,6 +776,10 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "canvas-query-apply", name: "Canvas: fit the active board's query groups around their matches", callback: () => this.applyCanvasQueryGroups() });
     this.addCommand({ id: "open-task-list", name: "Open the task list", callback: () => this.activateTaskList() });
     this.addCommand({ id: "mirror-study-tasks", name: "Tasks: mirror study tasks to a note", callback: () => this.mirrorStudyTasksCommand() });
+    this.addCommand({ id: "apply-mirror-edits", name: "Tasks: apply the mirror note's reschedules and cancellations", callback: () => this.applyMirrorNoteEditsCommand() });
+    if (this.app && this.app.vault && typeof this.app.vault.on === "function") {
+      this.registerEvent(this.app.vault.on("modify", (file) => this.onMirrorNoteModified(file)));
+    }
     this.addCommand({ id: "open-focus-day", name: "Open Focus day", callback: () => this.activateFocusDay() });
     this.addCommand({ id: "open-plan-hub", name: "Open Plan calendar", callback: () => this.activatePlanHub() });
     this.addCommand({ id: "open-reading-library", name: "Reading library: open the bookshelf", callback: () => this.activateStudyWorkspace("readingLibrary") });
@@ -15327,27 +15331,118 @@ ${body}
   }
 
   /**
-   * One-way copy of the study loop into a note, for search and other plugins:
-   * study tasks (exam-plan tasks included) and today's due questions, cards
-   * and vocabulary. data.json stays the source of truth; the note is rewritten
-   * from it every time, so repeating this never stacks duplicate lines.
+   * Read hand edits back out of the mirror note before it is rewritten: a
+   * changed (or removed) 📅 date reschedules the task, `- [x]` completes,
+   * `- [ ]` on a done task reopens, and `- [-]` or a deleted line cancels it.
+   * Due-queue link lines are never mapped onto tasks. Nothing is created and
+   * a note that no longer looks like the mirror never wipes the store.
+   */
+  async applyMirrorNoteEdits() {
+    if (this._applyingMirrorEdits) return null;
+    const data = studyWorkspace.normalizeStudyTasks(this.settings.studyTasks);
+    if (!str(data.mirrorNote).trim()) return null;
+    const raw = str(data.mirrorNote).trim();
+    const path = raw.endsWith(".md") ? raw : `${raw}.md`;
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!file) return null;
+    let text = "";
+    try {
+      text = str(await this.app.vault.cachedRead(file));
+    } catch (error) {
+      return null;
+    }
+    // The note still holds exactly what the last rewrite wrote: nobody edited
+    // it since, so there is nothing to read back. This also keeps a data change
+    // made in this session (which has not rewritten the note yet) from being
+    // "applied" back out of its own stale rendering.
+    if (this._lastMirrorText != null && text === this._lastMirrorText) return null;
+    const applied = taskMirror.applyMirrorEdits(data.tasks, text, localDate(), { renderedIds: this._lastMirroredTaskIds });
+    if (!applied.rescheduled && !applied.cancelled && !applied.completed && !applied.reopened) return null;
+    this._applyingMirrorEdits = true;
+    try {
+      this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({ ...data, tasks: applied.tasks });
+      await this.save();
+      this.refreshViews();
+    } finally {
+      this._applyingMirrorEdits = false;
+    }
+    return applied;
+  }
+
+  /**
+   * Copy of the study loop into a note, for search and other plugins: study
+   * tasks (exam-plan tasks included) and today's due questions, cards and
+   * vocabulary. Hand edits on task lines are read back first (reschedule,
+   * complete, reopen, cancel), then the note is rewritten from data, so
+   * repeating this never stacks duplicate lines.
    */
   async syncStudyTasksToNote() {
+    try {
+      await this.applyMirrorNoteEdits();
+    } catch (error) {
+      // A note mid-save never blocks the rewrite below.
+    }
     const data = studyWorkspace.normalizeStudyTasks(this.settings.studyTasks);
     const raw = str(data.mirrorNote).trim() || taskMirror.defaultMirrorPath();
     const path = raw.endsWith(".md") ? raw : `${raw}.md`;
     const dueItems = this.mirrorDueItems();
     const text = taskMirror.mirrorMarkdown(data.tasks, localDate(), { dueItems });
     const existing = this.app.vault.getAbstractFileByPath(path);
-    if (existing) await this.app.vault.modify(existing, text);
-    else {
-      const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
-      if (folder && !this.app.vault.getAbstractFileByPath(folder)) await this.app.vault.createFolder(folder);
-      await this.app.vault.create(path, text);
+    this._writingMirror = true;
+    try {
+      if (existing) await this.app.vault.modify(existing, text);
+      else {
+        const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+        if (folder && !this.app.vault.getAbstractFileByPath(folder)) await this.app.vault.createFolder(folder);
+        await this.app.vault.create(path, text);
+      }
+    } finally {
+      this._writingMirror = false;
     }
+    this._lastMirroredTaskIds = data.tasks.map((task) => task.id);
+    this._lastMirrorText = text;
     this.refreshViews();
     const open = data.tasks.filter((task) => !task.done).length;
     return { ok: true, path, open, done: data.tasks.length - open, due: dueItems.length };
+  }
+
+  /** The configured mirror path with `.md`, or "" when no note is picked. */
+  mirrorNotePath() {
+    const data = studyWorkspace.normalizeStudyTasks(this.settings.studyTasks);
+    if (!str(data.mirrorNote).trim()) return "";
+    const raw = str(data.mirrorNote).trim();
+    return raw.endsWith(".md") ? raw : `${raw}.md`;
+  }
+
+  /** A mirror-note save outside the rewrite: read the edits back, keep the note. */
+  onMirrorNoteModified(file) {
+    if (this._writingMirror || this._applyingMirrorEdits) return;
+    if (!file || str(file.path) !== str(this.mirrorNotePath())) return;
+    if (this._mirrorEditTimer) clearTimeout(this._mirrorEditTimer);
+    this._mirrorEditTimer = setTimeout(() => {
+      this._mirrorEditTimer = null;
+      this.applyMirrorNoteEdits().catch(() => {});
+    }, 600);
+  }
+
+  async applyMirrorNoteEditsCommand() {
+    try {
+      const applied = await this.applyMirrorNoteEdits();
+      if (!applied) {
+        new Notice("The mirror note holds no task edits to apply.");
+        return null;
+      }
+      const bits = [];
+      if (applied.rescheduled) bits.push(`${applied.rescheduled} rescheduled`);
+      if (applied.completed) bits.push(`${applied.completed} completed`);
+      if (applied.reopened) bits.push(`${applied.reopened} reopened`);
+      if (applied.cancelled) bits.push(`${applied.cancelled} cancelled`);
+      new Notice(`Applied the mirror note: ${bits.join(", ")}.`);
+      return applied;
+    } catch (error) {
+      new Notice(`Could not read the mirror note: ${errorDetail(error)}.`);
+      return null;
+    }
   }
 
   async mirrorStudyTasksCommand() {
