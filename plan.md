@@ -127,8 +127,10 @@ Full decision record: [docs/plan-decisions.md](docs/plan-decisions.md).
 Ranked by value; every item is implemented and held by `npm run check` or the suite.
 
 1. **Test the checkers** (`tests/doc-checks.test.js`) — the five doc checks gate every release, but nothing checked them; a regression in one fails silent. Pins slug/anchor parsing, table cell splits, the cited-path pattern, both allowlists in both directions, and the release-log parsers.
-2. **One shared walker** (`scripts/lib/doc-files.js`) — the checks each carried their own directory walk; one helper owns it now, so the next check starts correct.
-3. **This list, recorded here** — so the next cleanup knows what was already decided. Deliberately not checks: orphan-page and duplicate-heading guards, probed and rejected — the release notes are version-addressed rather than link-navigated, and repeated headings ("What changed", "Why") are legitimate, GitHub suffixes them.
+2. **One shared walker** (`scripts/lib/doc-files.js`) — the checks each carried their own directory walk; one helper owns it now, so the next check starts correct. Pinned: the four markdown walkers must require it.
+3. **Wire the checkers** — a check that never runs is worse than no check; the suite fails when any `scripts/check-*.js` is missing from `scripts.check`.
+4. **Exempt stays needed** — an `EXEMPT` entry that no longer carries a § reference fails, so the allowlist cannot outlive its reason.
+5. **This list, recorded here** — so the next cleanup knows what was already decided. Deliberately not checks: orphan-page and duplicate-heading guards, probed and rejected — the release notes are version-addressed rather than link-navigated, and repeated headings ("What changed", "Why") are legitimate, GitHub suffixes them.
 
 ## 0. Confirmed decisions (owner, Oct 27, 2026)
 

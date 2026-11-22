@@ -98,6 +98,31 @@ test("DELIMITER_CELL accepts aligned colons, rejects prose", () => {
   assert.ok(!DELIMITER_CELL.test(" Verdict "));
 });
 
+test("every check script is wired into npm run check", () => {
+  const check = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).scripts.check;
+  const wired = new Set(
+    [...check.matchAll(/node (scripts\/[a-z-]+\.js)/g)].map((match) => match[1])
+  );
+  for (const file of fs.readdirSync(path.join(ROOT, "scripts"))) {
+    if (!file.startsWith("check-") || !file.endsWith(".js")) continue;
+    assert.ok(wired.has("scripts/" + file), file + " runs nothing; wire it into scripts.check");
+  }
+});
+
+test("the markdown walkers share one helper", () => {
+  for (const name of ["check-section-refs.js", "check-doc-links.js", "check-doc-paths.js", "check-markdown-tables.js"]) {
+    const source = fs.readFileSync(path.join(ROOT, "scripts", name), "utf8");
+    assert.ok(source.includes("lib/doc-files"), name + " drifted off the shared walker");
+  }
+});
+
+test("every EXEMPT file still needs its exemption", () => {
+  for (const name of Object.keys(EXEMPT)) {
+    const body = fs.readFileSync(path.join(ROOT, name), "utf8");
+    assert.ok(/§\s*(\d|[A-C])/.test(body), name + " carries no § refs; drop the exemption");
+  }
+});
+
 test("newestOf compares numerically, not lexically", () => {
   assert.equal(newestOf(["1.307.9", "1.307.31", "1.307.10"]), "1.307.31");
 });
