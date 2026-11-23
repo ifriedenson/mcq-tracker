@@ -2,10 +2,16 @@
 
 const { setIcon } = require("obsidian");
 
-/** Opens a documentation or repository link from a settings button. */
+/**
+ * Opens a documentation or repository link from a settings button. A page must
+ * never receive `window.opener` from the plugin window, and a script/data URI
+ * is refused rather than handed to the OS.
+ */
 function openExternal(url) {
+  const target = String(url || "").trim();
+  if (!target || /^(?:javascript|data|vbscript|file):/i.test(target)) return;
   if (typeof window !== "undefined" && typeof window.open === "function") {
-    window.open(url, "_blank");
+    window.open(target, "_blank", "noopener,noreferrer");
   }
 }
 

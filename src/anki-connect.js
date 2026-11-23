@@ -8,6 +8,7 @@ const { QtModal } = require("./a11y");
  */
 const { Modal, Notice, requestUrl } = require("obsidian");
 const { deadlineLabel, hashString, str, withDeadline } = require("./util");
+const { isLoopbackHost } = require("./url-safety");
 
 const DEFAULT_ANKI_CONNECT = {
   enabled: false, // no request is made until this is explicit
@@ -30,13 +31,33 @@ const DEFAULT_ANKI_CONNECT = {
 
 const ANKI_VERSION = 6;
 
+/**
+ * AnkiConnect is a local add-on, so its address follows the same rule as every
+ * other transport: HTTPS for a remote host, plain HTTP only on loopback, and no
+ * credentials embedded in the URL. Anything else falls back to the local
+ * default instead of sending card text somewhere unexpected.
+ */
+function ankiConnectUrl(value) {
+  const raw = str(value).trim().replace(/\/+$/, "");
+  if (!raw) return DEFAULT_ANKI_CONNECT.url;
+  let url;
+  try {
+    url = new URL(raw);
+  } catch (e) {
+    return DEFAULT_ANKI_CONNECT.url;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return DEFAULT_ANKI_CONNECT.url;
+  if (url.username || url.password) return DEFAULT_ANKI_CONNECT.url;
+  if (url.protocol === "http:" && !isLoopbackHost(url.hostname)) return DEFAULT_ANKI_CONNECT.url;
+  return url.toString().replace(/\/+$/, "");
+}
+
 function normalizeAnkiConnect(value) {
   const src = value && typeof value === "object" ? value : {};
-  const url = str(src.url).trim().replace(/\/+$/, "");
   const excalidraw = src.excalidraw && typeof src.excalidraw === "object" ? src.excalidraw : {};
   return {
     enabled: src.enabled === true,
-    url: /^https?:\/\//i.test(url) ? url : DEFAULT_ANKI_CONNECT.url,
+    url: ankiConnectUrl(src.url),
     deck: str(src.deck).trim(),
     conflict: ["report", "local", "anki"].includes(str(src.conflict).toLowerCase()) ? str(src.conflict).toLowerCase() : "report",
     contentAuthority: str(src.contentAuthority).toLowerCase() === "obsidian" ? "obsidian" : "two-way",

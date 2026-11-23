@@ -16,6 +16,10 @@ test("AI write guard: allowed folders are the question folder, card folder and d
   assert.deepEqual(guard.allowedWriteRoots(SETTINGS), ["Questions", "Cards", "Courses/Bio"]);
   assert.equal(guard.pathInside("Questions/Generated/Q.md", "Questions"), true);
   assert.equal(guard.pathInside("QuestionsExtra/Q.md", "Questions"), false);
+  // A relative hop cannot smuggle a write out of the folder it claims to be in.
+  assert.equal(guard.pathInside("Questions/../.obsidian/plugins/x/main.js", "Questions"), false);
+  assert.equal(guard.pathInside("Questions/../../evil.md", "Questions"), false);
+  assert.equal(guard.pathInside("Questions/./Unit 1/Q.md", "Questions"), true);
   assert.equal(guard.assertAllowedWritePath("Courses/Bio/Cell.md", SETTINGS), "Courses/Bio/Cell.md");
   assert.throws(() => guard.assertAllowedWritePath("Elsewhere/Q.md", SETTINGS), /limited to/);
 });

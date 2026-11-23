@@ -7,7 +7,7 @@ rather than descriptive. `scripts/check-no-dynamic-code.js` runs in `npm run che
 
 ## 1. Network transport
 
-Four files call a transport directly. Everything else receives one.
+Five files call a transport directly. Everything else receives one.
 
 | File | Call | Destination | Safeguard |
 | --- | --- | --- | --- |
@@ -15,13 +15,16 @@ Four files call a transport directly. Everything else receives one.
 | `src/opencode-client.js` | `requestUrl` (`req`), `fetch` (`/event` SSE) | Local OpenCode server | `safeApiBase` on the base URL; Basic auth built from the per-run password |
 | `src/opencode-manager.js` | `requestUrl` | `https://api.github.com/repos/…/releases` (constant repo) | Constant URL, GitHub JSON only, major-version allow-list before install |
 | `src/plugin.js` | `requestUrl` ×2 (calendar file/URL sources, sync) | A calendar `.ics` feed the user names | `safeCalendarFeedUrl` before every call; 2 MB response cap via `calendarText` |
+| `src/anki-connect.js` | `requestUrl`, reached as `this.request = opts.request \|\| requestUrl` | The AnkiConnect address the user enters | `ankiConnectUrl` keeps HTTPS for a remote host, allows plain HTTP only on loopback, and refuses embedded credentials; anything else falls back to `127.0.0.1:8765` |
 
 `src/couchdb-sync.js` makes no direct call: `CouchDbClient` takes an injected `request` and the
 plugin supplies `requestUrl`. Its address is normalised with `safeApiBase`, the database name is
 `encodeURIComponent`-encoded, and only the fields in `SYNC_FIELDS` (scheduling and review state,
 never note text) are sent. The CouchDB password is a secret-storage value.
 
-No other file in `src/` names `requestUrl` or `fetch`.
+No other file in `src/` names `requestUrl` or `fetch`. The test that enforces this
+matches the alias form as well (`|| requestUrl`, `= requestUrl`), so a transport
+assigned to an instance property cannot hide from the inventory.
 
 ## 2. Credentials and secrets
 

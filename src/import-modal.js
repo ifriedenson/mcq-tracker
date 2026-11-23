@@ -1727,6 +1727,9 @@ class PdfImportModal extends QtModal {
     const { folder, prefix, sourcePath, imagesDir, sourceName, kind } = this.ctx;
     const before = new Set(await this.listNotes(folder));
     this.agentBefore = before;
+    // The agent's working directory is the vault, so also remember every note
+    // outside this folder: a prompt-injected document can steer it out of scope.
+    this.agentVaultBefore = this.snapshotVaultNotes();
     const textPath = uniquePath(vault, folder, "_import-text", "txt", "import-text");
     this.trackArtifact(textPath);
     await vault.create(textPath, pages.map((pg) => `--- Page ${pg.n} ---\n${pg.text.trim()}`).join("\n\n"));
@@ -1830,6 +1833,18 @@ class PdfImportModal extends QtModal {
       /* leave it */
     }
     await this.pruneImages(folder, result);
+    const contained = await this.containAgentWrites(folder, this.agentVaultBefore);
+    this.agentVaultBefore = null;
+    if (contained.removed.length) {
+      result.warnings = (result.warnings || []).concat([
+        `Removed ${contained.removed.length} note${contained.removed.length === 1 ? "" : "s"} the agent wrote outside ${folder} (moved to the trash): ${contained.removed.slice(0, 3).join(", ")}${contained.removed.length > 3 ? ", …" : ""}.`,
+      ]);
+    }
+    if (contained.changed.length) {
+      result.warnings = (result.warnings || []).concat([
+        `The agent changed note${contained.changed.length === 1 ? "" : "s"} outside ${folder}: ${contained.changed.slice(0, 3).join(", ")}${contained.changed.length > 3 ? ", …" : ""}. Check those notes; an imported document is untrusted.`,
+      ]);
+    }
     for (const path of await this.listNotes(folder)) {
       if (!before.has(path)) this.trackArtifact(path);
     }
@@ -1871,6 +1886,66 @@ class PdfImportModal extends QtModal {
       }
     }
     result.images = kept;
+  }
+
+  /**
+   * Every Markdown note and its index mtime. The vault index already holds
+   * both, so this costs no disk reads and can run before every agent import.
+   */
+  snapshotVaultNotes() {
+    const vault = this.app.vault;
+    if (!vault || typeof vault.getMarkdownFiles !== "function") return null;
+    try {
+      const notes = new Map();
+      for (const file of vault.getMarkdownFiles()) notes.set(file.path, Number(file.stat && file.stat.mtime) || 0);
+      return notes;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * Undo an agent write that landed outside the import folder: a note that did
+   * not exist before the run is moved to the trash (never deleted outright), and
+   * a pre-existing note the run changed is named so the user can check it. Never
+   * throws: containment must not fail an otherwise good import.
+   */
+  async containAgentWrites(folder, snapshot) {
+    const result = { removed: [], changed: [] };
+    if (!snapshot) return result;
+    const vault = this.app.vault;
+    let files;
+    try {
+      files = vault.getMarkdownFiles();
+    } catch (e) {
+      return result;
+    }
+    const root = normalizePath(folder);
+    const inside = (path) => {
+      const clean = normalizePath(path);
+      return !!root && (clean === root || clean.startsWith(root + "/"));
+    };
+    for (const file of Array.isArray(files) ? files : []) {
+      const path = str(file && file.path);
+      if (!path || inside(path) || path.startsWith(".obsidian/")) continue;
+      const was = snapshot.get(path);
+      if (was === undefined) {
+        let trashed = false;
+        try {
+          if (typeof vault.trash === "function") {
+            await vault.trash(file, true);
+            trashed = true;
+          }
+        } catch (e) {
+          /* leave it and let the summary name it */
+        }
+        if (trashed) result.removed.push(path);
+        else result.changed.push(path);
+      } else if ((Number(file.stat && file.stat.mtime) || 0) > was) {
+        result.changed.push(path);
+      }
+    }
+    return result;
   }
 
   async listNotes(folder) {

@@ -49,13 +49,22 @@ test("no source file uses dynamic code, a string timer or dynamic require", () =
   assert.deepEqual(result.violations, [], "npm run check should already have failed on these");
 });
 
-test("only the four documented files touch a network transport", () => {
-  assert.deepEqual(matching(/\brequestUrl\s*\(|\bfetch\s*\(/), [
+test("only the five documented files touch a network transport", () => {
+  // The alias form counts too: `this.request = opts.request || requestUrl` in
+  // anki-connect.js was invisible to a call-only pattern.
+  assert.deepEqual(matching(/\brequestUrl\s*\(|\bfetch\s*\(|\|\|\s*requestUrl\b|=\s*requestUrl\b/), [
+    "anki-connect.js",
     "api-client.js",
     "opencode-client.js",
     "opencode-manager.js",
     "plugin.js",
   ]);
+  assert.ok(source["anki-connect.js"].includes("isLoopbackHost("), "AnkiConnect refuses remote plain HTTP");
+  const anki = T.ankiConnect;
+  assert.equal(anki.normalizeAnkiConnect({ url: "http://127.0.0.1:8765" }).url, "http://127.0.0.1:8765", "loopback HTTP is kept");
+  assert.equal(anki.normalizeAnkiConnect({ url: "http://example.com:8765" }).url, "http://127.0.0.1:8765", "remote HTTP falls back to the local default");
+  assert.equal(anki.normalizeAnkiConnect({ url: "http://user:pass@127.0.0.1:8765" }).url, "http://127.0.0.1:8765", "credentials in the URL are refused");
+  assert.equal(anki.normalizeAnkiConnect({ url: "https://anki.example.com" }).url, "https://anki.example.com", "a remote HTTPS endpoint is allowed");
   // The provider and local-server bases are validated before use.
   assert.ok(source["api-client.js"].includes("safeApiBase("), "api-client validates its base URL");
   assert.ok(source["opencode-client.js"].includes("safeApiBase("), "opencode-client validates its base URL");

@@ -52,10 +52,30 @@ const PROTECTED_PROPERTIES = [
   "verdict_override",
 ];
 
+/**
+ * Collapse `.` and `..` segments so a path cannot claim to be inside a folder
+ * with a relative hop. Returns null when the path escapes above the vault root,
+ * which is never a write the plugin should accept.
+ */
+function collapseSegments(value) {
+  const out = [];
+  for (const part of normalizePath(value).split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      if (!out.length) return null;
+      out.pop();
+      continue;
+    }
+    out.push(part);
+  }
+  return out.join("/");
+}
+
 function pathInside(path, root) {
-  const file = normalizePath(path);
-  const base = normalizePath(root);
-  if (!file) return false;
+  const file = collapseSegments(path);
+  if (file === null || !file) return false;
+  const base = collapseSegments(root);
+  if (base === null) return false;
   if (!base) return true;
   return file === base || file.startsWith(base + "/");
 }
