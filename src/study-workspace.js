@@ -1073,8 +1073,10 @@ function repeatFollowUp(task, today) {
   if (!repeat || source.done !== true) return null;
   const day = dayValue(today) || localDate();
   // Advance from the due date, not from today, so an overdue weekly task keeps
-  // the weekday it was set on. Every rule lands strictly after today: a
-  // finished task never schedules an instance in the past.
+  // the weekday it was set on. daily and weekly land strictly after today, and
+  // no rule schedules an instance in the past; a weekday rule may land on today
+  // itself, because today is a real instance when it is the next weekday (a
+  // Friday or weekend due date finished on Monday keeps that Monday).
   const base = dayValue(source.due) || day;
   let due = "";
   if (repeat === "weekly") {
@@ -1083,7 +1085,11 @@ function repeatFollowUp(task, today) {
   } else if (repeat === "daily") {
     due = addDays(base > day ? base : day, 1);
   } else {
-    due = nextWeekday(base > day ? base : day);
+    // The next weekday after the due date is the next instance, and it may be
+    // today. Only a natural date already in the past rolls forward, and then
+    // strictly past today so a long-overdue rule never lands on a finished day.
+    const natural = nextWeekday(base);
+    due = !natural ? "" : natural >= day ? natural : nextWeekday(day);
   }
   if (!due) return null;
   return {

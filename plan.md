@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status: v1.307.31 (Nov 23, 2026).** One MIT, dependency-free Obsidian plugin
+**Status: v1.307.32 (Nov 23, 2026).** One MIT, dependency-free Obsidian plugin
 (`mcq-tracker`) covering exam practice, cards and vocabulary, courses and
 calendars, study planning, document ingestion, reference/STEM tools and an
 optional BYOK/OpenCode AI layer.
@@ -15,7 +15,7 @@ surfaces, so unfinished ideas are not disguised as checked work.
 
 **Verified at this commit:** `node --test` → 3,172 tests pass, 0 fail;
 `npm run check` clean (no dynamic code across 383 source files, vendor guard,
-bundle up to date); `main.js` generated from 384 modules at 4,349,919 bytes.
+bundle up to date); `main.js` generated from 384 modules at 4,350,976 bytes.
 Re-run both before quoting these numbers.
 
 **How to read this file.**
@@ -595,7 +595,7 @@ and a recommended default, is [docs/plan-decisions.md](docs/plan-decisions.md).
 
 | Blocked row | Why it cannot be done here | Gate |
 |---|---|---|
-| Whisper, Lecture Transcriber and Advanced Audio Recorder recording | Needs a recording/transcription provider or local Whisper build plus microphone and mobile validation | §11 decision 2 |
+| Whisper, Lecture Transcriber and Advanced Audio Recorder recording | A bundled local Whisper build is approved for planning (Nov 23, 2026); it still needs a chosen model, bundle-budget room and microphone/mobile validation | §11 decision 2 |
 | AI tutor scoring and embedding RAG | Needs an approved paid provider and model allow-list; Feynman feedback ships on the user's own provider | §11 decision 3 |
 | Web lookup, AnkiWeb search and off-device semantic search | Needs an endpoint, citation and rate-limit policy; local cited vault search already ships | §11 decision 5 |
 | Canvas LMS sync and Google Classroom OAuth | Needs registered OAuth clients and an owning account | §11 decision 6 |
@@ -605,7 +605,7 @@ and a recommended default, is [docs/plan-decisions.md](docs/plan-decisions.md).
 | Misconception diagnosis on a miss | Taxonomy, re-check timing, provider fallback and storage field are unspecified; the decision keeps the error log unchanged | §11 decision 13 / D4 |
 | Quiz Generator wider providers and locales | Needs provider/model allow-list entries and locale validation; the BYOK path and 22 languages ship | §11 decision 3 |
 | Spaceforge objective tutor | Needs an approved tutor provider and objective model; the mind map, review bar and statistics ship | §11 decision 4 |
-| Live AnkiConnect smoke test and live CouchDB two-device verification | Needs a real Anki desktop, CouchDB 3.x and two devices | §11 E7–E8 |
+| Live AnkiConnect smoke test and live CouchDB two-device verification | The owner runs `docs/anki-smoke-test.md` on a desktop (Nov 23, 2026); the CouchDB path still needs 3.x and two devices | §11 E7–E8 |
 | Factual spot-check of AI-generated Spaced Repetition quizzes | Needs an owner review in a real vault; syntax is validated by round-trip import | §11 E10 |
 | MDC AI-vision and legacy binary `.ppt`/`.doc` import | Needs an approved vision provider and binary fixtures; text OOXML import ships | §11 decision 3 |
 

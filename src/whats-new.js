@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.32",
+    date: "November 23, 2026",
+    title: "Weekday tasks keep today",
+    summary:
+      "A weekday-repeating task finished on a Monday now lands on that Monday instead of skipping to Tuesday, and the recurrence tests no longer depend on the day they run.",
+    highlights: [
+      {
+        title: "Monday keeps its instance",
+        body: "A Friday or weekend due date finished on Monday now schedules that Monday; only a rule whose natural next day is already past rolls forward, strictly past today.",
+      },
+      {
+        title: "Daily and weekly unchanged",
+        body: "Both still land strictly after today, and a long-overdue weekday task still moves to tomorrow rather than onto a day that already passed.",
+      },
+      {
+        title: "Tests that hold every day",
+        body: "The three weekday cases that hardcoded Nov 20-23 now anchor on the next Friday, and a new test pins the today-lands rule with explicit dates.",
+      },
+      {
+        title: "Nothing else moved",
+        body: "The capability inventory now cites the security test it was missing; no setting key, note format, command, review schedule or network default changed.",
+      },
+    ],
+  },
+  {
     version: "1.307.31",
     date: "November 20, 2026",
     title: "Task list fits a 300px sidebar",

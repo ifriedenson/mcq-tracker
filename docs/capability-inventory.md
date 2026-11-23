@@ -112,7 +112,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `aiWrites` | 7 | `tests/ai-writes.test.js` |
 | `analytics` | 18 | `tests/feature-surfaces.test.js`, `tests/p1-knowledge.test.js` |
 | `analyticsEmbed` | 11 | `tests/feature-surfaces.test.js` |
-| `ankiConnect` | 21 | `tests/anki-connect.test.js`, `tests/anki-folder-exclusions.test.js` |
+| `ankiConnect` | 21 | `tests/anki-connect.test.js`, `tests/anki-folder-exclusions.test.js`, `tests/security-inventory.test.js` |
 | `answerCheckQueue` | 4 | `tests/answer-check-queue.test.js` |
 | `answerFromSection` | 0 | `tests/grading.test.js`, `tests/math-rendering.test.js` |
 | `answerSetFromSection` | 0 | `tests/question-types.test.js` |

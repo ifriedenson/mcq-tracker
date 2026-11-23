@@ -22,6 +22,27 @@ async function setup() {
   return { app, plugin };
 }
 
+/** A YYYY-MM-DD day key, shifted by whole days in local time. */
+function shift(day, days) {
+  const [year, month, date] = day.split("-").map(Number);
+  const moved = new Date(year, month - 1, date + days);
+  return `${moved.getFullYear()}-${String(moved.getMonth() + 1).padStart(2, "0")}-${String(moved.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * The next Friday strictly after today. A future due date keeps the weekday
+ * cases independent of the day the suite runs: the weekday rule may land on
+ * today, so a fixed past anchor would drift by a day or two.
+ */
+function futureFriday() {
+  let day = shift(T.util.localDate(), 1);
+  for (let step = 0; step < 7; step++) {
+    if (new Date(`${day}T12:00:00`).getDay() === 5) return day;
+    day = shift(day, 1);
+  }
+  return day;
+}
+
 /** Add a task, complete it through the plugin handler, return its rows. */
 async function finish(plugin, input) {
   const task = await plugin.addStudyTask(input);
@@ -84,16 +105,28 @@ test("recurrence: daily crosses February and the leap day correctly", async () =
 
 test("recurrence: every weekday skips the weekend", async () => {
   const { plugin } = await setup();
-  // 2026-11-20 is a Friday, 21-22 the weekend.
-  const friday = await finish(plugin, { title: "Fri", repeat: "weekday", due: "2026-11-20", time: "08:15" });
-  assert.equal(friday.successor.due, "2026-11-23", "Friday lands on Monday");
-  assert.equal(friday.successor.time, "08:15");
-  const saturday = await finish(plugin, { title: "Sat", repeat: "weekday", due: "2026-11-21" });
-  assert.equal(saturday.successor.due, "2026-11-23", "a weekend due date lands on Monday");
-  const sunday = await finish(plugin, { title: "Sun", repeat: "weekday", due: "2026-11-22" });
-  assert.equal(sunday.successor.due, "2026-11-23");
-  const monday = await finish(plugin, { title: "Mon", repeat: "weekday", due: "2026-11-23" });
-  assert.equal(monday.successor.due, "2026-11-24", "a weekday moves to the next day");
+  const friday = futureFriday();
+  const monday = shift(friday, 3);
+  const fri = await finish(plugin, { title: "Fri", repeat: "weekday", due: friday, time: "08:15" });
+  assert.equal(fri.successor.due, monday, "Friday lands on Monday");
+  assert.equal(fri.successor.time, "08:15");
+  const saturday = await finish(plugin, { title: "Sat", repeat: "weekday", due: shift(friday, 1) });
+  assert.equal(saturday.successor.due, monday, "a weekend due date lands on Monday");
+  const sunday = await finish(plugin, { title: "Sun", repeat: "weekday", due: shift(friday, 2) });
+  assert.equal(sunday.successor.due, monday);
+  const mon = await finish(plugin, { title: "Mon", repeat: "weekday", due: monday });
+  assert.equal(mon.successor.due, shift(monday, 1), "a weekday moves to the next day");
+});
+
+test("recurrence: a weekday rule keeps today when today is the next weekday", () => {
+  const finished = (due) => ({ title: "Review", repeat: "weekday", due, done: true });
+  // Explicit "today" values, so this never depends on the day the suite runs.
+  assert.equal(W.repeatFollowUp(finished("2026-11-20"), "2026-11-23").due, "2026-11-23", "Friday finished on Monday keeps that Monday");
+  assert.equal(W.repeatFollowUp(finished("2026-11-21"), "2026-11-23").due, "2026-11-23", "a Saturday due date keeps the Monday");
+  assert.equal(W.repeatFollowUp(finished("2026-11-22"), "2026-11-23").due, "2026-11-23", "a Sunday due date keeps the Monday");
+  assert.equal(W.repeatFollowUp(finished("2026-11-19"), "2026-11-20").due, "2026-11-20", "Thursday finished on Friday keeps that Friday");
+  assert.equal(W.repeatFollowUp(finished("2026-11-23"), "2026-11-23").due, "2026-11-24", "a Monday due date moves on");
+  assert.equal(W.repeatFollowUp(finished("2026-01-02"), "2026-11-23").due, "2026-11-24", "a long-overdue rule rolls past today");
 });
 
 test("recurrence: weekly keeps the weekday across month and year ends", async () => {
@@ -128,11 +161,13 @@ test("recurrence: an overdue task advances from its own due date, into the futur
 
 test("recurrence: the successor is written to the saved data, and survives a reload", async () => {
   const { app, plugin } = await setup();
-  await finish(plugin, { title: "Saved", repeat: "weekday", due: "2026-11-20", time: "07:45" });
+  const friday = futureFriday();
+  const monday = shift(friday, 3);
+  await finish(plugin, { title: "Saved", repeat: "weekday", due: friday, time: "07:45" });
   const stored = plugin.saved.studyTasks.tasks.filter((row) => row.title === "Saved");
   assert.equal(stored.length, 2, "what data.json holds");
   const next = stored.find((row) => !row.done);
-  assert.equal(next.due, "2026-11-23");
+  assert.equal(next.due, monday);
   assert.equal(next.time, "07:45");
   assert.equal(next.repeat, "weekday");
 
@@ -141,7 +176,7 @@ test("recurrence: the successor is written to the saved data, and survives a rel
   restarted.saved = JSON.parse(JSON.stringify(plugin.saved));
   await restarted.loadSettings();
   const reloaded = restarted.settings.studyTasks.tasks.find((row) => row.title === "Saved" && !row.done);
-  assert.equal(reloaded.due, "2026-11-23");
+  assert.equal(reloaded.due, monday);
   assert.equal(reloaded.repeat, "weekday");
   assert.equal(reloaded.time, "07:45");
 });
@@ -188,12 +223,14 @@ test("recurrence: the note mirror writes every weekday and the successor line", 
   assert.equal(TM.studyTaskLine({ title: "Drill", due: "2026-11-20", repeat: "daily" }), "- [ ] Drill 📅 2026-11-20 🔁 every day");
 
   const { app, plugin } = await setup();
+  const friday = futureFriday();
+  const monday = shift(friday, 3);
   plugin.settings.studyTasks = W.normalizeStudyTasks({ ...plugin.settings.studyTasks, mirrorNote: "Study tasks.md" });
-  await finish(plugin, { title: "Review Biochem", repeat: "weekday", due: "2026-11-20", time: "08:15" });
+  await finish(plugin, { title: "Review Biochem", repeat: "weekday", due: friday, time: "08:15" });
   const mirror = app.files.find((file) => file.path === "Study tasks.md");
   assert.ok(mirror, "the configured mirror note is refreshed on completion");
-  assert.ok(mirror.text.includes("- [ ] Review Biochem 📅 2026-11-23 ⏰ 08:15 🔁 every weekday"), "the successor line is in the note");
-  assert.ok(mirror.text.includes("- [x] Review Biochem 📅 2026-11-20"), "the finished line stays under Done");
+  assert.ok(mirror.text.includes(`- [ ] Review Biochem 📅 ${monday} ⏰ 08:15 🔁 every weekday`), "the successor line is in the note");
+  assert.ok(mirror.text.includes(`- [x] Review Biochem 📅 ${friday}`), "the finished line stays under Done");
 });
 
 test("recurrence: the task list cycles off, daily, weekdays, weekly", async () => {
