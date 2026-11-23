@@ -3216,17 +3216,27 @@ class StudyWorkspaceView extends ItemView {
   renderLectureCompiler(root) {
     const data = this.settings().lectureCompiler;
     const lectures = this.plugin.studyToolsSettings ? this.plugin.studyToolsSettings().lectureLog.lectures : [];
+    const transcripts = typeof this.plugin.transcriptionEnabled === "function" && this.plugin.transcriptionEnabled();
     const card = root.createDiv({ cls: "qt-study-card" });
     card.createEl("h3", { text: "Compile one study note" });
-    card.createDiv({ cls: "qt-hint", text: "Turns the local lecture log into one note with an overview, key concepts, a vocabulary table and one section per lecture. Audio transcription stays out of scope." });
-    if (!lectures.length) {
+    card.createDiv({
+      cls: "qt-hint",
+      text: transcripts
+        ? "Turns the local lecture log, and the transcript notes in the transcript folder, into one note with an overview, key concepts, a vocabulary table and one section per lecture. Everything stays on this computer."
+        : "Turns the local lecture log into one note with an overview, key concepts, a vocabulary table and one section per lecture. Turn on local transcription to include its transcript notes too.",
+    });
+    if (!lectures.length && !transcripts) {
       this.renderTabsEmpty(root, "The lecture log is empty. Add a lecture in Study Tools first; the compiler only reads that local log.");
       return;
     }
-    card.createDiv({ cls: "qt-study-row-meta", text: `${lectures.length} lecture${lectures.length === 1 ? "" : "s"} in the log · saves to ${data.folder}` });
+    card.createDiv({
+      cls: "qt-study-row-meta",
+      text: `${lectures.length} lecture${lectures.length === 1 ? "" : "s"} in the log${transcripts ? " · transcript notes are included when they exist" : ""} · saves to ${data.folder}`,
+    });
     const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
-    actions.createEl("button", { text: "Preview", cls: "mod-cta" }).addEventListener("click", () => {
-      const compiled = compileLectureNote(lectures, data);
+    actions.createEl("button", { text: "Preview", cls: "mod-cta" }).addEventListener("click", async () => {
+      const rows = typeof this.plugin.transcriptLectureRows === "function" ? await this.plugin.transcriptLectureRows() : [];
+      const compiled = compileLectureNote([...lectures, ...rows], data);
       if (!compiled) {
         this.lecturePreview = null;
         this.saveMessage("Add lectures with a course, title, date and topics first.");
@@ -3234,7 +3244,11 @@ class StudyWorkspaceView extends ItemView {
         return;
       }
       this.lecturePreview = compiled;
-      this.saveMessage("Preview built. Save it when it looks right.");
+      this.saveMessage(
+        rows.length
+          ? `Preview built from ${lectures.length} lecture${lectures.length === 1 ? "" : "s"} and ${rows.length} transcript${rows.length === 1 ? "" : "s"}. Save it when it looks right.`
+          : "Preview built. Save it when it looks right."
+      );
       this.render();
     });
     if (this.lecturePreview) {

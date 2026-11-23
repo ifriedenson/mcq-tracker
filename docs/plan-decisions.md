@@ -156,7 +156,7 @@ moved; the rest keep their Nov 6, 2026 outcome.
 | Gate | Decision |
 |---|---|
 | §11 decision 3 — AI provider scope | **BYOK only.** No hosted provider or model allow-list is approved, so tutor scoring, embedding RAG, wider Quiz Generator providers/locales and the MDC vision path stay on the user's own key and stay gated. |
-| §11 decision 2 — audio and recording | **A bundled local Whisper build is approved, and the slice shipped in 1.307.33.** The program and model are opt-in downloads into the plugin's own data folder, never bundled, with a pinned release, an in-repo SHA-256 and a receipt. Mobile capture, provider transcription and pronunciation scoring stay gated. |
+| §11 decision 2 — audio and recording | **A bundled local Whisper build is approved, and the slice shipped in 1.307.33.** The program and model are opt-in downloads into the plugin's own data folder, never bundled, with a pinned release, an in-repo SHA-256 and a receipt. 1.307.34 ran the shipped modules end to end on Linux and wired the transcript-to-compiler bridge. Mobile capture, provider transcription and pronunciation scoring stay gated. |
 | §11 decision 5 — web lookup, AnkiWeb search, off-device search | **Local-only.** Cited local vault search stays the answer; no endpoint, rate limit or citation policy is added. |
 | §11 decision 6 — Canvas LMS / Google Classroom | **ICS stays the supported path.** No OAuth clients are registered. |
 | §11 decision 12 — Code Runner | **Declined.** No user code runs inside Obsidian. |

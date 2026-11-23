@@ -2,8 +2,12 @@
 
 This sheet proves the parts of the planned audio slice that no headless test can
 reach: a real microphone, a real `whisper-cli` process, a real model file and a
-real Obsidian window. The slice ships in 1.307.33; run this sheet against that
-build, using [whisper-plan.md](whisper-plan.md) for the design it describes.
+real Obsidian window. The headless half ran on Linux in 1.307.34 — a real
+`whisper-cli` built from the pinned tag, the registry model and real speech wrote
+a transcript and a cancelled run left nothing behind, with the argv, note shape
+and timing recorded in [whisper-plan.md](whisper-plan.md#verified-run-130734).
+Run this sheet against a 1.307.34 build for what that run cannot reach: the
+microphone, a live Obsidian window, multilingual audio and long-lecture memory.
 
 Run it on a **desktop** vault with a copy of your notes. Recording writes audio
 files into the vault and transcription writes a note, so make a backup or use Git

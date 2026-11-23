@@ -5,8 +5,10 @@
  * The recorder can produce webm, m4a, ogg, mp3 or wav, so a transcription
  * decodes the recording with the renderer's own decoder and then comes here:
  * downmix to one channel, resample to 16 kHz, and write a canonical RIFF file.
- * Every function is pure, so the header, clipping, silence and odd-length
- * cases are tested without a microphone or a sound card.
+ * A WAV recording needs no renderer decoder at all: it is read directly by
+ * `decodePcm16Wav`, which also lets a headless run transcribe one. Every
+ * function is pure, so the header, clipping, silence and odd-length cases are
+ * tested without a microphone or a sound card.
  */
 const SAMPLE_RATE = 16000;
 const HEADER_BYTES = 44;
@@ -96,6 +98,22 @@ function readWavHeader(bytes) {
   };
 }
 
+/** 16-bit PCM WAV bytes as float channels; null for a WAV this cannot read. */
+function decodePcm16Wav(bytes) {
+  const header = readWavHeader(bytes);
+  if (!header || header.audioFormat !== 1 || !header.frames) return null;
+  const view = new DataView(bytes.buffer ? bytes.buffer : bytes, bytes.byteOffset || 0, bytes.byteLength);
+  const channels = [];
+  for (let channel = 0; channel < header.channels; channel += 1) channels.push(new Float32Array(header.frames));
+  for (let frame = 0; frame < header.frames; frame += 1) {
+    for (let channel = 0; channel < header.channels; channel += 1) {
+      const offset = header.dataOffset + (frame * header.channels + channel) * 2;
+      channels[channel][frame] = view.getInt16(offset, true) / 32768;
+    }
+  }
+  return { channels, sampleRate: header.sampleRate, frames: header.frames, seconds: header.frames / header.sampleRate };
+}
+
 /** Every channel mixed down to one, without boosting past either source. */
 function downmix(channels) {
   const list = (Array.isArray(channels) ? channels : []).filter((entry) => entry && typeof entry.length === "number");
@@ -141,6 +159,7 @@ module.exports = {
   MAX_SECONDS,
   SAMPLE_RATE,
   clampSample,
+  decodePcm16Wav,
   downmix,
   durationOf,
   encodeWavPcm16,

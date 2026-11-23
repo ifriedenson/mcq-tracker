@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 474 groups, 3337 exports. **Commands:** 255. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 474 groups, 3341 exports. **Commands:** 255. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -289,7 +289,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `knowledgeRecord` | 32 | `tests/knowledge-record-scenario.test.js`, `tests/knowledge-record.test.js`, `tests/knowledge-store.test.js`, `tests/knowledge-view.test.js` |
 | `knowledgeStore` | 4 | `tests/knowledge-record-scenario.test.js`, `tests/knowledge-store.test.js` |
 | `learnkit` | 6 | `tests/learnkit.test.js` |
-| `lectureCompiler` | 6 | `tests/study-modules-2.test.js` |
+| `lectureCompiler` | 6 | `tests/study-modules-2.test.js`, `tests/whisper.test.js` |
 | `loadQuestionData` | 0 | `tests/parameterized.test.js`, `tests/study-modes.test.js`, `tests/study-skin.test.js` |
 | `localEvents` | 18 | `tests/local-events.test.js` |
 | `localModels` | 5 | `tests/local-models.test.js` |
@@ -477,11 +477,11 @@ the table and fails if a group, export count, command or citing test drifts.
 | `welcome` | 16 | `tests/welcome.test.js`, `tests/whats-new.test.js` |
 | `whatsNew` | 10 | `tests/feature-surfaces.test.js`, `tests/whats-new.test.js` |
 | `whisperInstall` | 21 | `tests/whisper.test.js` |
-| `whisperNote` | 9 | `tests/whisper.test.js` |
+| `whisperNote` | 12 | `tests/whisper.test.js` |
 | `whisperPicker` | 2 | `tests/whisper.test.js` |
 | `whisperRegistry` | 21 | `tests/whisper.test.js` |
 | `whisperRun` | 16 | `tests/whisper.test.js` |
-| `whisperWav` | 10 | `tests/whisper.test.js` |
+| `whisperWav` | 11 | `tests/whisper.test.js` |
 | `wordnet` | 18 | `tests/wordnet.test.js` |
 | `writingSessions` | 11 | `tests/writing-sessions.test.js` |
 | `zipWrite` | 2 | `tests/epub.test.js`, `tests/opencode-lifecycle.test.js`, `tests/study-bundle-import.test.js` |

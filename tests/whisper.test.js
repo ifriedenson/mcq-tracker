@@ -435,3 +435,81 @@ test("the plugin registers the transcription settings and commands", async () =>
 
   fs.rmSync(app.vault.adapter.basePath, { recursive: true, force: true });
 });
+
+test("wav decoder: 16-bit PCM round-trips and anything else is refused", () => {
+  const bytes = W.encodeWavPcm16(Float32Array.from([0.5, -0.5, 0, 1]), 8000);
+  const decoded = W.decodePcm16Wav(bytes);
+  assert.equal(decoded.sampleRate, 8000);
+  assert.equal(decoded.frames, 4);
+  assert.deepEqual(Array.from(decoded.channels[0]), [16384 / 32768, -16384 / 32768, 0, 32767 / 32768]);
+  assert.equal(W.decodePcm16Wav(new Uint8Array([1, 2, 3])), null);
+  assert.equal(W.decodePcm16Wav(new Uint8Array(64)), null);
+  assert.equal(W.decodePcm16Wav(null), null);
+});
+
+test("whisper decoder: a WAV is decoded without any renderer decoder", async () => {
+  const bytes = W.encodeWavPcm16(new Float32Array(16000).fill(0.25), 16000);
+  const decoded = await RUN.decodeRecording(bytes, { audioContext: null });
+  assert.equal(decoded.ok, true);
+  assert.equal(decoded.sampleRate, 16000);
+  assert.equal(decoded.seconds, 1);
+  assert.equal(decoded.samples.length, 16000);
+  assert.ok(Math.abs(decoded.samples[100] - 0.25) < 0.001);
+
+  const eight = W.encodeWavPcm16(new Float32Array(8000).fill(0.25), 8000);
+  const upsampled = await RUN.decodeRecording(eight, { audioContext: null });
+  assert.equal(upsampled.ok, true);
+  assert.equal(upsampled.samples.length, 16000);
+});
+
+test("transcript bridge: a transcript note is a lecture-compiler input", async () => {
+  const built = NOTE.buildTranscriptNote({
+    audioPath: "Recordings/Voice 2026-11-03.webm",
+    folder: "Recordings/Transcripts",
+    model: "base.en-q5_1",
+    language: "en",
+    seconds: 125,
+    date: new Date(2026, 10, 23),
+    course: "Biology 101",
+    segments: [
+      { start: 0, text: "Welcome to the lecture." },
+      { start: 12, text: "Today: osmosis." },
+    ],
+  });
+  const row = NOTE.transcriptLectureRow({ path: built.path, text: built.text });
+  assert.equal(row.course, "Biology 101");
+  assert.equal(row.title, "Voice 2026-11-03");
+  assert.equal(row.date, "2026-11-23");
+  assert.match(row.topics, /Welcome to the lecture/);
+  assert.ok(!row.topics.includes("**["));
+  assert.match(row.id, /^transcript:/);
+
+  const uncoursed = NOTE.buildTranscriptNote({
+    audioPath: "Recordings/Voice.webm",
+    folder: "Recordings/Transcripts",
+    seconds: 5,
+    segments: [{ start: 0, text: "No course here." }],
+    timestamps: false,
+  });
+  assert.equal(NOTE.transcriptLectureRow({ path: uncoursed.path, text: uncoursed.text }).course, "Recordings");
+  assert.equal(NOTE.transcriptLectureRow({ path: "Notes/plain.md", text: "# Not a transcript" }), null);
+  assert.equal(
+    NOTE.transcriptLectureRow({ path: "Recordings/Transcripts/empty.md", text: "---\ntype: transcript\naudio: a.wav\ntranscribed_on: 2026-11-23\n---\n\n## Transcript\n\n**[00:00]** \n" }),
+    null
+  );
+
+  const compiled = T.lectureCompiler.compileLectureNote([row]);
+  assert.equal(compiled.stats.lectures, 1);
+  assert.match(compiled.markdown, /### 2026-11-23 — Voice 2026-11-03/);
+  assert.match(compiled.markdown, /Course: Biology 101/);
+  assert.match(compiled.markdown, /Welcome to the lecture/);
+
+  const app = makeApp([{ path: built.path, text: built.text }]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  assert.deepEqual(await plugin.transcriptLectureRows(), [], "the bridge is off with the module");
+  await plugin.updateAudioTranscription({ enabled: true });
+  const rows = await plugin.transcriptLectureRows();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].title, "Voice 2026-11-03");
+});

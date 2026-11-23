@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status: v1.307.33 (Nov 23, 2026).** One MIT, dependency-free Obsidian plugin
+**Status: v1.307.34 (Nov 23, 2026).** One MIT, dependency-free Obsidian plugin
 (`mcq-tracker`) covering exam practice, cards and vocabulary, courses and
 calendars, study planning, document ingestion, reference/STEM tools and an
 optional BYOK/OpenCode AI layer.
@@ -13,9 +13,9 @@ surfaces, so unfinished ideas are not disguised as checked work.
 §3.9.6 is the gate table, §3.10 is the licence allow-list, and
 [docs/plan-decisions.md](docs/plan-decisions.md) is the owner decision sheet.
 
-**Verified at this commit:** `node --test` → 3,172 tests pass, 0 fail;
+**Verified at this commit:** `node --test` → 3,190 tests pass, 0 fail;
 `npm run check` clean (no dynamic code across 389 source files, vendor guard,
-bundle up to date); `main.js` generated from 390 modules at 4,390,412 bytes.
+bundle up to date); `main.js` generated from 390 modules at 4,394,815 bytes.
 Re-run both before quoting these numbers.
 
 **How to read this file.**

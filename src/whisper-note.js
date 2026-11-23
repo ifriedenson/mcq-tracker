@@ -114,6 +114,61 @@ function buildTranscriptNote(input) {
   return { path, text: lines.join("\n") };
 }
 
+/** The frontmatter this module writes, as plain string values. */
+function transcriptFrontmatter(text) {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(str(text));
+  if (!match) return {};
+  const out = {};
+  for (const line of match[1].split(/\r?\n/)) {
+    const at = line.indexOf(":");
+    if (at < 1) continue;
+    const key = line.slice(0, at).trim();
+    let value = line.slice(at + 1).trim();
+    if (value.startsWith('"')) {
+      try {
+        value = JSON.parse(value);
+      } catch (e) {
+        value = value.replace(/^"|"$/g, "");
+      }
+    }
+    if (key) out[key] = str(value);
+  }
+  return out;
+}
+
+/** The spoken words, without frontmatter, the heading or the time stamps. */
+function transcriptExcerpt(text) {
+  return str(text)
+    .replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "")
+    .replace(/^#{1,6}\s+Transcript\s*$/gim, "")
+    .replace(/\*\*\[\d{1,2}:\d{2}(?::\d{2})?\]\*\*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const MAX_LECTURE_EXCERPT = 2000;
+
+/**
+ * One transcript note as a lecture-compiler row, so a transcript becomes
+ * another valid compiler input without a new AI path. Returns null for a note
+ * that is not a transcript or has no spoken text.
+ */
+function transcriptLectureRow(input) {
+  const source = asObject(input);
+  const text = str(source.text);
+  const frontmatter = transcriptFrontmatter(text);
+  if (str(frontmatter.type).trim().toLowerCase() !== "transcript") return null;
+  const excerpt = transcriptExcerpt(text).slice(0, MAX_LECTURE_EXCERPT).trim();
+  const path = str(source.path).trim();
+  const audio = str(frontmatter.audio).trim();
+  const title = (transcriptTitle(audio) || str(source.title).trim()).slice(0, 160);
+  const stamped = /^(\d{4}-\d{2}-\d{2})$/.exec(str(frontmatter.transcribed_on).trim());
+  const date = stamped ? stamped[1] : dayKey(frontmatter.transcribed_on);
+  if (!excerpt || !title || !date) return null;
+  const course = str(frontmatter.course).trim() || str(source.course).trim() || "Recordings";
+  return { id: `transcript:${path || audio || title}`, course, title, date, topics: excerpt };
+}
+
 module.exports = {
   AUDIO_EXTENSIONS,
   buildTranscriptNote,
@@ -121,6 +176,9 @@ module.exports = {
   dayKey,
   isAudioPath,
   safeFolder,
+  transcriptExcerpt,
+  transcriptFrontmatter,
+  transcriptLectureRow,
   transcriptNotePath,
   transcriptTitle,
   yamlScalar,

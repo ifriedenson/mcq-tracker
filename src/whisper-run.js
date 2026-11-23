@@ -232,18 +232,34 @@ function startWhisper(options) {
   };
 }
 
+function tooLongResult(seconds) {
+  return {
+    ok: false,
+    message: `That recording is ${Math.round(seconds / 60)} minutes long. Transcriptions over ${wav.MAX_SECONDS / 3600} hours are refused so a run cannot fill the disk.`,
+  };
+}
+
 /**
- * Decode any recording the renderer can read into 16 kHz mono samples. The
- * audio context comes from the caller or the window, so the suite can hand in
- * a stand-in buffer and never touch a sound card.
+ * Decode any recording the renderer can read into 16 kHz mono samples. A PCM
+ * WAV is read directly, so a WAV works without a renderer decoder at all; any
+ * other container goes through the audio context from the caller or the
+ * window, so the suite can hand in a stand-in buffer and never touch a sound
+ * card.
  */
 async function decodeRecording(bytes, options) {
   const opts = options && typeof options === "object" ? options : {};
+  if (!bytes || typeof bytes.byteLength !== "number" || !bytes.byteLength) return { ok: false, message: "The recording is empty." };
+  const direct = wav.decodePcm16Wav(bytes);
+  if (direct) {
+    if (!(direct.seconds > 0)) return { ok: false, message: "The recording is empty." };
+    if (direct.seconds > wav.MAX_SECONDS) return tooLongResult(direct.seconds);
+    const samples = wav.resampleLinear(wav.downmix(direct.channels), direct.sampleRate, wav.SAMPLE_RATE);
+    return { ok: true, samples, sampleRate: wav.SAMPLE_RATE, seconds: samples.length / wav.SAMPLE_RATE };
+  }
   const Ctx =
     opts.audioContext ||
     (typeof window !== "undefined" ? window.AudioContext || window.webkitAudioContext : typeof AudioContext === "undefined" ? null : AudioContext);
   if (!Ctx) return { ok: false, message: "This device cannot decode audio, so the recording cannot be transcribed here." };
-  if (!bytes || typeof bytes.byteLength !== "number" || !bytes.byteLength) return { ok: false, message: "The recording is empty." };
   let context;
   try {
     context = new Ctx();
@@ -272,12 +288,7 @@ async function decodeRecording(bytes, options) {
   const rate = Number(buffer.sampleRate) || wav.SAMPLE_RATE;
   const seconds = Number(buffer.duration) || wav.durationOf(channels[0] || [], rate);
   if (!(seconds > 0)) return { ok: false, message: "The recording is empty." };
-  if (seconds > wav.MAX_SECONDS) {
-    return {
-      ok: false,
-      message: `That recording is ${Math.round(seconds / 60)} minutes long. Transcriptions over ${wav.MAX_SECONDS / 3600} hours are refused so a run cannot fill the disk.`,
-    };
-  }
+  if (seconds > wav.MAX_SECONDS) return tooLongResult(seconds);
   const samples = wav.resampleLinear(wav.downmix(channels), rate, wav.SAMPLE_RATE);
   return { ok: true, samples, sampleRate: wav.SAMPLE_RATE, seconds: samples.length / wav.SAMPLE_RATE };
 }

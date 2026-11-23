@@ -14068,6 +14068,28 @@ ${body}
     };
   }
 
+  /** Read-only lecture-compiler rows from the local transcript notes. */
+  async transcriptLectureRows() {
+    const settings = this.transcriptionSettings();
+    if (!settings.enabled) return [];
+    const note = require("./whisper-note");
+    const files = this.app.vault.getMarkdownFiles ? this.app.vault.getMarkdownFiles() : [];
+    const rows = [];
+    for (const file of files) {
+      if (rows.length >= 300) break;
+      if (settings.folder && !(file.path === settings.folder || file.path.startsWith(settings.folder + "/"))) continue;
+      let text = "";
+      try {
+        text = await this.app.vault.cachedRead(file);
+      } catch (e) {
+        continue;
+      }
+      const row = note.transcriptLectureRow({ path: file.path, text });
+      if (row) rows.push(row);
+    }
+    return rows;
+  }
+
   /** Course names a recording's folder can match, from the local course registry. */
   transcriptionCourseNames() {
     const grades = this.settings && this.settings.courseHub && Array.isArray(this.settings.courseHub.grades) ? this.settings.courseHub.grades : [];

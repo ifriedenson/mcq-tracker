@@ -1,8 +1,8 @@
 # Local audio capture and Whisper transcription — implementation plan
 
 **Status:** approved on November 23, 2026 (plan.md §11 decision 2, recorded in
-[plan-decisions.md](plan-decisions.md)) and **implemented in 1.307.33** as a
-desktop-only, opt-in slice. The gate moved from "no provider is approved" to
+[plan-decisions.md](plan-decisions.md)), **implemented in 1.307.33** and
+**verified end to end on Linux in 1.307.34**, as a desktop-only, opt-in slice. The gate moved from "no provider is approved" to
 three concrete questions this document answers: which model, where the size
 goes, and how a real microphone is validated. The code is
 `src/whisper-registry.js` (pins, models, settings), `src/whisper-wav.js` (the
@@ -72,10 +72,12 @@ kept; the plugin still ships no binaries, only a pinned download.
   flag; paths are passed as separate array entries.
 - **16 kHz mono WAV is mandatory.** whisper.cpp reads no other container, while
   the recorder in `src/voice-memo.js` produces `webm`, `m4a`, `ogg` or `wav`.
-  The plan converts with the renderer's own decoder (`decodeAudioData` into an
-  `OfflineAudioContext` at 16 kHz, one channel) and writes the temporary WAV
-  through a small pure encoder in `src/`. That encoder is the testable core:
-  RIFF header, sample count, clipping, silence, odd lengths.
+  A non-WAV recording is decoded with the renderer's own decoder
+  (`decodeAudioData`); a 16-bit PCM WAV is read directly by `decodePcm16Wav`,
+  so it needs no renderer decoder at all. Both are downmixed and resampled to
+  16 kHz mono and written through the pure encoder in `src/`. The encoder and
+the direct decoder are the testable core: RIFF header, sample count, clipping,
+  silence, odd lengths, round trip.
 - **Deadline and cancel.** The job gets `max(2 minutes, 2 × audio length)`;
   cancel kills the child and deletes the temporary WAV. There is no retry loop.
 - **Progress.** whisper.cpp prints timestamped segments to stderr, so the
@@ -119,9 +121,12 @@ touching system security settings (`xattr` is never run).
   recording sits in a course folder. The body opens with `## Transcript`.
 - Timestamped mode writes `**[00:12]** text` lines; the bookmark timestamps in
   `src/audio-bookmarks.js` stay the copyable-link format they already are.
-- **Lecture compile.** `src/lecture-compiler.js` already turns lecture-log
-  entries into one study note, so a transcript becomes another valid input and
-  no new AI path, provider or prompt is added.
+- **Lecture compile.** `src/lecture-compiler.js` turns lecture-log entries
+  into one study note. Since 1.307.34 `transcriptLectureRow` maps a transcript
+  note to the same row shape, `plugin.transcriptLectureRows()` reads the
+  transcript folder while the module is on, and the compiler card merges both
+  lists, so a transcript is another valid input with no new AI path, provider
+  or prompt.
 - **Never auto-graded, never auto-sent.** A transcript lands in an editable
   field or note; it is not graded, not uploaded and not fed to a model unless
   the learner asks. This is the rule already recorded in plan.md for voice work.
@@ -156,7 +161,8 @@ the release note, as every previous size change did.
 
 ## Tests
 
-All pure: no model, no microphone, no network, no spawned process.
+All pure in the suite: no model, no microphone, no network, no spawned process.
+The real run is recorded under [Verified run](#verified-run-130734) below.
 
 - **Registry** — every platform row carries a tag, asset and hash; an unknown
   platform refuses; no user string can become a URL or a flag.
@@ -168,6 +174,11 @@ All pure: no model, no microphone, no network, no spawned process.
   tests).
 - **Transcript note** — frontmatter keys, timestamped and plain bodies, unsafe
   folder refusal, no overwrite of an existing transcript.
+- **WAV decode** — a 16-bit PCM file round-trips to float channels, anything
+  else is refused, and `decodeRecording` decodes a WAV with no audio context.
+- **Lecture bridge** — a transcript note becomes a compiler row, a non-transcript
+  or silent note is refused, the compiled note carries its date/title/text, and
+  the bridge stays off with the module.
 - **Settings** — defaults, normalization of bad values, and a disabled module
   refusing the command with a readable reason.
 
@@ -181,8 +192,39 @@ The real microphone, real model and real binary are the owner's checklist in
 3. **Audio: transcribe a recording…** over an existing file, and the note
    builder.
 4. The **Transcribe** action on the Voice memo card, with progress and cancel.
-5. Lecture-compile bridge and timestamped transcripts.
-6. README section and the owner smoke sheet run.
+5. Lecture-compile bridge and timestamped transcripts — timestamped bodies
+   shipped in 1.307.33; the bridge shipped in 1.307.34.
+6. README section and the owner smoke sheet run — the README section shipped in
+   1.307.33, the headless half of the sheet ran in 1.307.34, and the
+   microphone/live-window half is still the owner's.
+
+## Verified run (1.307.34)
+
+On Linux, with the shipped modules and no injected spawn or stand-in decoder:
+
+- **Program.** Built from the pinned `v1.8.6` source tag with CMake, because no
+official Linux asset is published; `src/whisper-install.js` says so on Linux and
+  the settings field pointed at the build. Kept in a scratch directory.
+- **Model.** `base.en-q5_1`, 59,721,011 bytes, downloaded by
+  `INSTALL.installModel` into a disposable vault's plugin data folder and
+  verified against the registry hash (`verified: true`).
+- **Audio.** `samples/jfk.wav` from the same tagged source — real speech.
+- **argv.** `-m <data>/whisper/models/ggml-base.en-q5_1.bin -f
+  <data>/whisper/tmp/run-mwtjrln9/recording.wav -l en -t 4 -otxt -oj -of
+  <data>/whisper/tmp/run-mwtjrln9/transcript`.
+- **Result.** Exit code 0 in 1.85 s; the 11-second recording's deadline was the
+  120 s floor. The note landed at `Recordings/Transcripts/jfk.md` with
+  `type: transcript`, `audio: Recordings/jfk.wav`, `duration: "00:11"`,
+  `language: en`, `transcribed_by: whisper.cpp`, `model: base.en-q5_1` and
+  `transcribed_on: 2026-11-23`, and the body matched the speech.
+- **Cancel.** A 240-second silent WAV cancelled 1.5 s in returned
+  `cancelled: true`, wrote no note and left no temporary folder.
+- **Bridge.** The real note produced one compiler row and compiled into one
+  lecture section.
+
+Still not verified here, and left on the owner sheet: a real microphone
+(`MediaRecorder` in Obsidian), a live Obsidian window, the managed Windows
+asset, multilingual audio, and a 45-minute lecture's wall time and memory.
 
 Each slice is independently shippable and leaves the plugin working when the
 module is off.

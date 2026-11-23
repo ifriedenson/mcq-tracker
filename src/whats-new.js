@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.34",
+    date: "November 23, 2026",
+    title: "A real recording, end to end",
+    summary:
+      "The local transcription slice was run on Linux with a real whisper.cpp build, the pinned model and real speech; the run fixed WAV decoding and wired transcripts into the lecture compiler.",
+    highlights: [
+      {
+        title: "WAV needs no decoder",
+        body: "A 16-bit PCM WAV is read directly, so a recording can be transcribed even where the renderer has no audio decoder; every other format still uses the renderer's own decoder.",
+      },
+      {
+        title: "Transcripts compile into notes",
+        body: "Compile one study note now includes the transcript notes in the transcript folder when local transcription is on, with no new AI path or provider.",
+      },
+      {
+        title: "Proven, with the sheet still open",
+        body: "A jfk.wav run wrote Recordings/Transcripts/jfk.md in 1.85 s against a two-minute deadline and exited 0; a cancelled run left no note. A real microphone and a live Obsidian window stay on the owner's smoke sheet.",
+      },
+      {
+        title: "Nothing new to toggle",
+        body: "No setting key, note format, existing command or network default changed; three new tests cover the WAV decoder, a headless decode and the compiler bridge.",
+      },
+    ],
+  },
+  {
     version: "1.307.33",
     date: "November 23, 2026",
     title: "Transcribe recordings on your computer",
