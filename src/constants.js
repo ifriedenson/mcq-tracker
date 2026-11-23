@@ -220,6 +220,7 @@ const DEFAULT_SETTINGS = {
   lectureCompiler: { enabled: true, folder: "Lecture notes", includeOverview: true, includeConcepts: true, includeVocabulary: true, includeSections: true }, // compile the lecture log into one study note
   courseHealth: { enabled: true, attendanceThreshold: 75, examWindowDays: 14, minSessions: 3 }, // local course health checks
   audioBookmarks: { enabled: true, entries: [] }, // timestamp bookmarks and chapters for audio attachments
+  audioTranscription: { enabled: false, binaryPath: "", model: "base.en-q5_1", language: "en", timestamps: true, folder: "Recordings/Transcripts" }, // opt-in local whisper.cpp transcripts; off by default, nothing downloads until asked
   feynmanAi: { enabled: true }, // optional AI second opinion on a completed Feynman explanation (uses the existing AI settings)
   pdfAnnotationIndex: { enabled: true, folder: "", limit: 200 }, // read-only index of PDF annotation sidecars
   reference: Object.assign({}, DEFAULT_REFERENCE_SETTINGS), // optional local formula sheet and unit converter

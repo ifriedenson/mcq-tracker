@@ -3,11 +3,11 @@
 Recorded Nov 5, 2026, from the shipped `src/` tree. `tests/security-inventory.test.js` re-derives
 each list below and fails when a file starts or stops matching it, so this document is enforced
 rather than descriptive. `scripts/check-no-dynamic-code.js` runs in `npm run check` over all
-**336** source files.
+**389** source files.
 
 ## 1. Network transport
 
-Five files call a transport directly. Everything else receives one.
+Six files call a transport directly. Everything else receives one.
 
 | File | Call | Destination | Safeguard |
 | --- | --- | --- | --- |
@@ -16,6 +16,7 @@ Five files call a transport directly. Everything else receives one.
 | `src/opencode-manager.js` | `requestUrl` | `https://api.github.com/repos/…/releases` (constant repo) | Constant URL, GitHub JSON only, major-version allow-list before install |
 | `src/plugin.js` | `requestUrl` ×2 (calendar file/URL sources, sync) | A calendar `.ics` feed the user names | `safeCalendarFeedUrl` before every call; 2 MB response cap via `calendarText` |
 | `src/anki-connect.js` | `requestUrl`, reached as `this.request = opts.request \|\| requestUrl` | The AnkiConnect address the user enters | `ankiConnectUrl` keeps HTTPS for a remote host, allows plain HTTP only on loopback, and refuses embedded credentials; anything else falls back to `127.0.0.1:8765` |
+| `src/whisper-install.js` | Node `https.get`/`http.get` | The pinned `ggml-org/whisper.cpp` release asset and one `ggerganov/whisper.cpp` model file | Both URLs are built only from `src/whisper-registry.js` constants; the download lands in the plugin's data folder, is hashed, and is deleted unless it matches the registry's SHA-256; nothing starts automatically |
 
 `src/couchdb-sync.js` makes no direct call: `CouchDbClient` takes an injected `request` and the
 plugin supplies `requestUrl`. Its address is normalised with `safeApiBase`, the database name is
@@ -74,10 +75,13 @@ Two contracts keep them bounded:
   writes cannot interleave. Import and OCR paths create new notes rather than editing the source
   document.
 
-`src/opencode-manager.js` is the only file that uses Node's `fs` and `child_process`, and only
-through lazy `nodeReq(...)` lookups so a mobile build never loads them: it downloads and unpacks the
-OpenCode binary into the plugin's own data directory, and spawns it loopback-bound with a random
-password. This is the accepted desktop-only exception recorded in `plan.md`.
+Three files use Node's `fs` and `child_process`, each only through lazy literal-name lookups so a
+mobile build never loads them. `src/opencode-manager.js` downloads and unpacks the OpenCode binary
+into the plugin's own data directory and spawns it loopback-bound with a random password.
+`src/whisper-install.js` downloads the pinned whisper.cpp build and one model into the same kind of
+plugin data folder, verifies each SHA-256 before use and keeps a receipt. `src/whisper-run.js`
+spawns `whisper-cli` with a fixed argv, one temporary WAV and no shell, and kills the child on
+cancel or its deadline. These are the accepted desktop-only exceptions recorded in `plan.md`.
 
 ## 6. Untrusted-input parsers
 

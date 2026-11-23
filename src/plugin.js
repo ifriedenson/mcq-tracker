@@ -179,6 +179,7 @@ const TABLE_COMMANDS = [
 
 const writingSessions = require("./writing-sessions");
 const voiceMemo = require("./voice-memo");
+const whisperRegistry = require("./whisper-registry");
 const { buildCornellNote } = require("./cornell");
 const studyTools = require("./study-tools");
 const { AssignmentModal } = require("./assignments-modal");
@@ -793,6 +794,9 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "compile-lecture-notes", name: "Lecture notes: compile the log into one note", callback: () => this.activateStudyWorkspace("lectures") });
     this.addCommand({ id: "course-health", name: "Course health: check the course list", callback: () => this.activateStudyWorkspace("health") });
     this.addCommand({ id: "audio-bookmarks", name: "Audio bookmarks: timestamp an attachment", callback: () => this.activateStudyWorkspace("bookmarks") });
+    this.addCommand({ id: "audio-setup-transcription", name: "Audio: set up local transcription…", callback: () => this.setupLocalTranscription() });
+    this.addCommand({ id: "audio-transcribe-recording", name: "Audio: transcribe a recording…", callback: () => this.pickRecordingToTranscribe() });
+    this.addCommand({ id: "audio-remove-transcription", name: "Audio: remove local transcription files", callback: () => this.removeLocalTranscriptionFiles() });
     this.addCommand({ id: "feynman-ai-feedback", name: "Feynman: get AI feedback on an explanation", callback: () => this.activateStudyWorkspace("feynmanAi") });
     this.addCommand({ id: "pdf-annotation-index", name: "PDF annotations: index the vault sidecars", callback: () => this.activateStudyWorkspace("pdfAnnotations") });
     this.addCommand({ id: "new-assignment", name: "Assignments: add an assignment", callback: () => this.openNewAssignment() });
@@ -1581,6 +1585,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.lectureCompiler = lectureCompiler.normalizeLectureCompilerSettings(saved.lectureCompiler);
     this.settings.courseHealth = courseHealth.normalizeCourseHealthSettings(saved.courseHealth);
     this.settings.audioBookmarks = audioBookmarks.normalizeAudioBookmarkSettings(saved.audioBookmarks);
+    this.settings.audioTranscription = whisperRegistry.normalizeAudioTranscriptionSettings(saved.audioTranscription);
     this.settings.feynmanAi = feynmanAi.normalizeFeynmanAiSettings(saved.feynmanAi);
     this.settings.pdfAnnotationIndex = pdfAnnotationIndex.normalizePdfAnnotationIndexSettings(saved.pdfAnnotationIndex);
     this.settings.quickAdaptive = normalizeQuickAdaptive(saved.quickAdaptive);
@@ -13775,6 +13780,298 @@ ${body}
     }
     this.refreshViews();
     return { ok: true, path, notePath, entry };
+  }
+
+  /* ---- local transcription (whisper.cpp, desktop only) */
+
+  transcriptionSettings() {
+    return whisperRegistry.normalizeAudioTranscriptionSettings(this.settings.audioTranscription);
+  }
+
+  async updateAudioTranscription(patch) {
+    this.settings.audioTranscription = whisperRegistry.normalizeAudioTranscriptionSettings({
+      ...this.transcriptionSettings(),
+      ...(patch || {}),
+    });
+    await this.save();
+    this.refreshViews();
+    return this.settings.audioTranscription;
+  }
+
+  transcriptionEnabled() {
+    return this.transcriptionSettings().enabled;
+  }
+
+  /** Why a transcription command cannot run right now, or "". */
+  transcriptionRefusal() {
+    const settings = this.transcriptionSettings();
+    if (!settings.enabled) return "Local transcription is off. Turn it on in Settings > Read aloud under Local transcription (Whisper).";
+    if (!Platform.isDesktopApp) return whisperRegistry.DESKTOP_ONLY_MESSAGE;
+    return "";
+  }
+
+  /** The program and model a run would use; `ready` is false until both exist. */
+  transcriptionState() {
+    const settings = this.transcriptionSettings();
+    const entry = whisperRegistry.modelForLanguage(settings.model, settings.language);
+    const runtime = require("./whisper-install");
+    let binary = "";
+    let model = "";
+    try {
+      binary = runtime.resolveBinary(this, settings);
+      model = runtime.installedModelPath(this, entry.name);
+    } catch (e) {
+      return { ready: false, binary, model, entry, message: str(e && e.message ? e.message : e) };
+    }
+    const message = !binary
+      ? "whisper.cpp isn't installed yet. Run Audio: set up local transcription…"
+      : !model
+        ? `The ${entry.name} model isn't downloaded yet. Run Audio: set up local transcription…`
+        : "";
+    return { ready: !!binary && !!model, binary, model, entry, message };
+  }
+
+  /** Ask, download, verify. Nothing is fetched before the confirmation. */
+  async setupLocalTranscription() {
+    const refusal = this.transcriptionRefusal();
+    if (refusal) {
+      new Notice(refusal, 8000);
+      return { ok: false, message: refusal };
+    }
+    const settings = this.transcriptionSettings();
+    const entry = whisperRegistry.modelForLanguage(settings.model, settings.language);
+    const asset = whisperRegistry.binaryAsset(process.platform, process.arch);
+    const lines = [
+      "whisper.cpp is a separate, free, open-source speech recogniser (MIT) that runs on this computer. It is not part of this plugin, and no audio is uploaded.",
+      "",
+      `Release: ${whisperRegistry.TAG} (github.com/${whisperRegistry.REPO})`,
+      asset ? `Program: ${asset.asset}, ${whisperRegistry.formatBytes(asset.bytes)}` : "Program: install whisper.cpp yourself; no official build is published for this system.",
+      `Model: ${entry.name}, ${whisperRegistry.formatBytes(entry.bytes)} (huggingface.co/ggerganov/whisper.cpp)`,
+      `SHA-256: ${asset ? asset.sha256 : entry.sha256}`,
+      "",
+      "Both files go into this plugin's own data folder, outside your notes. Nothing is downloaded until you confirm, and a file that does not match its recorded hash is deleted instead of run.",
+    ];
+    if (!asset) lines.push("", whisperRegistry.unsupportedBinaryMessage(process.platform, process.arch));
+    const ok = await this.askConfirm("Download local transcription files?", lines.join("\n"), "Download");
+    if (!ok) return { ok: false, cancelled: true, message: "Setup cancelled. Nothing was downloaded." };
+    const notice = new Notice("Preparing local transcription...", 0);
+    const say = (message) => {
+      try {
+        notice.setMessage(message);
+      } catch (e) {
+        /* an older Notice cannot be updated; the final notice still reports */
+      }
+    };
+    const runtime = require("./whisper-install");
+    try {
+      const model = await runtime.installModel(this, entry.name, say);
+      const binary = asset ? await runtime.installBinary(this, say) : null;
+      try {
+        notice.hide();
+      } catch (e) {
+        /* ignore */
+      }
+      const message = binary
+        ? `Local transcription is ready: whisper.cpp ${whisperRegistry.TAG} and ${entry.name}.`
+        : asset
+          ? `The ${entry.name} model is ready. The program was left as it was.`
+          : `The ${entry.name} model is ready. Set the whisper.cpp program path in Settings > Read aloud.`;
+      new Notice(message, 10000);
+      return { ok: true, model, binary, message };
+    } catch (e) {
+      try {
+        notice.hide();
+      } catch (err) {
+        /* ignore */
+      }
+      const message = `Local transcription setup failed: ${str(e && e.message ? e.message : e)}`;
+      new Notice(message, 12000);
+      return { ok: false, message };
+    }
+  }
+
+  /** Delete the downloaded program and models; recordings and notes stay. */
+  async removeLocalTranscriptionFiles() {
+    if (!Platform.isDesktopApp) {
+      new Notice(whisperRegistry.DESKTOP_ONLY_MESSAGE);
+      return { ok: false, message: whisperRegistry.DESKTOP_ONLY_MESSAGE };
+    }
+    const ok = await this.askConfirm(
+      "Remove the local transcription files?",
+      "This deletes the whisper.cpp program, every downloaded model and the install receipt from this plugin's data folder. Your recordings and transcript notes are not touched.",
+      "Remove files"
+    );
+    if (!ok) return { ok: false, cancelled: true, message: "Nothing was removed." };
+    const runtime = require("./whisper-install");
+    let result;
+    try {
+      result = runtime.removeAll(this);
+    } catch (e) {
+      const message = str(e && e.message ? e.message : e);
+      new Notice(message, 8000);
+      return { ok: false, message };
+    }
+    const message = result.removed.length
+      ? `Removed ${result.removed.length} local transcription file${result.removed.length === 1 ? "" : "s"}. Recordings and transcripts were left alone.`
+      : "There were no local transcription files to remove.";
+    new Notice(message);
+    return { ok: true, ...result, message };
+  }
+
+  /** Choose any audio file already in the vault. */
+  pickRecordingToTranscribe() {
+    const refusal = this.transcriptionRefusal();
+    if (refusal) {
+      new Notice(refusal, 8000);
+      return;
+    }
+    const { AudioFilePickerModal } = require("./whisper-picker");
+    new AudioFilePickerModal(this.app, (file) => {
+      this.transcribeRecording(file && file.path ? file.path : "").then((result) => {
+        if (result && result.message) new Notice(result.message, 8000);
+      });
+    }).open();
+  }
+
+  cancelTranscription() {
+    if (!this.transcriptionJob) return false;
+    this.transcriptionJob.cancel();
+    return true;
+  }
+
+  /**
+   * Decode one recording, run whisper.cpp once and write its transcript note.
+   * The recording is never changed, and an existing transcript is never
+   * overwritten.
+   */
+  async transcribeRecording(audioPath) {
+    const refusal = this.transcriptionRefusal();
+    if (refusal) return { ok: false, message: refusal };
+    if (this.transcriptionJob) return { ok: false, message: "A transcription is already running. Wait for it to finish, or press Cancel first." };
+    const installModule = require("./whisper-install");
+    const note = require("./whisper-note");
+    const run = require("./whisper-run");
+    const wav = require("./whisper-wav");
+    const settings = this.transcriptionSettings();
+    const state = this.transcriptionState();
+    if (!state.ready) return { ok: false, message: state.message };
+    const path = str(audioPath).trim();
+    const file = path && this.app.vault.getAbstractFileByPath ? this.app.vault.getAbstractFileByPath(path) : null;
+    if (!file) return { ok: false, message: `There is no file at ${path || "that path"}.` };
+    if (!note.isAudioPath(path)) return { ok: false, message: "That file is not an audio recording." };
+    let bytes;
+    try {
+      bytes = await this.app.vault.readBinary(file);
+    } catch (e) {
+      return { ok: false, message: "The recording could not be read." };
+    }
+    const decoded = await run.decodeRecording(bytes);
+    if (!decoded.ok) return { ok: false, message: decoded.message };
+    const fs = installModule.node("fs");
+    const nodePath = installModule.node("path");
+    const stem = `run-${Date.now().toString(36)}`;
+    const workDir = installModule.workDir(this, stem);
+    const wavPath = nodePath.join(workDir, "recording.wav");
+    const outBase = nodePath.join(workDir, "transcript");
+    try {
+      fs.mkdirSync(workDir, { recursive: true });
+      fs.writeFileSync(wavPath, Buffer.from(wav.encodeWavPcm16(decoded.samples, decoded.sampleRate)));
+    } catch (e) {
+      return { ok: false, message: "The temporary audio file could not be written." };
+    }
+    const title = note.transcriptTitle(path);
+    const notice = new Notice(`Transcribing ${title}...`, 0);
+    const job = run.startWhisper({
+      command: state.binary,
+      args: run.buildArgs({ modelPath: state.model, wavPath, outBase, language: settings.language }),
+      timeoutMs: run.deadlineMs(decoded.seconds),
+      onProgress: (seconds) => {
+        try {
+          notice.setMessage(`Transcribing ${title}... ${run.clock(seconds)} of ${run.clock(decoded.seconds)}`);
+        } catch (e) {
+          /* a Notice that cannot be updated */
+        }
+      },
+    });
+    try {
+      if (notice.noticeEl && typeof notice.noticeEl.createEl === "function") {
+        notice.noticeEl.createEl("button", { text: "Cancel" }).addEventListener("click", () => job.cancel());
+      }
+    } catch (e) {
+      /* no button on this Notice */
+    }
+    this.transcriptionJob = job;
+    let result;
+    try {
+      result = await job.promise;
+    } finally {
+      this.transcriptionJob = null;
+      try {
+        notice.hide();
+      } catch (e) {
+        /* ignore */
+      }
+    }
+    let segments = [];
+    try {
+      const jsonText = fs.existsSync(outBase + ".json") ? fs.readFileSync(outBase + ".json", "utf8") : "";
+      const txtText = fs.existsSync(outBase + ".txt") ? fs.readFileSync(outBase + ".txt", "utf8") : "";
+      segments = run.readTranscript({ jsonText, txtText });
+    } catch (e) {
+      segments = [];
+    } finally {
+      try {
+        fs.rmSync(workDir, { recursive: true, force: true });
+      } catch (e) {
+        /* a locked temporary file is harmless */
+      }
+    }
+    if (result.cancelled) return { ok: false, cancelled: true, message: "Transcription cancelled. The recording is unchanged." };
+    if (result.timedOut) {
+      return { ok: false, message: `whisper.cpp ran past ${Math.round(run.deadlineMs(decoded.seconds) / 1000)} seconds and was stopped. ${run.stderrTail(result.stderr)}`.trim() };
+    }
+    if (!result.ok) return { ok: false, message: `whisper.cpp stopped with code ${result.code === null ? "?" : result.code}. ${run.stderrTail(result.stderr)}`.trim() };
+    if (!segments.length) return { ok: false, message: "whisper.cpp finished but wrote no text. The recording may be silent." };
+    const built = note.buildTranscriptNote({
+      audioPath: path,
+      folder: settings.folder,
+      model: state.entry.name,
+      language: settings.language,
+      seconds: decoded.seconds,
+      segments,
+      timestamps: settings.timestamps,
+      date: new Date(),
+      course: note.courseFromPath(path, this.transcriptionCourseNames()),
+    });
+    if (!built) return { ok: false, message: "The transcript note could not be built. Check the transcript folder in Settings > Read aloud." };
+    if (this.app.vault.getAbstractFileByPath(built.path)) {
+      return { ok: false, reason: "exists", message: `A transcript already exists at ${built.path}, so nothing was overwritten.` };
+    }
+    const parent = built.path.slice(0, built.path.lastIndexOf("/"));
+    if (parent && !this.app.vault.getAbstractFileByPath(parent)) {
+      try {
+        await this.app.vault.createFolder(parent);
+      } catch (e) {
+        /* the folder may already exist after a sync */
+      }
+    }
+    await this.app.vault.create(built.path, built.text);
+    this.refreshViews();
+    return {
+      ok: true,
+      path: built.path,
+      audioPath: path,
+      model: state.entry.name,
+      seconds: decoded.seconds,
+      segments,
+      message: `Saved the transcript to ${built.path}.`,
+    };
+  }
+
+  /** Course names a recording's folder can match, from the local course registry. */
+  transcriptionCourseNames() {
+    const grades = this.settings && this.settings.courseHub && Array.isArray(this.settings.courseHub.grades) ? this.settings.courseHub.grades : [];
+    return grades.map((grade) => str(grade && grade.course).trim()).filter(Boolean);
   }
 
   /** Read-only scan of Markdown checkbox lines; nothing is written. */

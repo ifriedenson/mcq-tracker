@@ -211,6 +211,7 @@ class StudyWorkspaceView extends ItemView {
     this.voiceMemoChunks = [];
     this.voiceMemoStartedAt = 0;
     this.voiceMemoLabel = "";
+    this.lastVoiceMemoSaved = "";
   }
 
   async onClose() {
@@ -3372,6 +3373,7 @@ class StudyWorkspaceView extends ItemView {
           return;
         }
         const result = await this.plugin.saveVoiceMemo({ data, mimeType: recorder.mimeType || "audio/webm", durationSeconds: seconds, label: this.voiceMemoLabel });
+        if (result.ok) this.lastVoiceMemoSaved = result.path;
         this.saveMessage(result.ok ? "Saved " + result.path + (result.notePath ? " and added a line to " + result.notePath : "") + "." : result.message);
         this.render();
       };
@@ -3439,7 +3441,7 @@ class StudyWorkspaceView extends ItemView {
     const memoCard = root.createDiv({ cls: "qt-study-card" });
     memoCard.createEl("h3", { text: "Voice memo" });
     const memoFolder = this.plugin.voiceMemoSettings();
-    memoCard.createDiv({ cls: "qt-hint", text: "Record with this device's microphone. Stopping saves the audio to " + memoFolder.folder + (memoFolder.dailyNoteFolder ? " and appends one timestamped line to the day's note in " + memoFolder.dailyNoteFolder : "; set a daily-note folder in settings to also append a line to the day's note") + ". Nothing is transcribed, uploaded or sent to a model." });
+    memoCard.createDiv({ cls: "qt-hint", text: "Record with this device's microphone. Stopping saves the audio to " + memoFolder.folder + (memoFolder.dailyNoteFolder ? " and appends one timestamped line to the day's note in " + memoFolder.dailyNoteFolder : "; set a daily-note folder in settings to also append a line to the day's note") + ". Nothing is uploaded or sent to a model; local transcription is opt-in." });
     const memoLabel = this.renderField(memoCard, "Memo label", "text", "Optional note to add with the recording", this.voiceMemoLabel);
     memoLabel.addEventListener("input", () => {
       this.voiceMemoLabel = memoLabel.value;
@@ -3451,6 +3453,15 @@ class StudyWorkspaceView extends ItemView {
     } else {
       memoActions.createEl("button", { text: "Record voice memo", cls: "mod-cta" }).addEventListener("click", () => this.startVoiceMemo());
       memoCard.createDiv({ cls: "qt-study-row-meta", text: "Audio files are saved as " + voiceMemo.memoPath(memoFolder.folder, new Date(), "audio/webm").replace(/^.*\//, "") + " (the name follows the recording time)." });
+      if (this.lastVoiceMemoSaved && this.plugin.transcriptionEnabled()) {
+        memoActions.createEl("button", { text: "Transcribe the last recording" }).addEventListener("click", async () => {
+          this.saveMessage("Transcribing " + this.lastVoiceMemoSaved + "...");
+          this.render();
+          const result = await this.plugin.transcribeRecording(this.lastVoiceMemoSaved);
+          this.saveMessage(result.message || (result.ok ? "Saved the transcript." : "Transcription failed."));
+          this.render();
+        });
+      }
     }
 
     const load = card.createDiv({ cls: "qt-row qt-study-actions" });

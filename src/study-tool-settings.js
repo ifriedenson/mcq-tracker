@@ -27,6 +27,7 @@ const timeBlocks = require("./time-blocks");
 const webBrowser = require("./web-browser");
 const citations = require("./citations");
 const voiceMemo = require("./voice-memo");
+const whisperRegistry = require("./whisper-registry");
 const wordnet = require("./wordnet");
 const tableEditor = require("./table-editor");
 
@@ -811,7 +812,53 @@ const PAGES = {
         get: (plugin) => voiceMemo.normalizeVoiceMemoSettings(plugin.settings.voiceMemo).dailyNoteFolder,
         set: async (plugin, v) => update(plugin, "voiceMemo", voiceMemo.normalizeVoiceMemoSettings, { dailyNoteFolder: v }),
       },
+      {
+        type: "toggle",
+        name: "Local transcription (Whisper)",
+        desc: "Transcribe a recording on this computer with whisper.cpp. Off by default, desktop only, and no audio is uploaded. Run Audio: set up local transcription… to download the program and model.",
+        get: (plugin) => whisperRegistry.normalizeAudioTranscriptionSettings(plugin.settings.audioTranscription).enabled,
+        set: async (plugin, v) => update(plugin, "audioTranscription", whisperRegistry.normalizeAudioTranscriptionSettings, { enabled: v }),
+      },
+      {
+        type: "dropdown",
+        name: "Transcription model",
+        desc: "Base English is the recommended default. An English-only file is swapped for the multilingual file when the language is not English or is auto-detected.",
+        options: whisperRegistry.modelOptions(),
+        get: (plugin) => whisperRegistry.normalizeAudioTranscriptionSettings(plugin.settings.audioTranscription).model,
+        set: async (plugin, v) => update(plugin, "audioTranscription", whisperRegistry.normalizeAudioTranscriptionSettings, { model: v }),
+      },
+      {
+        type: "text",
+        name: "Transcription language",
+        desc: "A two-letter code such as en, de or es, or auto to let whisper.cpp detect it.",
+        placeholder: "en",
+        get: (plugin) => whisperRegistry.normalizeAudioTranscriptionSettings(plugin.settings.audioTranscription).language,
+        set: async (plugin, v) => update(plugin, "audioTranscription", whisperRegistry.normalizeAudioTranscriptionSettings, { language: v }),
+      },
+      {
+        type: "toggle",
+        name: "Timestamped transcripts",
+        desc: "Write one [mm:ss] marker per spoken segment. Off writes plain paragraphs.",
+        get: (plugin) => whisperRegistry.normalizeAudioTranscriptionSettings(plugin.settings.audioTranscription).timestamps,
+        set: async (plugin, v) => update(plugin, "audioTranscription", whisperRegistry.normalizeAudioTranscriptionSettings, { timestamps: v }),
+      },
+      {
+        type: "text",
+        name: "Transcript folder",
+        desc: "Where transcript notes are saved. Defaults to Recordings/Transcripts.",
+        placeholder: "Recordings/Transcripts",
+        get: (plugin) => whisperRegistry.normalizeAudioTranscriptionSettings(plugin.settings.audioTranscription).folder,
+        set: async (plugin, v) => update(plugin, "audioTranscription", whisperRegistry.normalizeAudioTranscriptionSettings, { folder: v }),
+      },
+      {
+        type: "text",
+        name: "Local transcription program",
+        desc: "Optional path to your own whisper-cli, for example a Homebrew install. Leave empty to use the managed download.",
+        get: (plugin) => whisperRegistry.normalizeAudioTranscriptionSettings(plugin.settings.audioTranscription).binaryPath,
+        set: async (plugin, v) => update(plugin, "audioTranscription", whisperRegistry.normalizeAudioTranscriptionSettings, { binaryPath: v }),
+      },
     ],
+    note: "Setup downloads whisper.cpp and its model into this plugin's own data folder after a confirmation, verifies their SHA-256 and records what was installed. Nothing is uploaded and no transcript is graded.",
     open: { label: "Open Read aloud", run: (plugin) => plugin.activateStudyWorkspace("readAloud") },
   },
   "lecture-notes": {

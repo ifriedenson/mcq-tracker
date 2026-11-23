@@ -135,6 +135,7 @@ const wordnet = require("./wordnet");
 const tableEditor = require("./table-editor");
 const writingSessions = require("./writing-sessions");
 const voiceMemo = require("./voice-memo");
+const whisperRegistry = require("./whisper-registry");
 const { StudyWorkspaceView } = require("./study-workspace-view");
 const { TaskListView } = require("./task-list-view");
 const quizNoteGate = require("./quiz-note-gate");
@@ -869,6 +870,23 @@ QuestionTrackerPlugin.__test = {
   },
   writingSessions,
   voiceMemo,
+  whisperRegistry,
+  // Lazy: the transcriber, installer, note builder and picker are needed only when a recording is transcribed.
+  get whisperRun() {
+    return require("./whisper-run");
+  },
+  get whisperWav() {
+    return require("./whisper-wav");
+  },
+  get whisperNote() {
+    return require("./whisper-note");
+  },
+  get whisperInstall() {
+    return require("./whisper-install");
+  },
+  get whisperPicker() {
+    return require("./whisper-picker");
+  },
   cornell,
   CardView,
   CardModal,

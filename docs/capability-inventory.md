@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 468 groups, 3257 exports. **Commands:** 252. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 474 groups, 3337 exports. **Commands:** 255. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -29,7 +29,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `CardView` | 0 | `tests/card-cram.test.js`, `tests/card-learning.test.js`, `tests/card-mother-cram.test.js`, `tests/card-reveal.test.js`, `tests/card-speech.test.js`, `tests/cards.test.js`, `tests/flashcard-generate.test.js`, `tests/followups.test.js`, `tests/interval-preview.test.js`, `tests/mobile-module-layout.test.js`, `tests/source-recall.test.js`, `tests/study-status.test.js`, `tests/undo-everywhere.test.js` |
 | `ChatPanel` | 1 | `tests/agent-view.test.js`, `tests/chat-branches.test.js`, `tests/chat-panel-copilot.test.js`, `tests/chat-panel-mentions.test.js`, `tests/diagnostics-gauge.test.js`, `tests/memory-export.test.js`, `tests/note-context.test.js`, `tests/quick-ask.test.js`, `tests/security-hardening.test.js`, `tests/skills-pricing.test.js`, `tests/think-first.test.js` |
 | `CourseOverviewModal` | 0 | `tests/core-values.test.js` |
-| `DEFAULT_SETTINGS` | 118 | `tests/grading.test.js` |
+| `DEFAULT_SETTINGS` | 119 | `tests/grading.test.js` |
 | `DocumentReviewModal` | 0 | `tests/feature-surfaces.test.js`, `tests/import-edge-robustness.test.js` |
 | `DueQueueModal` | 0 | `tests/due-queue.test.js`, `tests/feature-surfaces.test.js` |
 | `EpubReaderModal` | 0 | `tests/epub.test.js` |
@@ -476,6 +476,12 @@ the table and fails if a group, export count, command or citing test drifts.
 | `weightOf` | 0 | `tests/uncited-groups.test.js` |
 | `welcome` | 16 | `tests/welcome.test.js`, `tests/whats-new.test.js` |
 | `whatsNew` | 10 | `tests/feature-surfaces.test.js`, `tests/whats-new.test.js` |
+| `whisperInstall` | 21 | `tests/whisper.test.js` |
+| `whisperNote` | 9 | `tests/whisper.test.js` |
+| `whisperPicker` | 2 | `tests/whisper.test.js` |
+| `whisperRegistry` | 21 | `tests/whisper.test.js` |
+| `whisperRun` | 16 | `tests/whisper.test.js` |
+| `whisperWav` | 10 | `tests/whisper.test.js` |
 | `wordnet` | 18 | `tests/wordnet.test.js` |
 | `writingSessions` | 11 | `tests/writing-sessions.test.js` |
 | `zipWrite` | 2 | `tests/epub.test.js`, `tests/opencode-lifecycle.test.js`, `tests/study-bundle-import.test.js` |
@@ -631,6 +637,9 @@ the table and fails if a group, export count, command or citing test drifts.
 | `compile-lecture-notes` | Lecture notes: compile the log into one note | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |
 | `course-health` | Course health: check the course list | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/settings-consolidation.test.js`, `tests/time-blocks-kairos.test.js` |
 | `audio-bookmarks` | Audio bookmarks: timestamp an attachment | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |
+| `audio-setup-transcription` | Audio: set up local transcription… | `setupLocalTranscription` | `tests/whisper.test.js` |
+| `audio-transcribe-recording` | Audio: transcribe a recording… | `pickRecordingToTranscribe` | `tests/whisper.test.js` |
+| `audio-remove-transcription` | Audio: remove local transcription files | `removeLocalTranscriptionFiles` | `tests/whisper.test.js` |
 | `feynman-ai-feedback` | Feynman: get AI feedback on an explanation | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |
 | `pdf-annotation-index` | PDF annotations: index the vault sidecars | `activateStudyWorkspace` | `tests/command-effects.test.js`, `tests/plugin.test.js`, `tests/time-blocks-kairos.test.js` |
 | `new-assignment` | Assignments: add an assignment | `openNewAssignment` | `tests/plugin.test.js` |

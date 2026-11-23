@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status: v1.307.32 (Nov 23, 2026).** One MIT, dependency-free Obsidian plugin
+**Status: v1.307.33 (Nov 23, 2026).** One MIT, dependency-free Obsidian plugin
 (`mcq-tracker`) covering exam practice, cards and vocabulary, courses and
 calendars, study planning, document ingestion, reference/STEM tools and an
 optional BYOK/OpenCode AI layer.
@@ -14,8 +14,8 @@ surfaces, so unfinished ideas are not disguised as checked work.
 [docs/plan-decisions.md](docs/plan-decisions.md) is the owner decision sheet.
 
 **Verified at this commit:** `node --test` → 3,172 tests pass, 0 fail;
-`npm run check` clean (no dynamic code across 383 source files, vendor guard,
-bundle up to date); `main.js` generated from 384 modules at 4,350,976 bytes.
+`npm run check` clean (no dynamic code across 389 source files, vendor guard,
+bundle up to date); `main.js` generated from 390 modules at 4,390,412 bytes.
 Re-run both before quoting these numbers.
 
 **How to read this file.**
@@ -595,7 +595,7 @@ and a recommended default, is [docs/plan-decisions.md](docs/plan-decisions.md).
 
 | Blocked row | Why it cannot be done here | Gate |
 |---|---|---|
-| Whisper, Lecture Transcriber and Advanced Audio Recorder recording | A bundled local Whisper build is approved for planning (Nov 23, 2026); it still needs a chosen model, bundle-budget room and microphone/mobile validation | §11 decision 2 |
+| Whisper, Lecture Transcriber and Advanced Audio Recorder recording | **Implemented in 1.307.33 as a desktop-only, opt-in slice:** recorder audio is decoded to 16 kHz mono WAV, a pinned whisper.cpp `v1.8.6` build and one of ten models download only after a confirmation and only when their SHA-256 matches, and a transcript note with `audio`, `model`, `language` and optional `[mm:ss]` markers lands under `Recordings/Transcripts`. Mobile capture, hosted transcription and auto-graded transcripts stay out of scope. Plan: [docs/whisper-plan.md](docs/whisper-plan.md); owner sheet: [whisper-smoke-test.md](docs/whisper-smoke-test.md) | §11 decision 2 |
 | AI tutor scoring and embedding RAG | Needs an approved paid provider and model allow-list; Feynman feedback ships on the user's own provider | §11 decision 3 |
 | Web lookup, AnkiWeb search and off-device semantic search | Needs an endpoint, citation and rate-limit policy; local cited vault search already ships | §11 decision 5 |
 | Canvas LMS sync and Google Classroom OAuth | Needs registered OAuth clients and an owning account | §11 decision 6 |

@@ -156,7 +156,7 @@ moved; the rest keep their Nov 6, 2026 outcome.
 | Gate | Decision |
 |---|---|
 | §11 decision 3 — AI provider scope | **BYOK only.** No hosted provider or model allow-list is approved, so tutor scoring, embedding RAG, wider Quiz Generator providers/locales and the MDC vision path stay on the user's own key and stay gated. |
-| §11 decision 2 — audio and recording | **A bundled local Whisper build is approved for planning.** The rows are no longer blocked on a provider; they are blocked on a model choice, bundle-budget room and microphone/mobile validation. Nothing is implemented yet. |
+| §11 decision 2 — audio and recording | **A bundled local Whisper build is approved, and the slice shipped in 1.307.33.** The program and model are opt-in downloads into the plugin's own data folder, never bundled, with a pinned release, an in-repo SHA-256 and a receipt. Mobile capture, provider transcription and pronunciation scoring stay gated. |
 | §11 decision 5 — web lookup, AnkiWeb search, off-device search | **Local-only.** Cited local vault search stays the answer; no endpoint, rate limit or citation policy is added. |
 | §11 decision 6 — Canvas LMS / Google Classroom | **ICS stays the supported path.** No OAuth clients are registered. |
 | §11 decision 12 — Code Runner | **Declined.** No user code runs inside Obsidian. |
@@ -164,6 +164,11 @@ moved; the rest keep their Nov 6, 2026 outcome.
 | §11 decision 8 — CBT `.vce`, SAT scaled curve, legacy binary `.ppt`/`.doc` | **No fixtures or licensed data supplied.** All stay gated. |
 | §11 decision 13 / D4 — misconception diagnosis | **Unchanged.** The error log keeps its shape; `topMisconceptions` stays a display grouping. |
 
-Plannable now, in order: the local Whisper capture and transcription slice (the
-only row this unlocks) and the owner-run AnkiConnect smoke test. Everything else
-stays gated for the reasons above, and none of it changed code.
+Implemented on November 23, 2026: the local Whisper capture and transcription
+slice (the only row this unlocked) shipped in 1.307.33. Its written form stays
+current — [whisper-plan.md](whisper-plan.md) is the implementation plan (model
+choice, opt-in download, bundle budget, tests, mobile out of scope) and
+[whisper-smoke-test.md](whisper-smoke-test.md) is the numbered owner run sheet
+for the real microphone, binary and model. The owner-run AnkiConnect smoke test
+is still the owner's to run, with [anki-smoke-test.md](anki-smoke-test.md) as its
+run sheet. Everything else stays gated for the reasons above.

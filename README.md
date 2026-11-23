@@ -338,6 +338,7 @@ AI is off by default and only uses the provider you configure. The Study agent i
 - **Objective coach:** charts a note into learning objectives and teaches one at a time through explain → recall → apply. It tracks understanding, recall and transfer separately, treats recall as durable only after two different days, and can finish with a report you save as study notes and flashcards. The session lives in a saved conversation; there is no separate objective rail.
 - **Grounded help:** local cited vault search, note attachment, PDF page ranges and opt-in memory. The agent is told to cite a real `[[note]]` or `[[note#L12]]` and to say when the vault does not contain the answer.
 - **Study workspace:** twenty-one independent modules and twenty-one local workflows, including Feynman, Recall, Time blocks, Reading library and Quiz index. It also includes study maps, mind maps, Cornell notes, study flow, the subject manager, task lists, citations and read-aloud.
+- **Local transcription (opt-in, desktop):** turn it on under **Settings → Read aloud**, then run **Audio: set up local transcription…**. It shows the pinned whisper.cpp release, the model, both sizes and their SHA-256, and downloads nothing until you confirm; the program and model go into the plugin's own data folder with a receipt. **Audio: transcribe a recording…**, or **Transcribe the last recording** on the voice memo card, writes an editable transcript note (`type: transcript` with `audio`, `duration`, `language`, `model` and optional `[mm:ss]` markers) under `Recordings/Transcripts`. Nothing is uploaded, nothing is graded, and an existing transcript is never overwritten.
 - **Writes stay reviewed:** the agent proposes a file change, you approve it, and the existing diff/undo guard applies it.
 
 ### Calendar, assignments and planning
@@ -398,7 +399,7 @@ Open the command palette with `Ctrl/Cmd+P` and search **MCQ Tracker**, **Flashca
 
 ### How it compares with Spaceforge
 
-Spaceforge is a strong spaced-repetition and study suite. This comparison is based on its public README (reference `dralkh/spaceforge` at `1.2.92`) and on this 1.307.32 build. The point is to show the trade-offs, not to claim that one plugin wins every row.
+Spaceforge is a strong spaced-repetition and study suite. This comparison is based on its public README (reference `dralkh/spaceforge` at `1.2.92`) and on this 1.307.33 build. The point is to show the trade-offs, not to claim that one plugin wins every row.
 
 | Capability | MCQ Tracker | Spaceforge | The practical difference |
 | --- | --- | --- | --- |
@@ -449,6 +450,7 @@ The Study agent at a 296 px sidebar width. A physical-phone screenshot is not in
 - **AnkiConnect** talks only to the local Anki desktop address you configure. **AnkiWeb** opens in your browser; the plugin does not store an AnkiWeb password.
 - **CouchDB sync** is optional and only uses the server you configure. **Calendar feeds** are read only when you add them.
 - **No web lookup:** the Study agent uses local vault search and cites the notes it actually read. It does not browse the web.
+- **Local transcription is opt-in and local.** whisper.cpp runs on your computer and receives only the temporary 16 kHz WAV of the recording you chose. The only request the slice makes is the download you confirm: the pinned program (Windows) or your own `whisper-cli`, and one model, each checked against a SHA-256 recorded in the plugin before anything runs.
 
 ## Trademarks
 

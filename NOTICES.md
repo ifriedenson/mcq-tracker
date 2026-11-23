@@ -232,6 +232,18 @@ wording for this plugin; no Copilot prompt text is reproduced. The panel reuses
 this plugin's existing AI provider settings and write-review guards. See
 [docs/sidebar-agent.md](docs/sidebar-agent.md).
 
+## whisper.cpp (November 23, 2026)
+
+The optional local transcription slice downloads whisper.cpp and one of its `ggml` models
+from their own releases; no code, binary or model file is bundled in this repository or in
+`main.js`.
+
+- **Project:** [whisper.cpp](https://github.com/ggml-org/whisper.cpp)
+- **License:** MIT, Copyright (c) 2023-2026 The ggml authors
+- **Pinned release:** `v1.8.6`, asset `whisper-bin-x64.zip`, SHA-256 recorded in `src/whisper-registry.js`
+- **Models:** the `ggerganov/whisper.cpp` Hugging Face repository, each file pinned by its published SHA-256 in the same registry
+- **What was written here:** the recorder-to-WAV conversion, the fixed `whisper-cli` argv, the JSON/TXT parsing, the transcript note and the hash-checked installer are original. The licence text above is the only material that travels with the plugin, embedded in `main.js` with the rest of this file.
+
 ## Not absorbed (yet)
 
 The product plan also names LearnKit as a future absorb source. It has **not** been copied

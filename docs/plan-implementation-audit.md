@@ -23,7 +23,7 @@ plan says they do.
 
 | Blocked row | Evidence it is absent |
 |---|---|
-| Whisper / Lecture Transcriber / Advanced Audio recording | No `getUserMedia`/`MediaRecorder` in `src/`; voice input is browser `SpeechRecognition` only (`src/cards-view.js:207`) |
+| Whisper / Lecture Transcriber / Advanced Audio recording | Implemented in 1.307.33 as the opt-in desktop slice in `src/whisper-registry.js`, `src/whisper-wav.js`, `src/whisper-run.js`, `src/whisper-note.js`, `src/whisper-install.js` and `src/whisper-picker.js`; the plan is `docs/whisper-plan.md`. Mobile capture, hosted transcription and pronunciation scoring stay gated |
 | AI tutor scoring and embedding RAG | No embedding index/model; tutor presets are prompts (`src/tutor-presets.js`) |
 | Web lookup, AnkiWeb search, off-device semantic search | No search-provider client in `src/` (only a link URL in `src/ap-resources.js`); local cited vault search ships |
 | Canvas LMS sync and Google Classroom OAuth | No OAuth client, no LMS sync code in `src/` |

@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.33",
+    date: "November 23, 2026",
+    title: "Transcribe recordings on your computer",
+    summary:
+      "An opt-in, desktop-only slice runs whisper.cpp over a voice memo or any audio file in the vault and writes an editable transcript note; nothing is uploaded, graded or downloaded without a confirmation.",
+    highlights: [
+      {
+        title: "Turn it on, then set it up",
+        body: "Settings > Read aloud gains Local transcription (Whisper), and Audio: set up local transcription… shows the pinned release, the model, both sizes and their SHA-256 before anything is written.",
+      },
+      {
+        title: "Verified, never bundled",
+        body: "The program and model download into the plugin's own data folder only after you confirm, are checked against the recorded hash, and are deleted instead of run when they do not match.",
+      },
+      {
+        title: "A note you can edit",
+        body: "Audio: transcribe a recording… and the voice memo card's Transcribe button write type: transcript with audio, model, language and [mm:ss] markers, and never overwrite an existing transcript.",
+      },
+      {
+        title: "Cancel, deadline, cleanup",
+        body: "Progress reads mm:ss of mm:ss with a Cancel button, the deadline is twice the audio length, a cancelled run stops the program and deletes its temporary WAV, and one command removes the downloads.",
+      },
+    ],
+  },
+  {
     version: "1.307.32",
     date: "November 23, 2026",
     title: "Weekday tasks keep today",

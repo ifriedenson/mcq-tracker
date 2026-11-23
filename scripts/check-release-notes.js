@@ -78,7 +78,9 @@ if (tags.length) {
     if (notesVersion === version || tagged.has(notesVersion)) continue;
     const text = fs.readFileSync(path.join(NOTES, file), "utf8");
     const folded = /^Folded into: (\d+\.\d+\.\d+)\b/m.exec(text);
-    if (folded && tagged.has(folded[1])) continue;
+    // A note folded into the release being checked is valid: that release is
+    // the one the workflow tags after this check, so it cannot have a tag yet.
+    if (folded && (folded[1] === version || tagged.has(folded[1]))) continue;
     if (compare(notesVersion, GRANDFATHERED_THROUGH) <= 0) continue;
     failures.push(
       `docs/release-notes/${file} is ${notesVersion}, which has no git tag and no release; ` +

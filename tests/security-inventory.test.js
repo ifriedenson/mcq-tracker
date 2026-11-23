@@ -49,15 +49,18 @@ test("no source file uses dynamic code, a string timer or dynamic require", () =
   assert.deepEqual(result.violations, [], "npm run check should already have failed on these");
 });
 
-test("only the five documented files touch a network transport", () => {
+test("only the six documented files touch a network transport", () => {
   // The alias form counts too: `this.request = opts.request || requestUrl` in
-  // anki-connect.js was invisible to a call-only pattern.
-  assert.deepEqual(matching(/\brequestUrl\s*\(|\bfetch\s*\(|\|\|\s*requestUrl\b|=\s*requestUrl\b/), [
+  // anki-connect.js was invisible to a call-only pattern. A direct Node
+  // `require("https")` is a transport even when the request goes out as
+  // `lib.get(...)`.
+  assert.deepEqual(matching(/\brequestUrl\s*\(|\bfetch\s*\(|\|\|\s*requestUrl\b|=\s*requestUrl\b|\bhttps?\s*\.\s*get\s*\(|\brequire\s*\(\s*["'](?:node:)?https?["']\s*\)/), [
     "anki-connect.js",
     "api-client.js",
     "opencode-client.js",
     "opencode-manager.js",
     "plugin.js",
+    "whisper-install.js",
   ]);
   assert.ok(source["anki-connect.js"].includes("isLoopbackHost("), "AnkiConnect refuses remote plain HTTP");
   const anki = T.ankiConnect;
@@ -176,9 +179,12 @@ test("vault writes stay inside the seventeen documented files", () => {
   ]);
 });
 
-test("Node's fs and child_process are reachable only from the desktop OpenCode installer", () => {
-  assert.deepEqual(matching(/\bchild_process\b|\brequire\s*\(\s*["'](?:node:)?fs["']\s*\)/), ["opencode-manager.js"]);
-  assert.deepEqual(matching(/\brequire\s*\(\s*["'](?:node:)?child_process["']\s*\)/), ["opencode-manager.js"]);
+test("Node's fs and child_process are reachable only from the desktop installers and the transcriber", () => {
+  assert.deepEqual(matching(/\bchild_process\b|\brequire\s*\(\s*["'](?:node:)?fs["']\s*\)/), ["opencode-manager.js", "whisper-install.js", "whisper-run.js"]);
+  assert.deepEqual(matching(/\brequire\s*\(\s*["'](?:node:)?child_process["']\s*\)/), ["opencode-manager.js", "whisper-install.js", "whisper-run.js"]);
   assert.match(read("opencode-manager.js"), /fs: \(\) => require\("fs"\)/, "fs is loaded lazily, not at module top level");
   assert.match(read("opencode-manager.js"), /child_process: \(\) => require\("child_process"\)/, "child_process is loaded lazily");
+  assert.match(read("whisper-install.js"), /fs: \(\) => require\("fs"\)/, "the transcription installer loads fs lazily");
+  assert.match(read("whisper-install.js"), /child_process: \(\) => require\("child_process"\)/, "the transcription installer loads child_process lazily");
+  assert.match(read("whisper-run.js"), /require\("child_process"\)\.spawn/, "the transcriber reaches spawn only when a run starts");
 });
