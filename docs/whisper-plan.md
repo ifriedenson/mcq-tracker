@@ -204,7 +204,9 @@ On Linux, with the shipped modules and no injected spawn or stand-in decoder:
 
 - **Program.** Built from the pinned `v1.8.6` source tag with CMake, because no
 official Linux asset is published; `src/whisper-install.js` says so on Linux and
-  the settings field pointed at the build. Kept in a scratch directory.
+  the settings field pointed at the build. The build ran in a scratch directory;
+  the repeatable recipe and its script are [whisper-build-linux.md](whisper-build-linux.md)
+  and `tools/whisper-build/build-linux.mjs`.
 - **Model.** `base.en-q5_1`, 59,721,011 bytes, downloaded by
   `INSTALL.installModel` into a disposable vault's plugin data folder and
   verified against the registry hash (`verified: true`).
@@ -225,6 +227,9 @@ official Linux asset is published; `src/whisper-install.js` says so on Linux and
 Still not verified here, and left on the owner sheet: a real microphone
 (`MediaRecorder` in Obsidian), a live Obsidian window, the managed Windows
 asset, multilingual audio, and a 45-minute lecture's wall time and memory.
+
+On Linux the program is always the owner's own build; the one-command recipe
+for it is [whisper-build-linux.md](whisper-build-linux.md).
 
 Each slice is independently shippable and leaves the plugin working when the
 module is off.

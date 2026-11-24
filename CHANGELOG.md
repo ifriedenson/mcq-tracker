@@ -1,3 +1,11 @@
+## 1.307.35 - 2026-11-24
+
+- **Building the transcriber on Linux now has a recipe.** Linux and macOS have no pinned whisper.cpp asset, so the 1.307.34 verification run had to build one by hand. `docs/whisper-build-linux.md` documents the prerequisites, the pinned tag, the exact CMake commands, the folder the binary lands in and the settings path to paste it into; `tools/whisper-build/build-linux.mjs` is that recipe as one command, reading its tag from `src/whisper-registry.js`, refusing a folder inside the repository, building only `whisper-cli`, reusing an existing build and ending with the absolute binary path.
+- **Nothing is added to the bundle.** The source tree, build output and binary stay in a scratch folder; `main.js` is built from `src/` alone, so no setting key, note format, command, model, hash or network default changed, and **Audio: remove local transcription files** never deletes a build you made yourself.
+- **The script was run against the pinned tag.** It cloned `v1.8.6`, built a 998,248-byte `whisper-cli` whose `--help` exits 0, reported the existing build on a second run, and left no artefact in the checkout.
+
+Tests: **3,190 pass, 0 fail**; `npm run check` clean; `main.js` rebuilt at 4,396,010 bytes from 390 modules; inventory unchanged (474 groups, 3,341 exports, 255 commands). Records updated: the README, `docs/whisper-plan.md`, `docs/whisper-smoke-test.md` and this release's What's New entry.
+
 ## 1.307.34 - 2026-11-23
 
 - **The local transcription slice was run end to end on Linux.** A genuine `whisper-cli` built from the pinned `v1.8.6` tag, the `base.en-q5_1` model downloaded and hash-verified by the shipped installer, and real speech (`samples/jfk.wav` from the same tag) went through the shipped registry, WAV, runner, note and plugin code with no injected spawn and no stand-in decoder. The runner built `-m … -f … -l en -t 4 -otxt -oj -of …`, exited 0, and in 1.85 s against the two-minute deadline wrote `Recordings/Transcripts/jfk.md` with the expected frontmatter and the words actually spoken. A 240-second run cancelled 1.5 s in was killed, wrote no note and removed its temporary folder.

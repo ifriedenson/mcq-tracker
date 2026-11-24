@@ -16,6 +16,10 @@ failure to record, not something to work around.
 
 ## Prep
 
+0. On Linux or macOS there is no pinned asset: build the program from the
+   pinned tag first ([whisper-build-linux.md](whisper-build-linux.md)), put its
+   absolute path in the program field, and expect the setup command below to
+   download only the model.
 1. Enable the audio transcription module in Settings and restart Obsidian.
    **Expected:** the module is off before you touch it; after enabling, the
    commands below appear in the palette and no download has started.

@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.35",
+    date: "November 24, 2026",
+    title: "Build the transcriber in one command",
+    summary:
+      "Linux and macOS have no pinned whisper.cpp download, so the plugin now ships a documented, one-command recipe for building the pinned tag and pointing the program path at it.",
+    highlights: [
+      {
+        title: "A recipe that repeats",
+        body: "The new build page lists the prerequisites, the pinned tag, the exact CMake commands and the folder the binary lands in, so a Linux build no longer starts from memory.",
+      },
+      {
+        title: "Pinned to the registry",
+        body: "The build script reads its tag from the same registry the installer describes, refuses a folder inside the repository, builds only whisper-cli and reuses a build that is already there.",
+      },
+      {
+        title: "Outside the repository, outside the bundle",
+        body: "The source tree, the build output and the binary stay in a scratch folder; main.js is built from src/ alone, and removing local transcription files never deletes a build you made yourself.",
+      },
+      {
+        title: "Nothing else moved",
+        body: "No setting key, note format, command, model, hash or network default changed; the installer still downloads nothing without a confirmation and runs nothing that was not hashed first.",
+      },
+    ],
+  },
+  {
     version: "1.307.34",
     date: "November 23, 2026",
     title: "A real recording, end to end",
