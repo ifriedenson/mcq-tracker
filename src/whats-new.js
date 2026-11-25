@@ -6,6 +6,31 @@ const WHATS_NEW_STORAGE_KEY = "mcqTrackerWhatsNew";
 
 const RELEASES = [
   {
+    version: "1.307.36",
+    date: "November 25, 2026",
+    title: "Share one folder of questions",
+    summary:
+      "A folder of question notes can now leave the vault as one ZIP, and a ZIP someone sent you imports from a picker — both reachable from a button, not just the palette.",
+    highlights: [
+      {
+        title: "A visible Share button",
+        body: "Share a folder (ZIP) sits on the practice home beside Import and Paste, and Settings → MCQ Tracker → Practice adds Export a folder… and Import a ZIP…, so nobody has to know the command name.",
+      },
+      {
+        title: "Pick the folder, see the count",
+        body: "The picker lists All questions first, then every folder that directly holds a question note, each with how many notes it holds, and a search field filters the list.",
+      },
+      {
+        title: "The same archive, the same restore",
+        body: "A share is the study bundle with the folder recorded: notes stay unchanged copies at their original paths, an existing note is never overwritten, and the import follows the same rules as a full backup.",
+      },
+      {
+        title: "Import finds the ZIP",
+        body: "One MCQ Tracker ZIP in the vault imports at once; several open a picker of their file names. No new setting, note format or network default.",
+      },
+    ],
+  },
+  {
     version: "1.307.35",
     date: "November 24, 2026",
     title: "Build the transcriber in one command",

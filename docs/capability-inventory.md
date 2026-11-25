@@ -5,7 +5,7 @@ plugin's registered commands, not from prose. Each row names the exports a group
 and the test files that cite that group; `tests/capability-inventory.test.js` re-derives
 the table and fails if a group, export count, command or citing test drifts.
 
-**Modules:** 474 groups, 3341 exports. **Commands:** 255. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
+**Modules:** 475 groups, 3350 exports. **Commands:** 256. **Gaps:** 3 groups and 0 commands with no citing test (listed at the end).
 
 ## Modules
 
@@ -243,6 +243,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `focusDay` | 15 | `tests/focus-day.test.js`, `tests/task-dates.test.js`, `tests/task-times.test.js` |
 | `folderChain` | 0 | `tests/filters.test.js` |
 | `folderLabel` | 0 | `tests/filters.test.js` |
+| `folderShare` | 8 | `tests/folder-share.test.js` |
 | `friendlyApiError` | 0 | `tests/feature-surfaces.test.js` |
 | `friendlyError` | 0 | `tests/feature-surfaces.test.js` |
 | `frq` | 40 | `tests/frq-handwriting.test.js`, `tests/frq-import.test.js`, `tests/frq-review.test.js`, `tests/frq.test.js`, `tests/p1-knowledge.test.js` |
@@ -422,7 +423,7 @@ the table and fails if a group, export count, command or citing test drifts.
 | `statistics` | 8 | `tests/reference-tools.test.js` |
 | `stemDiagrams` | 6 | `tests/security-inventory.test.js`, `tests/stem-diagrams.test.js` |
 | `studyBlocks` | 14 | `tests/study-blocks.test.js` |
-| `studyBundle` | 7 | `tests/study-bundle-import.test.js`, `tests/study-bundle.test.js` |
+| `studyBundle` | 8 | `tests/folder-share.test.js`, `tests/study-bundle-import.test.js`, `tests/study-bundle.test.js` |
 | `studyBundleImport` | 4 | `tests/study-bundle-import.test.js` |
 | `studyCommands` | 12 | `tests/quick-ask.test.js` |
 | `studyCounters` | 13 | `tests/study-counters.test.js`, `tests/study-stats.test.js` |
@@ -517,7 +518,8 @@ the table and fails if a group, export count, command or citing test drifts.
 | `quick-add` | Quick add questions from pasted text | `openQuickAdd` | `tests/a11y-labels.test.js`, `tests/ai-import-help.test.js`, `tests/hotkey-audit.test.js`, `tests/import-preflight.test.js`, `tests/note-quiz-clipboard.test.js`, `tests/plugin.test.js`, `tests/quick-add.test.js`, `tests/quiz-generator.test.js`, `tests/starter-pack.test.js`, `tests/task-agenda.test.js`, `tests/task-priority-quickadd.test.js` |
 | `import-quiz-clipboard` | Import a generated quiz from the clipboard | `openQuizClipboardImport` | `tests/note-quiz-clipboard.test.js` |
 | `export-study-bundle` | Export a study bundle (backup of questions and flashcards) | `exportStudyBundle` | `tests/study-bundle-import.test.js`, `tests/study-bundle.test.js` |
-| `import-study-bundle` | Import a study bundle (restore questions and flashcards) | `importStudyBundle` | `tests/study-bundle-import.test.js` |
+| `export-question-folder-zip` | Export a question folder as a shareable ZIP | `exportQuestionFolderCommand` | `tests/folder-share.test.js` |
+| `import-study-bundle` | Import a study bundle (restore questions and flashcards) | `importStudyBundleCommand` | `tests/folder-share.test.js`, `tests/study-bundle-import.test.js` |
 | `ai-undo-last-write` | AI: undo the last generated notes | `undoLastAiWriteCommand` | `tests/command-effects.test.js` |
 | `backup-settings-now` | Back up plugin settings now | `backupSettingsNow` | `tests/settings-backup.test.js` |
 | `restore-settings-backup` | Restore plugin settings from a backup | `restoreSettingsBackupCommand` | `tests/settings-backup.test.js` |

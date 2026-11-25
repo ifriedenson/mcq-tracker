@@ -1,3 +1,12 @@
+## 1.307.36 - 2026-11-25
+
+- **One folder of question notes can be shared as a ZIP.** **Share a folder (ZIP)** sits on the practice home beside Import and Paste; **Settings → MCQ Tracker → Practice** gains a *Share question folders* row with **Export a folder…** and **Import a ZIP…**, and the palette gains **Export a question folder as a shareable ZIP**. The picker lists *All questions* first, then every folder that directly holds a question note, each with its note count, behind a fuzzy search; a single choice exports without a dialog.
+- **The archive is the existing study bundle.** `src/study-bundle.js` writes the same stored ZIP as the full backup, adds `folder` to `manifest.json`, keeps every note as an unchanged Markdown copy under `questions/<original path>` and writes a README naming the folder. The file is named for the folder and the day (`mcq-folder-bio-unit-3-2026-11-25.zip`), and a second export of the same folder and day becomes `… 2.zip` instead of replacing the first.
+- **Import finds the received ZIP.** The import command reads every MCQ Tracker ZIP in the vault — one imports at once, several open a picker of their file names — and a shared folder ZIP follows the same restore rules as a full bundle: original paths, an existing note is never overwritten, an identical note is skipped, and cards are ignored when the flashcard module is off.
+- **Nothing new to configure.** No setting key, note format, review schedule or network default changed, and `src/folder-share.js` loads on first use, so the startup budget is unchanged. Both buttons were also driven in a real Obsidian 1.15.1 window: the folder and ZIP pickers rendered with their counts, exports wrote both folder ZIPs, and imports restored the notes byte-identically.
+
+Tests: **3,196 pass, 0 fail**; `npm run check` clean; `main.js` rebuilt at 4,402,873 bytes from 391 modules; inventory 475 groups, 3,350 exports, 256 commands.
+
 ## 1.307.35 - 2026-11-24
 
 - **Building the transcriber on Linux now has a recipe.** Linux and macOS have no pinned whisper.cpp asset, so the 1.307.34 verification run had to build one by hand. `docs/whisper-build-linux.md` documents the prerequisites, the pinned tag, the exact CMake commands, the folder the binary lands in and the settings path to paste it into; `tools/whisper-build/build-linux.mjs` is that recipe as one command, reading its tag from `src/whisper-registry.js`, refusing a folder inside the repository, building only `whisper-cli`, reusing an existing build and ending with the absolute binary path.

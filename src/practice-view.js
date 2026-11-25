@@ -698,6 +698,7 @@ class PracticeView extends ItemView {
     const shortcuts = root.createDiv({ cls: "qt-row qt-small-row qt-home-actions" });
     shortcuts.createEl("button", { text: "Import questions (needs AI)" }).addEventListener("click", () => this.startImport());
     shortcuts.createEl("button", { text: "Paste questions (offline)" }).addEventListener("click", () => p.openQuickAdd());
+    shortcuts.createEl("button", { text: "Share a folder (ZIP)" }).addEventListener("click", () => p.exportQuestionFolderCommand());
     if (st.ai.enabled) {
       shortcuts.createEl("button", { text: "AI assistant" }).addEventListener("click", () => {
         this.state = "chat";

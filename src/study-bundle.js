@@ -14,6 +14,7 @@ const { zipStore } = require("./zip-write");
 
 const BUNDLE_SCHEMA = 1;
 const BUNDLE_PREFIX = "mcq-study-bundle";
+const FOLDER_PREFIX = "mcq-folder";
 
 function safeDay(value) {
   const text = str(value).trim();
@@ -22,6 +23,13 @@ function safeDay(value) {
 
 function bundleFileName(date) {
   return `${BUNDLE_PREFIX}-${safeDay(date)}.zip`;
+}
+
+/** `Questions/Bio Unit 3` becomes `mcq-folder-bio-unit-3-2026-11-24.zip`. */
+function folderBundleFileName(folder, date) {
+  const segment = str(folder).split("/").filter(Boolean).pop() || "questions";
+  const slug = cleanSegment(segment).toLowerCase().replace(/\s+/g, "-") || "questions";
+  return `${FOLDER_PREFIX}-${slug}-${safeDay(date)}.zip`;
 }
 
 /** One safe ZIP path segment; never allows a parent-directory hop. */
@@ -56,10 +64,11 @@ function bundleNotePath(prefix, vaultPath, used, extension) {
 
 function bundleReadme(manifest) {
   const counts = manifest.counts || {};
+  const scope = str(manifest.folder).trim() ? ` from the \`${manifest.folder}\` folder` : "";
   return [
     "# MCQ Tracker study bundle",
     "",
-    `Exported ${manifest.exported} with MCQ Tracker ${manifest.plugin_version || "(development build)"}.`,
+    `Exported ${manifest.exported}${scope} with MCQ Tracker ${manifest.plugin_version || "(development build)"}.`,
     "",
     `- ${counts.questions} question note${counts.questions === 1 ? "" : "s"} under \`questions/\``,
     `- ${counts.cards} card note${counts.cards === 1 ? "" : "s"} under \`cards/\``,
@@ -98,6 +107,7 @@ function buildStudyBundle(input) {
     plugin: "mcq-tracker",
     plugin_version: str(data.version),
     exported: safeDay(data.date),
+    folder: str(data.folder).trim().replace(/^\/+|\/+$/g, ""),
     counts: { questions: questions.length, cards: cards.length },
     notes: { questions, cards },
   };
@@ -110,6 +120,7 @@ module.exports = {
   BUNDLE_SCHEMA,
   buildStudyBundle,
   bundleFileName,
+  folderBundleFileName,
   bundleNotePath,
   bundleReadme,
   cleanSegment,

@@ -395,11 +395,11 @@ Open the command palette with `Ctrl/Cmd+P` and search **MCQ Tracker**, **Flashca
 - **Flashcards:** `Open flashcards`, `Flashcards: import existing decks`, `Flashcards: export to Quizlet, Anki package, Anki text, Mochi, LearnKit, Kahoot, Blooket or Gimkit`, `Flashcards: find a deck on AnkiWeb`, `Flashcards: export a portable archive`, `Flashcards: import a portable archive`.
 - **Study agent:** `Study agent: open the sidebar`, `Study agent: Quick Chat`, `Study agent: plan a multi-step task`, `Study agent: attach a PDF`, `Study agent: export a conversation as Markdown`.
 - **Calendar:** `Open calendar`, `Open local events`, `Local events: create an event`, `Calendar: add an .ics schedule`, `Calendar: export the visible schedule to .ics`.
-- **Data:** `Export a study bundle (backup of questions and flashcards)`, `Import a study bundle (restore questions and flashcards)`.
+- **Data:** `Export a study bundle (backup of questions and flashcards)`, `Export a question folder as a shareable ZIP`, `Import a study bundle (restore questions and flashcards)`.
 
 ### How it compares with Spaceforge
 
-Spaceforge is a strong spaced-repetition and study suite. This comparison is based on its public README (reference `dralkh/spaceforge` at `1.2.92`) and on this 1.307.35 build. The point is to show the trade-offs, not to claim that one plugin wins every row.
+Spaceforge is a strong spaced-repetition and study suite. This comparison is based on its public README (reference `dralkh/spaceforge` at `1.2.92`) and on this 1.307.36 build. The point is to show the trade-offs, not to claim that one plugin wins every row.
 
 | Capability | MCQ Tracker | Spaceforge | The practical difference |
 | --- | --- | --- | --- |

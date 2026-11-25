@@ -252,6 +252,20 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Share question folders")
+      .setDesc("Send one folder of question notes as a ZIP, or import a ZIP someone shared. Notes restore at their original paths, and an existing note is never overwritten.")
+      .addButton((b) => b.setButtonText("Export a folder…").onClick(() => this.plugin.exportQuestionFolderCommand()))
+      .addButton((b) =>
+        b.setButtonText("Import a ZIP…").onClick(async () => {
+          try {
+            await this.plugin.importStudyBundleCommand();
+          } catch (e) {
+            new Notice(`Study bundle import failed: ${str(e && e.message ? e.message : e)}`, 10000);
+          }
+        })
+      );
+
+    new Setting(containerEl)
       .setName("Folder filter")
       .setDesc(`How the Folder filter is shown in the practice view. Auto uses buttons for up to ${FOLDER_AUTO_MAX} folders and a search box for more.`)
       .addDropdown((d) =>

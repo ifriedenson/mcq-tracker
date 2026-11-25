@@ -377,7 +377,7 @@ const { appendPrefix, buildCardBlock, buildCardGeneratorPrompt, normalizeCardGen
 const { buildSpacedQuizNote, spacedQuizFileName, spacedQuizSourceKey } = require("./spaced-quiz");
 const { readActiveNoteContext } = require("./note-context");
 const { MAX_SOURCE_CHARS, buildQuizGeneratorPrompt, collectGeneratorSources, folderMatches, normalizeQuizGenerator, parseGeneratorQuestions } = require("./quiz-generator");
-const { buildStudyBundle, bundleFileName } = require("./study-bundle");
+const { buildStudyBundle, bundleFileName, folderBundleFileName } = require("./study-bundle");
 const { parseStudyBundle, planStudyBundleRestore } = require("./study-bundle-import");
 const { buildWeakSpotPrompt, pickWeakSpot, weakSpotRows } = require("./weak-spot");
 const { buildAttemptsCsv, buildPracticeSheet, buildResultsCsv, buildReviewSheet, practiceSheetFileName, resultFileNames, reviewSheetFileName } = require("./results-export");
@@ -599,12 +599,13 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "quick-add", name: "Quick add questions from pasted text", callback: () => this.openQuickAdd() });
     this.addCommand({ id: "import-quiz-clipboard", name: "Import a generated quiz from the clipboard", callback: () => this.openQuizClipboardImport() });
     this.addCommand({ id: "export-study-bundle", name: "Export a study bundle (backup of questions and flashcards)", callback: () => this.exportStudyBundle() });
+    this.addCommand({ id: "export-question-folder-zip", name: "Export a question folder as a shareable ZIP", callback: () => this.exportQuestionFolderCommand() });
     this.addCommand({
       id: "import-study-bundle",
       name: "Import a study bundle (restore questions and flashcards)",
       callback: async () => {
         try {
-          await this.importStudyBundle("");
+          await this.importStudyBundleCommand();
         } catch (e) {
           new Notice(`Study bundle import failed: ${str(e && e.message ? e.message : e)}`, 10000);
         }
@@ -7967,6 +7968,21 @@ class QuestionTrackerPlugin extends Plugin {
     return { created: paths.length, paths, errors, duplicates };
   }
 
+  /** Write a built bundle to a fresh vault-root path and return where it landed. */
+  async writeStudyBundle(base, built) {
+    let path = base;
+    let n = 2;
+    while (this.app.vault.getAbstractFileByPath(path)) {
+      path = base.replace(/\.zip$/i, " " + n + ".zip");
+      n++;
+    }
+    const archive = built.archive;
+    const binary = archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength);
+    if (typeof this.app.vault.createBinary === "function") await this.app.vault.createBinary(path, binary);
+    else await this.app.vault.create(path, binary);
+    return path;
+  }
+
   /** Write every question and card, unchanged, into one portable ZIP backup. */
   async exportStudyBundle() {
     if (this.moduleOff("mcq")) return null;
@@ -7994,20 +8010,75 @@ class QuestionTrackerPlugin extends Plugin {
     }
     const version = this.manifest && this.manifest.version ? this.manifest.version : "";
     const built = buildStudyBundle({ questions, cards, date: localDate(), version });
-    const base = bundleFileName(localDate());
-    let path = base;
-    let n = 2;
-    while (this.app.vault.getAbstractFileByPath(path)) {
-      path = base.replace(/\.zip$/i, " " + n + ".zip");
-      n++;
-    }
-    const archive = built.archive;
-    const binary = archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength);
-    if (typeof this.app.vault.createBinary === "function") await this.app.vault.createBinary(path, binary);
-    else await this.app.vault.create(path, binary);
+    const path = await this.writeStudyBundle(bundleFileName(localDate()), built);
     new Notice(`Exported ${built.manifest.counts.questions} questions and ${built.manifest.counts.cards} cards to ${path}.`, 6000);
     this.refreshViews();
     return { path, counts: built.manifest.counts, manifest: built.manifest };
+  }
+
+  /** The folders a share picker offers, with how many question notes each holds. */
+  questionFolderChoices() {
+    const folderShare = require("./folder-share");
+    return folderShare.questionFolderChoices(
+      this.getQuestions().map((item) => item.file.path),
+      str(this.settings.questionFolder).trim()
+    );
+  }
+
+  /**
+   * Write one folder of question notes — or every question when `folder` is
+   * the question folder itself — into a ZIP named for the folder, ready to send.
+   * Notes are unchanged inside the archive, so a recipient restores them as
+   * ordinary question notes at their original paths.
+   */
+  async exportQuestionFolder(folder) {
+    if (this.moduleOff("mcq")) return null;
+    const folderShare = require("./folder-share");
+    const raw = str(folder).trim();
+    const scope = folderShare.cleanFolder(raw);
+    if (raw && !scope) throw new Error(`"${raw}" is not a folder inside the vault.`);
+    const questions = [];
+    for (const item of this.getQuestions()) {
+      if (!folderShare.insideFolder(item.file.path, scope)) continue;
+      try {
+        questions.push({ path: item.file.path, text: await this.app.vault.cachedRead(item.file) });
+      } catch (e) {
+        // An unreadable note is left out rather than failing the whole share.
+      }
+    }
+    if (!questions.length) {
+      new Notice("There are no question notes in that folder to share.");
+      return null;
+    }
+    const version = this.manifest && this.manifest.version ? this.manifest.version : "";
+    const built = buildStudyBundle({ questions, cards: [], folder: scope, date: localDate(), version });
+    const path = await this.writeStudyBundle(folderBundleFileName(scope, localDate()), built);
+    const where = scope || "the whole vault";
+    new Notice(`Shared ${questions.length} question note${questions.length === 1 ? "" : "s"} from ${where} as ${path}.`, 8000);
+    this.refreshViews();
+    return { path, folder: scope, counts: built.manifest.counts, manifest: built.manifest };
+  }
+
+  /** Ask which folder to share, then write the ZIP. */
+  exportQuestionFolderCommand() {
+    const choices = this.questionFolderChoices();
+    if (!choices.length) {
+      new Notice("There are no question notes to share yet.");
+      return Promise.resolve(null);
+    }
+    const run = (folder) =>
+      this.exportQuestionFolder(folder).catch((e) => {
+        new Notice(`Folder export failed: ${str(e && e.message ? e.message : e)}`, 10000);
+        return null;
+      });
+    if (choices.length === 1) return run(choices[0].folder);
+    const folderShare = require("./folder-share");
+    return new Promise((resolve) => {
+      const modal = new folderShare.ShareFolderPickerModal(this.app, choices, (folder) => {
+        run(folder).then(resolve);
+      });
+      modal.open();
+    });
   }
 
   /** Folder beside data.json that holds versioned settings backups (never the vault, so secrets stay out of notes). */
@@ -8091,12 +8162,43 @@ class QuestionTrackerPlugin extends Plugin {
     });
   }
 
-  /** The newest bundle at the vault root, used by the import command. */
-  newestStudyBundle() {
-    const files = this.app.vault
+  /** Every MCQ Tracker ZIP in the vault, newest name first. */
+  bundleZipFiles() {
+    const folderShare = require("./folder-share");
+    return this.app.vault
       .getFiles()
-      .filter((file) => /^mcq-study-bundle-\d{4}-\d{2}-\d{2}(?: \d+)?\.zip$/i.test(file.path));
-    return files.sort((a, b) => String(b.path).localeCompare(String(a.path), undefined, { numeric: true }))[0] || null;
+      .filter((file) => folderShare.isShareZip(file.path))
+      .sort((a, b) => String(b.path).localeCompare(String(a.path), undefined, { numeric: true }));
+  }
+
+  /** The newest bundle in the vault, used when no path is given. */
+  newestStudyBundle() {
+    return this.bundleZipFiles()[0] || null;
+  }
+
+  /**
+   * Import a bundle: the one ZIP in the vault, or the one picked from several.
+   * A shared folder ZIP and a full study bundle follow the same restore rules.
+   */
+  async importStudyBundleCommand() {
+    const files = this.bundleZipFiles();
+    if (!files.length) {
+      new Notice("No MCQ Tracker ZIP is in the vault. Copy the shared ZIP into the vault, then run the import again.", 10000);
+      return null;
+    }
+    if (files.length === 1) return this.importStudyBundle(files[0].path);
+    const folderShare = require("./folder-share");
+    return new Promise((resolve) => {
+      const modal = new folderShare.SharedZipPickerModal(this.app, files.map((file) => file.path), (path) => {
+        this.importStudyBundle(path)
+          .then(resolve)
+          .catch((e) => {
+            new Notice(`Study bundle import failed: ${str(e && e.message ? e.message : e)}`, 10000);
+            resolve(null);
+          });
+      });
+      modal.open();
+    });
   }
 
   /**

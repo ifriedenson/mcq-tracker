@@ -660,6 +660,10 @@ QuestionTrackerPlugin.__test = {
   text2anki,
   studyBundle,
   studyBundleImport,
+  // Lazy: folder sharing is only needed when a share or import starts.
+  get folderShare() {
+    return require("./folder-share");
+  },
   zipWrite,
   epub,
   epubAnnotations,
